@@ -17,7 +17,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    let { query, mode = 'verified', model = 'mistral-7b', sources = ['Web'], customUrls = [], files = [], useLLM = true, options = {} } = req.body;
+    const body = req.body || {};
+    let { query, mode = 'verified', model = 'mistral-7b', sources = ['Web'], customUrls = [], files = [], useLLM = true, options = {} } = body;
     
     // Normalize model ID in case older format is passed
     const modelMap = {
