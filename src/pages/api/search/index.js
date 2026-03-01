@@ -65,33 +65,35 @@ export default async function handler(req, res) {
       console.warn('WARNING: SERPER_API_KEY is missing or appears invalid. Continuing in degraded mode.');
     }
 
-    // Verify Serper API connectivity directly
-    try {
-      console.log('DEBUG: Verifying Serper API connectivity...');
-      const axios = require('axios');
-      const testResponse = await axios.post('https://google.serper.dev/search', 
-        { 
-          q: 'test connectivity',
-          num: 1,
-          gl: 'us',
-          hl: 'en'
-        },
-        { 
-          headers: { 
-            'X-API-KEY': process.env.SERPER_API_KEY,
-            'Content-Type': 'application/json'
+    // Verify Serper API connectivity directly (only when configured)
+    if (serperConfigured) {
+      try {
+        console.log('DEBUG: Verifying Serper API connectivity...');
+        const axios = require('axios');
+        const testResponse = await axios.post('https://google.serper.dev/search', 
+          { 
+            q: 'test connectivity',
+            num: 1,
+            gl: 'us',
+            hl: 'en'
+          },
+          { 
+            headers: { 
+              'X-API-KEY': process.env.SERPER_API_KEY,
+              'Content-Type': 'application/json'
+            },
+            timeout: 5000
           }
+        );
+
+        if (testResponse.status === 200) {
+          console.log('DEBUG: Serper API connectivity verified successfully');
+        } else {
+          console.warn('WARNING: Serper API returned non-200 status:', testResponse.status);
         }
-      );
-      
-      if (testResponse.status === 200) {
-        console.log('DEBUG: Serper API connectivity verified successfully');
-      } else {
-        console.warn('WARNING: Serper API returned non-200 status:', testResponse.status);
+      } catch (apiError) {
+        console.error('ERROR: Failed to verify Serper API connectivity:', apiError.message);
       }
-    } catch (apiError) {
-      console.error('ERROR: Failed to verify Serper API connectivity:', apiError.message);
-      // Continue anyway, as this is just a connectivity test
     }
 
     logger.info('Search request', { query, mode, model, sources });
@@ -290,23 +292,24 @@ export default async function handler(req, res) {
           // Force a properly formatted API key for Together API
           const apiKey = process.env.TOGETHER_API_KEY;
           
-          if (!apiKey || apiKey.length < 64) {
-            throw new Error(`Invalid Together API key: Key is too short (${apiKey?.length || 0} chars). Together API keys should be at least 64 characters long.`);
+          if (!apiKey || apiKey.length < 20) {
+            console.warn(`Together API key unavailable/invalid (${apiKey?.length || 0} chars). Skipping remote LLM and using fallback synthesizer.`);
+            useFallbackSynthesizer = true;
+          } else {
+            // Process with LLM with detailed logging
+            console.log('Calling processWithLLM with query:', query.substring(0, 30) + '...',
+              'Model:', llmModel,
+              'Results count:', validSources?.length || 0);
+
+            llmResponse = await processWithLLM(
+              validSources, // searchResults
+              query,         // query
+              llmModel,      // modelId 
+              {              // options
+                apiKey: apiKey
+              }
+            );
           }
-          
-          // Process with LLM with detailed logging
-          console.log('Calling processWithLLM with query:', query.substring(0, 30) + '...',
-            'Model:', llmModel,
-            'Results count:', validSources?.length || 0);
-          
-          llmResponse = await processWithLLM(
-            validSources, // searchResults
-            query,         // query
-            llmModel,      // modelId 
-            {              // options
-              apiKey: apiKey
-            }
-          );
           
           // Add necessary flags to ensure proper detection & display if not already present
           if (llmResponse) {

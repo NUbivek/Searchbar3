@@ -260,8 +260,11 @@ const handleVerifiedDataSourcesWithSocial = async (query, verifiedDataSources) =
       }
     }
 
-    // Wait for all social media searches to complete
-    const socialResults = (await Promise.all(socialPromises)).flat();
+    // Wait for all social media searches to complete (fail-soft)
+    const socialSettled = await Promise.allSettled(socialPromises);
+    const socialResults = socialSettled
+      .filter(r => r.status === 'fulfilled')
+      .flatMap(r => r.value || []);
 
     // Combine and return all results
     return [...baseResults, ...socialResults];
@@ -614,7 +617,8 @@ const sourceHandlers = {
         axios.get(`https://financialmodelingprep.com/api/v3/profile/${company.symbol}?apikey=${FMP_API_KEY}`)
       );
       
-      const profiles = await Promise.all(profilePromises);
+      const profilesSettled = await Promise.allSettled(profilePromises);
+      const profiles = profilesSettled.filter(p => p.status === 'fulfilled').map(p => p.value);
       
       return profiles
         .filter(profile => profile.data && Array.isArray(profile.data) && profile.data.length > 0)
