@@ -4,6 +4,7 @@ import ModelSelector from './ModelSelector';
 import SourceSelector from './SourceSelector';
 import SimplifiedLLMResults, { FollowUpChat } from './search/results/SimplifiedLLMResults';
 import { isLLMResult } from '../utils/isLLMResult';
+import DegradedBanner from './search/DegradedBanner';
 
 export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [query, setQuery] = useState('');
@@ -14,6 +15,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [customUrls, setCustomUrls] = useState([]);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [results, setResults] = useState([]);
+  const [apiMeta, setApiMeta] = useState({ status: null, degradedSources: [], failSoftContent: null });
   const [hasSearched, setHasSearched] = useState(false);
   const resultsContainerRef = useRef(null);
 
@@ -81,6 +83,12 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         useLLM: true
       });
       
+      setApiMeta({
+        status: response.data?.status || null,
+        degradedSources: Array.isArray(response.data?.degradedSources) ? response.data.degradedSources : [],
+        failSoftContent: response.data?.failSoftContent || null
+      });
+
       // Log the response for debugging
       console.log('Search API response structure:', {
         hasLLMResults: !!response.data.llmResults,
@@ -206,6 +214,10 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         </div>
       ) : (
         <div ref={resultsContainerRef}>
+          {hasSearched && apiMeta.degradedSources.length > 0 && (
+            <DegradedBanner degradedSources={apiMeta.degradedSources} status={apiMeta.status} />
+          )}
+
           {hasSearched && query && (
             <>
               <SimplifiedLLMResults 
@@ -213,6 +225,20 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
                 results={results}
                 onFollowUpSearch={handleFollowUpSearch}
               />
+
+              {Array.isArray(results) && results.length === 0 && (
+                <div className="mt-4 border rounded-md p-4 bg-amber-50 border-amber-200 text-amber-900">
+                  <div className="font-semibold mb-1">No direct results yet</div>
+                  <p className="text-sm mb-2">Try refining your query or enabling additional sources. The system is in fail-soft mode, so it will keep returning a safe response.</p>
+                  <ul className="list-disc ml-5 text-sm">
+                    {(apiMeta.failSoftContent?.exampleQueries || [
+                      'AI infrastructure Series B deals 2024',
+                      'SaaS ARR multiples Q4 2024',
+                      'Robotics logistics startup funding'
+                    ]).map((q) => <li key={q}>{q}</li>)}
+                  </ul>
+                </div>
+              )}
             </>
           )}
         </div>
