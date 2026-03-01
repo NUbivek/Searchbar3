@@ -50,6 +50,8 @@ export default async function handler(req, res) {
     // Verify API keys and configuration
     // Record the start time for performance tracking
     const startTime = Date.now();
+    const requestId = `srch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const degradedSources = [];
     
     console.log('DEBUG: Environment variables check:', {
       TOGETHER_API_KEY: process.env.TOGETHER_API_KEY ? 'Set (starts with: ' + process.env.TOGETHER_API_KEY.substring(0, 5) + '...)' : 'Not set',
@@ -63,6 +65,7 @@ export default async function handler(req, res) {
     const serperConfigured = !!process.env.SERPER_API_KEY && process.env.SERPER_API_KEY.length >= 20;
     if (!serperConfigured) {
       console.warn('WARNING: SERPER_API_KEY is missing or appears invalid. Continuing in degraded mode.');
+      degradedSources.push('web');
     }
 
     // Verify Serper API connectivity directly (only when configured)
@@ -120,10 +123,10 @@ export default async function handler(req, res) {
         customUrls,
         uploadedFiles: files
       });
-      
+
       // Extract results from the search result object
       results = searchResults.results || [];
-      
+
       console.log(`DEBUG: Unified search returned results:`, {
         resultCount: results.length,
         mode,
@@ -131,19 +134,34 @@ export default async function handler(req, res) {
       });
     } catch (error) {
       console.error('ERROR: Search failed:', error.message);
-      
-      // If search fails completely, continue with a fail-soft fallback instead of 500
-      if (!results || results.length === 0) {
-        try {
-          const hnResp = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'}/api/search/hackernews?q=${encodeURIComponent(query)}`);
-          const hnData = await hnResp.json();
-          results = hnData.results || [];
-          console.warn('Search failed over to HackerNews fallback', { fallbackCount: results.length });
-        } catch (fallbackError) {
-          console.error('Fallback failed:', fallbackError.message);
-          results = [];
+      degradedSources.push('primary-orchestrator');
+      results = [];
+    }
+
+    // Always-on HackerNews safety net (no API key required)
+    try {
+      const hnResp = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'}/api/search/hackernews?q=${encodeURIComponent(query)}`);
+      const hnData = await hnResp.json();
+      const hnResults = Array.isArray(hnData?.results) ? hnData.results : [];
+
+      if (hnResults.length > 0) {
+        const merged = [...results, ...hnResults.map(item => ({ ...item, source: item.source || 'hackernews' }))];
+        const deduped = [];
+        const seen = new Set();
+        for (const r of merged) {
+          const k = `${r.url || ''}::${r.title || ''}`;
+          if (!seen.has(k)) {
+            seen.add(k);
+            deduped.push(r);
+          }
         }
+        results = deduped;
+      } else {
+        degradedSources.push('hackernews');
       }
+    } catch (fallbackError) {
+      console.error('HackerNews safety net failed:', fallbackError.message);
+      degradedSources.push('hackernews');
     }
 
     // Log initial results structure
@@ -161,9 +179,17 @@ export default async function handler(req, res) {
 
     if (!results || results.length === 0) {
       return res.status(200).json({
+        requestId,
         status: 'fail-soft',
         query,
         results: [],
+        degradedSources: Array.from(new Set(degradedSources)),
+        synthesis: {
+          enabled: false,
+          provider: null,
+          model: model || null,
+          content: null
+        },
         categories: [],
         isLLMResults: false,
         llmProcessed: false,
@@ -566,6 +592,15 @@ export default async function handler(req, res) {
       });
       
       const synthesizedResponse = {
+        requestId,
+        status: degradedSources.length > 0 ? 'degraded' : 'ok',
+        degradedSources: Array.from(new Set(degradedSources)),
+        synthesis: {
+          enabled: true,
+          provider: 'together-or-fallback',
+          model: llmModel || model || null,
+          content: typeof llmResponse?.content === 'string' ? llmResponse.content : null
+        },
         // Core LLM result fields - place content at top level for immediate accessibility
         content: typeof llmResponse.content === 'string' ? llmResponse.content : 
                  typeof llmResponse.text === 'string' ? llmResponse.text : 
@@ -617,7 +652,16 @@ export default async function handler(req, res) {
       // Traditional response without LLM processing
       console.log('Returning traditional search results without LLM synthesis');
       return res.status(200).json({
+        requestId,
+        status: degradedSources.length > 0 ? 'degraded' : 'ok',
         results,
+        degradedSources: Array.from(new Set(degradedSources)),
+        synthesis: {
+          enabled: false,
+          provider: null,
+          model: model || null,
+          content: null
+        },
         query,
         timestamp: new Date().toISOString(),
         categories: Array.isArray(prioritizedCategories) ? prioritizedCategories : [],
@@ -636,12 +680,34 @@ export default async function handler(req, res) {
         (error.content && typeof error.content === 'string' && error.content.includes('error-message'))) {
       // Return properly formatted LLM error with status 200 so it can be displayed in the UI
       console.log('DEBUG: Returning LLM error with proper formatting');
-      return res.status(200).json(error);
+      return res.status(200).json({
+        requestId: `srch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        status: 'fail-soft',
+        results: [],
+        degradedSources: ['search-runtime'],
+        synthesis: {
+          enabled: true,
+          provider: 'fallback',
+          model: null,
+          content: typeof error.content === 'string' ? error.content : null
+        },
+        ...error
+      });
     }
     
     // For other errors, create a properly formatted error response that will be recognized as an LLM result
     console.log('DEBUG: Creating formatted error message for', error.message);
     return res.status(200).json({
+      requestId: `srch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      status: 'fail-soft',
+      results: [],
+      degradedSources: ['search-runtime'],
+      synthesis: {
+        enabled: true,
+        provider: 'fallback',
+        model: null,
+        content: null
+      },
       content: `<div class="error-message">
         <h3>Search Failed</h3>
         <p>${error.message}</p>
