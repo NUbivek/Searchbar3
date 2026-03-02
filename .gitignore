@@ -45,3 +45,5 @@ yarn-error.log*
 research-hub-api/
 .npm-cache/
 *.swp
+/data/signals.jsonl
+/data/source_state.json

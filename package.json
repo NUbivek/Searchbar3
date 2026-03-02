@@ -12,7 +12,9 @@
     "start": "next start",
     "lint": "next lint",
     "test:unit": "jest --runInBand --testPathPattern=tests/unit",
-    "smoke:api": "node scripts/api-smoke.js"
+    "smoke:api": "node scripts/api-smoke.js",
+    "sourcing:validate": "node scripts/sourcing-validate.js",
+    "sourcing:run": "node scripts/sourcing-run.js"
   },
   "dependencies": {
     "@headlessui/react": "^1.7.18",

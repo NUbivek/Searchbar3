@@ -1,0 +1,90 @@
+[
+  {
+    "id": "A-HN-ALGOLIA",
+    "name": "Hacker News Algolia",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["software", "ai", "developer_tools"],
+    "stage_bias": ["pre-seed", "seed"],
+    "method": {
+      "type": "api",
+      "url": "https://hn.algolia.com/api/v1/search_by_date?tags=story&query={{query}}"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "search_api"
+    },
+    "requires_auth": false,
+    "adapter": "hn_algolia",
+    "notes": "Use Algolia HN API for recent startup-related stories."
+  },
+  {
+    "id": "A-TC-RSS",
+    "name": "TechCrunch Feed",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["software", "venture", "startups"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://techcrunch.com/feed/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "General startup and funding feed."
+  },
+  {
+    "id": "B-EUSTARTUPS-RSS",
+    "name": "EU-Startups Feed",
+    "region": "EU",
+    "category": "startup_news",
+    "thesis_tags": ["software", "supply_chain", "industrial"],
+    "stage_bias": ["pre-seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.eu-startups.com/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "European startup feed for incremental sourcing."
+  },
+  {
+    "id": "B-YC-COMPANIES",
+    "name": "Y Combinator Companies",
+    "region": "Global",
+    "category": "accelerator_directory",
+    "thesis_tags": ["software", "ai", "logistics"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://www.ycombinator.com/companies?query={{query}}"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Use company directory listing as an open startup source."
+  }
+]
