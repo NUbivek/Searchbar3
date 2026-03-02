@@ -97,7 +97,8 @@ export async function performCombinedSearch(query, source) {
       type = 'MediumResult';
       break;
     default:
-      throw new Error(`Unsupported source: ${source}`);
+      logger.warn(`[${searchId}] Unsupported source '${source}'. Returning degraded empty set.`);
+      return [];
   }
 
   // First, get search results from the domain

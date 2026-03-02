@@ -842,8 +842,8 @@ const performSearch = async (query, sources = ['web']) => {
       validSources.push('web');
     }
 
-    // Execute searches in parallel
-    const searchPromises = validSources.map(source => 
+    // Execute searches in parallel (fail-soft per source)
+    const searchPromises = validSources.map(source =>
       sourceHandlers[source](query)
         .catch(error => {
           logger.error(`Error in ${source} search:`, error);
@@ -851,8 +851,11 @@ const performSearch = async (query, sources = ['web']) => {
         })
     );
 
-    const results = await Promise.all(searchPromises);
-    
+    const settled = await Promise.allSettled(searchPromises);
+    const results = settled
+      .filter(item => item.status === 'fulfilled')
+      .map(item => item.value);
+
     // Flatten results
     return results.flat();
   } catch (error) {
