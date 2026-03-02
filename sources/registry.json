@@ -30,7 +30,14 @@
     "stage_bias": ["seed", "series_a"],
     "method": {
       "type": "rss",
-      "url": "https://techcrunch.com/feed/"
+      "url": "https://techcrunch.com/feed/",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
     },
     "cadence": {
       "tier": "A",
@@ -74,7 +81,12 @@
     "stage_bias": ["seed", "series_a"],
     "method": {
       "type": "html",
-      "url": "https://www.ycombinator.com/companies?query={{query}}"
+      "url": "https://www.ycombinator.com/companies?query={{query}}",
+      "extract": {
+        "itemSelector": "a[href*=\"/companies/\"]",
+        "excludePatterns": ["/about", "/jobs", "/requests"],
+        "limit": 20
+      }
     },
     "cadence": {
       "tier": "B",
@@ -96,7 +108,10 @@
     "stage_bias": ["seed", "series_a"],
     "method": {
       "type": "rss",
-      "url": "https://github.blog/changelog/feed/"
+      "url": "https://github.blog/changelog/feed/",
+      "extract": {
+        "limit": 12
+      }
     },
     "cadence": {
       "tier": "A",
@@ -184,7 +199,12 @@
     "stage_bias": ["seed", "series_a"],
     "method": {
       "type": "html",
-      "url": "https://wellfound.com/jobs"
+      "url": "https://wellfound.com/jobs",
+      "extract": {
+        "itemSelector": "a[href]",
+        "excludePatterns": ["signin", "login", "privacy", "terms"],
+        "limit": 20
+      }
     },
     "cadence": {
       "tier": "B",

@@ -68,6 +68,12 @@ describe('sourcing foundation', () => {
     const searchEntry = validateRegistryEntry({
       ...baseEntry,
       adapter: 'search_api',
+      method: {
+        ...baseEntry.method,
+        extract: {
+          titlePath: 'data.title',
+        },
+      },
     });
 
     const apiEntry = validateRegistryEntry({

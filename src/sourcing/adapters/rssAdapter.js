@@ -18,13 +18,22 @@ function extractTag(block, tagName) {
 class RssAdapter extends BaseAdapter {
   async run() {
     const xml = await this.fetchText(this.source.method.url);
-    const itemBlocks = xml.match(/<item\b[\s\S]*?<\/item>/gi) || [];
+    const extractConfig = this.source.method?.extract || {};
+    const containerTag = extractConfig.containerTag || 'item';
+    const fields = {
+      title: extractConfig.titleTag || 'title',
+      url: extractConfig.urlTag || 'link',
+      content: extractConfig.contentTag || 'description',
+      publishedAt: extractConfig.publishedAtTag || 'pubDate',
+    };
+    const limit = Number.isInteger(extractConfig.limit) ? extractConfig.limit : 20;
+    const itemBlocks = xml.match(new RegExp(`<${containerTag}\\b[\\s\\S]*?<\\/${containerTag}>`, 'gi')) || [];
 
-    return itemBlocks.slice(0, 20).map((block) => ({
-      title: extractTag(block, 'title'),
-      url: extractTag(block, 'link'),
-      content: extractTag(block, 'description'),
-      publishedAt: extractTag(block, 'pubDate') || new Date().toISOString(),
+    return itemBlocks.slice(0, limit).map((block) => ({
+      title: extractTag(block, fields.title),
+      url: extractTag(block, fields.url),
+      content: extractTag(block, fields.content),
+      publishedAt: extractTag(block, fields.publishedAt) || new Date().toISOString(),
       confidence: 0.7,
       signal_type: 'mention',
     }));

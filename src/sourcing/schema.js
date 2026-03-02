@@ -43,6 +43,14 @@ function validateRegistryEntry(entry) {
     if (!entry.method.url || typeof entry.method.url !== 'string') {
       errors.push('method.url must be a string');
     }
+
+    if ('item_path' in entry.method && typeof entry.method.item_path !== 'string') {
+      errors.push('method.item_path must be a string when provided');
+    }
+
+    if ('extract' in entry.method && (!entry.method.extract || typeof entry.method.extract !== 'object')) {
+      errors.push('method.extract must be an object when provided');
+    }
   }
 
   if (!entry.cadence || typeof entry.cadence !== 'object') {
