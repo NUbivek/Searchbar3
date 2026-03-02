@@ -1,5 +1,24 @@
 const crypto = require('crypto');
 
+const STAGE_PATTERNS = [
+  { stage: 'pre-seed', pattern: /\bpre[\s-]?seed\b/i },
+  { stage: 'seed', pattern: /\bseed\b/i },
+  { stage: 'series_a', pattern: /\bseries\s+a\b/i },
+  { stage: 'series_b', pattern: /\bseries\s+b\b/i },
+  { stage: 'series_c', pattern: /\bseries\s+c\b/i },
+  { stage: 'growth', pattern: /\bgrowth\b|\bseries\s+d\b|\bseries\s+e\b/i },
+];
+
+const TIER_WEIGHTS = {
+  A: 1,
+  B: 0.9,
+  C: 0.8,
+};
+
+function clamp(value, min = 0, max = 1) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function canonicalizeUrl(value) {
   if (!value) {
     return '';
@@ -28,7 +47,9 @@ function canonicalizeUrl(value) {
 function normalizeCompanyName(value) {
   return String(value || '')
     .replace(/\s+/g, ' ')
+    .replace(/\b(inc|incorporated|llc|ltd|corp|corporation|co)\b\.?/gi, '')
     .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -42,18 +63,70 @@ function inferCompanyName(item) {
   return normalizeCompanyName(item.company_name || item.title || item.name || 'Unknown Company');
 }
 
+function inferStageGuess({ source, item }) {
+  const content = `${item.title || ''} ${item.content || ''} ${item.snippet || ''}`.trim();
+
+  for (const entry of STAGE_PATTERNS) {
+    if (entry.pattern.test(content)) {
+      return entry.stage;
+    }
+  }
+
+  const stageBias = Array.isArray(source.stage_bias) ? source.stage_bias : [];
+  return stageBias[0] || 'unknown';
+}
+
+function computeConfidence({ source, item, query, companyWebsite }) {
+  const baseConfidence = typeof item.confidence === 'number' ? item.confidence : 0.5;
+  const tierWeight = TIER_WEIGHTS[source.cadence?.tier] || 0.75;
+  const titleAndContent = `${item.title || ''} ${item.content || ''} ${item.snippet || ''}`.toLowerCase();
+  const queryTerms = String(query || '')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  const matchedTerms = queryTerms.filter((term) => term.length > 2 && titleAndContent.includes(term));
+  const queryBoost = queryTerms.length > 0
+    ? matchedTerms.length / queryTerms.length
+    : 0;
+  const websiteBoost = companyWebsite ? 1 : 0;
+
+  const weightedScore = (
+    baseConfidence * 0.6 +
+    tierWeight * 0.2 +
+    queryBoost * 0.1 +
+    websiteBoost * 0.1
+  );
+
+  return {
+    confidence: Number(clamp(weightedScore).toFixed(3)),
+    components: {
+      base_confidence: Number(baseConfidence.toFixed(3)),
+      source_tier_weight: Number(tierWeight.toFixed(3)),
+      query_match_ratio: Number(queryBoost.toFixed(3)),
+      website_present: Boolean(companyWebsite),
+    },
+  };
+}
+
 function normalizeSignal({ source, item, query }) {
   const companyName = inferCompanyName(item);
   const itemUrl = canonicalizeUrl(item.url || item.link || '');
   const publishedAt = item.publishedAt || item.pubDate || new Date().toISOString();
   const thesisTags = Array.isArray(source.thesis_tags) ? source.thesis_tags : [];
-  const stageBias = Array.isArray(source.stage_bias) ? source.stage_bias : [];
+  const companyWebsite = canonicalizeUrl(item.company_website || item.domain || itemUrl);
+  const stageGuess = inferStageGuess({ source, item });
+  const scoring = computeConfidence({
+    source,
+    item,
+    query,
+    companyWebsite,
+  });
 
   return {
     signal_id: createSignalId([source.id, companyName, itemUrl, publishedAt]),
     company_name: companyName,
-    company_website: canonicalizeUrl(item.company_website || item.domain || itemUrl),
-    stage_guess: stageBias[0] || 'unknown',
+    company_website: companyWebsite,
+    stage_guess: stageGuess,
     thesis_tags: thesisTags,
     region_guess: source.region || 'unknown',
     signal_type: item.signal_type || 'mention',
@@ -68,13 +141,15 @@ function normalizeSignal({ source, item, query }) {
       excerpt: String(item.content || item.snippet || '').slice(0, 500),
       raw_query: query || '',
     },
-    confidence: typeof item.confidence === 'number' ? item.confidence : 0.5,
+    confidence: scoring.confidence,
+    score_components: scoring.components,
   };
 }
 
 module.exports = {
   canonicalizeUrl,
   createSignalId,
+  inferStageGuess,
   normalizeCompanyName,
   normalizeSignal,
 };

@@ -26,9 +26,11 @@ describe('sourcing foundation', () => {
       method: { url: 'https://example.com' },
     };
     const item = {
-      title: 'Acme AI',
+      title: 'Acme AI Inc.',
       url: 'https://example.com/post?utm_source=test',
-      content: 'Raised a round',
+      content: 'Raised a Series A round for enterprise automation',
+      company_website: 'https://acme.ai',
+      confidence: 0.8,
       publishedAt: '2026-03-02T00:00:00.000Z',
     };
 
@@ -38,8 +40,10 @@ describe('sourcing foundation', () => {
     expect(signalA.signal_id).toBe(signalB.signal_id);
     expect(signalA.company_name).toBe('Acme AI');
     expect(signalA.item_url).toBe('https://example.com/post');
-    expect(signalA.stage_guess).toBe('seed');
+    expect(signalA.stage_guess).toBe('series_a');
     expect(signalA.thesis_tags).toEqual(['ai']);
+    expect(signalA.confidence).toBeGreaterThan(0.7);
+    expect(signalA.score_components.website_present).toBe(true);
   });
 
   test('validateRegistryEntry accepts generic adapter templates', () => {
