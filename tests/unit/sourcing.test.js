@@ -41,9 +41,37 @@ describe('sourcing foundation', () => {
     expect(signalA.company_name).toBe('Acme AI');
     expect(signalA.item_url).toBe('https://example.com/post');
     expect(signalA.stage_guess).toBe('series_a');
-    expect(signalA.thesis_tags).toEqual(['ai']);
+    expect(signalA.thesis_tags).toEqual(expect.arrayContaining(['ai']));
     expect(signalA.confidence).toBeGreaterThan(0.7);
     expect(signalA.score_components.website_present).toBe(true);
+  });
+
+  test('normalizeSignal infers thesis tags from content and query', () => {
+    const signal = normalizeSignal({
+      source: {
+        id: 'A-TEST',
+        name: 'Test',
+        region: 'Global',
+        thesis_tags: ['software'],
+        stage_bias: ['seed'],
+        method: { url: 'https://example.com' },
+        cadence: { tier: 'A' },
+      },
+      item: {
+        title: 'Freight API startup',
+        content: 'AI workflow for supply chain payments',
+        url: 'https://example.com/freight-api',
+      },
+      query: 'logistics fintech',
+    });
+
+    expect(signal.thesis_tags).toEqual(expect.arrayContaining([
+      'software',
+      'ai',
+      'developer_tools',
+      'logistics',
+      'fintech',
+    ]));
   });
 
   test('validateRegistryEntry accepts generic adapter templates', () => {

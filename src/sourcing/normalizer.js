@@ -9,6 +9,16 @@ const STAGE_PATTERNS = [
   { stage: 'growth', pattern: /\bgrowth\b|\bseries\s+d\b|\bseries\s+e\b/i },
 ];
 
+const THESIS_RULES = [
+  { tag: 'ai', pattern: /\b(ai|artificial intelligence|llm|machine learning)\b/i },
+  { tag: 'developer_tools', pattern: /\b(api|sdk|developer|devtool|infrastructure)\b/i },
+  { tag: 'fintech', pattern: /\b(fintech|payments|banking|lending|credit)\b/i },
+  { tag: 'logistics', pattern: /\b(logistics|supply chain|warehouse|freight)\b/i },
+  { tag: 'marketplaces', pattern: /\b(marketplace|buyers and sellers|two-sided)\b/i },
+  { tag: 'healthcare', pattern: /\b(healthcare|clinical|medical|patient)\b/i },
+  { tag: 'security', pattern: /\b(security|identity|fraud|cybersecurity)\b/i },
+];
+
 const TIER_WEIGHTS = {
   A: 1,
   B: 0.9,
@@ -76,6 +86,16 @@ function inferStageGuess({ source, item }) {
   return stageBias[0] || 'unknown';
 }
 
+function inferThesisTags({ source, item, query }) {
+  const baseTags = Array.isArray(source.thesis_tags) ? source.thesis_tags : [];
+  const content = `${item.title || ''} ${item.content || ''} ${item.snippet || ''} ${query || ''}`.trim();
+  const inferredTags = THESIS_RULES
+    .filter((entry) => entry.pattern.test(content))
+    .map((entry) => entry.tag);
+
+  return Array.from(new Set([...baseTags, ...inferredTags]));
+}
+
 function computeConfidence({ source, item, query, companyWebsite }) {
   const baseConfidence = typeof item.confidence === 'number' ? item.confidence : 0.5;
   const tierWeight = TIER_WEIGHTS[source.cadence?.tier] || 0.75;
@@ -112,7 +132,7 @@ function normalizeSignal({ source, item, query }) {
   const companyName = inferCompanyName(item);
   const itemUrl = canonicalizeUrl(item.url || item.link || '');
   const publishedAt = item.publishedAt || item.pubDate || new Date().toISOString();
-  const thesisTags = Array.isArray(source.thesis_tags) ? source.thesis_tags : [];
+  const thesisTags = inferThesisTags({ source, item, query });
   const companyWebsite = canonicalizeUrl(item.company_website || item.domain || itemUrl);
   const stageGuess = inferStageGuess({ source, item });
   const scoring = computeConfidence({
@@ -150,6 +170,7 @@ module.exports = {
   canonicalizeUrl,
   createSignalId,
   inferStageGuess,
+  inferThesisTags,
   normalizeCompanyName,
   normalizeSignal,
 };
