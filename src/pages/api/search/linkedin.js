@@ -11,6 +11,14 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: 'Query is required' });
   }
 
+  const failSoft = (message, error) => ({
+    sources: [],
+    status: 'fail-soft',
+    degradedSources: ['linkedin'],
+    message,
+    error
+  });
+
   try {
     const clientId = process.env.LINKEDIN_CLIENT_ID;
     const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
@@ -109,7 +117,9 @@ export default async function handler(req, res) {
 
     } catch (fallbackError) {
       logger.error('LinkedIn search and fallback failed:', { original: error, fallback: fallbackError });
-      return res.status(500).json({ message: 'Search failed', error: error.message });
+      return res.status(200).json(
+        failSoft('Search failed', fallbackError.message || error.message)
+      );
     }
   }
 }

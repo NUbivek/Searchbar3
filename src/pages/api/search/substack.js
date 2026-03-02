@@ -11,6 +11,14 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: 'Query is required' });
   }
 
+  const failSoft = (message, error) => ({
+    sources: [],
+    status: 'fail-soft',
+    degradedSources: ['substack'],
+    message,
+    error
+  });
+
   try {
     const serperApiKey = process.env.SERPER_API_KEY;
     if (!serperApiKey) {
@@ -52,6 +60,6 @@ export default async function handler(req, res) {
 
   } catch (error) {
     logger.error('Substack search failed:', error);
-    return res.status(500).json({ message: 'Search failed', error: error.message });
+    return res.status(200).json(failSoft('Search failed', error.message));
   }
 }
