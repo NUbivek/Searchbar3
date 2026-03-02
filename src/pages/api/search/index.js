@@ -127,6 +127,10 @@ export default async function handler(req, res) {
 
       // Extract results from the search result object
       results = searchResults.results || [];
+      const providerStatuses = Array.isArray(searchResults.providerStatuses) ? searchResults.providerStatuses : [];
+      providerStatuses
+        .filter(provider => provider && provider.status === 'error')
+        .forEach(provider => degradedSources.push(provider.source));
 
       console.log(`DEBUG: Unified search returned results:`, {
         resultCount: results.length,

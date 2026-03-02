@@ -3,6 +3,7 @@ const logger = require('./logger');
 const { searchCompany, getFilings } = require('./edgarUtils');
 const { MARKET_DATA_SOURCES, VC_FIRMS } = require('./dataSources');
 const { deepWebSearch, enrichResults } = require('./deepWebSearch');
+const { fetchUrlContent, buildUrlSearchResult } = require('./urlExtraction');
 const { 
   VERIFIED_DATA_SOURCES, 
   getVerifiedSourcesByCategory, 
@@ -697,18 +698,19 @@ const sourceHandlers = {
       }
 
       logger.info(`Processing ${customUrls.length} custom URLs with query: ${query}`);
-      
-      // Process each URL and return results
-      const results = customUrls.map(url => ({
-        title: `Custom Source: ${url}`,
-        content: `This is a custom source from URL: ${url}. Query: ${query}`,
-        url: url,
-        source: 'custom',
-        type: 'custom_url',
-        relevance: 0.8
-      }));
-      
-      return results;
+
+      const settled = await Promise.allSettled(
+        customUrls.map((url) => fetchUrlContent(url, {
+          timeoutMs: 10000,
+          maxBytes: 1024 * 1024,
+          textLimit: 8000
+        }))
+      );
+
+      return settled
+        .filter(item => item.status === 'fulfilled')
+        .map(item => buildUrlSearchResult(item.value))
+        .filter(Boolean);
     } catch (error) {
       logger.error(`Error processing custom URLs:`, error);
       return [];
@@ -847,17 +849,79 @@ const withTimeout = (promise, ms = 8000, label = 'source') => {
     new Promise((resolve) => {
       timer = setTimeout(() => {
         logger.warn(`Timeout in ${label} after ${ms}ms; returning fail-soft []`);
-        resolve([]);
+        resolve({ __timedOut: true });
       }, ms);
     })
   ]).finally(() => clearTimeout(timer));
 };
 
-const performSearch = async (query, sources = ['web']) => {
+const normalizeProviderResponse = (source, rawResults, errorMessage = null) => {
+  const results = Array.isArray(rawResults)
+    ? rawResults.filter(Boolean).map(result => ({
+        ...result,
+        source: result?.source || source
+      }))
+    : [];
+
+  if (errorMessage) {
+    return {
+      source,
+      status: 'error',
+      results,
+      error: errorMessage
+    };
+  }
+
+  return {
+    source,
+    status: results.length > 0 ? 'ok' : 'empty',
+    results,
+    error: null
+  };
+};
+
+const runSourceHandler = async (source, query, options = {}) => {
+  const handler = sourceHandlers[source];
+  if (typeof handler !== 'function') {
+    return normalizeProviderResponse(source, [], 'No handler configured');
+  }
+
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 8000;
+  const args = [query];
+
+  if (source === 'custom') {
+    args.push(options.customUrls || []);
+  } else if (source === 'file') {
+    args.push(options.files || options.uploadedFiles || []);
+  } else if (source === 'verified') {
+    args.push(options);
+  } else if (source === 'verifiedData') {
+    args.push(options.verifiedDataSources || []);
+  }
+
+  try {
+    const rawResults = await withTimeout(
+      Promise.resolve(handler(...args)),
+      timeoutMs,
+      `${source} search`
+    );
+
+    if (rawResults && rawResults.__timedOut) {
+      return normalizeProviderResponse(source, [], `Timed out after ${timeoutMs}ms`);
+    }
+
+    return normalizeProviderResponse(source, rawResults);
+  } catch (error) {
+    logger.error(`Error in ${source} search:`, error);
+    return normalizeProviderResponse(source, [], error.message || 'Unhandled provider error');
+  }
+};
+
+const performSearchDetailed = async (query, sources = ['web'], options = {}) => {
   try {
     if (!query) {
-      logger.warn('performSearch called without query; returning fail-soft []');
-      return [];
+      logger.warn('performSearchDetailed called without query; returning fail-soft empty response');
+      return { results: [], providers: [] };
     }
 
     // Validate sources
@@ -870,30 +934,34 @@ const performSearch = async (query, sources = ['web']) => {
       validSources.push('web');
     }
 
-    // Execute searches in parallel (fail-soft per source)
-    const searchPromises = validSources.map(source =>
-      withTimeout(
-        sourceHandlers[source](query)
-          .catch(error => {
-            logger.error(`Error in ${source} search:`, error);
-            return []; // Return empty array on error
-          }),
-        8000,
-        `${source} search`
-      )
+    const providerPromises = validSources.map(source =>
+      runSourceHandler(source, query, options)
     );
 
-    const settled = await Promise.allSettled(searchPromises);
-    const results = settled
+    const settled = await Promise.allSettled(providerPromises);
+    const providers = settled
       .filter(item => item.status === 'fulfilled')
       .map(item => item.value);
 
-    // Flatten results
-    return results.flat();
+    return {
+      providers,
+      results: providers.flatMap(provider => provider.results || [])
+    };
   } catch (error) {
-    logger.error('Error in performSearch:', error);
-    return [];
+    logger.error('Error in performSearchDetailed:', error);
+    return { results: [], providers: [] };
   }
 };
 
-module.exports = { sourceHandlers, performSearch };
+const performSearch = async (query, sources = ['web'], options = {}) => {
+  const result = await performSearchDetailed(query, sources, options);
+  return result.results;
+};
+
+module.exports = {
+  sourceHandlers,
+  performSearch,
+  performSearchDetailed,
+  runSourceHandler,
+  normalizeProviderResponse
+};

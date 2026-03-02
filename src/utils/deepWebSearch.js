@@ -14,12 +14,12 @@ export async function deepWebSearch(query, options = {}) {
   // Validate inputs
   if (!query) {
     console.error('ERROR: No query provided for deep web search');
-    throw new Error('Search query is required');
+    return [];
   }
 
   if (!apiKey) {
     console.error('ERROR: No API key provided for Serper API');
-    throw new Error('Serper API key is required');
+    return [];
   }
 
   console.log(`DEBUG: Starting deep web search for query: "${query}"`);

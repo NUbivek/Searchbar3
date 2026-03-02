@@ -7,6 +7,7 @@ import { searchGovernmentData } from './governmentData';
 import { VERIFIED_DATA_SOURCES, searchVerifiedSources as searchVerifiedSourcesInternal } from './verifiedDataSources';
 import { withRetry } from './errorHandling';
 import { isDebugMode } from './debug';
+const { performSearchDetailed } = require('./sourceIntegration');
 
 // Import the processWithLLM function explicitly to avoid circular dependencies
 let nativeProcessWithLLM = null;
@@ -484,7 +485,8 @@ const extractSourceMapFromLLMResponse = (response) => {
 export const searchWithSerper = async (query, domain, searchId) => {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) {
-    throw new Error('Serper API key not configured');
+    warn(`[${searchId}] Serper API key not configured for ${domain}. Returning fail-soft empty set.`);
+    return [];
   }
 
   try {
@@ -546,6 +548,7 @@ export async function unifiedSearch({
   // Implementation for both search modes directly to avoid circular dependencies
   try {
     let results = [];
+    let providerStatuses = [];
     debug(`[${searchId}] Performing ${mode} search for: ${query}`);
     
     if (mode === 'verified') {
@@ -580,89 +583,44 @@ export async function unifiedSearch({
     } else {
       // Open search implementation
       debug(`[${searchId}] Searching open sources:`, sources);
-      
-      // Implement open search logic directly here
-      if (sources.includes('Web')) {
-        debug(`[${searchId}] Searching web with deepWebSearch`);
-        const webResults = await deepWebSearch(query, { apiKey: process.env.SERPER_API_KEY });
-        results = results.concat(webResults);
+
+      const sourceKeyMap = {
+        Web: 'web',
+        LinkedIn: 'linkedin',
+        X: 'x',
+        Twitter: 'twitter',
+        Reddit: 'reddit',
+        Substack: 'substack',
+        Medium: 'medium',
+        Crunchbase: 'crunchbase',
+        Pitchbook: 'pitchbook',
+        Carta: 'carta'
+      };
+
+      const normalizedSources = Array.from(
+        new Set(
+          (Array.isArray(sources) ? sources : [])
+            .map(source => sourceKeyMap[source] || null)
+            .filter(Boolean)
+        )
+      );
+
+      if (Array.isArray(customUrls) && customUrls.length > 0) {
+        normalizedSources.push('custom');
       }
-      
-      // Check for social media and other specialized sources
-      if (sources.includes('LinkedIn')) {
-        debug(`[${searchId}] Searching LinkedIn`);
-        const linkedinResults = await searchWithSerper(query, 'linkedin.com', searchId);
-        results = results.concat(linkedinResults);
+
+      if (Array.isArray(uploadedFiles) && uploadedFiles.length > 0) {
+        normalizedSources.push('file');
       }
-      
-      if (sources.includes('X')) {
-        debug(`[${searchId}] Searching X (Twitter)`);
-        const twitterResults = await searchWithSerper(query, 'twitter.com', searchId);
-        results = results.concat(twitterResults);
-      }
-      
-      if (sources.includes('Reddit')) {
-        debug(`[${searchId}] Searching Reddit`);
-        const redditResults = await searchWithSerper(query, 'reddit.com', searchId);
-        results = results.concat(redditResults);
-      }
-      
-      if (sources.includes('Substack')) {
-        debug(`[${searchId}] Searching Substack`);
-        const substackResults = await searchWithSerper(query, 'substack.com', searchId);
-        results = results.concat(substackResults);
-      }
-      
-      if (sources.includes('Medium')) {
-        debug(`[${searchId}] Searching Medium`);
-        const mediumResults = await searchWithSerper(query, 'medium.com', searchId);
-        results = results.concat(mediumResults);
-      }
-      
-      if (sources.includes('Crunchbase')) {
-        debug(`[${searchId}] Searching Crunchbase`);
-        const crunchbaseResults = await searchWithSerper(query, 'crunchbase.com', searchId);
-        results = results.concat(crunchbaseResults);
-      }
-      
-      if (sources.includes('Pitchbook')) {
-        debug(`[${searchId}] Searching Pitchbook`);
-        const pitchbookResults = await searchWithSerper(query, 'pitchbook.com', searchId);
-        results = results.concat(pitchbookResults);
-      }
-      
-      if (sources.includes('Carta')) {
-        debug(`[${searchId}] Searching Carta`);
-        const cartaResults = await searchWithSerper(query, 'carta.com', searchId);
-        results = results.concat(cartaResults);
-      }
-      
-      // Add custom URLs if provided
-      if (customUrls && customUrls.length > 0) {
-        debug(`[${searchId}] Searching custom URLs:`, customUrls);
-        for (const url of customUrls) {
-          try {
-            const domain = new URL(url).hostname;
-            const domainResults = await searchWithSerper(query, domain, searchId);
-            results = results.concat(domainResults);
-          } catch (err) {
-            error(`[${searchId}] Error searching custom URL ${url}:`, err.message);
-          }
-        }
-      }
-      
-      // Add uploaded files if provided
-      if (uploadedFiles && uploadedFiles.length > 0) {
-        debug(`[${searchId}] Processing uploaded files:`, uploadedFiles);
-        // Placeholder for file processing - would need to be implemented
-        results.push({
-          source: 'Files',
-          type: 'FileSearch',
-          content: `Found ${uploadedFiles.length} files matching your query.`,
-          title: 'File Search Results',
-          timestamp: new Date().toISOString()
-        });
-      }
+
+      const openSearchResult = await performSearchDetailed(query, normalizedSources, {
+        customUrls,
+        files: uploadedFiles,
+        timeoutMs: 8000
+      });
+
+      results = results.concat(openSearchResult.results || []);
+      providerStatuses = Array.isArray(openSearchResult.providers) ? openSearchResult.providers : [];
     }
     
     // Process results with LLM if needed
@@ -679,7 +637,8 @@ export async function unifiedSearch({
         const summary = await processWithLLM(query, results, '', normalizedModel);
         return {
           results,
-          summary
+          summary,
+          providerStatuses
         };
       } catch (llmError) {
         error(`[${searchId}] LLM processing error:`, llmError.message);
@@ -695,12 +654,13 @@ export async function unifiedSearch({
         };
         return { 
           results,
-          summary: errorSummary
+          summary: errorSummary,
+          providerStatuses
         };
       }
     }
     
-    return { results };
+    return { results, providerStatuses };
   } catch (err) {
     error(`[${searchId}] Unified search error:`, err.message);
     return {
@@ -710,7 +670,8 @@ export async function unifiedSearch({
         content: `Search error: ${err.message}`,
         title: 'Search Error',
         timestamp: new Date().toISOString()
-      }]
+      }],
+      providerStatuses: []
     };
   }
 }

@@ -120,25 +120,24 @@ async function performSearch(query, sources, options = {}) {
     }
     
     // For other sources, use the sourceHandlers
-    const results = [];
     const promises = normalizedSources.map(async (source) => {
       if (sourceHandlers[source]) {
         try {
-          const sourceResults = await sourceHandlers[source](query, options);
-          if (sourceResults && sourceResults.length > 0) {
-            results.push(...sourceResults);
-          }
+          return await sourceHandlers[source](query, options);
         } catch (error) {
           log.error(`Error searching ${source}:`, error);
-          // Continue with other sources even if one fails
+          return [];
         }
       } else {
         log.warn(`No handler found for source: ${source}`);
+        return [];
       }
     });
-    
-    await Promise.all(promises);
-    return results;
+
+    const settled = await Promise.allSettled(promises);
+    return settled
+      .filter((result) => result.status === 'fulfilled')
+      .flatMap((result) => Array.isArray(result.value) ? result.value : []);
   } catch (error) {
     log.error('Error in performSearch:', error);
     throw error;

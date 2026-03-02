@@ -68,10 +68,12 @@ export default async function handler(req, res) {
     }
 
     // Wait for all source processing to complete
-    const sourceResults = await Promise.all(sourcePromises);
+    const sourceResults = await Promise.allSettled(sourcePromises);
 
     // Flatten results
-    results = sourceResults.flat();
+    results = sourceResults
+      .filter((result) => result.status === 'fulfilled')
+      .flatMap((result) => Array.isArray(result.value) ? result.value : []);
 
     // Sort results by relevance (if available) or other criteria
     results.sort((a, b) => {
