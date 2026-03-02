@@ -2,6 +2,7 @@ import axios from 'axios';
 import { logger } from '../../../utils/logger';
 import { withRetry } from '../../../utils/errorHandling';
 import { rateLimit } from '../../../utils/rateLimiter';
+const { fetchUrlContent } = require('../../../utils/urlExtraction');
 
 // Constants
 const MAX_CUSTOM_URLS = 10;
@@ -57,6 +58,17 @@ export default async function handler(req, res) {
       customMode = 'default',
       selectedSources = ['web']
     } = req.body;
+
+    const failSoft = (overrides = {}) => ({
+      sources: [],
+      summary: {
+        content: '',
+        sourceMap: {}
+      },
+      status: 'fail-soft',
+      degradedSources: ['web'],
+      ...overrides
+    });
     
     // Input validation
     if (!query || typeof query !== 'string') {
@@ -127,7 +139,9 @@ export default async function handler(req, res) {
     logger.info(`[${searchId}] Calling Serper API`);
     const serperApiKey = process.env.SERPER_API_KEY;
     if (!serperApiKey) {
-      throw new Error('Serper API key not configured');
+      return res.status(200).json(failSoft({
+        message: 'Serper API key not configured'
+      }));
     }
 
       logger.info(`[${searchId}] Using Serper API key: ${serperApiKey}`);
@@ -151,11 +165,13 @@ export default async function handler(req, res) {
         }
       )).catch(error => {
         logger.error(`[${searchId}] Serper API error:`, error.response?.data || error.message);
-        throw error;
+        return null;
       });
 
-      if (response.status !== 200) {
-        throw new Error(`Serper API returned status ${response.status}: ${JSON.stringify(response.data)}`);
+      if (!response || response.status !== 200) {
+        return res.status(200).json(failSoft({
+          message: response ? `Serper API returned status ${response.status}` : 'Serper API request failed'
+        }));
       }
 
     const sources = [];
@@ -258,25 +274,26 @@ export default async function handler(req, res) {
     if (customUrls.length > 0) {
       const customResults = await Promise.allSettled(
         customUrls.map(async (url, index) => {
-          try {
-            const response = await withRetry(() => axios.get(url, { 
-              timeout: REQUEST_TIMEOUT,
-              maxContentLength: MAX_CONTENT_LENGTH
-            }));
-            
+          const fetched = await fetchUrlContent(url, {
+            timeoutMs: REQUEST_TIMEOUT,
+            maxBytes: MAX_CONTENT_LENGTH,
+            textLimit: MAX_CONTENT_LENGTH
+          });
+
+          if (fetched.status !== 'ok' || !fetched.content) {
+            logger.error(`[${searchId}] Failed to fetch custom URL ${url}:`, fetched.error || 'No content');
+            return null;
+          }
+
             return {
               type: 'CustomUrl',
-              content: sanitizeContent(response.data),
+              content: sanitizeContent(fetched.content),
               url,
               timestamp: new Date().toISOString(),
-              title: url,
+              title: fetched.title || url,
               confidence: 1.0,
               sourceId: `custom-${index}`
             };
-          } catch (error) {
-            logger.error(`[${searchId}] Failed to fetch custom URL ${url}:`, error);
-            return null;
-          }
         })
       );
 
@@ -297,6 +314,8 @@ export default async function handler(req, res) {
 
     res.json({ 
       sources, 
+      status: sources.length > 0 ? 'ok' : 'fail-soft',
+      degradedSources: sources.length > 0 ? [] : ['web'],
       summary: {
         content: '', // Will be filled by LLM processing
         sourceMap
@@ -304,9 +323,16 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     logger.error(`[${searchId}] Search error:`, error);
-    res.status(500).json({ 
-      message: 'Search failed', 
-      error: error.message 
+    res.status(200).json({
+      sources: [],
+      status: 'fail-soft',
+      degradedSources: ['web'],
+      summary: {
+        content: '',
+        sourceMap: {}
+      },
+      message: 'Search failed',
+      error: error.message
     });
   }
 }

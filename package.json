@@ -10,7 +10,9 @@
     "dev:3002": "PORT=3002 npm run dev:port",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:unit": "jest --runInBand --testPathPattern=tests/unit",
+    "smoke:api": "node scripts/api-smoke.js"
   },
   "dependencies": {
     "@headlessui/react": "^1.7.18",

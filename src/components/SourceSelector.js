@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
+import { uploadFiles } from '../utils/fileHandlers';
 
 export default function SourceSelector({ 
-  mode, 
-  selectedSources, 
+  mode = 'open',
+  selectedSources = [],
   onSourceToggle, 
+  setSelectedSources,
   onCustomSourceAdd, 
   onFileUpload, 
   isLoading = false 
@@ -11,6 +13,7 @@ export default function SourceSelector({
   const [customUrl, setCustomUrl] = useState('');
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [customUrlError, setCustomUrlError] = useState('');
+  const [fileUploadError, setFileUploadError] = useState('');
   const [showCustomOptions, setShowCustomOptions] = useState(false);
   
   const sources = {
@@ -34,6 +37,21 @@ export default function SourceSelector({
     ]
   };
 
+  const toggleSource = (sourceId) => {
+    if (typeof onSourceToggle === 'function') {
+      onSourceToggle(sourceId);
+      return;
+    }
+
+    if (typeof setSelectedSources === 'function') {
+      if (selectedSources.includes(sourceId)) {
+        setSelectedSources(selectedSources.filter((source) => source !== sourceId));
+      } else {
+        setSelectedSources([...selectedSources, sourceId]);
+      }
+    }
+  };
+
   const handleUrlSubmit = (e) => {
     e.preventDefault();
     if (!customUrl) return;
@@ -41,7 +59,9 @@ export default function SourceSelector({
     try {
       // Simple URL validation
       new URL(customUrl);
-      onCustomSourceAdd(customUrl);
+      if (typeof onCustomSourceAdd === 'function') {
+        onCustomSourceAdd(customUrl);
+      }
       setCustomUrl('');
       setCustomUrlError('');
     } catch (err) {
@@ -49,10 +69,20 @@ export default function SourceSelector({
     }
   };
 
-  const handleFileUpload = (files) => {
-    if (files && files.length) {
-      setSelectedFiles([...selectedFiles, ...Array.from(files)]);
-      onFileUpload(Array.from(files));
+  const handleFileUpload = async (files) => {
+    if (files && files.length && typeof onFileUpload === 'function') {
+      const rawFiles = Array.from(files);
+      setSelectedFiles([...selectedFiles, ...rawFiles]);
+      setFileUploadError('');
+
+      try {
+        const response = await uploadFiles(rawFiles, () => {});
+        const parsedFiles = Array.isArray(response?.files) ? response.files : [];
+        onFileUpload(parsedFiles);
+      } catch (error) {
+        console.error('Upload error:', error);
+        setFileUploadError(error.response?.data?.error || error.response?.data?.details || error.message || 'Upload failed');
+      }
     }
   };
 
@@ -107,6 +137,7 @@ export default function SourceSelector({
             hover:file:bg-blue-100"
           disabled={isLoading}
         />
+        {fileUploadError && <p className="text-red-500 text-sm mt-1">{fileUploadError}</p>}
       </div>
     </div>
   );
@@ -117,7 +148,7 @@ export default function SourceSelector({
         {sources[mode].map(source => (
           <button
             key={source.id}
-            onClick={() => onSourceToggle(source.id)}
+            onClick={() => toggleSource(source.id)}
             disabled={isLoading}
             className={`px-3 py-1 text-sm rounded-md border ${
               selectedSources.includes(source.id)
@@ -128,7 +159,7 @@ export default function SourceSelector({
             {source.name}
           </button>
         ))}
-        {mode === 'open' && (
+        {mode === 'open' && (typeof onCustomSourceAdd === 'function' || typeof onFileUpload === 'function') && (
           <button
             onClick={() => setShowCustomOptions(!showCustomOptions)}
             className="px-3 py-1 text-sm rounded-md border bg-white text-gray-700 border-gray-300 hover:bg-gray-100"

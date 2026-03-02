@@ -79,7 +79,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         model: selectedModel,
         sources: selectedSources,
         customUrls: customUrls,
-        files: uploadedFiles.map(f => f.name),
+        files: uploadedFiles,
         useLLM: true
       });
       

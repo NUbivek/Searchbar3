@@ -43,3 +43,5 @@ yarn-error.log*
 
 # Local development
 research-hub-api/
+.npm-cache/
+*.swp
