@@ -4,10 +4,7 @@ import mammoth from 'mammoth';
 import { parse } from 'csv-parse';
 import { promisify } from 'util';
 import { logger } from './logger';
-import { PDFDocument } from 'pdf-lib';
-import { readFile } from 'fs/promises';
 import { promises as fs } from 'fs';
-import path from 'path';
 
 const parseCSV = promisify(parse);
 
@@ -42,21 +39,53 @@ const FILE_HANDLERS = {
   '.csv': handleCsvFile,
   '.xlsx': handleExcelFile,
   '.xls': handleExcelFile,
-  '.pdf': handlePdfFile
+  '.pdf': handlePdfFile,
+  '.docx': handleDocxFile
 };
 
 // Maximum file size (10MB)
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+function getFileName(file) {
+  return file.originalFilename || file.name || 'upload';
+}
+
+function getFileExtension(file) {
+  const fileName = getFileName(file);
+  const parts = fileName.split('.');
+  return parts.length > 1 ? parts.pop().toLowerCase() : '';
+}
+
+function isNodeUpload(file) {
+  return Boolean(file && file.filepath);
+}
+
+async function readUploadText(file) {
+  if (isNodeUpload(file)) {
+    const buffer = await fs.readFile(file.filepath);
+    return buffer.toString('utf-8');
+  }
+
+  return file.text();
+}
+
+async function readUploadBuffer(file) {
+  if (isNodeUpload(file)) {
+    return fs.readFile(file.filepath);
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
 // Process uploaded file
 export async function processFile(file) {
   try {
-    // Get file extension - handle both File API and Node.js file objects
-    const fileName = file.originalFilename || file.name;
-    const extension = fileName.split('.').pop().toLowerCase();
+    const fileName = getFileName(file);
+    const extension = getFileExtension(file);
 
     // Validate file type
-    if (!FILE_PROCESSORS[extension]) {
+    if (!FILE_PROCESSORS[extension] && !FILE_HANDLERS[`.${extension}`]) {
       throw new Error(`Unsupported file type: ${extension}`);
     }
 
@@ -66,18 +95,22 @@ export async function processFile(file) {
       throw new Error(`File size exceeds limit of ${sizeLimit / (1024 * 1024)}MB for ${extension} files`);
     }
 
-    // Process file
-    const content = await FILE_PROCESSORS[extension](file);
+    const content = isNodeUpload(file)
+      ? await FILE_HANDLERS[`.${extension}`](file)
+      : await FILE_PROCESSORS[extension](file);
+
+    const normalizedContent = typeof content === 'string' ? content : content?.content || '';
+    const metadata = typeof content === 'string' ? {} : content?.metadata || {};
 
     return {
       source: fileName,
       name: fileName,
       type: file.mimetype || 'application/octet-stream',
       size: file.size,
-      content: content.toString(),
+      content: normalizedContent,
       timestamp: new Date().toISOString(),
       title: fileName,
-      metadata: content.metadata || {}
+      metadata
     };
   } catch (error) {
     logger.error('File processing error:', error);
@@ -106,11 +139,11 @@ export async function processUploadedFiles(files) {
 }
 
 async function processTextFile(file) {
-  return await file.text();
+  return readUploadText(file);
 }
 
 async function processJSONFile(file) {
-  const text = await file.text();
+  const text = await readUploadText(file);
   try {
     const json = JSON.parse(text);
     return JSON.stringify(json, null, 2);
@@ -120,7 +153,7 @@ async function processJSONFile(file) {
 }
 
 async function processCSVFile(file) {
-  const text = await file.text();
+  const text = await readUploadText(file);
   try {
     const records = await parseCSV(text, {
       columns: true,
@@ -139,9 +172,9 @@ async function processCSVFile(file) {
 }
 
 async function processExcelFile(file) {
-  const buffer = await file.arrayBuffer();
+  const buffer = await readUploadBuffer(file);
   try {
-    const workbook = XLSX.read(buffer, { type: 'array' });
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
     
     const sheets = {};
     let totalContent = '';
@@ -166,7 +199,7 @@ async function processExcelFile(file) {
 }
 
 async function processPDFFile(file) {
-  const buffer = await file.arrayBuffer();
+  const buffer = await readUploadBuffer(file);
   try {
     const data = await pdf(buffer, {
       max: 0,  // No page limit
@@ -192,9 +225,9 @@ async function processPDFFile(file) {
 }
 
 async function processDocxFile(file) {
-  const arrayBuffer = await file.arrayBuffer();
+  const buffer = await readUploadBuffer(file);
   try {
-    const result = await mammoth.extractRawText({ arrayBuffer });
+    const result = await mammoth.extractRawText({ buffer });
     return {
       content: result.value,
       metadata: {
@@ -229,10 +262,24 @@ async function handleJsonFile(file) {
 
 // Handle CSV files
 async function handleCsvFile(file) {
-  const workbook = XLSX.readFile(file.filepath);
-  const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-  const data = XLSX.utils.sheet_to_json(worksheet);
-  return JSON.stringify(data, null, 2);
+  const text = await handleTextFile(file);
+
+  try {
+    const records = await parseCSV(text, {
+      columns: true,
+      skip_empty_lines: true
+    });
+
+    return {
+      content: records.map(record => Object.values(record).join(', ')).join('\n'),
+      metadata: {
+        rowCount: records.length,
+        columns: Object.keys(records[0] || {})
+      }
+    };
+  } catch (error) {
+    throw new Error('Invalid CSV file');
+  }
 }
 
 // Handle Excel files
@@ -251,9 +298,36 @@ async function handleExcelFile(file) {
 
 // Handle PDF files
 async function handlePdfFile(file) {
-  // Placeholder for PDF processing
-  // You'll need to add a PDF processing library like pdf-parse
-  throw new Error('PDF processing not implemented yet');
+  const buffer = await fs.readFile(file.filepath);
+
+  try {
+    const data = await pdf(buffer);
+    return {
+      content: data.text,
+      metadata: {
+        pageCount: data.numpages,
+        info: data.info
+      }
+    };
+  } catch (error) {
+    throw new Error('Invalid or corrupted PDF file');
+  }
+}
+
+async function handleDocxFile(file) {
+  const buffer = await fs.readFile(file.filepath);
+
+  try {
+    const result = await mammoth.extractRawText({ buffer });
+    return {
+      content: result.value,
+      metadata: {
+        messages: result.messages
+      }
+    };
+  } catch (error) {
+    throw new Error('Invalid DOCX file');
+  }
 }
 
 // Clean up temporary files
