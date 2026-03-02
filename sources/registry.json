@@ -86,5 +86,181 @@
     "requires_auth": false,
     "adapter": "html_list",
     "notes": "Use company directory listing as an open startup source."
+  },
+  {
+    "id": "A-GITHUB-RELEASES-RSS",
+    "name": "GitHub Changelog Feed",
+    "region": "Global",
+    "category": "developer_ecosystem",
+    "thesis_tags": ["developer_tools", "software", "ai"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://github.blog/changelog/feed/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Tracks developer platform shifts and tooling launches."
+  },
+  {
+    "id": "A-PRODUCTHUNT-RSS",
+    "name": "Product Hunt Feed",
+    "region": "Global",
+    "category": "product_launches",
+    "thesis_tags": ["software", "ai", "marketplaces"],
+    "stage_bias": ["pre-seed", "seed"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.producthunt.com/feed"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Tracks public launches for newly visible startups."
+  },
+  {
+    "id": "B-SIFTED-RSS",
+    "name": "Sifted Feed",
+    "region": "EU",
+    "category": "startup_news",
+    "thesis_tags": ["software", "venture", "fintech"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://sifted.eu/feed"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "European startup reporting and funding coverage."
+  },
+  {
+    "id": "B-OPENVC-RSS",
+    "name": "OpenVC Feed",
+    "region": "Global",
+    "category": "funding_ecosystem",
+    "thesis_tags": ["venture", "saas", "b2b"],
+    "stage_bias": ["pre-seed", "seed"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.openvc.app/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Investor ecosystem and startup fundraising content."
+  },
+  {
+    "id": "B-WELLFOUND-REMOTE",
+    "name": "Wellfound Remote Jobs",
+    "region": "US",
+    "category": "job_market",
+    "thesis_tags": ["software", "remote_work", "startups"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://wellfound.com/jobs"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Job activity as a proxy for startup momentum."
+  },
+  {
+    "id": "C-OSS-INSIGHTS",
+    "name": "OSS Insights",
+    "region": "Global",
+    "category": "developer_ecosystem",
+    "thesis_tags": ["developer_tools", "open_source", "ai"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "js",
+      "url": "https://ossinsight.io/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "js_rendered",
+    "notes": "JS-rendered ecosystem surface for OSS/company signals."
+  },
+  {
+    "id": "C-CRUNCHBASE-NEWS",
+    "name": "Crunchbase News Feed",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["venture", "software", "marketplaces"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://news.crunchbase.com/feed/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Longer-horizon market and funding coverage."
+  },
+  {
+    "id": "C-ANGELLIST-BLOG",
+    "name": "AngelList Blog",
+    "region": "US",
+    "category": "startup_ecosystem",
+    "thesis_tags": ["venture", "marketplaces", "software"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.angellist.com/blog.rss"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Broader startup ecosystem and hiring/fundraising trends."
   }
 ]

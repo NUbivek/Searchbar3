@@ -4,7 +4,7 @@ const path = require('path');
 
 const { validateRegistry, validateRegistryEntry } = require('../../src/sourcing/schema');
 const { normalizeSignal } = require('../../src/sourcing/normalizer');
-const { runPipeline } = require('../../src/sourcing/runner');
+const { matchesExecutionMode, runPipeline, shouldRunSource } = require('../../src/sourcing/runner');
 
 describe('sourcing foundation', () => {
   test('validateRegistry accepts the seeded registry', () => {
@@ -89,11 +89,46 @@ describe('sourcing foundation', () => {
     expect(jsEntry.valid).toBe(true);
   });
 
+  test('execution modes select the expected tiers and frequencies', () => {
+    expect(matchesExecutionMode({
+      cadence: { tier: 'A', frequency: 'daily' },
+    }, 'daily')).toBe(true);
+
+    expect(matchesExecutionMode({
+      cadence: { tier: 'B', frequency: 'weekly' },
+    }, 'daily')).toBe(false);
+
+    expect(matchesExecutionMode({
+      cadence: { tier: 'B', frequency: 'weekly' },
+    }, 'weekly')).toBe(true);
+
+    expect(matchesExecutionMode({
+      cadence: { tier: 'C', frequency: 'monthly' },
+    }, 'weekly')).toBe(false);
+
+    expect(matchesExecutionMode({
+      cadence: { tier: 'C', frequency: 'monthly' },
+    }, 'monthly')).toBe(true);
+  });
+
+  test('shouldRunSource respects cadence mode filters before state age checks', () => {
+    const state = { sources: {} };
+
+    expect(shouldRunSource({
+      cadence: { tier: 'A', frequency: 'daily' },
+    }, state, { executionMode: 'daily' })).toBe(true);
+
+    expect(shouldRunSource({
+      cadence: { tier: 'C', frequency: 'monthly' },
+    }, state, { executionMode: 'weekly' })).toBe(false);
+  });
+
   test('runPipeline writes only net-new signals on repeated runs', async () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'searchbar3-sourcing-'));
     const registryPath = path.join(tempDir, 'registry.json');
     const outputPath = path.join(tempDir, 'signals.jsonl');
     const statePath = path.join(tempDir, 'source_state.json');
+    const rollupPath = path.join(tempDir, 'daily_rollup.csv');
 
     fs.writeFileSync(
       registryPath,
@@ -142,6 +177,7 @@ describe('sourcing foundation', () => {
       registryPath,
       outputPath,
       statePath,
+      rollupPath,
       frequency: 'daily',
       force: true,
     });
@@ -150,14 +186,19 @@ describe('sourcing foundation', () => {
       registryPath,
       outputPath,
       statePath,
+      rollupPath,
       frequency: 'daily',
       force: true,
     });
 
     const writtenLines = fs.readFileSync(outputPath, 'utf-8').trim().split('\n');
+    const rollupLines = fs.readFileSync(rollupPath, 'utf-8').trim().split('\n');
 
     expect(firstRun.emittedCount).toBe(1);
+    expect(firstRun.rollupCount).toBe(1);
     expect(secondRun.emittedCount).toBe(0);
+    expect(secondRun.rollupCount).toBe(0);
     expect(writtenLines).toHaveLength(1);
+    expect(rollupLines).toHaveLength(1);
   });
 });

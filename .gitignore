@@ -47,3 +47,4 @@ research-hub-api/
 *.swp
 /data/signals.jsonl
 /data/source_state.json
+/data/daily_rollup.csv

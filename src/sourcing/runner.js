@@ -1,6 +1,7 @@
 const { normalizeSignal } = require('./normalizer');
 const { loadRegistry } = require('./registry');
 const { createAdapter } = require('./adapters');
+const { DailyRollupWriter } = require('./rollup');
 const { loadState, saveState } = require('./state');
 const { SignalWriter } = require('./writer');
 
@@ -10,9 +11,41 @@ const FREQUENCY_ORDER = {
   monthly: 30,
 };
 
+const EXECUTION_MODES = {
+  daily: {
+    tiers: ['A'],
+    frequencies: ['daily'],
+  },
+  weekly: {
+    tiers: ['A', 'B'],
+    frequencies: ['daily', 'weekly'],
+  },
+  monthly: {
+    tiers: ['A', 'B', 'C'],
+    frequencies: ['daily', 'weekly', 'monthly'],
+  },
+};
+
+function matchesExecutionMode(source, executionMode) {
+  if (!executionMode) {
+    return true;
+  }
+
+  const config = EXECUTION_MODES[executionMode];
+  if (!config) {
+    return true;
+  }
+
+  return config.tiers.includes(source.cadence?.tier) && config.frequencies.includes(source.cadence?.frequency);
+}
+
 function shouldRunSource(source, state, options = {}) {
   if (options.force) {
     return true;
+  }
+
+  if (!matchesExecutionMode(source, options.executionMode)) {
+    return false;
   }
 
   if (options.frequency && source.cadence?.frequency !== options.frequency) {
@@ -84,8 +117,10 @@ async function runPipeline(options = {}) {
   const registry = loadRegistry(options.registryPath);
   const state = loadState(options.statePath);
   const writer = new SignalWriter(options.outputPath);
+  const rollupWriter = new DailyRollupWriter(options.rollupPath);
   const runnableSources = registry.filter((source) => shouldRunSource(source, state, options));
   const summaries = [];
+  const emittedSignals = [];
   let emittedCount = 0;
 
   for (const source of runnableSources) {
@@ -97,6 +132,7 @@ async function runPipeline(options = {}) {
       });
 
       emittedCount += writer.appendMany(result.signals);
+      emittedSignals.push(...result.signals);
       summaries.push(result.summary);
     } catch (error) {
       state.sources[source.id] = {
@@ -109,17 +145,22 @@ async function runPipeline(options = {}) {
     }
   }
 
+  const rollupCount = rollupWriter.write(emittedSignals);
   saveState(state, options.statePath);
 
   return {
     emittedCount,
+    rollupCount,
     runCount: runnableSources.length,
     skippedCount: registry.length - runnableSources.length,
+    executionMode: options.executionMode || null,
     summaries,
   };
 }
 
 module.exports = {
+  EXECUTION_MODES,
+  matchesExecutionMode,
   runPipeline,
   shouldRunSource,
 };
