@@ -826,10 +826,24 @@ const sourceHandlers = {
  * @param {Array<string>} sources - Array of source names to search
  * @returns {Promise<Array>} - Array of search results
  */
+const withTimeout = (promise, ms = 8000, label = 'source') => {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((resolve) => {
+      timer = setTimeout(() => {
+        logger.warn(`Timeout in ${label} after ${ms}ms; returning fail-soft []`);
+        resolve([]);
+      }, ms);
+    })
+  ]).finally(() => clearTimeout(timer));
+};
+
 const performSearch = async (query, sources = ['web']) => {
   try {
     if (!query) {
-      throw new Error('Query is required');
+      logger.warn('performSearch called without query; returning fail-soft []');
+      return [];
     }
 
     // Validate sources
@@ -844,11 +858,15 @@ const performSearch = async (query, sources = ['web']) => {
 
     // Execute searches in parallel (fail-soft per source)
     const searchPromises = validSources.map(source =>
-      sourceHandlers[source](query)
-        .catch(error => {
-          logger.error(`Error in ${source} search:`, error);
-          return []; // Return empty array on error
-        })
+      withTimeout(
+        sourceHandlers[source](query)
+          .catch(error => {
+            logger.error(`Error in ${source} search:`, error);
+            return []; // Return empty array on error
+          }),
+        8000,
+        `${source} search`
+      )
     );
 
     const settled = await Promise.allSettled(searchPromises);
