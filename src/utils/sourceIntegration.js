@@ -134,7 +134,8 @@ const handleSocialMediaSearch = async (query, platform, handle = null) => {
     const SERPER_API_KEY = process.env.SERPER_API_KEY;
     
     if (!SERPER_API_KEY) {
-      throw new Error(`SERPER_API_KEY is not defined`);
+      logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+      return [];
     }
 
     // If a specific handle is provided, target that handle
@@ -184,7 +185,8 @@ const handleWebsiteScrape = async (query, domain) => {
     const SERPER_API_KEY = process.env.SERPER_API_KEY;
     
     if (!SERPER_API_KEY) {
-      throw new Error(`SERPER_API_KEY is not defined`);
+      logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+      return [];
     }
 
     const response = await axios.post(
@@ -282,7 +284,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -321,7 +324,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -360,7 +364,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -404,7 +409,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -443,7 +449,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -482,7 +489,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -521,7 +529,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -560,7 +569,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -599,7 +609,8 @@ const sourceHandlers = {
       const FMP_API_KEY = process.env.FMP_API_KEY;
       
       if (!FMP_API_KEY) {
-        throw new Error('FMP_API_KEY is not defined');
+        logger.warn('FMP_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       // Search for companies
@@ -653,7 +664,10 @@ const sourceHandlers = {
         getFilings(company.cik)
       );
       
-      const filingResults = await Promise.all(filingsPromises);
+      const filingSettled = await Promise.allSettled(filingsPromises);
+      const filingResults = filingSettled
+        .filter(r => r.status === 'fulfilled')
+        .map(r => r.value || []);
       
       // Flatten and format results
       return filingResults
