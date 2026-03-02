@@ -139,6 +139,7 @@ describe('sourcing foundation', () => {
     const outputPath = path.join(tempDir, 'signals.jsonl');
     const statePath = path.join(tempDir, 'source_state.json');
     const rollupPath = path.join(tempDir, 'daily_rollup.csv');
+    const crmExportPath = path.join(tempDir, 'crm_export.csv');
 
     fs.writeFileSync(
       registryPath,
@@ -188,6 +189,7 @@ describe('sourcing foundation', () => {
       outputPath,
       statePath,
       rollupPath,
+      crmExportPath,
       frequency: 'daily',
       force: true,
     });
@@ -197,18 +199,111 @@ describe('sourcing foundation', () => {
       outputPath,
       statePath,
       rollupPath,
+      crmExportPath,
       frequency: 'daily',
       force: true,
     });
 
     const writtenLines = fs.readFileSync(outputPath, 'utf-8').trim().split('\n');
     const rollupLines = fs.readFileSync(rollupPath, 'utf-8').trim().split('\n');
+    const crmLines = fs.readFileSync(crmExportPath, 'utf-8').trim().split('\n');
 
     expect(firstRun.emittedCount).toBe(1);
     expect(firstRun.rollupCount).toBe(1);
+    expect(firstRun.crmExportCount).toBe(1);
     expect(secondRun.emittedCount).toBe(0);
     expect(secondRun.rollupCount).toBe(0);
+    expect(secondRun.crmExportCount).toBe(0);
     expect(writtenLines).toHaveLength(1);
     expect(rollupLines).toHaveLength(1);
+    expect(crmLines).toHaveLength(1);
+  });
+
+  test('runPipeline dedupes overlapping companies across sources using aliases', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'searchbar3-sourcing-dedupe-'));
+    const registryPath = path.join(tempDir, 'registry.json');
+    const outputPath = path.join(tempDir, 'signals.jsonl');
+    const statePath = path.join(tempDir, 'source_state.json');
+    const rollupPath = path.join(tempDir, 'daily_rollup.csv');
+    const crmExportPath = path.join(tempDir, 'crm_export.csv');
+
+    fs.writeFileSync(
+      registryPath,
+      JSON.stringify([
+        {
+          id: 'A-FEED-ONE',
+          name: 'Feed One',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'rss', url: 'https://example.com/feed-one.xml' },
+          cadence: { tier: 'A', frequency: 'daily' },
+          query_strategy: { type: 'feed' },
+          requires_auth: false,
+          adapter: 'rss',
+          notes: 'Fixture one'
+        },
+        {
+          id: 'A-FEED-TWO',
+          name: 'Feed Two',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'rss', url: 'https://example.com/feed-two.xml' },
+          cadence: { tier: 'A', frequency: 'daily' },
+          query_strategy: { type: 'feed' },
+          requires_auth: false,
+          adapter: 'rss',
+          notes: 'Fixture two'
+        }
+      ], null, 2),
+      'utf-8'
+    );
+
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => `
+          <rss><channel>
+            <item>
+              <title>Acme AI Inc.</title>
+              <link>https://news.example.com/acme</link>
+              <description>Seed startup profile</description>
+              <pubDate>2026-03-02T00:00:00.000Z</pubDate>
+            </item>
+          </channel></rss>
+        `,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => `
+          <rss><channel>
+            <item>
+              <title>Acme AI</title>
+              <link>https://another.example.com/acme</link>
+              <description>Another profile of the same startup</description>
+              <pubDate>2026-03-02T00:00:00.000Z</pubDate>
+            </item>
+          </channel></rss>
+        `,
+      });
+
+    const result = await runPipeline({
+      registryPath,
+      outputPath,
+      statePath,
+      rollupPath,
+      crmExportPath,
+      force: true,
+    });
+
+    const writtenLines = fs.readFileSync(outputPath, 'utf-8').trim().split('\n');
+
+    expect(result.emittedCount).toBe(1);
+    expect(result.crmExportCount).toBe(1);
+    expect(result.summaries[1].dedupedCount).toBe(1);
+    expect(writtenLines).toHaveLength(1);
   });
 });

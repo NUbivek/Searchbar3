@@ -8,6 +8,8 @@ function loadState(statePath = DEFAULT_STATE_PATH) {
     return {
       sources: {},
       seen_signal_ids: {},
+      seen_company_keys: {},
+      company_aliases: {},
     };
   }
 
@@ -18,6 +20,12 @@ function loadState(statePath = DEFAULT_STATE_PATH) {
     sources: parsed.sources && typeof parsed.sources === 'object' ? parsed.sources : {},
     seen_signal_ids: parsed.seen_signal_ids && typeof parsed.seen_signal_ids === 'object'
       ? parsed.seen_signal_ids
+      : {},
+    seen_company_keys: parsed.seen_company_keys && typeof parsed.seen_company_keys === 'object'
+      ? parsed.seen_company_keys
+      : {},
+    company_aliases: parsed.company_aliases && typeof parsed.company_aliases === 'object'
+      ? parsed.company_aliases
       : {},
   };
 }

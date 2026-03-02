@@ -1,3 +1,5 @@
+const { CrmExportWriter } = require('./crmExport');
+const { ensureDedupeState, shouldEmitSignal } = require('./dedupe');
 const { normalizeSignal } = require('./normalizer');
 const { loadRegistry } = require('./registry');
 const { createAdapter } = require('./adapters');
@@ -83,6 +85,7 @@ async function runSource(source, context) {
   const items = await adapter.run({ query: context.query || '' });
   const seenBySource = context.state.seen_signal_ids[source.id] || {};
   const newSignals = [];
+  let dedupedCount = 0;
 
   for (const item of items) {
     const signal = normalizeSignal({
@@ -95,6 +98,12 @@ async function runSource(source, context) {
       continue;
     }
 
+    const dedupeDecision = shouldEmitSignal(signal, context.state);
+    if (!dedupeDecision.shouldEmit) {
+      dedupedCount += 1;
+      continue;
+    }
+
     seenBySource[signal.signal_id] = signal.discovered_at;
     newSignals.push(signal);
   }
@@ -104,20 +113,26 @@ async function runSource(source, context) {
     last_run_at: new Date().toISOString(),
     last_status: 'ok',
     last_emitted_count: newSignals.length,
+    last_deduped_count: dedupedCount,
   };
 
   return {
     source,
     signals: newSignals,
-    summary: buildSourceSummary(source, null, newSignals.length),
+    summary: {
+      ...buildSourceSummary(source, null, newSignals.length),
+      dedupedCount,
+    },
   };
 }
 
 async function runPipeline(options = {}) {
   const registry = loadRegistry(options.registryPath);
   const state = loadState(options.statePath);
+  ensureDedupeState(state);
   const writer = new SignalWriter(options.outputPath);
   const rollupWriter = new DailyRollupWriter(options.rollupPath);
+  const crmExportWriter = new CrmExportWriter(options.crmExportPath);
   const runnableSources = registry.filter((source) => shouldRunSource(source, state, options));
   const summaries = [];
   const emittedSignals = [];
@@ -146,11 +161,13 @@ async function runPipeline(options = {}) {
   }
 
   const rollupCount = rollupWriter.write(emittedSignals);
+  const crmExportCount = crmExportWriter.write(emittedSignals);
   saveState(state, options.statePath);
 
   return {
     emittedCount,
     rollupCount,
+    crmExportCount,
     runCount: runnableSources.length,
     skippedCount: registry.length - runnableSources.length,
     executionMode: options.executionMode || null,

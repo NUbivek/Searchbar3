@@ -48,3 +48,4 @@ research-hub-api/
 /data/signals.jsonl
 /data/source_state.json
 /data/daily_rollup.csv
+/data/crm_export.csv
