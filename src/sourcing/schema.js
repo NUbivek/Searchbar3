@@ -14,6 +14,7 @@ const REQUIRED_FIELDS = [
 
 const VALID_METHOD_TYPES = ['rss', 'html', 'js', 'api', 'search'];
 const VALID_TIERS = ['A', 'B', 'C'];
+const VALID_ADAPTERS = ['api_search', 'hn_algolia', 'html_list', 'js_rendered', 'rss', 'search_api'];
 
 function validateRegistryEntry(entry) {
   const errors = [];
@@ -52,6 +53,10 @@ function validateRegistryEntry(entry) {
 
   if (!entry.query_strategy || typeof entry.query_strategy !== 'object') {
     errors.push('query_strategy must be an object');
+  }
+
+  if (!entry.adapter || !VALID_ADAPTERS.includes(entry.adapter)) {
+    errors.push(`Unsupported adapter: ${entry.adapter}`);
   }
 
   if (typeof entry.requires_auth !== 'boolean') {
@@ -100,6 +105,7 @@ function validateRegistry(entries) {
 module.exports = {
   VALID_METHOD_TYPES,
   VALID_TIERS,
+  VALID_ADAPTERS,
   validateRegistry,
   validateRegistryEntry,
 };

@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { validateRegistry } = require('../../src/sourcing/schema');
+const { validateRegistry, validateRegistryEntry } = require('../../src/sourcing/schema');
 const { normalizeSignal } = require('../../src/sourcing/normalizer');
 const { runPipeline } = require('../../src/sourcing/runner');
 
@@ -40,6 +40,53 @@ describe('sourcing foundation', () => {
     expect(signalA.item_url).toBe('https://example.com/post');
     expect(signalA.stage_guess).toBe('seed');
     expect(signalA.thesis_tags).toEqual(['ai']);
+  });
+
+  test('validateRegistryEntry accepts generic adapter templates', () => {
+    const baseEntry = {
+      id: 'C-TEST-API',
+      name: 'Test API',
+      region: 'Global',
+      category: 'startup_news',
+      thesis_tags: ['software'],
+      stage_bias: ['seed'],
+      method: {
+        type: 'api',
+        url: 'https://example.com/items?q={{query}}',
+      },
+      cadence: {
+        tier: 'C',
+        frequency: 'monthly',
+      },
+      query_strategy: {
+        type: 'search_api',
+      },
+      requires_auth: false,
+      notes: 'Test entry',
+    };
+
+    const searchEntry = validateRegistryEntry({
+      ...baseEntry,
+      adapter: 'search_api',
+    });
+
+    const apiEntry = validateRegistryEntry({
+      ...baseEntry,
+      adapter: 'api_search',
+    });
+
+    const jsEntry = validateRegistryEntry({
+      ...baseEntry,
+      method: {
+        type: 'js',
+        url: 'https://example.com/list',
+      },
+      adapter: 'js_rendered',
+    });
+
+    expect(searchEntry.valid).toBe(true);
+    expect(apiEntry.valid).toBe(true);
+    expect(jsEntry.valid).toBe(true);
   });
 
   test('runPipeline writes only net-new signals on repeated runs', async () => {
