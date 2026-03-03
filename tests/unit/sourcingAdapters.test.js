@@ -2563,6 +2563,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://base10.vc/portfolio/datagrid');
   });
 
+  test('HtmlListAdapter supports south-park-style company directories with company-path filters', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/companies/opsgrid">Profile</a>
+            <div class="company-name">OpsGrid</div>
+            <p class="description">Founder community software for operator workflows and collaboration</p>
+            <p class="subtext">US marketplace and productivity tooling for early-stage teams</p>
+            <div class="company-site">
+              <a href="https://opsgrid.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/companies/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://southparkcommons.com/companies/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/companies/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('OpsGrid');
+    expect(results[0].content).toBe('Founder community software for operator workflows and collaboration | US marketplace and productivity tooling for early-stage teams');
+    expect(results[0].company_name).toBe('OpsGrid');
+    expect(results[0].company_website).toBe('https://opsgrid.io/');
+    expect(results[0].url).toBe('https://southparkcommons.com/companies/opsgrid');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
