@@ -2363,6 +2363,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.rtp.vc/portfolio/pipelane');
   });
 
+  test('HtmlListAdapter supports notion-capital-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/revmesh">Profile</a>
+            <div class="company-name">RevMesh</div>
+            <p class="description">Revenue operations infrastructure for scaling SaaS companies</p>
+            <p class="subtext">European enterprise tooling for finance, GTM, and automation</p>
+            <div class="company-site">
+              <a href="https://revmesh.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.notion.vc/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('RevMesh');
+    expect(results[0].content).toBe('Revenue operations infrastructure for scaling SaaS companies | European enterprise tooling for finance, GTM, and automation');
+    expect(results[0].company_name).toBe('RevMesh');
+    expect(results[0].company_website).toBe('https://revmesh.io/');
+    expect(results[0].url).toBe('https://www.notion.vc/portfolio/revmesh');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
