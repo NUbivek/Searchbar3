@@ -1813,6 +1813,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.forerunnerventures.com/portfolio/cartpilot');
   });
 
+  test('HtmlListAdapter supports pear-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/foundrykit">Profile</a>
+            <div class="company-name">FoundryKit</div>
+            <p class="description">Early-stage tooling for startup builders and operators</p>
+            <p class="subtext">Used by founders, product, and engineering teams</p>
+            <div class="company-site">
+              <a href="https://foundrykit.co">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://pear.vc/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('FoundryKit');
+    expect(results[0].content).toBe('Early-stage tooling for startup builders and operators | Used by founders, product, and engineering teams');
+    expect(results[0].company_name).toBe('FoundryKit');
+    expect(results[0].company_website).toBe('https://foundrykit.co/');
+    expect(results[0].url).toBe('https://pear.vc/portfolio/foundrykit');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
