@@ -282,5 +282,191 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Broader startup ecosystem and hiring/fundraising trends."
+  },
+  {
+    "id": "A-STRICTLYVC-RSS",
+    "name": "StrictlyVC Feed",
+    "region": "US",
+    "category": "venture_news",
+    "thesis_tags": ["venture", "software", "ai"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.strictlyvc.com/feed/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Daily venture and startup activity tracking."
+  },
+  {
+    "id": "A-VCSTACK-RSS",
+    "name": "VC Stack Feed",
+    "region": "Global",
+    "category": "venture_ecosystem",
+    "thesis_tags": ["venture", "b2b", "software"],
+    "stage_bias": ["pre-seed", "seed"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.vcstack.com/feed"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Tracks startup fundraising and investor insights."
+  },
+  {
+    "id": "B-SAASTR-BLOG",
+    "name": "SaaStr Blog",
+    "region": "US",
+    "category": "saas_ecosystem",
+    "thesis_tags": ["saas", "b2b", "software"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.saastr.com/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "SaaS operator and startup growth signal source."
+  },
+  {
+    "id": "B-FAILORY-RSS",
+    "name": "Failory Feed",
+    "region": "Global",
+    "category": "startup_ecosystem",
+    "thesis_tags": ["software", "marketplaces", "saas"],
+    "stage_bias": ["pre-seed", "seed"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.failory.com/feed"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Founder interviews and startup postmortems as signal source."
+  },
+  {
+    "id": "B-BETALIST",
+    "name": "BetaList Startups",
+    "region": "Global",
+    "category": "product_launches",
+    "thesis_tags": ["software", "marketplaces", "ai"],
+    "stage_bias": ["pre-seed", "seed"],
+    "method": {
+      "type": "html",
+      "url": "https://betalist.com/startups",
+      "extract": {
+        "itemSelector": "a[href]",
+        "excludePatterns": ["login", "signup", "terms", "privacy"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Public startup launches and early product discovery."
+  },
+  {
+    "id": "C-SEEDTABLE-BLOG",
+    "name": "Seedtable Blog",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["software", "ai", "climate"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://seedtable.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Long-tail founder and startup analysis content."
+  },
+  {
+    "id": "C-ARCTICSTARTUP-RSS",
+    "name": "ArcticStartup Feed",
+    "region": "EU",
+    "category": "startup_news",
+    "thesis_tags": ["software", "venture", "nordics"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://arcticstartup.com/feed/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Nordic and European startup ecosystem source."
+  },
+  {
+    "id": "C-F6S-PROGRAMS",
+    "name": "F6S Programs",
+    "region": "Global",
+    "category": "accelerator_directory",
+    "thesis_tags": ["software", "ai", "b2b"],
+    "stage_bias": ["pre-seed", "seed"],
+    "method": {
+      "type": "html",
+      "url": "https://www.f6s.com/programs",
+      "extract": {
+        "itemSelector": "a[href]",
+        "excludePatterns": ["login", "signup", "terms", "privacy"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Accelerator and program listings as early company source."
   }
 ]

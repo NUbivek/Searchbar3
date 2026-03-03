@@ -14,7 +14,8 @@
     "test:unit": "jest --runInBand --testPathPattern=tests/unit",
     "smoke:api": "node scripts/api-smoke.js",
     "sourcing:validate": "node scripts/sourcing-validate.js",
-    "sourcing:run": "node scripts/sourcing-run.js"
+    "sourcing:run": "node scripts/sourcing-run.js",
+    "sourcing:stats": "node scripts/sourcing-stats.js"
   },
   "dependencies": {
     "@headlessui/react": "^1.7.18",
