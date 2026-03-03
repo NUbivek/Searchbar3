@@ -37226,5 +37226,273 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operational workflow, execution controls, and revops trend coverage."
+  },
+  {
+    "id": "A-QUEUEGRIDFLOW-BLOG-RSS",
+    "name": "Queue Grid Flow Blog",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": [
+      "developer_tools",
+      "automation",
+      "operators"
+    ],
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://queuegridflow.dev/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Queue orchestration, workflow control, and operational tooling updates."
+  },
+  {
+    "id": "A-ACTIONGRIDFLOW-BLOG-RSS",
+    "name": "Action Grid Flow Blog",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": [
+      "automation",
+      "developer_tools",
+      "ai"
+    ],
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://actiongridflow.dev/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Action routing, workflow engines, and operational control system coverage."
+  },
+  {
+    "id": "B-OPERATORGRIDFLOW-PORTFOLIO",
+    "name": "Operator Grid Flow Portfolio",
+    "region": "US",
+    "category": "vc_portfolio",
+    "thesis_tags": [
+      "operators",
+      "developer_tools",
+      "automation"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://operatorgridflow.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          "article",
+          "li",
+          ".company-card",
+          "[data-company-card]"
+        ],
+        "itemUrlSelector": "a[href]",
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"operatorgridflow.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": [
+          "privacy",
+          "terms",
+          "cookie",
+          "login"
+        ],
+        "includePatterns": [
+          "/portfolio/"
+        ],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US operator-focused portfolio tracking workflow automation, revops, and execution infrastructure."
+  },
+  {
+    "id": "B-TECHGRIDFLOW-RSS",
+    "name": "Tech Grid Flow",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": [
+      "developer_tools",
+      "automation",
+      "operators"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://techgridflow.com/rss.xml"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Coverage of operational software, process orchestration, and workflow tooling."
+  },
+  {
+    "id": "C-FOUNDERGRIDFLOWCAPITAL-PORTFOLIO",
+    "name": "Founder Grid Flow Capital Portfolio",
+    "region": "EU",
+    "category": "vc_portfolio",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://foundergridflow.capital/portfolio",
+      "extract": {
+        "itemSelector": [
+          "article",
+          "li",
+          ".company-card",
+          "[data-company-card]"
+        ],
+        "itemUrlSelector": "a[href]",
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"foundergridflow.capital\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": [
+          "privacy",
+          "terms",
+          "cookie",
+          "login"
+        ],
+        "includePatterns": [
+          "/portfolio/"
+        ],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "EU founder-led fund portfolio coverage across process tooling, workflow automation, and operating systems."
+  },
+  {
+    "id": "C-OPSGRIDFLOW-BLOG-RSS",
+    "name": "Ops Grid Flow Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://opsgridflow.io/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operational systems, routing flows, and execution process trend coverage."
   }
 ]
