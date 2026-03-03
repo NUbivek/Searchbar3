@@ -6080,6 +6080,67 @@ test('HtmlListAdapter extracts Operator Lab-style portfolio entries', async () =
   expect(results[0].url).toBe('https://operatorlab.vc/portfolio/labops');
 });
 
+test('HtmlListAdapter extracts Operator Signal Flow-style portfolio entries', async () => {
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get(name) {
+        if (String(name).toLowerCase() === 'content-type') {
+          return 'text/html; charset=utf-8';
+        }
+        return null;
+      },
+    },
+    text: async () => `
+      <html>
+        <body>
+          <section class="portfolio-item">
+            <a href="/portfolio/signalops">View</a>
+            <div class="company-name">SignalOps</div>
+            <div class="description">Operational workflow platform for signal routing, queue coordination, and approval management.</div>
+            <div class="subtext">US startup helping support, finance, and GTM teams automate task routing, decisioning, and execution workflows.</div>
+            <div class="company-site"><a href="https://signalops.io/">Company</a></div>
+          </section>
+          <div class="footer-cta">Ignore this footer</div>
+        </body>
+      </html>
+    `,
+  });
+
+  const adapter = new HtmlListAdapter({
+    method: {
+      url: 'https://operatorsignalflow.vc/portfolio',
+      extract: {
+        itemSelector: ['.portfolio-item', '.portfolio-card'],
+        linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+        titleSelector: ['.company-name', 'h2'],
+        contentSelector: ['.subtext', '.description'],
+        mergeContentSelectors: true,
+        contentJoinWith: ' | ',
+        companyNameSelector: ['.company-name', 'h2'],
+        companyWebsiteSelector: [
+          'a[href*="http"]:not([href*="operatorsignalflow.vc"])',
+          '.company-site a[href]',
+        ],
+        includePatterns: ['/portfolio/'],
+        excludeSelectors: ['.footer-cta', '.cta-banner'],
+      },
+    },
+  });
+
+  const results = await adapter.run({ query: 'signal' });
+
+  expect(results).toHaveLength(1);
+  expect(results[0].title).toBe('SignalOps');
+  expect(results[0].content).toBe(
+    'US startup helping support, finance, and GTM teams automate task routing, decisioning, and execution workflows. | Operational workflow platform for signal routing, queue coordination, and approval management.'
+  );
+  expect(results[0].company_name).toBe('SignalOps');
+  expect(results[0].company_website).toBe('https://signalops.io/');
+  expect(results[0].url).toBe('https://operatorsignalflow.vc/portfolio/signalops');
+});
+
 test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
