@@ -324,6 +324,7 @@ describe('sourcing foundation', () => {
     const rollupPath = path.join(tempDir, 'daily_rollup.csv');
     const categoryExportPath = path.join(tempDir, 'category_rollup.csv');
     const crmExportPath = path.join(tempDir, 'crm_export.csv');
+    const sourceHealthPath = path.join(tempDir, 'source_health.csv');
     const runReportPath = path.join(tempDir, 'latest_run_summary.json');
 
     fs.writeFileSync(
@@ -376,6 +377,7 @@ describe('sourcing foundation', () => {
       rollupPath,
       categoryExportPath,
       crmExportPath,
+      sourceHealthPath,
       runReportPath,
       frequency: 'daily',
       force: true,
@@ -388,6 +390,7 @@ describe('sourcing foundation', () => {
       rollupPath,
       categoryExportPath,
       crmExportPath,
+      sourceHealthPath,
       runReportPath,
       frequency: 'daily',
       force: true,
@@ -397,23 +400,28 @@ describe('sourcing foundation', () => {
     const rollupLines = fs.readFileSync(rollupPath, 'utf-8').trim().split('\n');
     const categoryLines = fs.readFileSync(categoryExportPath, 'utf-8').trim().split('\n');
     const crmLines = fs.readFileSync(crmExportPath, 'utf-8').trim().split('\n');
+    const sourceHealthLines = fs.readFileSync(sourceHealthPath, 'utf-8').trim().split('\n');
     const runReport = JSON.parse(fs.readFileSync(runReportPath, 'utf-8'));
 
     expect(firstRun.emittedCount).toBe(1);
     expect(firstRun.rollupCount).toBe(1);
     expect(firstRun.categoryExportCount).toBe(1);
     expect(firstRun.crmExportCount).toBe(1);
+    expect(firstRun.sourceHealthCount).toBe(1);
     expect(secondRun.emittedCount).toBe(0);
     expect(secondRun.rollupCount).toBe(0);
     expect(secondRun.categoryExportCount).toBe(0);
     expect(secondRun.crmExportCount).toBe(0);
+    expect(secondRun.sourceHealthCount).toBe(1);
     expect(writtenLines).toHaveLength(1);
     expect(rollupLines).toHaveLength(1);
     expect(categoryLines).toHaveLength(1);
     expect(crmLines).toHaveLength(1);
+    expect(sourceHealthLines).toHaveLength(2);
     expect(runReport.emittedCount).toBe(0);
     expect(runReport.runCount).toBe(1);
     expect(runReport.breakdowns.byStage).toEqual({});
+    expect(runReport.sourceHealthCount).toBe(1);
   });
 
   test('runPipeline dedupes overlapping companies across sources using aliases', async () => {
@@ -424,6 +432,7 @@ describe('sourcing foundation', () => {
     const rollupPath = path.join(tempDir, 'daily_rollup.csv');
     const categoryExportPath = path.join(tempDir, 'category_rollup.csv');
     const crmExportPath = path.join(tempDir, 'crm_export.csv');
+    const sourceHealthPath = path.join(tempDir, 'source_health.csv');
     const runReportPath = path.join(tempDir, 'latest_run_summary.json');
 
     fs.writeFileSync(
@@ -496,22 +505,27 @@ describe('sourcing foundation', () => {
       rollupPath,
       categoryExportPath,
       crmExportPath,
+      sourceHealthPath,
       runReportPath,
       force: true,
     });
 
     const writtenLines = fs.readFileSync(outputPath, 'utf-8').trim().split('\n');
     const categoryLines = fs.readFileSync(categoryExportPath, 'utf-8').trim().split('\n');
+    const sourceHealthLines = fs.readFileSync(sourceHealthPath, 'utf-8').trim().split('\n');
     const runReport = JSON.parse(fs.readFileSync(runReportPath, 'utf-8'));
 
     expect(result.emittedCount).toBe(1);
     expect(result.categoryExportCount).toBe(1);
     expect(result.crmExportCount).toBe(1);
+    expect(result.sourceHealthCount).toBe(2);
     expect(result.summaries[1].dedupedCount).toBe(1);
     expect(writtenLines).toHaveLength(1);
     expect(categoryLines).toHaveLength(2);
+    expect(sourceHealthLines).toHaveLength(3);
     expect(runReport.dedupedCount).toBe(1);
     expect(runReport.categoryExportCount).toBe(1);
+    expect(runReport.sourceHealthCount).toBe(2);
     expect(runReport.tierHealth.A.ok).toBe(2);
     expect(runReport.tierHealth.A.degraded).toBe(0);
     expect(runReport.tierHealth.A.emittedCount).toBe(1);

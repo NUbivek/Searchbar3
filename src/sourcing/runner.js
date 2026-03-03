@@ -6,6 +6,7 @@ const { loadRegistry } = require('./registry');
 const { createAdapter } = require('./adapters');
 const { RunReportWriter } = require('./runReport');
 const { DailyRollupWriter } = require('./rollup');
+const { SourceHealthExportWriter } = require('./sourceHealthExport');
 const { loadState, saveState } = require('./state');
 const { SignalWriter } = require('./writer');
 
@@ -208,6 +209,7 @@ async function runPipeline(options = {}) {
   const categoryExportWriter = new CategoryExportWriter(options.categoryExportPath);
   const crmExportWriter = new CrmExportWriter(options.crmExportPath);
   const runReportWriter = new RunReportWriter(options.runReportPath);
+  const sourceHealthWriter = new SourceHealthExportWriter(options.sourceHealthPath);
   const runnableSources = registry.filter((source) => shouldRunSource(source, state, options));
   const summaries = [];
   const emittedSignals = [];
@@ -238,6 +240,11 @@ async function runPipeline(options = {}) {
   const rollupCount = rollupWriter.write(emittedSignals);
   const categoryExportCount = categoryExportWriter.write(emittedSignals);
   const crmExportCount = crmExportWriter.write(emittedSignals);
+  const sourceHealthCount = sourceHealthWriter.write({
+    registry,
+    summaries,
+    state,
+  });
   const runReport = runReportWriter.write({
     generatedAt: new Date().toISOString(),
     executionMode: options.executionMode || null,
@@ -249,6 +256,7 @@ async function runPipeline(options = {}) {
     rollupCount,
     categoryExportCount,
     crmExportCount,
+    sourceHealthCount,
     degradedCount: summaries.filter((summary) => summary.status === 'degraded').length,
     dedupedCount: summaries.reduce((sum, summary) => sum + (summary.dedupedCount || 0), 0),
     tierHealth: buildTierHealth(summaries, registry),
@@ -262,6 +270,7 @@ async function runPipeline(options = {}) {
     rollupCount,
     categoryExportCount,
     crmExportCount,
+    sourceHealthCount,
     runCount: runnableSources.length,
     skippedCount: registry.length - runnableSources.length,
     executionMode: options.executionMode || null,
