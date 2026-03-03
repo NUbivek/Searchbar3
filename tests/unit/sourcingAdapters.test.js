@@ -1963,6 +1963,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://xyz.vc/portfolio/ledgergrid');
   });
 
+  test('HtmlListAdapter supports alpine-style portfolio items with banner exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/orbitops">Profile</a>
+            <div class="company-name">OrbitOps</div>
+            <p class="description">Space infrastructure automation for defense and logistics teams</p>
+            <p class="subtext">European early-stage deeptech operator stack</p>
+            <div class="company-site">
+              <a href="https://orbitops.eu">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item cta-banner" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.alpinespace.vc/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.cta-banner'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('OrbitOps');
+    expect(results[0].content).toBe('Space infrastructure automation for defense and logistics teams | European early-stage deeptech operator stack');
+    expect(results[0].company_name).toBe('OrbitOps');
+    expect(results[0].company_website).toBe('https://orbitops.eu/');
+    expect(results[0].url).toBe('https://www.alpinespace.vc/portfolio/orbitops');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
