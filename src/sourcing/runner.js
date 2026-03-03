@@ -7,7 +7,7 @@ const { createAdapter } = require('./adapters');
 const { RunReportWriter } = require('./runReport');
 const { DailyRollupWriter } = require('./rollup');
 const { SourceHealthExportWriter } = require('./sourceHealthExport');
-const { loadState, saveState } = require('./state');
+const { loadState, normalizeSourceState, saveState } = require('./state');
 const { SignalWriter } = require('./writer');
 
 const FREQUENCY_ORDER = {
@@ -77,6 +77,51 @@ function getEffectiveDegradedCooldownMs(source, sourceState) {
   return Math.min(scaledCooldownMs, maxCooldownHours * 60 * 60 * 1000);
 }
 
+function getRateLimitWindowMs(source) {
+  const hours = source.runtime?.rateLimitWindowHours;
+
+  if (!Number.isFinite(hours) || hours <= 0) {
+    return 0;
+  }
+
+  return hours * 60 * 60 * 1000;
+}
+
+function getRateLimitMaxRuns(source) {
+  const maxRuns = source.runtime?.maxRunsPerWindow;
+  return Number.isFinite(maxRuns) && maxRuns > 0 ? Math.floor(maxRuns) : 0;
+}
+
+function getRecentRunTimestamps(sourceState) {
+  return Array.isArray(sourceState?.recent_run_timestamps) ? sourceState.recent_run_timestamps : [];
+}
+
+function pruneRecentRunTimestamps(source, sourceState, now = Date.now()) {
+  const windowMs = getRateLimitWindowMs(source);
+  const timestamps = getRecentRunTimestamps(sourceState);
+
+  if (windowMs <= 0 || timestamps.length === 0) {
+    return [...timestamps];
+  }
+
+  return timestamps.filter((value) => {
+    const time = new Date(value).getTime();
+    return Number.isFinite(time) && now - time < windowMs;
+  });
+}
+
+function isRateLimited(source, sourceState, now = Date.now()) {
+  const maxRuns = getRateLimitMaxRuns(source);
+  const windowMs = getRateLimitWindowMs(source);
+
+  if (maxRuns <= 0 || windowMs <= 0) {
+    return false;
+  }
+
+  const recentRuns = pruneRecentRunTimestamps(source, sourceState, now);
+  return recentRuns.length >= maxRuns;
+}
+
 function shouldRunSource(source, state, options = {}) {
   if (options.force) {
     return true;
@@ -94,7 +139,13 @@ function shouldRunSource(source, state, options = {}) {
     return false;
   }
 
-  const sourceState = state.sources[source.id];
+  const sourceState = normalizeSourceState(state.sources[source.id]);
+  state.sources[source.id] = sourceState;
+
+  if (isRateLimited(source, sourceState)) {
+    return false;
+  }
+
   if (!sourceState?.last_run_at) {
     return true;
   }
@@ -226,12 +277,21 @@ async function runSource(source, context) {
   }
 
   context.state.seen_signal_ids[source.id] = seenBySource;
+  const previousState = normalizeSourceState(context.state.sources[source.id]);
+  const nowIso = new Date().toISOString();
+  const recentRunTimestamps = [
+    ...pruneRecentRunTimestamps(source, previousState),
+    nowIso,
+  ];
   context.state.sources[source.id] = {
-    last_run_at: new Date().toISOString(),
+    ...previousState,
+    last_run_at: nowIso,
     last_status: 'ok',
     last_emitted_count: newSignals.length,
     last_deduped_count: dedupedCount,
     consecutive_degraded_count: 0,
+    recent_run_timestamps: recentRunTimestamps,
+    last_error: null,
   };
 
   return {
@@ -271,15 +331,22 @@ async function runPipeline(options = {}) {
       emittedSignals.push(...result.signals);
       summaries.push(result.summary);
     } catch (error) {
-      const previousState = state.sources[source.id] || {};
+      const previousState = normalizeSourceState(state.sources[source.id]);
+      const nowIso = new Date().toISOString();
       const nextDegradedCount = (previousState.consecutive_degraded_count || 0) + 1;
+      const recentRunTimestamps = [
+        ...pruneRecentRunTimestamps(source, previousState),
+        nowIso,
+      ];
       state.sources[source.id] = {
-        last_run_at: new Date().toISOString(),
+        ...previousState,
+        last_run_at: nowIso,
         last_status: 'degraded',
         last_emitted_count: 0,
         last_deduped_count: 0,
         last_error: error.message,
         consecutive_degraded_count: nextDegradedCount,
+        recent_run_timestamps: recentRunTimestamps,
       };
       summaries.push(buildSourceSummary(source, error, 0));
     }
@@ -331,7 +398,11 @@ module.exports = {
   EXECUTION_MODES,
   getEffectiveDegradedCooldownMs,
   getDegradedCooldownMs,
+  getRateLimitMaxRuns,
+  getRateLimitWindowMs,
+  isRateLimited,
   matchesExecutionMode,
+  pruneRecentRunTimestamps,
   runPipeline,
   shouldRunSource,
 };

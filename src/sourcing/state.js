@@ -30,6 +30,21 @@ function loadState(statePath = DEFAULT_STATE_PATH) {
   };
 }
 
+function normalizeSourceState(sourceState) {
+  if (!sourceState || typeof sourceState !== 'object') {
+    return {};
+  }
+
+  const recentRunTimestamps = Array.isArray(sourceState.recent_run_timestamps)
+    ? sourceState.recent_run_timestamps.filter((value) => typeof value === 'string')
+    : [];
+
+  return {
+    ...sourceState,
+    recent_run_timestamps: recentRunTimestamps,
+  };
+}
+
 function saveState(state, statePath = DEFAULT_STATE_PATH) {
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
   fs.writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf-8');
@@ -38,5 +53,6 @@ function saveState(state, statePath = DEFAULT_STATE_PATH) {
 module.exports = {
   DEFAULT_STATE_PATH,
   loadState,
+  normalizeSourceState,
   saveState,
 };

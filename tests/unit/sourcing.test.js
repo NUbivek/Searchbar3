@@ -9,7 +9,11 @@ const { normalizeSignal } = require('../../src/sourcing/normalizer');
 const {
   getEffectiveDegradedCooldownMs,
   getDegradedCooldownMs,
+  getRateLimitMaxRuns,
+  getRateLimitWindowMs,
+  isRateLimited,
   matchesExecutionMode,
+  pruneRecentRunTimestamps,
   runPipeline,
   shouldRunSource,
 } = require('../../src/sourcing/runner');
@@ -214,6 +218,36 @@ describe('sourcing foundation', () => {
     expect(shouldRunSource(source, state, { force: true })).toBe(true);
   });
 
+  test('shouldRunSource enforces rolling rate limits when configured', () => {
+    const source = {
+      id: 'A-RATE-LIMITED',
+      cadence: { tier: 'A', frequency: 'daily' },
+      runtime: {
+        maxRunsPerWindow: 2,
+        rateLimitWindowHours: 6,
+      },
+    };
+    const now = Date.now();
+    const state = {
+      sources: {
+        'A-RATE-LIMITED': {
+          recent_run_timestamps: [
+            new Date(now - 2 * 60 * 60 * 1000).toISOString(),
+            new Date(now - 30 * 60 * 1000).toISOString(),
+            new Date(now - 10 * 60 * 60 * 1000).toISOString(),
+          ],
+        },
+      },
+    };
+
+    expect(getRateLimitMaxRuns(source)).toBe(2);
+    expect(getRateLimitWindowMs(source)).toBe(6 * 60 * 60 * 1000);
+    expect(pruneRecentRunTimestamps(source, state.sources['A-RATE-LIMITED'], now)).toHaveLength(2);
+    expect(isRateLimited(source, state.sources['A-RATE-LIMITED'], now)).toBe(true);
+    expect(shouldRunSource(source, state, {})).toBe(false);
+    expect(shouldRunSource(source, state, { force: true })).toBe(true);
+  });
+
   test('buildPlan groups due sources and explains deferred ones', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'searchbar3-sourcing-plan-'));
     const registryPath = path.join(tempDir, 'registry.json');
@@ -266,6 +300,24 @@ describe('sourcing foundation', () => {
           notes: 'Cooling down source',
         },
         {
+          id: 'A-RATE-LIMITED',
+          name: 'A Rate Limited',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'rss', url: 'https://example.com/limited.xml' },
+          cadence: { tier: 'A', frequency: 'daily' },
+          runtime: {
+            maxRunsPerWindow: 2,
+            rateLimitWindowHours: 6
+          },
+          query_strategy: { type: 'feed' },
+          requires_auth: false,
+          adapter: 'rss',
+          notes: 'Rate limited source',
+        },
+        {
           id: 'C-DEFERRED',
           name: 'C Deferred',
           region: 'Global',
@@ -295,6 +347,13 @@ describe('sourcing foundation', () => {
             last_status: 'degraded',
             consecutive_degraded_count: 2,
           },
+          'A-RATE-LIMITED': {
+            last_run_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+            recent_run_timestamps: [
+              new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+              new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+            ],
+          },
           'C-DEFERRED': {
             last_run_at: new Date().toISOString(),
           },
@@ -316,8 +375,9 @@ describe('sourcing foundation', () => {
     expect(plan.groupedDueSoon.A).toHaveLength(1);
     expect(plan.dueSoonSources).toHaveLength(1);
     expect(plan.dueSoonSources[0].id).toBe('A-SOON');
-    expect(plan.deferredCount).toBe(3);
+    expect(plan.deferredCount).toBe(4);
     expect(plan.deferredSources.find((entry) => entry.id === 'A-COOLDOWN').reason).toBe('cooldown_after_degraded');
+    expect(plan.deferredSources.find((entry) => entry.id === 'A-RATE-LIMITED').reason).toBe('rate_limited');
     expect(plan.deferredSources.find((entry) => entry.id === 'C-DEFERRED').reason).toBe('excluded_by_mode');
     expect(plan.nextDueByTier.A).toBe(plan.dueSoonSources[0].nextDueAt);
     expect(plan.nextDueByTier.C).toBe(plan.deferredSources.find((entry) => entry.id === 'C-DEFERRED').nextDueAt);
@@ -656,6 +716,85 @@ describe('sourcing foundation', () => {
     const sourceHealthLines = fs.readFileSync(sourceHealthPath, 'utf-8').trim().split('\n');
 
     expect(savedState.sources['A-BROKEN'].consecutive_degraded_count).toBe(2);
+    expect(sourceHealthLines).toHaveLength(2);
+    expect(sourceHealthLines[1]).toContain('"2"');
+  });
+
+  test('runPipeline records recent run timestamps for rate-limit accounting', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'searchbar3-sourcing-budget-'));
+    const registryPath = path.join(tempDir, 'registry.json');
+    const statePath = path.join(tempDir, 'source_state.json');
+    const outputPath = path.join(tempDir, 'signals.jsonl');
+    const rollupPath = path.join(tempDir, 'daily_rollup.csv');
+    const categoryExportPath = path.join(tempDir, 'category_rollup.csv');
+    const crmExportPath = path.join(tempDir, 'crm_export.csv');
+    const sourceHealthPath = path.join(tempDir, 'source_health.csv');
+    const runReportPath = path.join(tempDir, 'latest_run_summary.json');
+
+    fs.writeFileSync(
+      registryPath,
+      JSON.stringify([
+        {
+          id: 'A-BUDGETED',
+          name: 'Budgeted Feed',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'rss', url: 'https://example.com/budgeted.xml' },
+          cadence: { tier: 'A', frequency: 'daily' },
+          runtime: { maxRunsPerWindow: 3, rateLimitWindowHours: 6 },
+          query_strategy: { type: 'feed' },
+          requires_auth: false,
+          adapter: 'rss',
+          notes: 'Budgeted source',
+        },
+      ], null, 2),
+      'utf-8'
+    );
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <rss><channel>
+          <item>
+            <title>Acme</title>
+            <link>https://example.com/acme</link>
+            <description>Seed startup</description>
+            <pubDate>2026-03-02T00:00:00.000Z</pubDate>
+          </item>
+        </channel></rss>
+      `,
+    });
+
+    await runPipeline({
+      registryPath,
+      statePath,
+      outputPath,
+      rollupPath,
+      categoryExportPath,
+      crmExportPath,
+      sourceHealthPath,
+      runReportPath,
+      force: true,
+    });
+
+    await runPipeline({
+      registryPath,
+      statePath,
+      outputPath,
+      rollupPath,
+      categoryExportPath,
+      crmExportPath,
+      sourceHealthPath,
+      runReportPath,
+      force: true,
+    });
+
+    const savedState = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+    const sourceHealthLines = fs.readFileSync(sourceHealthPath, 'utf-8').trim().split('\n');
+
+    expect(savedState.sources['A-BUDGETED'].recent_run_timestamps).toHaveLength(2);
     expect(sourceHealthLines).toHaveLength(2);
     expect(sourceHealthLines[1]).toContain('"2"');
   });

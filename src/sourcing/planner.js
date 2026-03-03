@@ -3,6 +3,7 @@ const { loadState } = require('./state');
 const {
   EXECUTION_MODES,
   getEffectiveDegradedCooldownMs,
+  isRateLimited,
   matchesExecutionMode,
   shouldRunSource,
 } = require('./runner');
@@ -82,6 +83,10 @@ function getDeferredReason(source, state, options) {
     return 'not_due_yet';
   }
 
+  if (isRateLimited(source, sourceState)) {
+    return 'rate_limited';
+  }
+
   const degradedCooldownMs = getEffectiveDegradedCooldownMs(source, sourceState);
   const ageMs = Date.now() - new Date(sourceState.last_run_at).getTime();
 
@@ -127,6 +132,7 @@ function buildPlan(options = {}) {
 
     if (
       executionModeMatch &&
+      deferredReason !== 'rate_limited' &&
       deferredReason !== 'cooldown_after_degraded' &&
       isDueSoon(nextDueAt, withinHours)
     ) {
