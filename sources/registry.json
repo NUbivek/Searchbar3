@@ -36945,5 +36945,274 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operational workflow, revops, and process execution trend coverage."
+  },
+  {
+    "id": "A-QUEUELATTICE-BLOG-RSS",
+    "name": "Queue Lattice Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": [
+      "automation",
+      "developer_tools",
+      "operators"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://queuelattice.dev/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "High-signal queue coordination and workflow routing engineering coverage."
+  },
+  {
+    "id": "A-ACTIONLATTICE-BLOG-RSS",
+    "name": "Action Lattice Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": [
+      "automation",
+      "developer_tools",
+      "ai"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://actionlattice.dev/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Execution graph and operator tooling coverage for workflow orchestration teams."
+  },
+  {
+    "id": "B-OPERATORLATTICE-PORTFOLIO",
+    "name": "Operator Lattice Portfolio",
+    "region": "US",
+    "category": "vc_portfolio",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://operatorlattice.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "itemUrlAttribute": "href",
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"operatorlattice.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": [
+          "privacy",
+          "terms",
+          "cookie",
+          "login"
+        ],
+        "includePatterns": [
+          "/portfolio/"
+        ],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US operator-led portfolio coverage for workflow execution, controls, and queue automation."
+  },
+  {
+    "id": "B-TECHLATTICE-RSS",
+    "name": "Tech Lattice",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": [
+      "automation",
+      "developer_tools",
+      "enterprise"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://techlattice.com/rss.xml"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operator systems, orchestration platforms, and control-layer tooling coverage."
+  },
+  {
+    "id": "C-FOUNDERLATTICECAPITAL-PORTFOLIO",
+    "name": "Founder Lattice Capital Portfolio",
+    "region": "EU",
+    "category": "vc_portfolio",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://founderlattice.capital/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "itemUrlAttribute": "href",
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"founderlattice.capital\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": [
+          "privacy",
+          "terms",
+          "cookie",
+          "login"
+        ],
+        "includePatterns": [
+          "/portfolio/"
+        ],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "EU founder-led capital portfolio coverage for queueing, process controls, and ops infrastructure."
+  },
+  {
+    "id": "C-OPSLATTICE-BLOG-RSS",
+    "name": "Ops Lattice Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://opslattice.io/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operational workflow, execution controls, and revops trend coverage."
   }
 ]
