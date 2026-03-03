@@ -4098,6 +4098,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://exec.vc/portfolio/execgrid');
   });
 
+  test('HtmlListAdapter extracts Exec Founders-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/foundergrid">View</a>
+              <div class="company-name">FounderGrid</div>
+              <div class="description">Operator-led workflow software for B2B execution teams</div>
+              <div class="subtext">US startup helping finance, customer, and product teams coordinate delivery and internal systems</div>
+              <div class="company-site"><a href="https://foundergrid.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://execfounders.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="execfounders.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'founder' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('FounderGrid');
+    expect(results[0].content).toBe('US startup helping finance, customer, and product teams coordinate delivery and internal systems | Operator-led workflow software for B2B execution teams');
+    expect(results[0].company_name).toBe('FounderGrid');
+    expect(results[0].company_website).toBe('https://foundergrid.io/');
+    expect(results[0].url).toBe('https://execfounders.vc/portfolio/foundergrid');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
