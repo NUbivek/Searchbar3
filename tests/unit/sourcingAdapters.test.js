@@ -80,6 +80,48 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://example.com/companies/acme');
   });
 
+  test('HtmlListAdapter supports array selectors, include patterns, and attribute reads', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="listing" data-url="/startups/acme-ai">
+            <a class="nav-link" href="/pricing">Pricing</a>
+            <h3 data-title="Acme AI"></h3>
+            <p data-summary="Agentic workflow software"></p>
+          </article>
+          <article class="listing blocked" data-url="/legal/privacy">
+            <h3 data-title="Privacy"></h3>
+            <p data-summary="Ignore me"></p>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://example.com',
+        extract: {
+          itemSelector: ['.listing'],
+          titleSelector: ['h3'],
+          contentSelector: ['p'],
+          titleAttribute: 'data-title',
+          contentAttribute: 'data-summary',
+          itemUrlAttribute: 'data-url',
+          includePatterns: ['/startups/'],
+          excludeSelectors: ['.blocked'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Acme AI');
+    expect(results[0].content).toBe('Agentic workflow software');
+    expect(results[0].url).toBe('https://example.com/startups/acme-ai');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

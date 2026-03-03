@@ -83,8 +83,18 @@
       "type": "html",
       "url": "https://www.ycombinator.com/companies?query={{query}}",
       "extract": {
-        "itemSelector": "a[href*=\"/companies/\"]",
+        "itemSelector": [
+          "a[href*=\"/companies/\"]",
+          "[data-testid=\"company-card\"]"
+        ],
+        "linkSelector": "a[href*=\"/companies/\"]",
+        "titleSelector": [
+          "span",
+          "h2",
+          "h3"
+        ],
         "excludePatterns": ["/about", "/jobs", "/requests"],
+        "includePatterns": ["/companies/"],
         "limit": 20
       }
     },
@@ -201,8 +211,12 @@
       "type": "html",
       "url": "https://wellfound.com/jobs",
       "extract": {
-        "itemSelector": "a[href]",
+        "itemSelector": [
+          "a[href*=\"/jobs/\"]",
+          "a[href*=\"/company/\"]"
+        ],
         "excludePatterns": ["signin", "login", "privacy", "terms"],
+        "includePatterns": ["/jobs/", "/company/"],
         "limit": 20
       }
     },
@@ -382,8 +396,12 @@
       "type": "html",
       "url": "https://betalist.com/startups",
       "extract": {
-        "itemSelector": "a[href]",
+        "itemSelector": [
+          "a[href*=\"/startups/\"]",
+          "article a[href]"
+        ],
         "excludePatterns": ["login", "signup", "terms", "privacy"],
+        "includePatterns": ["/startups/"],
         "limit": 20
       }
     },
@@ -453,8 +471,13 @@
       "type": "html",
       "url": "https://www.f6s.com/programs",
       "extract": {
-        "itemSelector": "a[href]",
+        "itemSelector": [
+          "a[href*=\"/programs/\"]",
+          "a[href*=\"/companies/\"]",
+          "a[href*=\"/accelerators/\"]"
+        ],
         "excludePatterns": ["login", "signup", "terms", "privacy"],
+        "includePatterns": ["/programs/", "/companies/", "/accelerators/"],
         "limit": 20
       }
     },
