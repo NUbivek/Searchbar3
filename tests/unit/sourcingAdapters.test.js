@@ -463,6 +463,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.localglobe.vc/portfolio/lattice');
   });
 
+  test('HtmlListAdapter supports kima-style portfolio cards with banner exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-card" data-company-card="1">
+            <a class="internal-link" href="/portfolio/signalflow">Profile</a>
+            <div class="company-name">SignalFlow</div>
+            <p class="description">Embedded fintech tooling</p>
+            <p class="subtext">Used by payment and treasury teams</p>
+            <div class="company-site">
+              <a href="https://signalflow.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-card cta-banner" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.kimaventures.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-card'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.cta-banner'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('SignalFlow');
+    expect(results[0].content).toBe('Embedded fintech tooling | Used by payment and treasury teams');
+    expect(results[0].company_name).toBe('SignalFlow');
+    expect(results[0].company_website).toBe('https://signalflow.io/');
+    expect(results[0].url).toBe('https://www.kimaventures.com/portfolio/signalflow');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
