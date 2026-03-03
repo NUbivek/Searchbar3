@@ -23539,6 +23539,7 @@
       "url": "https://founderprocess.capital/portfolio",
       "extract": {
         "itemSelector": [
+          ".portfolio-item",
           ".portfolio-card",
           ".company-card",
           "article[data-company-card]",
@@ -27779,12 +27780,14 @@
           "a[href]"
         ],
         "titleSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
           "[data-company-name]"
         ],
         "contentSelector": [
+          ".subtext",
           "p",
           ".description",
           ".summary"
@@ -27792,6 +27795,7 @@
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
         "companyNameSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
@@ -27804,7 +27808,9 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta",
+          ".cta-banner"
         ],
         "excludePatterns": ["privacy", "terms", "cookie", "login"],
         "includePatterns": ["/portfolio/"],
@@ -27856,6 +27862,7 @@
       "url": "https://founderlab.capital/portfolio",
       "extract": {
         "itemSelector": [
+          ".portfolio-item",
           ".portfolio-card",
           ".company-card",
           "article[data-company-card]",
@@ -27866,12 +27873,14 @@
           "a[href]"
         ],
         "titleSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
           "[data-company-name]"
         ],
         "contentSelector": [
+          ".subtext",
           "p",
           ".description",
           ".summary"
@@ -27879,6 +27888,7 @@
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
         "companyNameSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
@@ -27891,7 +27901,9 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta",
+          ".cta-banner"
         ],
         "excludePatterns": ["privacy", "terms", "cookie", "login"],
         "includePatterns": ["/portfolio/"],

@@ -5907,6 +5907,67 @@ test('HtmlListAdapter extracts Operator Studio-style portfolio entries', async (
   expect(results[0].url).toBe('https://operatorstudio.vc/portfolio/studioops');
 });
 
+test('HtmlListAdapter extracts Operator Lab-style portfolio entries', async () => {
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get(name) {
+        if (String(name).toLowerCase() === 'content-type') {
+          return 'text/html; charset=utf-8';
+        }
+        return null;
+      },
+    },
+    text: async () => `
+      <html>
+        <body>
+          <section class="portfolio-item">
+            <a href="/portfolio/labops">View</a>
+            <div class="company-name">LabOps</div>
+            <div class="description">Operational workflow platform for automation, approvals, and execution coordination.</div>
+            <div class="subtext">US startup helping support, finance, and GTM teams manage operator workflows, routing, and process visibility.</div>
+            <div class="company-site"><a href="https://labops.io/">Company</a></div>
+          </section>
+          <div class="footer-cta">Ignore this footer</div>
+        </body>
+      </html>
+    `,
+  });
+
+  const adapter = new HtmlListAdapter({
+    method: {
+      url: 'https://operatorlab.vc/portfolio',
+      extract: {
+        itemSelector: ['.portfolio-item', '.portfolio-card'],
+        linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+        titleSelector: ['.company-name', 'h2'],
+        contentSelector: ['.subtext', '.description'],
+        mergeContentSelectors: true,
+        contentJoinWith: ' | ',
+        companyNameSelector: ['.company-name', 'h2'],
+        companyWebsiteSelector: [
+          'a[href*="http"]:not([href*="operatorlab.vc"])',
+          '.company-site a[href]',
+        ],
+        includePatterns: ['/portfolio/'],
+        excludeSelectors: ['.footer-cta', '.cta-banner'],
+      },
+    },
+  });
+
+  const results = await adapter.run({ query: 'ops' });
+
+  expect(results).toHaveLength(1);
+  expect(results[0].title).toBe('LabOps');
+  expect(results[0].content).toBe(
+    'US startup helping support, finance, and GTM teams manage operator workflows, routing, and process visibility. | Operational workflow platform for automation, approvals, and execution coordination.'
+  );
+  expect(results[0].company_name).toBe('LabOps');
+  expect(results[0].company_website).toBe('https://labops.io/');
+  expect(results[0].url).toBe('https://operatorlab.vc/portfolio/labops');
+});
+
 test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
