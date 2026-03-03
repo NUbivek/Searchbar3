@@ -6658,5 +6658,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Early-stage founder and venture insights."
+  },
+  {
+    "id": "A-CORCEL-BLOG-RSS",
+    "name": "Corcel Blog Feed",
+    "region": "US",
+    "category": "ai_infrastructure",
+    "thesis_tags": ["ai", "developer_tools", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://corcel.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "AI developer platform and agent workflow coverage."
+  },
+  {
+    "id": "A-HONEYCOMB-BLOG-RSS",
+    "name": "Honeycomb Blog Feed",
+    "region": "US",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "observability", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.honeycomb.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Observability and production engineering tooling coverage."
+  },
+  {
+    "id": "B-LEMONADE-PORTFOLIO",
+    "name": "Lemonade Stand Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "consumer", "startups"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://lemonade.vc/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"lemonade.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "European consumer and software portfolio coverage."
+  },
+  {
+    "id": "B-GROWTHLIST-FUNDING-RSS",
+    "name": "GrowthList Funding Feed",
+    "region": "Global",
+    "category": "funding_news",
+    "thesis_tags": ["funding", "startups", "growth"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://growthlist.co/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Startup launches, funding, and growth ecosystem coverage."
+  },
+  {
+    "id": "C-VOIMA-PORTFOLIO",
+    "name": "Voima Ventures Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "deeptech", "europe"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://voimaventures.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"voimaventures.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Nordic deeptech and science-backed startup portfolio source."
+  },
+  {
+    "id": "C-SCALE-VC-BLOG-RSS",
+    "name": "Scale Venture Partners Blog Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["venture", "software", "growth"],
+    "stage_bias": ["series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.scalevp.com/feed/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "B2B software and growth-stage operator insights."
   }
 ]
