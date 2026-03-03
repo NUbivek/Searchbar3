@@ -2269,5 +2269,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Founder and startup thinking with enduring signal value."
+  },
+  {
+    "id": "A-RETOOL-BLOG-RSS",
+    "name": "Retool Blog Feed",
+    "region": "US",
+    "category": "developer_ecosystem",
+    "thesis_tags": ["developer_tools", "software", "b2b"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://retool.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Internal tools, developer workflows, and B2B product signals."
+  },
+  {
+    "id": "A-PINECONE-BLOG-RSS",
+    "name": "Pinecone Blog Feed",
+    "region": "US",
+    "category": "ai_ecosystem",
+    "thesis_tags": ["ai", "developer_tools", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.pinecone.io/blog/rss/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Vector infrastructure and AI developer ecosystem updates."
+  },
+  {
+    "id": "B-SPEEDINVEST-PORTFOLIO",
+    "name": "Speedinvest Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["fintech", "developer_tools", "healthcare"],
+    "stage_bias": ["pre-seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://speedinvest.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"speedinvest.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "European portfolio source with multi-sector early-stage coverage."
+  },
+  {
+    "id": "B-SIFTED-NEWS-RSS",
+    "name": "Sifted Feed",
+    "region": "EU",
+    "category": "startup_news",
+    "thesis_tags": ["startups", "funding", "software"],
+    "stage_bias": ["pre-seed", "seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://sifted.eu/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "European startup launches, funding, and market coverage."
+  },
+  {
+    "id": "C-SCRUMVC-PORTFOLIO",
+    "name": "Scrum Ventures Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["developer_tools", "robotics", "ai"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://scrum.vc/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"scrum.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US venture portfolio source with robotics and AI tilt."
+  },
+  {
+    "id": "C-INSIDE-BLOG-RSS",
+    "name": "Inside Feed",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["startups", "markets", "software"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://inside.com/feed"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Curated startup and market signal source."
   }
 ]
