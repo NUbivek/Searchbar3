@@ -3598,6 +3598,53 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.luxcapital.com/companies/quantforge');
   });
 
+  test('HtmlListAdapter extracts SignalFire-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <div class="portfolio-item">
+            <a class="internal-link" href="/portfolio/modelgrid"></a>
+            <div class="company-name">ModelGrid</div>
+            <div class="description">AI infrastructure for evaluation, deployment, and agent observability in production systems</div>
+            <div class="subtext">US platform tooling for engineering teams shipping model-backed workflows and automation systems</div>
+            <div class="company-site"><a href="https://modelgrid.ai/">Visit</a></div>
+          </div>
+          <div class="footer-cta">
+            <a href="/portfolio/ignore-me">Ignore me</a>
+          </div>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://signalfire.com/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('ModelGrid');
+    expect(results[0].content).toBe('AI infrastructure for evaluation, deployment, and agent observability in production systems | US platform tooling for engineering teams shipping model-backed workflows and automation systems');
+    expect(results[0].company_name).toBe('ModelGrid');
+    expect(results[0].company_website).toBe('https://modelgrid.ai/');
+    expect(results[0].url).toBe('https://signalfire.com/portfolio/modelgrid');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
