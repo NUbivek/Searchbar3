@@ -1313,6 +1313,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://seedtogrow.vc/portfolio/pulsemesh');
   });
 
+  test('HtmlListAdapter supports hoxton-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/opsforge">Profile</a>
+            <div class="company-name">OpsForge</div>
+            <p class="description">Workflow systems for operations teams</p>
+            <p class="subtext">Used by finance, support, and revenue orgs</p>
+            <div class="company-site">
+              <a href="https://opsforge.com">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.hoxtonventures.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('OpsForge');
+    expect(results[0].content).toBe('Workflow systems for operations teams | Used by finance, support, and revenue orgs');
+    expect(results[0].company_name).toBe('OpsForge');
+    expect(results[0].company_website).toBe('https://opsforge.com/');
+    expect(results[0].url).toBe('https://www.hoxtonventures.com/portfolio/opsforge');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
