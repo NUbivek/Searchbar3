@@ -17604,15 +17604,15 @@
     "notes": "Webhook infrastructure and API automation coverage."
   },
   {
-    "id": "A-QUEUEKIT-BLOG-RSS",
-    "name": "QueueKit Blog Feed",
+    "id": "A-QUEUEFLOW-BLOG-RSS",
+    "name": "QueueFlow Blog Feed",
     "region": "Global",
     "category": "developer_tools",
     "thesis_tags": ["developer_tools", "infrastructure", "reliability"],
     "stage_bias": ["seed", "series_a", "series_b"],
     "method": {
       "type": "rss",
-      "url": "https://queuekit.dev/blog/rss.xml"
+      "url": "https://queueflow.dev/blog/rss.xml"
     },
     "cadence": {
       "tier": "A",
@@ -19630,5 +19630,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operator playbooks, execution systems, and GTM process coverage."
+  },
+  {
+    "id": "A-QUEUEKIT-BLOG-RSS",
+    "name": "QueueKit Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "automation", "infrastructure"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://queuekit.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Background jobs, orchestration, and developer workflow coverage."
+  },
+  {
+    "id": "A-PIPEOPS-BLOG-RSS",
+    "name": "PipeOps Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "data", "infrastructure"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://pipeops.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Data workflow automation and platform engineering coverage."
+  },
+  {
+    "id": "B-OPERATORSGUILD-PORTFOLIO",
+    "name": "Operators Guild Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["saas", "operators", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://operatorsguild.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"operatorsguild.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Operator-driven software and workflow portfolio coverage."
+  },
+  {
+    "id": "B-TECHSTACK-RSS",
+    "name": "Tech Stack Feed",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["startups", "funding", "operators"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://techstack.co/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Startup launches, funding, and operating cadence coverage."
+  },
+  {
+    "id": "C-FOUNDRYSTACK-PORTFOLIO",
+    "name": "Foundry Stack Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["saas", "developer_tools", "operators"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://foundrystack.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"foundrystack.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US founder tooling and operating systems portfolio coverage."
+  },
+  {
+    "id": "C-OPSFLOW-BLOG-RSS",
+    "name": "Ops Flow Blog Feed",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "sales", "saas"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://opsflow.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operator systems, process design, and GTM execution coverage."
   }
 ]
