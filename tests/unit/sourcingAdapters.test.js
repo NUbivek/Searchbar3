@@ -4878,6 +4878,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://operatorsystems.vc/portfolio/opsnavigator');
   });
 
+  test('HtmlListAdapter extracts Operator Control-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/controlops">View</a>
+              <div class="company-name">ControlOps</div>
+              <div class="description">Operational software for execution controls and cross-functional process governance.</div>
+              <div class="subtext">US startup helping finance, support, and GTM teams manage reviews, approvals, and launch checkpoints.</div>
+              <div class="company-site"><a href="https://controlops.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://operatorcontrol.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="operatorcontrol.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'ops' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('ControlOps');
+    expect(results[0].content).toBe('US startup helping finance, support, and GTM teams manage reviews, approvals, and launch checkpoints. | Operational software for execution controls and cross-functional process governance.');
+    expect(results[0].company_name).toBe('ControlOps');
+    expect(results[0].company_website).toBe('https://controlops.io/');
+    expect(results[0].url).toBe('https://operatorcontrol.vc/portfolio/controlops');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
