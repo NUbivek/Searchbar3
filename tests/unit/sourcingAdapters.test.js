@@ -513,6 +513,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.kimaventures.com/portfolio/signalflow');
   });
 
+  test('HtmlListAdapter supports speedinvest-style portfolio cards with banner exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-card" data-company-card="1">
+            <a class="internal-link" href="/portfolio/arcgrid">Profile</a>
+            <div class="company-name">ArcGrid</div>
+            <p class="description">Developer infra orchestration</p>
+            <p class="subtext">Used by distributed product teams</p>
+            <div class="company-site">
+              <a href="https://arcgrid.dev">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-card footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://speedinvest.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-card'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('ArcGrid');
+    expect(results[0].content).toBe('Developer infra orchestration | Used by distributed product teams');
+    expect(results[0].company_name).toBe('ArcGrid');
+    expect(results[0].company_website).toBe('https://arcgrid.dev/');
+    expect(results[0].url).toBe('https://speedinvest.com/portfolio/arcgrid');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
