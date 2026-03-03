@@ -3504,6 +3504,53 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.foundercollective.com/portfolio/launchdeck');
   });
 
+  test('HtmlListAdapter extracts Slow Ventures-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <div class="portfolio-item">
+            <a class="internal-link" href="/portfolio/marketlane"></a>
+            <div class="company-name">MarketLane</div>
+            <div class="description">Consumer marketplace infrastructure for transactions, identity, and payments</div>
+            <div class="subtext">US startup tooling for operator teams running commerce, onboarding, and monetization systems</div>
+            <div class="company-site"><a href="https://marketlane.co/">Visit</a></div>
+          </div>
+          <div class="footer-cta">
+            <a href="/portfolio/ignore-me">Ignore me</a>
+          </div>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.slow.co/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('MarketLane');
+    expect(results[0].content).toBe('Consumer marketplace infrastructure for transactions, identity, and payments | US startup tooling for operator teams running commerce, onboarding, and monetization systems');
+    expect(results[0].company_name).toBe('MarketLane');
+    expect(results[0].company_website).toBe('https://marketlane.co/');
+    expect(results[0].url).toBe('https://www.slow.co/portfolio/marketlane');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
