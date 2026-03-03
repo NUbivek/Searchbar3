@@ -1263,6 +1263,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://playfair.vc/portfolio/brightlayer');
   });
 
+  test('HtmlListAdapter supports seedtogrow-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/pulsemesh">Profile</a>
+            <div class="company-name">PulseMesh</div>
+            <p class="description">Workflow orchestration for ops teams</p>
+            <p class="subtext">Used by finance and support organizations</p>
+            <div class="company-site">
+              <a href="https://pulsemesh.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://seedtogrow.vc/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('PulseMesh');
+    expect(results[0].content).toBe('Workflow orchestration for ops teams | Used by finance and support organizations');
+    expect(results[0].company_name).toBe('PulseMesh');
+    expect(results[0].company_website).toBe('https://pulsemesh.io/');
+    expect(results[0].url).toBe('https://seedtogrow.vc/portfolio/pulsemesh');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
