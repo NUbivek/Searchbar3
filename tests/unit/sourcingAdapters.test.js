@@ -122,6 +122,46 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://example.com/startups/acme-ai');
   });
 
+  test('HtmlListAdapter can merge content and extract company metadata', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="card">
+            <a class="listing-link" href="/portfolio/acme">Visit</a>
+            <h3 class="company">Acme Labs</h3>
+            <p class="summary">AI workflow tooling</p>
+            <p class="summary">Hiring engineers now</p>
+            <a class="company-site" href="https://acme.ai">Website</a>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://example.com',
+        extract: {
+          itemSelector: '.card',
+          linkSelector: '.listing-link',
+          titleSelector: '.company',
+          contentSelector: ['.summary'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: '.company',
+          companyWebsiteSelector: '.company-site',
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].content).toBe('AI workflow tooling | Hiring engineers now');
+    expect(results[0].company_name).toBe('Acme Labs');
+    expect(results[0].company_website).toBe('https://acme.ai/');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

@@ -37,6 +37,31 @@ function readNodeValue(node, attributeName) {
   return node.text().replace(/\s+/g, ' ').trim();
 }
 
+function readMergedValues($, rootNode, selectors, attributeName, joinWith) {
+  if (!selectors.length) {
+    return '';
+  }
+
+  const values = [];
+  const seen = new Set();
+
+  for (const selector of selectors) {
+    rootNode.find(selector).each((_, element) => {
+      const node = $(element);
+      const value = readNodeValue(node, attributeName);
+
+      if (!value || seen.has(value)) {
+        return;
+      }
+
+      seen.add(value);
+      values.push(value);
+    });
+  }
+
+  return values.join(joinWith);
+}
+
 class HtmlListAdapter extends BaseAdapter {
   async run({ query }) {
     const url = this.resolveUrl(query);
@@ -47,11 +72,17 @@ class HtmlListAdapter extends BaseAdapter {
     const linkSelectors = toSelectorList(extractConfig.linkSelector, null);
     const titleSelectors = toSelectorList(extractConfig.titleSelector, null);
     const contentSelectors = toSelectorList(extractConfig.contentSelector, null);
+    const companyNameSelectors = toSelectorList(extractConfig.companyNameSelector, null);
+    const companyWebsiteSelectors = toSelectorList(extractConfig.companyWebsiteSelector, null);
     const excludeSelectors = toSelectorList(extractConfig.excludeSelectors, null);
     const urlAttribute = extractConfig.urlAttribute || 'href';
     const itemUrlAttribute = extractConfig.itemUrlAttribute || null;
     const titleAttribute = extractConfig.titleAttribute || null;
     const contentAttribute = extractConfig.contentAttribute || null;
+    const companyNameAttribute = extractConfig.companyNameAttribute || null;
+    const companyWebsiteUrlAttribute = extractConfig.companyWebsiteUrlAttribute || 'href';
+    const mergeContentSelectors = extractConfig.mergeContentSelectors === true;
+    const contentJoinWith = extractConfig.contentJoinWith || ' ';
     const limit = Number.isInteger(extractConfig.limit) ? extractConfig.limit : 20;
     const excludePatterns = Array.isArray(extractConfig.excludePatterns)
       ? extractConfig.excludePatterns.map((pattern) => new RegExp(pattern, 'i'))
@@ -78,13 +109,25 @@ class HtmlListAdapter extends BaseAdapter {
 
         const linkNode = firstMatchingNode($, node, linkSelectors, node);
         const titleNode = firstMatchingNode($, node, titleSelectors, linkNode || node);
-        const contentNode = firstMatchingNode($, node, contentSelectors, null);
+        const contentNode = mergeContentSelectors
+          ? null
+          : firstMatchingNode($, node, contentSelectors, null);
+        const companyNameNode = firstMatchingNode($, node, companyNameSelectors, null);
+        const companyWebsiteNode = firstMatchingNode($, node, companyWebsiteSelectors, null);
         const href =
           (linkNode && linkNode.attr(urlAttribute)) ||
           (itemUrlAttribute ? node.attr(itemUrlAttribute) : '') ||
           '';
         const title = readNodeValue(titleNode, titleAttribute);
-        const content = readNodeValue(contentNode, contentAttribute) || title;
+        const content = (
+          mergeContentSelectors
+            ? readMergedValues($, node, contentSelectors, contentAttribute, contentJoinWith)
+            : readNodeValue(contentNode, contentAttribute)
+        ) || title;
+        const companyName = readNodeValue(companyNameNode, companyNameAttribute);
+        const companyWebsite = companyWebsiteNode
+          ? new URL(companyWebsiteNode.attr(companyWebsiteUrlAttribute), this.source.method.url).toString()
+          : '';
 
         if (!href || !title || title.length < 2) {
           return;
@@ -110,6 +153,8 @@ class HtmlListAdapter extends BaseAdapter {
           title,
           url: absoluteUrl,
           content,
+          company_name: companyName || undefined,
+          company_website: companyWebsite || undefined,
           publishedAt: new Date().toISOString(),
           confidence: 0.55,
           signal_type: 'directory_listing',

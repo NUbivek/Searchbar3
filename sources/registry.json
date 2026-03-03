@@ -570,8 +570,32 @@
       "url": "https://www.antler.co/portfolio",
       "extract": {
         "itemSelector": [
+          "[href*=\"/portfolio/\"]",
+          "article",
+          ".card"
+        ],
+        "linkSelector": [
           "a[href*=\"/portfolio/\"]",
-          "main a[href]"
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          "h4",
+          "[data-title]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          "h4",
+          "[data-title]"
         ],
         "excludePatterns": ["privacy", "terms", "cookie", "login"],
         "includePatterns": ["/portfolio/"],
@@ -623,8 +647,32 @@
       "url": "https://startupstash.com",
       "extract": {
         "itemSelector": [
+          "article",
+          ".tool-card",
           "a[href*=\"/startup/\"]",
           "a[href*=\"/tools/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/startup/\"]",
+          "a[href*=\"/tools/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title"
         ],
         "excludePatterns": ["privacy", "terms", "login", "newsletter"],
         "includePatterns": ["/startup/", "/tools/"],
