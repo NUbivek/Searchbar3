@@ -1123,5 +1123,225 @@
     "requires_auth": false,
     "adapter": "html_list",
     "notes": "Portfolio directory for growth and early-stage startup discovery."
+  },
+  {
+    "id": "A-ANTHROPIC-NEWS-RSS",
+    "name": "Anthropic News Feed",
+    "region": "Global",
+    "category": "ai_ecosystem",
+    "thesis_tags": ["ai", "infrastructure", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.anthropic.com/news/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "AI platform launches and ecosystem updates."
+  },
+  {
+    "id": "A-STRIPE-BLOG-RSS",
+    "name": "Stripe Blog Feed",
+    "region": "Global",
+    "category": "fintech_ecosystem",
+    "thesis_tags": ["fintech", "payments", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://stripe.com/blog/feed.rss"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Payments infrastructure and fintech product signals."
+  },
+  {
+    "id": "B-MERCURY-RAISE-RSS",
+    "name": "Mercury Raise Feed",
+    "region": "US",
+    "category": "funding_ecosystem",
+    "thesis_tags": ["fintech", "venture", "startups"],
+    "stage_bias": ["pre-seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://mercury.com/raise/rss.xml"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Startup fundraising guides and ecosystem signals."
+  },
+  {
+    "id": "B-20VC-PORTFOLIO",
+    "name": "20VC Portfolio",
+    "region": "Global",
+    "category": "venture_portfolio",
+    "thesis_tags": ["software", "ai", "b2b"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://www.20vc.com/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"20vc.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav",
+          ".footer-cta"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Portfolio directory for venture-backed startup discovery."
+  },
+  {
+    "id": "C-BENSBITS-RSS",
+    "name": "Benedict Evans Feed",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["software", "markets", "consumer"],
+    "stage_bias": ["series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.ben-evans.com/benedictevans?format=rss"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Technology market analysis and ecosystem shifts."
+  },
+  {
+    "id": "C-CRANE-PORTFOLIO",
+    "name": "Crane Venture Partners Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["software", "ai", "b2b"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://www.crane.vc/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"crane.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav",
+          ".footer-cta"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "European venture portfolio source for B2B startup discovery."
   }
 ]
