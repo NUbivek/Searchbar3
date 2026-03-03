@@ -1613,6 +1613,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.fintech.io/portfolio/treasurymesh');
   });
 
+  test('HtmlListAdapter supports creative destruction lab-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/ventures/quantforge">Profile</a>
+            <div class="company-name">QuantForge</div>
+            <p class="description">Applied AI systems for industrial robotics teams</p>
+            <p class="subtext">Used by labs, operators, and manufacturing groups</p>
+            <div class="company-site">
+              <a href="https://quantforge.ai">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/ventures/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://creativedestructionlab.com/ventures/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/ventures/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('QuantForge');
+    expect(results[0].content).toBe('Applied AI systems for industrial robotics teams | Used by labs, operators, and manufacturing groups');
+    expect(results[0].company_name).toBe('QuantForge');
+    expect(results[0].company_website).toBe('https://quantforge.ai/');
+    expect(results[0].url).toBe('https://creativedestructionlab.com/ventures/quantforge');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
