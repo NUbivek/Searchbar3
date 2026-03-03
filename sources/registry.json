@@ -491,5 +491,155 @@
     "requires_auth": false,
     "adapter": "html_list",
     "notes": "Accelerator and program listings as early company source."
+  },
+  {
+    "id": "A-INDIEHACKERS-RSS",
+    "name": "Indie Hackers Feed",
+    "region": "Global",
+    "category": "startup_ecosystem",
+    "thesis_tags": ["software", "bootstrapped", "developer_tools"],
+    "stage_bias": ["pre-seed", "seed"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.indiehackers.com/feed"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Founder launch and traction signals from bootstrapped startups."
+  },
+  {
+    "id": "A-HUGGINGFACE-BLOG-RSS",
+    "name": "Hugging Face Blog Feed",
+    "region": "Global",
+    "category": "ai_ecosystem",
+    "thesis_tags": ["ai", "developer_tools", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://huggingface.co/blog/feed.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "AI tooling launches and ecosystem momentum signals."
+  },
+  {
+    "id": "B-TECHEU-RSS",
+    "name": "Tech.eu Feed",
+    "region": "EU",
+    "category": "startup_news",
+    "thesis_tags": ["software", "venture", "fintech"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://tech.eu/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "European startup news and funding source."
+  },
+  {
+    "id": "B-ANTLER-PORTFOLIO",
+    "name": "Antler Portfolio",
+    "region": "Global",
+    "category": "accelerator_directory",
+    "thesis_tags": ["software", "ai", "b2b"],
+    "stage_bias": ["pre-seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://www.antler.co/portfolio",
+      "extract": {
+        "itemSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "main a[href]"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Portfolio directory for newly backed companies."
+  },
+  {
+    "id": "C-EUVC-RSS",
+    "name": "EUVC Feed",
+    "region": "EU",
+    "category": "funding_ecosystem",
+    "thesis_tags": ["venture", "software", "b2b"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://eu.vc/feed/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "European VC and portfolio coverage."
+  },
+  {
+    "id": "C-STARTUPSTASH",
+    "name": "Startup Stash",
+    "region": "Global",
+    "category": "startup_ecosystem",
+    "thesis_tags": ["software", "saas", "developer_tools"],
+    "stage_bias": ["pre-seed", "seed"],
+    "method": {
+      "type": "html",
+      "url": "https://startupstash.com",
+      "extract": {
+        "itemSelector": [
+          "a[href*=\"/startup/\"]",
+          "a[href*=\"/tools/\"]"
+        ],
+        "excludePatterns": ["privacy", "terms", "login", "newsletter"],
+        "includePatterns": ["/startup/", "/tools/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Tool and startup listings that surface new company activity."
   }
 ]

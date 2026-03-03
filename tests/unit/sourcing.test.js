@@ -3,6 +3,7 @@ const os = require('os');
 const path = require('path');
 
 const { buildPlan } = require('../../src/sourcing/planner');
+const { computeCoverageStats, validateCoverageTargets } = require('../../src/sourcing/coverage');
 const { validateRegistry, validateRegistryEntry } = require('../../src/sourcing/schema');
 const { normalizeSignal } = require('../../src/sourcing/normalizer');
 const { matchesExecutionMode, runPipeline, shouldRunSource } = require('../../src/sourcing/runner');
@@ -269,6 +270,50 @@ describe('sourcing foundation', () => {
     expect(plan.nextDueByFrequency.monthly).toBe(
       plan.deferredSources.find((entry) => entry.id === 'C-DEFERRED').nextDueAt
     );
+  });
+
+  test('coverage stats enforce source count and RSS/HTML mix targets', () => {
+    const registry = [
+      {
+        id: 'A',
+        method: { type: 'rss' },
+        cadence: { tier: 'A' },
+        adapter: 'rss',
+        region: 'Global',
+      },
+      {
+        id: 'B',
+        method: { type: 'html' },
+        cadence: { tier: 'B' },
+        adapter: 'html_list',
+        region: 'US',
+      },
+      {
+        id: 'C',
+        method: { type: 'api' },
+        cadence: { tier: 'C' },
+        adapter: 'api_search',
+        region: 'EU',
+      },
+    ];
+
+    const stats = computeCoverageStats(registry);
+    expect(stats.totalSources).toBe(3);
+    expect(stats.htmlLikeCount).toBe(2);
+    expect(stats.htmlLikeRatio).toBeCloseTo(2 / 3);
+
+    const failingValidation = validateCoverageTargets(registry, {
+      minimumSourceCount: 4,
+      minimumHtmlLikeRatio: 0.7,
+    });
+    expect(failingValidation.valid).toBe(false);
+    expect(failingValidation.errors).toHaveLength(2);
+
+    const passingValidation = validateCoverageTargets(registry, {
+      minimumSourceCount: 3,
+      minimumHtmlLikeRatio: 0.6,
+    });
+    expect(passingValidation.valid).toBe(true);
   });
 
   test('runPipeline writes only net-new signals on repeated runs', async () => {
