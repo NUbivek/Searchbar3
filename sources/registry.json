@@ -4106,5 +4106,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Early-stage founder and market observations from NextView."
+  },
+  {
+    "id": "A-ANYSCALE-BLOG-RSS",
+    "name": "Anyscale Blog Feed",
+    "region": "US",
+    "category": "ai_infrastructure",
+    "thesis_tags": ["ai", "infrastructure", "cloud"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.anyscale.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Distributed AI infrastructure and production ML signals."
+  },
+  {
+    "id": "A-FIREWORKS-AI-BLOG-RSS",
+    "name": "Fireworks AI Blog Feed",
+    "region": "US",
+    "category": "ai_infrastructure",
+    "thesis_tags": ["ai", "developer_tools", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://fireworks.ai/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Inference stack and AI developer platform updates."
+  },
+  {
+    "id": "B-ELAIA-PORTFOLIO",
+    "name": "Elaia Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "europe", "deeptech"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "html",
+      "url": "https://www.elaia.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"elaia.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "European deeptech and software venture portfolio source."
+  },
+  {
+    "id": "B-VENTUREBEAT-AI-RSS",
+    "name": "VentureBeat AI Feed",
+    "region": "US",
+    "category": "startup_news",
+    "thesis_tags": ["ai", "enterprise", "startups"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://venturebeat.com/category/ai/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "AI product, funding, and enterprise startup coverage."
+  },
+  {
+    "id": "C-GAINGELS-PORTFOLIO",
+    "name": "Gaingels Portfolio",
+    "region": "Global",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "community", "startups"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "html",
+      "url": "https://www.gaingels.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"gaingels.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Broad community-backed startup portfolio coverage."
+  },
+  {
+    "id": "C-FIRSTROUND-REVIEW-RSS",
+    "name": "First Round Review Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["founders", "operations", "startups"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://review.firstround.com/rss/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operator and founder execution guidance with early-stage relevance."
   }
 ]
