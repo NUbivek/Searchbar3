@@ -17800,7 +17800,7 @@
     "notes": "Healthcare, fintech, and applied AI portfolio coverage."
   },
   {
-    "id": "C-OPSPIPELINE-BLOG-RSS",
+    "id": "C-OPSPIPELINESYSTEMS-BLOG-RSS",
     "name": "Ops Pipeline Blog Feed",
     "region": "US",
     "category": "market_analysis",
@@ -26332,5 +26332,223 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operational process systems, sales execution, and RevOps process analysis coverage."
+  },
+  {
+    "id": "A-QUEUEPIPELINE-BLOG-RSS",
+    "name": "Queue Pipeline Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "automation", "developer_tools"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://queuepipeline.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Queue pipelines, workflow orchestration, and execution engineering coverage."
+  },
+  {
+    "id": "A-ACTIONPIPELINE-BLOG-RSS",
+    "name": "Action Pipeline Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "automation", "developer_tools"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://actionpipeline.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Action pipelines, operator automation, and workflow execution systems coverage."
+  },
+  {
+    "id": "B-OPERATORPIPELINE-PORTFOLIO",
+    "name": "Operator Pipeline Portfolio",
+    "region": "US",
+    "category": "vc_portfolio",
+    "thesis_tags": ["operators", "sales", "automation"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://operatorpipeline.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"operatorpipeline.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Operator-focused workflow pipeline and execution systems portfolio coverage."
+  },
+  {
+    "id": "B-TECHPIPELINEOPS-RSS",
+    "name": "Tech Pipeline Ops",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "sales", "automation"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://techpipelineops.com/rss.xml"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Pipeline operations, execution tooling, and RevOps systems analysis coverage."
+  },
+  {
+    "id": "C-FOUNDERPIPELINESYSTEMS-PORTFOLIO",
+    "name": "Founder Pipeline Systems Capital",
+    "region": "US",
+    "category": "vc_portfolio",
+    "thesis_tags": ["operators", "sales", "automation"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://founderpipelinesystems.capital/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"founderpipelinesystems.capital\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Founder-led pipeline systems and operating workflow portfolio coverage."
+  },
+  {
+    "id": "C-OPSPIPELINE-BLOG-RSS",
+    "name": "Ops Pipeline Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "sales", "automation"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://opspipeline.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operational pipelines, process execution, and RevOps systems analysis coverage."
   }
 ]
