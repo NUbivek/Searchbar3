@@ -2913,6 +2913,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://redpoint.com/portfolio/agentpath');
   });
 
+  test('HtmlListAdapter supports nea-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/launchmesh">Profile</a>
+            <div class="company-name">LaunchMesh</div>
+            <p class="description">Enterprise AI infrastructure for data routing, orchestration, and product workflows</p>
+            <p class="subtext">US software stack for platform, data, and engineering teams</p>
+            <div class="company-site">
+              <a href="https://launchmesh.ai">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.nea.com/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('LaunchMesh');
+    expect(results[0].content).toBe('Enterprise AI infrastructure for data routing, orchestration, and product workflows | US software stack for platform, data, and engineering teams');
+    expect(results[0].company_name).toBe('LaunchMesh');
+    expect(results[0].company_website).toBe('https://launchmesh.ai/');
+    expect(results[0].url).toBe('https://www.nea.com/portfolio/launchmesh');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
