@@ -4202,6 +4202,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://opsventures.vc/portfolio/opsgrid');
   });
 
+  test('HtmlListAdapter extracts Operators Guild-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/guildops">View</a>
+              <div class="company-name">GuildOps</div>
+              <div class="description">Operator-led workflow software for revenue and delivery teams</div>
+              <div class="subtext">US startup helping product, finance, and customer teams coordinate internal systems and execution</div>
+              <div class="company-site"><a href="https://guildops.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://operatorsguild.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="operatorsguild.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'guild' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('GuildOps');
+    expect(results[0].content).toBe('US startup helping product, finance, and customer teams coordinate internal systems and execution | Operator-led workflow software for revenue and delivery teams');
+    expect(results[0].company_name).toBe('GuildOps');
+    expect(results[0].company_website).toBe('https://guildops.io/');
+    expect(results[0].url).toBe('https://operatorsguild.vc/portfolio/guildops');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
