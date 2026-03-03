@@ -4878,18 +4878,18 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://operatorsystems.vc/portfolio/opsnavigator');
   });
 
-  test('HtmlListAdapter extracts Operator Control-style portfolio entries', async () => {
+  test('HtmlListAdapter extracts Operator Stack-style portfolio entries', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       text: async () => `
         <html>
           <body>
             <div class="portfolio-item">
-              <a class="internal-link" href="/portfolio/controlops">View</a>
-              <div class="company-name">ControlOps</div>
-              <div class="description">Operational software for execution controls and cross-functional process governance.</div>
-              <div class="subtext">US startup helping finance, support, and GTM teams manage reviews, approvals, and launch checkpoints.</div>
-              <div class="company-site"><a href="https://controlops.io/">Website</a></div>
+              <a class="internal-link" href="/portfolio/opsstacker">View</a>
+              <div class="company-name">OpsStacker</div>
+              <div class="description">Operator workflow software for systemized execution across launches, approvals, and internal handoffs.</div>
+              <div class="subtext">US startup helping finance, support, and GTM teams coordinate approvals, launches, and process controls.</div>
+              <div class="company-site"><a href="https://opsstacker.io/">Website</a></div>
             </div>
             <div class="footer-cta">
               <a href="/portfolio/footer-link">Ignore</a>
@@ -4901,7 +4901,7 @@ describe('sourcing adapters', () => {
 
     const adapter = new HtmlListAdapter({
       method: {
-        url: 'https://operatorcontrol.vc/portfolio',
+        url: 'https://operatorstack.vc/portfolio',
         extract: {
           itemSelector: ['.portfolio-item', '.portfolio-card'],
           linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
@@ -4911,7 +4911,7 @@ describe('sourcing adapters', () => {
           contentJoinWith: ' | ',
           companyNameSelector: ['.company-name', 'h2'],
           companyWebsiteSelector: [
-            'a[href*="http"]:not([href*="operatorcontrol.vc"])',
+            'a[href*="http"]:not([href*="operatorstack.vc"])',
             '.company-site a[href]',
           ],
           includePatterns: ['/portfolio/'],
@@ -4923,11 +4923,11 @@ describe('sourcing adapters', () => {
     const results = await adapter.run({ query: 'ops' });
 
     expect(results).toHaveLength(1);
-    expect(results[0].title).toBe('ControlOps');
-    expect(results[0].content).toBe('US startup helping finance, support, and GTM teams manage reviews, approvals, and launch checkpoints. | Operational software for execution controls and cross-functional process governance.');
-    expect(results[0].company_name).toBe('ControlOps');
-    expect(results[0].company_website).toBe('https://controlops.io/');
-    expect(results[0].url).toBe('https://operatorcontrol.vc/portfolio/controlops');
+    expect(results[0].title).toBe('OpsStacker');
+    expect(results[0].content).toBe('US startup helping finance, support, and GTM teams coordinate approvals, launches, and process controls. | Operator workflow software for systemized execution across launches, approvals, and internal handoffs.');
+    expect(results[0].company_name).toBe('OpsStacker');
+    expect(results[0].company_website).toBe('https://opsstacker.io/');
+    expect(results[0].url).toBe('https://operatorstack.vc/portfolio/opsstacker');
   });
 
   test('ApiSearchAdapter respects configured field paths', async () => {
