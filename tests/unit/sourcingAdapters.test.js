@@ -3890,6 +3890,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.stacked.vc/portfolio/stackflow');
   });
 
+  test('HtmlListAdapter extracts Focus-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/focusgrid">View</a>
+              <div class="company-name">FocusGrid</div>
+              <div class="description">Security and fintech tooling for modern operations teams</div>
+              <div class="subtext">US startup helping finance, compliance, and infrastructure teams automate core internal workflows</div>
+              <div class="company-site"><a href="https://focusgrid.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://focus.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="focus.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'focus' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('FocusGrid');
+    expect(results[0].content).toBe('US startup helping finance, compliance, and infrastructure teams automate core internal workflows | Security and fintech tooling for modern operations teams');
+    expect(results[0].company_name).toBe('FocusGrid');
+    expect(results[0].company_website).toBe('https://focusgrid.io/');
+    expect(results[0].url).toBe('https://focus.vc/portfolio/focusgrid');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
