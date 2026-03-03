@@ -2063,6 +2063,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://openocean.vc/portfolio/datamesh-cloud');
   });
 
+  test('HtmlListAdapter supports sunstone-style portfolio items with banner exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/nordstack">Profile</a>
+            <div class="company-name">NordStack</div>
+            <p class="description">Enterprise workflow tooling for Nordic finance and ops teams</p>
+            <p class="subtext">B2B infrastructure stack for compliance and automation</p>
+            <div class="company-site">
+              <a href="https://nordstack.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item cta-banner" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.sunstone.life/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.cta-banner'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('NordStack');
+    expect(results[0].content).toBe('Enterprise workflow tooling for Nordic finance and ops teams | B2B infrastructure stack for compliance and automation');
+    expect(results[0].company_name).toBe('NordStack');
+    expect(results[0].company_website).toBe('https://nordstack.io/');
+    expect(results[0].url).toBe('https://www.sunstone.life/portfolio/nordstack');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
