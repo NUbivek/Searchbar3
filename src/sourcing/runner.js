@@ -1,3 +1,4 @@
+const { CategoryExportWriter } = require('./categoryExport');
 const { CrmExportWriter } = require('./crmExport');
 const { ensureDedupeState, shouldEmitSignal } = require('./dedupe');
 const { normalizeSignal } = require('./normalizer');
@@ -204,6 +205,7 @@ async function runPipeline(options = {}) {
   ensureDedupeState(state);
   const writer = new SignalWriter(options.outputPath);
   const rollupWriter = new DailyRollupWriter(options.rollupPath);
+  const categoryExportWriter = new CategoryExportWriter(options.categoryExportPath);
   const crmExportWriter = new CrmExportWriter(options.crmExportPath);
   const runReportWriter = new RunReportWriter(options.runReportPath);
   const runnableSources = registry.filter((source) => shouldRunSource(source, state, options));
@@ -234,6 +236,7 @@ async function runPipeline(options = {}) {
   }
 
   const rollupCount = rollupWriter.write(emittedSignals);
+  const categoryExportCount = categoryExportWriter.write(emittedSignals);
   const crmExportCount = crmExportWriter.write(emittedSignals);
   const runReport = runReportWriter.write({
     generatedAt: new Date().toISOString(),
@@ -244,6 +247,7 @@ async function runPipeline(options = {}) {
     skippedCount: registry.length - runnableSources.length,
     emittedCount,
     rollupCount,
+    categoryExportCount,
     crmExportCount,
     degradedCount: summaries.filter((summary) => summary.status === 'degraded').length,
     dedupedCount: summaries.reduce((sum, summary) => sum + (summary.dedupedCount || 0), 0),
@@ -256,6 +260,7 @@ async function runPipeline(options = {}) {
   return {
     emittedCount,
     rollupCount,
+    categoryExportCount,
     crmExportCount,
     runCount: runnableSources.length,
     skippedCount: registry.length - runnableSources.length,

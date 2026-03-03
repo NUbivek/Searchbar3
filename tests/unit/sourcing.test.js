@@ -322,6 +322,7 @@ describe('sourcing foundation', () => {
     const outputPath = path.join(tempDir, 'signals.jsonl');
     const statePath = path.join(tempDir, 'source_state.json');
     const rollupPath = path.join(tempDir, 'daily_rollup.csv');
+    const categoryExportPath = path.join(tempDir, 'category_rollup.csv');
     const crmExportPath = path.join(tempDir, 'crm_export.csv');
     const runReportPath = path.join(tempDir, 'latest_run_summary.json');
 
@@ -373,6 +374,7 @@ describe('sourcing foundation', () => {
       outputPath,
       statePath,
       rollupPath,
+      categoryExportPath,
       crmExportPath,
       runReportPath,
       frequency: 'daily',
@@ -384,6 +386,7 @@ describe('sourcing foundation', () => {
       outputPath,
       statePath,
       rollupPath,
+      categoryExportPath,
       crmExportPath,
       runReportPath,
       frequency: 'daily',
@@ -392,17 +395,21 @@ describe('sourcing foundation', () => {
 
     const writtenLines = fs.readFileSync(outputPath, 'utf-8').trim().split('\n');
     const rollupLines = fs.readFileSync(rollupPath, 'utf-8').trim().split('\n');
+    const categoryLines = fs.readFileSync(categoryExportPath, 'utf-8').trim().split('\n');
     const crmLines = fs.readFileSync(crmExportPath, 'utf-8').trim().split('\n');
     const runReport = JSON.parse(fs.readFileSync(runReportPath, 'utf-8'));
 
     expect(firstRun.emittedCount).toBe(1);
     expect(firstRun.rollupCount).toBe(1);
+    expect(firstRun.categoryExportCount).toBe(1);
     expect(firstRun.crmExportCount).toBe(1);
     expect(secondRun.emittedCount).toBe(0);
     expect(secondRun.rollupCount).toBe(0);
+    expect(secondRun.categoryExportCount).toBe(0);
     expect(secondRun.crmExportCount).toBe(0);
     expect(writtenLines).toHaveLength(1);
     expect(rollupLines).toHaveLength(1);
+    expect(categoryLines).toHaveLength(1);
     expect(crmLines).toHaveLength(1);
     expect(runReport.emittedCount).toBe(0);
     expect(runReport.runCount).toBe(1);
@@ -415,6 +422,7 @@ describe('sourcing foundation', () => {
     const outputPath = path.join(tempDir, 'signals.jsonl');
     const statePath = path.join(tempDir, 'source_state.json');
     const rollupPath = path.join(tempDir, 'daily_rollup.csv');
+    const categoryExportPath = path.join(tempDir, 'category_rollup.csv');
     const crmExportPath = path.join(tempDir, 'crm_export.csv');
     const runReportPath = path.join(tempDir, 'latest_run_summary.json');
 
@@ -486,19 +494,24 @@ describe('sourcing foundation', () => {
       outputPath,
       statePath,
       rollupPath,
+      categoryExportPath,
       crmExportPath,
       runReportPath,
       force: true,
     });
 
     const writtenLines = fs.readFileSync(outputPath, 'utf-8').trim().split('\n');
+    const categoryLines = fs.readFileSync(categoryExportPath, 'utf-8').trim().split('\n');
     const runReport = JSON.parse(fs.readFileSync(runReportPath, 'utf-8'));
 
     expect(result.emittedCount).toBe(1);
+    expect(result.categoryExportCount).toBe(1);
     expect(result.crmExportCount).toBe(1);
     expect(result.summaries[1].dedupedCount).toBe(1);
     expect(writtenLines).toHaveLength(1);
+    expect(categoryLines).toHaveLength(2);
     expect(runReport.dedupedCount).toBe(1);
+    expect(runReport.categoryExportCount).toBe(1);
     expect(runReport.tierHealth.A.ok).toBe(2);
     expect(runReport.tierHealth.A.degraded).toBe(0);
     expect(runReport.tierHealth.A.emittedCount).toBe(1);
