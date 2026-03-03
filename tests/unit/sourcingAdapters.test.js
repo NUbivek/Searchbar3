@@ -1463,6 +1463,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.nineyards.vc/portfolio/anchorgrid');
   });
 
+  test('HtmlListAdapter supports lemonade-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/sparkcart">Profile</a>
+            <div class="company-name">SparkCart</div>
+            <p class="description">Consumer checkout tools for modern retailers</p>
+            <p class="subtext">Used by commerce and payments teams across Europe</p>
+            <div class="company-site">
+              <a href="https://sparkcart.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://lemonade.vc/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('SparkCart');
+    expect(results[0].content).toBe('Consumer checkout tools for modern retailers | Used by commerce and payments teams across Europe');
+    expect(results[0].company_name).toBe('SparkCart');
+    expect(results[0].company_website).toBe('https://sparkcart.io/');
+    expect(results[0].url).toBe('https://lemonade.vc/portfolio/sparkcart');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
