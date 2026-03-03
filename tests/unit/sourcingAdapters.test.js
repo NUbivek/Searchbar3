@@ -1563,6 +1563,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://anthemis.com/portfolio/ledgerflow');
   });
 
+  test('HtmlListAdapter supports fintech collective-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/treasurymesh">Profile</a>
+            <div class="company-name">TreasuryMesh</div>
+            <p class="description">Banking infrastructure software for enterprise finance teams</p>
+            <p class="subtext">Used by treasury, risk, and CFO organizations</p>
+            <div class="company-site">
+              <a href="https://treasurymesh.com">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.fintech.io/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('TreasuryMesh');
+    expect(results[0].content).toBe('Banking infrastructure software for enterprise finance teams | Used by treasury, risk, and CFO organizations');
+    expect(results[0].company_name).toBe('TreasuryMesh');
+    expect(results[0].company_website).toBe('https://treasurymesh.com/');
+    expect(results[0].url).toBe('https://www.fintech.io/portfolio/treasurymesh');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
