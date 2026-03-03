@@ -413,6 +413,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.firstminute.capital/portfolio/vector');
   });
 
+  test('HtmlListAdapter supports localglobe-style portfolio cards with subtext and footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-card" data-company-card="1">
+            <a class="internal-link" href="/portfolio/lattice">Profile</a>
+            <div class="company-name">Lattice Health</div>
+            <p class="description">Care coordination software</p>
+            <p class="subtext">Used by distributed clinical teams</p>
+            <div class="company-site">
+              <a href="https://latticehealth.com">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-card footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.localglobe.vc/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-card'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Lattice Health');
+    expect(results[0].content).toBe('Care coordination software | Used by distributed clinical teams');
+    expect(results[0].company_name).toBe('Lattice Health');
+    expect(results[0].company_website).toBe('https://latticehealth.com/');
+    expect(results[0].url).toBe('https://www.localglobe.vc/portfolio/lattice');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
