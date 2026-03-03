@@ -2863,6 +2863,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://scalevp.com/portfolio/launchstack');
   });
 
+  test('HtmlListAdapter supports redpoint-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/agentpath">Profile</a>
+            <div class="company-name">AgentPath</div>
+            <p class="description">AI developer tooling for model workflows, observability, and deployment orchestration</p>
+            <p class="subtext">US infrastructure software for ML, platform, and product teams</p>
+            <div class="company-site">
+              <a href="https://agentpath.ai">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://redpoint.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('AgentPath');
+    expect(results[0].content).toBe('AI developer tooling for model workflows, observability, and deployment orchestration | US infrastructure software for ML, platform, and product teams');
+    expect(results[0].company_name).toBe('AgentPath');
+    expect(results[0].company_website).toBe('https://agentpath.ai/');
+    expect(results[0].url).toBe('https://redpoint.com/portfolio/agentpath');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
