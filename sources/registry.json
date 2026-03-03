@@ -37508,5 +37508,275 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operational systems, routing flows, and execution process trend coverage."
+  },
+  {
+    "id": "A-QUEUEMATRIX-BLOG-RSS",
+    "name": "Queue Matrix Blog",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": [
+      "automation",
+      "developer_tools",
+      "operators"
+    ],
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://queuematrix.dev/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Queue orchestration, workflow primitives, and operator tooling signals."
+  },
+  {
+    "id": "A-ACTIONMATRIX-BLOG-RSS",
+    "name": "Action Matrix Blog",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": [
+      "automation",
+      "developer_tools",
+      "operators"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://actionmatrix.dev/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Action routing, workflow execution, and automation design coverage."
+  },
+  {
+    "id": "B-OPERATORMATRIX-PORTFOLIO",
+    "name": "Operator Matrix Portfolio",
+    "region": "US",
+    "category": "accelerator_portfolio",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://operatormatrix.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "[data-company-card]"
+        ],
+        "itemUrlAttribute": "href",
+        "titleSelector": [
+          ".title",
+          "h2",
+          "h3",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          ".description",
+          ".summary",
+          "p"
+        ],
+        "companyNameSelector": [
+          ".company-name",
+          "h2",
+          "h3",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"operatormatrix.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".footer-cta",
+          ".cta-banner",
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": [
+          "privacy",
+          "terms",
+          "cookie",
+          "login"
+        ],
+        "includePatterns": [
+          "/portfolio/"
+        ],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US operator-focused fund portfolio coverage for workflow infrastructure and developer automation."
+  },
+  {
+    "id": "B-TECHMATRIX-RSS",
+    "name": "Tech Matrix RSS",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "marketplaces"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://techmatrix.io/rss.xml"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operator software, execution tooling, and startup systems coverage."
+  },
+  {
+    "id": "C-FOUNDERMATRIXCAPITAL-PORTFOLIO",
+    "name": "Founder Matrix Capital Portfolio",
+    "region": "EU",
+    "category": "accelerator_portfolio",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://foundermatrix.capital/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "[data-company-card]"
+        ],
+        "itemUrlAttribute": "href",
+        "titleSelector": [
+          ".title",
+          "h2",
+          "h3",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          ".description",
+          ".summary",
+          "p"
+        ],
+        "companyNameSelector": [
+          ".company-name",
+          "h2",
+          "h3",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"foundermatrix.capital\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".footer-cta",
+          ".cta-banner",
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": [
+          "privacy",
+          "terms",
+          "cookie",
+          "login"
+        ],
+        "includePatterns": [
+          "/portfolio/"
+        ],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "EU founder-led portfolio coverage for operator software, workflow systems, and automation infrastructure."
+  },
+  {
+    "id": "C-OPSMATRIX-BLOG-RSS",
+    "name": "Ops Matrix Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://opsmatrix.io/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operational analytics, workflow systems, and execution pattern trend coverage."
   }
 ]
