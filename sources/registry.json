@@ -1529,6 +1529,7 @@
       "extract": {
         "itemSelector": [
           ".portfolio-card",
+          ".portfolio-item",
           ".company-card",
           "article[data-company-card]",
           "a[href*=\"/portfolio/\"]"
@@ -3495,13 +3496,15 @@
           "h2",
           "h3",
           ".title",
-          "[data-company-name]"
+          "[data-company-name]",
+          ".company-name"
         ],
         "contentSelector": [
           "p",
           ".description",
           ".summary",
-          ".excerpt"
+          ".excerpt",
+          ".subtext"
         ],
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
@@ -3509,7 +3512,8 @@
           "h2",
           "h3",
           ".title",
-          "[data-company-name]"
+          "[data-company-name]",
+          ".company-name"
         ],
         "companyWebsiteSelector": [
           "a[href*=\"http\"]:not([href*=\"indexventures.com\"])",
@@ -3573,6 +3577,7 @@
       "extract": {
         "itemSelector": [
           ".portfolio-card",
+          ".portfolio-item",
           ".company-card",
           "article[data-company-card]",
           "a[href*=\"/portfolio/\"]"
