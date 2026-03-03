@@ -4,6 +4,7 @@ const path = require('path');
 
 const { buildPlan } = require('../../src/sourcing/planner');
 const { computeCoverageStats, validateCoverageTargets } = require('../../src/sourcing/coverage');
+const { applyRuntimePreset, loadRegistry } = require('../../src/sourcing/registry');
 const { validateRegistry, validateRegistryEntry } = require('../../src/sourcing/schema');
 const { normalizeSignal } = require('../../src/sourcing/normalizer');
 const {
@@ -26,6 +27,64 @@ describe('sourcing foundation', () => {
 
     expect(validation.valid).toBe(true);
     expect(validation.errors).toHaveLength(0);
+  });
+
+  test('loadRegistry applies runtime policy presets with explicit overrides preserved', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'searchbar3-registry-preset-'));
+    const registryPath = path.join(tempDir, 'registry.json');
+
+    fs.writeFileSync(
+      registryPath,
+      JSON.stringify([
+        {
+          id: 'A-RSS',
+          name: 'RSS Source',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'rss', url: 'https://example.com/rss.xml' },
+          cadence: { tier: 'A', frequency: 'daily' },
+          query_strategy: { type: 'feed' },
+          requires_auth: false,
+          adapter: 'rss',
+          notes: 'Preset test',
+        },
+        {
+          id: 'C-HTML',
+          name: 'HTML Source',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'html', url: 'https://example.com' },
+          cadence: { tier: 'C', frequency: 'monthly' },
+          query_strategy: { type: 'list_page' },
+          requires_auth: false,
+          adapter: 'html_list',
+          runtime: { maxRunsPerWindow: 9 },
+          notes: 'Preset override test',
+        },
+      ], null, 2),
+      'utf-8'
+    );
+
+    const loaded = loadRegistry(registryPath);
+    const explicitPreset = applyRuntimePreset({
+      id: 'X',
+      method: { type: 'api' },
+      cadence: { tier: 'B' },
+      runtime: { maxRunsPerWindow: 11 },
+    });
+
+    expect(loaded[0].runtime.maxRunsPerWindow).toBe(4);
+    expect(loaded[0].runtime.rateLimitWindowHours).toBe(4);
+    expect(loaded[0].runtime.cooldownHoursAfterDegraded).toBe(12);
+    expect(loaded[1].runtime.maxRunsPerWindow).toBe(9);
+    expect(loaded[1].runtime.rateLimitWindowHours).toBe(24);
+    expect(loaded[1].runtime.cooldownHoursAfterDegraded).toBe(24);
+    expect(explicitPreset.runtime.maxRunsPerWindow).toBe(11);
+    expect(explicitPreset.runtime.cooldownHoursAfterDegraded).toBe(8);
   });
 
   test('normalizeSignal produces a deterministic signal id and required fields', () => {
