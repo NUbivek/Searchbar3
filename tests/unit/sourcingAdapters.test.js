@@ -5242,6 +5242,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://operatorintel.vc/portfolio/intelops');
   });
 
+  test('HtmlListAdapter extracts Operator Scope-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/scopeops">View</a>
+              <div class="company-name">ScopeOps</div>
+              <div class="description">Operator intelligence software for workflow analytics, execution monitoring, and operating visibility.</div>
+              <div class="subtext">US startup helping finance, support, and GTM teams monitor routing, approvals, and launches with stronger operational scope.</div>
+              <div class="company-site"><a href="https://scopeops.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://operatorscope.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="operatorscope.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'ops' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('ScopeOps');
+    expect(results[0].content).toBe('US startup helping finance, support, and GTM teams monitor routing, approvals, and launches with stronger operational scope. | Operator intelligence software for workflow analytics, execution monitoring, and operating visibility.');
+    expect(results[0].company_name).toBe('ScopeOps');
+    expect(results[0].company_website).toBe('https://scopeops.io/');
+    expect(results[0].url).toBe('https://operatorscope.vc/portfolio/scopeops');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
