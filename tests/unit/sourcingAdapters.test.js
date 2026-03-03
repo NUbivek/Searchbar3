@@ -1413,6 +1413,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://seedcamp.com/companies/ledgerlane');
   });
 
+  test('HtmlListAdapter supports nineyards-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/anchorgrid">Profile</a>
+            <div class="company-name">AnchorGrid</div>
+            <p class="description">Enterprise workflow systems for finance teams</p>
+            <p class="subtext">Used by B2B operations and platform groups</p>
+            <div class="company-site">
+              <a href="https://anchorgrid.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.nineyards.vc/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('AnchorGrid');
+    expect(results[0].content).toBe('Enterprise workflow systems for finance teams | Used by B2B operations and platform groups');
+    expect(results[0].company_name).toBe('AnchorGrid');
+    expect(results[0].company_website).toBe('https://anchorgrid.io/');
+    expect(results[0].url).toBe('https://www.nineyards.vc/portfolio/anchorgrid');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
