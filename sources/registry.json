@@ -4570,5 +4570,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Public and private software market analysis with startup signal overlap."
+  },
+  {
+    "id": "A-POSTHOG-BLOG-RSS",
+    "name": "PostHog Blog Feed",
+    "region": "US",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "analytics", "product"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://posthog.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Product analytics and developer platform updates with startup relevance."
+  },
+  {
+    "id": "A-UNSTRUCTURED-BLOG-RSS",
+    "name": "Unstructured Blog Feed",
+    "region": "US",
+    "category": "ai_infrastructure",
+    "thesis_tags": ["ai", "developer_tools", "data"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://unstructured.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Data processing and LLM pipeline infrastructure signals."
+  },
+  {
+    "id": "B-OMERS-VENTURES-PORTFOLIO",
+    "name": "OMERS Ventures Portfolio",
+    "region": "Global",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "software", "startups"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "html",
+      "url": "https://www.omersventures.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"omersventures.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Global software-focused venture portfolio source."
+  },
+  {
+    "id": "B-EUSTARTUPS-FUNDING-RSS",
+    "name": "EU-Startups Funding Feed",
+    "region": "EU",
+    "category": "funding_news",
+    "thesis_tags": ["funding", "startups", "europe"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.eu-startups.com/category/funding/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "European startup funding and company announcements."
+  },
+  {
+    "id": "C-REVENT-PORTFOLIO",
+    "name": "Revent Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "climate", "europe"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://revent.vc/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"revent.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "European impact and climate-focused venture portfolio source."
+  },
+  {
+    "id": "C-OPENVIEW-BLOG-RSS",
+    "name": "OpenView Blog Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["software", "growth", "go_to_market"],
+    "stage_bias": ["series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://openviewpartners.com/blog/feed/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "B2B software growth and operator insights with startup signal overlap."
   }
 ]
