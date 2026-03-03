@@ -13838,5 +13838,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operator execution and SaaS growth signal coverage."
+  },
+  {
+    "id": "A-HONO-BLOG-RSS",
+    "name": "Hono Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "apis", "edge"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://hono.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Edge framework ecosystem and developer tooling coverage."
+  },
+  {
+    "id": "A-BETTERAUTH-BLOG-RSS",
+    "name": "Better Auth Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "security", "apis"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://better-auth.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Authentication tooling and developer security workflow signals."
+  },
+  {
+    "id": "B-CANAANPARTNERS-PORTFOLIO",
+    "name": "Canaan Partners Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["b2b", "fintech", "healthcare"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://www.canaan.com/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"canaan.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US venture portfolio coverage for fintech, healthcare, and B2B signals."
+  },
+  {
+    "id": "B-FOUNDERDAILY-RSS",
+    "name": "Founder Daily Feed",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["startups", "funding", "operators"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://founderdaily.io/rss.xml"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Startup funding and operator signal aggregation."
+  },
+  {
+    "id": "C-ALONGSIDE-PORTFOLIO",
+    "name": "Alongside Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["developer_tools", "saas", "marketplaces"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://www.alongside.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"alongside.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US early-stage portfolio coverage across developer tooling and SaaS."
+  },
+  {
+    "id": "C-OPENANGELS-BLOG-RSS",
+    "name": "Open Angels Blog Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "funding", "angel"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://openangels.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Angel investing and early company formation signal coverage."
   }
 ]
