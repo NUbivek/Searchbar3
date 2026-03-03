@@ -313,6 +313,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.20vc.com/portfolio/helix');
   });
 
+  test('HtmlListAdapter supports company directories with subtext and footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="company-card" data-company-card="1">
+            <a class="internal-link" href="/companies/nova">Profile</a>
+            <div class="company-name">Nova Ledger</div>
+            <p class="description">Finance workflow tooling</p>
+            <p class="subtext">Focused on early-stage CFO teams</p>
+            <div class="company-site">
+              <a href="https://novaledger.com">Site</a>
+            </div>
+          </article>
+          <article class="company-card footer-cta" data-company-card="2">
+            <a class="internal-link" href="/companies/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://seedcamp.com/companies/',
+        extract: {
+          itemSelector: ['.company-card'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/companies/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Nova Ledger');
+    expect(results[0].content).toBe('Finance workflow tooling | Focused on early-stage CFO teams');
+    expect(results[0].company_name).toBe('Nova Ledger');
+    expect(results[0].company_website).toBe('https://novaledger.com/');
+    expect(results[0].url).toBe('https://seedcamp.com/companies/nova');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

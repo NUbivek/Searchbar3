@@ -994,13 +994,15 @@
           "h2",
           "h3",
           ".title",
-          "[data-company-name]"
+          "[data-company-name]",
+          ".company-name"
         ],
         "contentSelector": [
           "p",
           ".description",
           ".summary",
-          ".excerpt"
+          ".excerpt",
+          ".subtext"
         ],
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
@@ -1008,7 +1010,8 @@
           "h2",
           "h3",
           ".title",
-          "[data-company-name]"
+          "[data-company-name]",
+          ".company-name"
         ],
         "companyWebsiteSelector": [
           "a[href*=\"http\"]:not([href*=\"pear.vc\"])",
@@ -1466,7 +1469,8 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta"
         ],
         "excludePatterns": ["privacy", "terms", "cookie", "login"],
         "includePatterns": ["/companies/"],
@@ -1531,13 +1535,15 @@
           "h2",
           "h3",
           ".title",
-          "[data-company-name]"
+          "[data-company-name]",
+          ".company-name"
         ],
         "contentSelector": [
           "p",
           ".description",
           ".summary",
-          ".excerpt"
+          ".excerpt",
+          ".subtext"
         ],
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
@@ -1545,7 +1551,8 @@
           "h2",
           "h3",
           ".title",
-          "[data-company-name]"
+          "[data-company-name]",
+          ".company-name"
         ],
         "companyWebsiteSelector": [
           "a[href*=\"http\"]:not([href*=\"pointnine.com\"])",
@@ -1554,7 +1561,8 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta"
         ],
         "excludePatterns": ["privacy", "terms", "cookie", "login"],
         "includePatterns": ["/portfolio/"],
