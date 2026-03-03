@@ -429,5 +429,7 @@ describe('sourcing foundation', () => {
     expect(runReport.breakdowns.byStage.seed).toBe(1);
     expect(runReport.breakdowns.byCategory.startup_news).toBe(1);
     expect(runReport.breakdowns.hiringSignals.none).toBe(1);
+    expect(runReport.breakdowns.topThesisTags[0].key).toBe('ai');
+    expect(runReport.breakdowns.topSources[0].key).toBe('Feed One');
   });
 });

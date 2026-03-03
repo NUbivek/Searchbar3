@@ -89,19 +89,42 @@ function countBy(items, selector) {
   }, {});
 }
 
+function rankCounts(counts, limit = 5) {
+  return Object.entries(counts)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit)
+    .map(([key, count]) => ({ key, count }));
+}
+
 function buildSignalBreakdowns(signals, registry) {
   const sourceById = registry.reduce((accumulator, source) => {
     accumulator[source.id] = source;
     return accumulator;
   }, {});
 
+  const byStage = countBy(signals, (signal) => signal.stage_guess || 'unknown');
+  const byCategory = countBy(signals, (signal) => sourceById[signal.source_id]?.category || 'unknown');
+  const byRegion = countBy(signals, (signal) => signal.region_guess || 'unknown');
+  const fundingSignals = countBy(signals, (signal) => signal.enrichment?.funding_signal || 'none');
+  const hiringSignals = countBy(signals, (signal) => signal.enrichment?.hiring_signal || 'none');
+  const investorSignals = countBy(signals, (signal) => signal.enrichment?.investor_signal || 'none');
+  const thesisTagCounts = signals.reduce((accumulator, signal) => {
+    for (const tag of signal.thesis_tags || []) {
+      accumulator[tag] = (accumulator[tag] || 0) + 1;
+    }
+    return accumulator;
+  }, {});
+  const sourceCounts = countBy(signals, (signal) => signal.source_name || signal.source_id || 'unknown');
+
   return {
-    byStage: countBy(signals, (signal) => signal.stage_guess || 'unknown'),
-    byCategory: countBy(signals, (signal) => sourceById[signal.source_id]?.category || 'unknown'),
-    byRegion: countBy(signals, (signal) => signal.region_guess || 'unknown'),
-    fundingSignals: countBy(signals, (signal) => signal.enrichment?.funding_signal || 'none'),
-    hiringSignals: countBy(signals, (signal) => signal.enrichment?.hiring_signal || 'none'),
-    investorSignals: countBy(signals, (signal) => signal.enrichment?.investor_signal || 'none'),
+    byStage,
+    byCategory,
+    byRegion,
+    fundingSignals,
+    hiringSignals,
+    investorSignals,
+    topThesisTags: rankCounts(thesisTagCounts),
+    topSources: rankCounts(sourceCounts),
   };
 }
 
