@@ -2163,6 +2163,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://nordicmakers.vc/portfolio/fjordops');
   });
 
+  test('HtmlListAdapter supports moonfire-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/cartloop">Profile</a>
+            <div class="company-name">CartLoop</div>
+            <p class="description">Marketplace infrastructure for cross-border commerce and fulfillment</p>
+            <p class="subtext">Consumer and logistics tooling for scalable operators</p>
+            <div class="company-site">
+              <a href="https://cartloop.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://moonfire.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('CartLoop');
+    expect(results[0].content).toBe('Marketplace infrastructure for cross-border commerce and fulfillment | Consumer and logistics tooling for scalable operators');
+    expect(results[0].company_name).toBe('CartLoop');
+    expect(results[0].company_website).toBe('https://cartloop.io/');
+    expect(results[0].url).toBe('https://moonfire.com/portfolio/cartloop');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
