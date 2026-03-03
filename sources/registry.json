@@ -2039,5 +2039,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Late-stage startup, market, and financing coverage."
+  },
+  {
+    "id": "A-COHERE-BLOG-RSS",
+    "name": "Cohere Blog Feed",
+    "region": "Global",
+    "category": "ai_ecosystem",
+    "thesis_tags": ["ai", "developer_tools", "enterprise"],
+    "stage_bias": ["pre-seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://cohere.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Enterprise AI launches and model ecosystem updates."
+  },
+  {
+    "id": "A-MISTRAL-BLOG-RSS",
+    "name": "Mistral AI Blog Feed",
+    "region": "EU",
+    "category": "ai_ecosystem",
+    "thesis_tags": ["ai", "infrastructure", "developer_tools"],
+    "stage_bias": ["pre-seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://mistral.ai/news/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "European model infrastructure and AI launch signals."
+  },
+  {
+    "id": "B-KIMA-PORTFOLIO",
+    "name": "Kima Ventures Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["fintech", "software", "marketplaces"],
+    "stage_bias": ["pre-seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://www.kimaventures.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"kimaventures.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "European early-stage portfolio source with broad startup coverage."
+  },
+  {
+    "id": "B-STRICTLYVC-RSS",
+    "name": "StrictlyVC Feed",
+    "region": "US",
+    "category": "venture_ecosystem",
+    "thesis_tags": ["venture", "startups", "software"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://strictlyvc.com/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Venture deal flow and startup ecosystem coverage."
+  },
+  {
+    "id": "C-NFX-PORTFOLIO",
+    "name": "NFX Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["marketplaces", "network_effects", "software"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://www.nfx.com/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"nfx.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US portfolio source oriented around network-effect businesses."
+  },
+  {
+    "id": "C-PAULGRAHAM-ESSAYS-RSS",
+    "name": "Paul Graham Essays Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["startups", "software", "founders"],
+    "stage_bias": ["pre-seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://paulgraham.com/rss.html"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Founder and startup thinking with enduring signal value."
   }
 ]
