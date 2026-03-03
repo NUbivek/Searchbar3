@@ -6426,5 +6426,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "B2B software and growth-stage venture analysis."
+  },
+  {
+    "id": "A-TEMPEST-BLOG-RSS",
+    "name": "Tempest Blog Feed",
+    "region": "US",
+    "category": "ai_infrastructure",
+    "thesis_tags": ["ai", "infrastructure", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://tempest.ai/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "AI infrastructure and model platform product updates."
+  },
+  {
+    "id": "A-SVIX-BLOG-RSS",
+    "name": "Svix Blog Feed",
+    "region": "US",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "infrastructure", "api"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.svix.com/resources/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "API infrastructure and developer workflow coverage."
+  },
+  {
+    "id": "B-NINEYARDS-PORTFOLIO",
+    "name": "Nineyards Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "europe", "software"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://www.nineyards.vc/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"nineyards.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "European software and enterprise portfolio coverage."
+  },
+  {
+    "id": "B-ALLEYCORP-NEWS-RSS",
+    "name": "AlleyCorp News Feed",
+    "region": "US",
+    "category": "funding_news",
+    "thesis_tags": ["funding", "venture", "startups"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://alleycorp.com/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Startup, portfolio, and venture ecosystem coverage."
+  },
+  {
+    "id": "C-PALEBLUE-PORTFOLIO",
+    "name": "Pale Blue Dot Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "climate", "europe"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://www.paleblue.vc/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"paleblue.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Climate-focused European portfolio source."
+  },
+  {
+    "id": "C-HUSTLEFUND-BLOG-RSS",
+    "name": "Hustle Fund Blog Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["venture", "founders", "startups"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.hustlefund.vc/blog/feed/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Early-stage founder and venture insights."
   }
 ]
