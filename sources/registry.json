@@ -8050,5 +8050,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Early-stage operator and venture analysis across consumer and software."
+  },
+  {
+    "id": "A-SKYFLOW-BLOG-RSS",
+    "name": "Skyflow Blog Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["security", "fintech", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.skyflow.com/post/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Data privacy and secure infrastructure ecosystem coverage."
+  },
+  {
+    "id": "A-UNKEY-BLOG-RSS",
+    "name": "Unkey Blog Feed",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["developer_tools", "security", "infrastructure"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.unkey.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "API security, auth, and developer tooling ecosystem coverage."
+  },
+  {
+    "id": "B-FORERUNNER-PORTFOLIO",
+    "name": "Forerunner Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "consumer", "commerce"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://www.forerunnerventures.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"forerunnerventures.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Consumer and commerce-focused startup portfolio coverage."
+  },
+  {
+    "id": "B-STARTUPNEWS-RSS",
+    "name": "Startup News Feed",
+    "region": "Global",
+    "category": "funding_news",
+    "thesis_tags": ["startups", "funding", "products"],
+    "stage_bias": ["pre_seed", "seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://startupnews.com/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Broad startup funding and launch news aggregation."
+  },
+  {
+    "id": "C-OPERATORCOLLECTIVE-PORTFOLIO",
+    "name": "Operator Collective Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "enterprise", "operators"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://operatorcollective.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"operatorcollective.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Operator-led enterprise and infrastructure portfolio coverage."
+  },
+  {
+    "id": "C-TRUE-BLOG-RSS",
+    "name": "True Ventures Blog Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["venture", "consumer", "developer_tools"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://trueventures.com/feed/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Early-stage venture analysis across consumer and software."
   }
 ]
