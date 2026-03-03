@@ -1351,5 +1351,225 @@
     "requires_auth": false,
     "adapter": "html_list",
     "notes": "European venture portfolio source for B2B startup discovery."
+  },
+  {
+    "id": "A-CLOUDFLARE-BLOG-RSS",
+    "name": "Cloudflare Blog Feed",
+    "region": "Global",
+    "category": "infra_ecosystem",
+    "thesis_tags": ["developer_tools", "security", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://blog.cloudflare.com/rss/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Infrastructure, security, and developer platform launch signals."
+  },
+  {
+    "id": "A-GITHUB-BLOG-RSS",
+    "name": "GitHub Blog Feed",
+    "region": "Global",
+    "category": "developer_ecosystem",
+    "thesis_tags": ["developer_tools", "software", "ai"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://github.blog/feed/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Developer tooling, AI coding, and platform product updates."
+  },
+  {
+    "id": "B-SAASTR-RSS",
+    "name": "SaaStr Feed",
+    "region": "US",
+    "category": "startup_ecosystem",
+    "thesis_tags": ["b2b", "saas", "software"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.saastr.com/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "SaaS operating and ecosystem signals with startup examples."
+  },
+  {
+    "id": "B-SEEDCAMP-PORTFOLIO",
+    "name": "Seedcamp Companies",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["software", "fintech", "b2b"],
+    "stage_bias": ["pre-seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://seedcamp.com/companies/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/companies/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/companies/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"seedcamp.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/companies/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "European early-stage company directory from Seedcamp."
+  },
+  {
+    "id": "C-TOMTUNGUZ-RSS",
+    "name": "Tom Tunguz Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["software", "ai", "venture"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://tomtunguz.com/feed/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Venture and software market analysis with startup references."
+  },
+  {
+    "id": "C-POINTNINE-PORTFOLIO",
+    "name": "Point Nine Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["b2b", "marketplaces", "software"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://www.pointnine.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"pointnine.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "European B2B portfolio source for later-stage discovery."
   }
 ]
