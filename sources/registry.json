@@ -19363,6 +19363,7 @@
       "url": "https://foundry.vc/portfolio",
       "extract": {
         "itemSelector": [
+          ".portfolio-item",
           ".portfolio-card",
           ".company-card",
           "article[data-company-card]",
@@ -22376,12 +22377,14 @@
           "a[href]"
         ],
         "titleSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
           "[data-company-name]"
         ],
         "contentSelector": [
+          ".subtext",
           "p",
           ".description",
           ".summary",
@@ -22619,6 +22622,7 @@
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
         "companyNameSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
@@ -22629,6 +22633,8 @@
           ".company-site a[href]"
         ],
         "excludeSelectors": [
+          ".footer-cta",
+          ".cta-banner",
           ".newsletter-signup",
           ".site-footer",
           ".nav"
@@ -22727,6 +22733,7 @@
       "url": "https://operatorsystems.vc/portfolio",
       "extract": {
         "itemSelector": [
+          ".portfolio-item",
           ".portfolio-card",
           ".company-card",
           "article[data-company-card]",
@@ -22737,12 +22744,14 @@
           "a[href]"
         ],
         "titleSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
           "[data-company-name]"
         ],
         "contentSelector": [
+          ".subtext",
           "p",
           ".description",
           ".summary",
@@ -22751,6 +22760,7 @@
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
         "companyNameSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
@@ -22761,6 +22771,8 @@
           ".company-site a[href]"
         ],
         "excludeSelectors": [
+          ".footer-cta",
+          ".cta-banner",
           ".newsletter-signup",
           ".site-footer",
           ".nav"
