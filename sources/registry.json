@@ -903,5 +903,219 @@
     "requires_auth": false,
     "adapter": "html_list",
     "notes": "Founder and startup listings for long-tail discovery."
+  },
+  {
+    "id": "A-REPLICATE-BLOG-RSS",
+    "name": "Replicate Blog Feed",
+    "region": "Global",
+    "category": "ai_ecosystem",
+    "thesis_tags": ["ai", "developer_tools", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://replicate.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "AI model tooling and developer platform launches."
+  },
+  {
+    "id": "A-VERCEL-BLOG-RSS",
+    "name": "Vercel Blog Feed",
+    "region": "Global",
+    "category": "developer_ecosystem",
+    "thesis_tags": ["developer_tools", "software", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://vercel.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Developer platform and startup tooling activity."
+  },
+  {
+    "id": "B-GITLAB-BLOG-RSS",
+    "name": "GitLab Blog Feed",
+    "region": "Global",
+    "category": "developer_ecosystem",
+    "thesis_tags": ["developer_tools", "software", "enterprise"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://about.gitlab.com/atom.xml"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Developer workflow and enterprise tooling signals."
+  },
+  {
+    "id": "B-PEARVC-PORTFOLIO",
+    "name": "Pear VC Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["software", "ai", "b2b"],
+    "stage_bias": ["pre-seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://pear.vc/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"pear.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Portfolio directory for early-stage venture-backed startups."
+  },
+  {
+    "id": "C-STRATECHERY-RSS",
+    "name": "Stratechery Feed",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["software", "markets", "infrastructure"],
+    "stage_bias": ["series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://stratechery.com/feed/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Market structure analysis that surfaces ecosystem shifts."
+  },
+  {
+    "id": "C-UNUSUAL-VC-PORTFOLIO",
+    "name": "Unusual Ventures Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["software", "ai", "b2b"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://www.unusual.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"unusual.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Portfolio directory for growth and early-stage startup discovery."
   }
 ]
