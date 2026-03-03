@@ -663,6 +663,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://northzone.com/portfolio/opal');
   });
 
+  test('HtmlListAdapter supports general-catalyst-style portfolio cards with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-card" data-company-card="1">
+            <a class="internal-link" href="/portfolio/pulsecare">Profile</a>
+            <div class="company-name">PulseCare</div>
+            <p class="description">AI-enabled care operations</p>
+            <p class="subtext">Used by provider ops and clinical teams</p>
+            <div class="company-site">
+              <a href="https://pulsecare.ai">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-card footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.generalcatalyst.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-card'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('PulseCare');
+    expect(results[0].content).toBe('AI-enabled care operations | Used by provider ops and clinical teams');
+    expect(results[0].company_name).toBe('PulseCare');
+    expect(results[0].company_website).toBe('https://pulsecare.ai/');
+    expect(results[0].url).toBe('https://www.generalcatalyst.com/portfolio/pulsecare');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
