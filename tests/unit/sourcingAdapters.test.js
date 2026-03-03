@@ -2263,6 +2263,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://atlanticlabs.de/portfolio/climategrid');
   });
 
+  test('HtmlListAdapter supports headline-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/shopmesh">Profile</a>
+            <div class="company-name">ShopMesh</div>
+            <p class="description">Commerce infrastructure for omnichannel brands and marketplaces</p>
+            <p class="subtext">Consumer tooling for growth, retention, and operations</p>
+            <div class="company-site">
+              <a href="https://shopmesh.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://headline.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('ShopMesh');
+    expect(results[0].content).toBe('Commerce infrastructure for omnichannel brands and marketplaces | Consumer tooling for growth, retention, and operations');
+    expect(results[0].company_name).toBe('ShopMesh');
+    expect(results[0].company_website).toBe('https://shopmesh.io/');
+    expect(results[0].url).toBe('https://headline.com/portfolio/shopmesh');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
