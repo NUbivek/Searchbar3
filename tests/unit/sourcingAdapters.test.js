@@ -3013,6 +3013,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.canaan.com/portfolio/databridge');
   });
 
+  test('HtmlListAdapter supports ggv-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/marketgrid">Profile</a>
+            <div class="company-name">MarketGrid</div>
+            <p class="description">AI-first B2B workflow software for enterprise operations and commerce teams</p>
+            <p class="subtext">US platform for customer data, routing, and automation orchestration</p>
+            <div class="company-site">
+              <a href="https://marketgrid.ai">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.ggv.com/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('MarketGrid');
+    expect(results[0].content).toBe('AI-first B2B workflow software for enterprise operations and commerce teams | US platform for customer data, routing, and automation orchestration');
+    expect(results[0].company_name).toBe('MarketGrid');
+    expect(results[0].company_website).toBe('https://marketgrid.ai/');
+    expect(results[0].url).toBe('https://www.ggv.com/portfolio/marketgrid');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
