@@ -3313,6 +3313,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.firstround.com/portfolio/signalops');
   });
 
+  test('HtmlListAdapter supports uncork-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/stackgrid">Profile</a>
+            <div class="company-name">StackGrid</div>
+            <p class="description">Developer and SaaS workflow tooling for internal systems and team operations</p>
+            <p class="subtext">US software for orchestration, reporting, and execution across product and ops teams</p>
+            <div class="company-site">
+              <a href="https://stackgrid.ai">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://uncork.com/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('StackGrid');
+    expect(results[0].content).toBe('Developer and SaaS workflow tooling for internal systems and team operations | US software for orchestration, reporting, and execution across product and ops teams');
+    expect(results[0].company_name).toBe('StackGrid');
+    expect(results[0].company_website).toBe('https://stackgrid.ai/');
+    expect(results[0].url).toBe('https://uncork.com/portfolio/stackgrid');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
