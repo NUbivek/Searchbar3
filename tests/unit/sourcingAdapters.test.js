@@ -913,6 +913,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.frst.vc/portfolio/harbor');
   });
 
+  test('HtmlListAdapter supports elaia-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/atlas">Profile</a>
+            <div class="company-name">Atlas Compute</div>
+            <p class="description">AI infrastructure for industrial systems</p>
+            <p class="subtext">Used by manufacturing and robotics teams</p>
+            <div class="company-site">
+              <a href="https://atlascompute.com">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.elaia.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Atlas Compute');
+    expect(results[0].content).toBe('AI infrastructure for industrial systems | Used by manufacturing and robotics teams');
+    expect(results[0].company_name).toBe('Atlas Compute');
+    expect(results[0].company_website).toBe('https://atlascompute.com/');
+    expect(results[0].url).toBe('https://www.elaia.com/portfolio/atlas');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
