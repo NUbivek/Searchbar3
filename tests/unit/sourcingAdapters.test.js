@@ -4982,6 +4982,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://operatorfabric.vc/portfolio/fabricops');
   });
 
+  test('HtmlListAdapter extracts Operator Router-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/routerops">View</a>
+              <div class="company-name">RouterOps</div>
+              <div class="description">Workflow routing software for systemized execution across approvals, launches, and internal handoffs.</div>
+              <div class="subtext">US startup helping finance, support, and GTM teams coordinate routing, approvals, and process execution.</div>
+              <div class="company-site"><a href="https://routerops.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://operatorrouter.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="operatorrouter.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'ops' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('RouterOps');
+    expect(results[0].content).toBe('US startup helping finance, support, and GTM teams coordinate routing, approvals, and process execution. | Workflow routing software for systemized execution across approvals, launches, and internal handoffs.');
+    expect(results[0].company_name).toBe('RouterOps');
+    expect(results[0].company_website).toBe('https://routerops.io/');
+    expect(results[0].url).toBe('https://operatorrouter.vc/portfolio/routerops');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
