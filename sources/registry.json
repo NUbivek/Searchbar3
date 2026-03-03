@@ -35584,6 +35584,7 @@
       "url": "https://operatorhub.vc/portfolio",
       "extract": {
         "itemSelector": [
+          ".portfolio-item",
           ".portfolio-card",
           ".company-card",
           "article[data-company-card]",

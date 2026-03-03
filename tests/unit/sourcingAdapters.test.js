@@ -5907,6 +5907,62 @@ test('HtmlListAdapter extracts Operator Studio-style portfolio entries', async (
   expect(results[0].url).toBe('https://operatorstudio.vc/portfolio/studioops');
 });
 
+test('HtmlListAdapter extracts Operator Hub-style portfolio entries', async () => {
+  const html = `
+    <main>
+      <div class="portfolio-item">
+        <a href="/portfolio/queueflow">
+          <span class="company-name">QueueFlow</span>
+          <span class="subtext">Workflow routing for operations and support teams.</span>
+          <span class="description">Automation layer for approvals, task coordination, and queue orchestration.</span>
+        </a>
+        <a class="company-site" href="https://queueflow.io/">Website</a>
+      </div>
+      <div class="footer-cta">Ignore me</div>
+    </main>
+  `;
+
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    text: async () => html,
+    headers: {
+      get: () => 'text/html',
+    },
+  });
+
+  const adapter = new HtmlListAdapter({
+    id: 'B-OPERATORHUB-PORTFOLIO',
+    name: 'Operator Hub Portfolio',
+    method: {
+      url: 'https://operatorhub.vc/portfolio',
+      extract: {
+        itemSelector: ['.portfolio-item', 'a[href*="/portfolio/"]'],
+        linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+        titleSelector: ['.company-name', '.title'],
+        contentSelector: ['.subtext', '.description'],
+        mergeContentSelectors: true,
+        contentJoinWith: ' | ',
+        companyNameSelector: ['.company-name', '.title'],
+        companyWebsiteSelector: ['a[href*="http"]:not([href*="operatorhub.vc"])', '.company-site a[href]', '.company-site'],
+        includePatterns: ['/portfolio/'],
+        excludeSelectors: ['.footer-cta', '.cta-banner'],
+      },
+    },
+  });
+
+  const items = await adapter.run({ query: '' });
+
+  expect(items).toHaveLength(1);
+  expect(items[0]).toMatchObject({
+    title: 'QueueFlow',
+    content: 'Workflow routing for operations and support teams. | Automation layer for approvals, task coordination, and queue orchestration.',
+    company_name: 'QueueFlow',
+    company_website: 'https://queueflow.io/',
+    url: 'https://operatorhub.vc/portfolio/queueflow',
+  });
+});
+
 test('HtmlListAdapter extracts Operator Lab-style portfolio entries', async () => {
   global.fetch = async () => ({
     ok: true,
