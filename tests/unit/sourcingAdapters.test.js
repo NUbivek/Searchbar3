@@ -162,6 +162,54 @@ describe('sourcing adapters', () => {
     expect(results[0].company_website).toBe('https://acme.ai/');
   });
 
+  test('HtmlListAdapter honors exclude selectors and external company website detection', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <section class="portfolio-card" data-portfolio-item="1">
+            <a class="internal-link" href="/portfolio/acme">Profile</a>
+            <h3 data-company-name="Acme AI"></h3>
+            <p class="summary">Applied AI workflow tools</p>
+            <a class="company-site" href="https://acme.ai">Website</a>
+          </section>
+          <section class="portfolio-card newsletter-signup" data-portfolio-item="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <h3 data-company-name="Ignore Co"></h3>
+            <p class="summary">Should be excluded</p>
+            <a class="company-site" href="https://ignore.example">Website</a>
+          </section>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://signalfire.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-card'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['h3'],
+          titleAttribute: 'data-company-name',
+          contentSelector: ['.summary'],
+          companyNameSelector: ['h3'],
+          companyNameAttribute: 'data-company-name',
+          companyWebsiteSelector: ['.company-site'],
+          excludeSelectors: ['.newsletter-signup'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Acme AI');
+    expect(results[0].company_name).toBe('Acme AI');
+    expect(results[0].company_website).toBe('https://acme.ai/');
+    expect(results[0].url).toBe('https://signalfire.com/portfolio/acme');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

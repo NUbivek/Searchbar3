@@ -746,9 +746,9 @@
       "url": "https://signalfire.com/portfolio/",
       "extract": {
         "itemSelector": [
-          "a[href*=\"/portfolio/\"]",
-          "article",
-          ".portfolio-card"
+          ".portfolio-card",
+          "article[data-portfolio-item]",
+          "a[href*=\"/portfolio/\"]"
         ],
         "linkSelector": [
           "a[href*=\"/portfolio/\"]",
@@ -769,7 +769,17 @@
         "companyNameSelector": [
           "h2",
           "h3",
-          ".title"
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"signalfire.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
         ],
         "excludePatterns": ["privacy", "terms", "cookie", "login"],
         "includePatterns": ["/portfolio/"],
@@ -843,8 +853,8 @@
       "url": "https://www.founderwiki.com",
       "extract": {
         "itemSelector": [
-          "article",
           ".company-card",
+          "article[data-startup-card]",
           "a[href*=\"/startup/\"]"
         ],
         "linkSelector": [
@@ -866,7 +876,17 @@
         "companyNameSelector": [
           "h2",
           "h3",
-          ".title"
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"founderwiki.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
         ],
         "excludePatterns": ["privacy", "terms", "login", "newsletter"],
         "includePatterns": ["/startup/"],
