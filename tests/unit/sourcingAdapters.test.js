@@ -263,6 +263,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://pear.vc/portfolio/orbit');
   });
 
+  test('HtmlListAdapter supports company-name class and subtext in portfolio cards', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-card" data-company-card="1">
+            <a class="internal-link" href="/portfolio/helix">Profile</a>
+            <div class="company-name">Helix Systems</div>
+            <p class="description">B2B infrastructure software</p>
+            <p class="subtext">Scaling across enterprise buyers</p>
+            <div class="company-site">
+              <a href="https://helixsystems.com">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-card cta-banner" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.20vc.com/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-card'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.cta-banner'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Helix Systems');
+    expect(results[0].content).toBe('B2B infrastructure software | Scaling across enterprise buyers');
+    expect(results[0].company_name).toBe('Helix Systems');
+    expect(results[0].company_website).toBe('https://helixsystems.com/');
+    expect(results[0].url).toBe('https://www.20vc.com/portfolio/helix');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
