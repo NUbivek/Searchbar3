@@ -5346,6 +5346,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://operatorpulse.vc/portfolio/pulseops');
   });
 
+  test('HtmlListAdapter extracts Operator Orbit-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/orbitops">View</a>
+              <div class="company-name">OrbitOps</div>
+              <div class="description">Operator workflow software for execution visibility, process analytics, and approval orchestration.</div>
+              <div class="subtext">US startup helping finance, support, and GTM teams monitor routing, approvals, and launches with stronger operator orbit systems.</div>
+              <div class="company-site"><a href="https://orbitops.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://operatororbit.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="operatororbit.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'ops' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('OrbitOps');
+    expect(results[0].content).toBe('US startup helping finance, support, and GTM teams monitor routing, approvals, and launches with stronger operator orbit systems. | Operator workflow software for execution visibility, process analytics, and approval orchestration.');
+    expect(results[0].company_name).toBe('OrbitOps');
+    expect(results[0].company_website).toBe('https://orbitops.io/');
+    expect(results[0].url).toBe('https://operatororbit.vc/portfolio/orbitops');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
