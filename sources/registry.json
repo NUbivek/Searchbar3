@@ -36374,5 +36374,283 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operational analysis and workflow execution signal coverage."
+  },
+  {
+    "id": "A-QUEUEPATTERNFLOW-BLOG-RSS",
+    "name": "Queue Pattern Flow Blog",
+    "region": "Global",
+    "category": "engineering_blogs",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://queuepatternflow.dev/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Queue routing, orchestration, and workflow execution engineering signals."
+  },
+  {
+    "id": "A-ACTIONPATTERNFLOW-BLOG-RSS",
+    "name": "Action Pattern Flow Blog",
+    "region": "Global",
+    "category": "engineering_blogs",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "ai"
+    ],
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://actionpatternflow.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Action orchestration, automation, and workflow intelligence engineering coverage."
+  },
+  {
+    "id": "B-OPERATORPATTERNFLOW-PORTFOLIO",
+    "name": "Operator Pattern Flow Portfolio",
+    "region": "US",
+    "category": "investors",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "enterprise"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://operatorpatternflow.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"operatorpatternflow.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": [
+          "privacy",
+          "terms",
+          "cookie",
+          "login"
+        ],
+        "includePatterns": [
+          "/portfolio/"
+        ],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US operator-focused venture portfolio coverage for workflow infrastructure startups."
+  },
+  {
+    "id": "B-TECHPATTERNFLOW-RSS",
+    "name": "Tech Pattern Flow",
+    "region": "US",
+    "category": "startup_news",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://techpatternflow.com/feed"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Workflow, orchestration, and operator tooling startup coverage."
+  },
+  {
+    "id": "C-FOUNDERPATTERNFLOWCAPITAL-PORTFOLIO",
+    "name": "Founder Pattern Flow Capital Portfolio",
+    "region": "EU",
+    "category": "investors",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "enterprise"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://founderpatternflow.capital/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"founderpatternflow.capital\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": [
+          "privacy",
+          "terms",
+          "cookie",
+          "login"
+        ],
+        "includePatterns": [
+          "/portfolio/"
+        ],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "EU founder-led capital portfolio coverage for operational workflow software."
+  },
+  {
+    "id": "C-OPSPATTERNFLOW-BLOG-RSS",
+    "name": "Ops Pattern Flow Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://opspatternflow.io/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operational analysis and workflow execution signal coverage."
   }
 ]
