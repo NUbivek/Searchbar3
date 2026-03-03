@@ -3163,6 +3163,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.merit.vc/portfolio/opslayer');
   });
 
+  test('HtmlListAdapter supports primary-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/routebase">Profile</a>
+            <div class="company-name">RouteBase</div>
+            <p class="description">AI-native SaaS workflow platform for go-to-market, operations, and analytics teams</p>
+            <p class="subtext">US software for orchestration, customer systems, and execution automation</p>
+            <div class="company-site">
+              <a href="https://routebase.ai">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.primary.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('RouteBase');
+    expect(results[0].content).toBe('AI-native SaaS workflow platform for go-to-market, operations, and analytics teams | US software for orchestration, customer systems, and execution automation');
+    expect(results[0].company_name).toBe('RouteBase');
+    expect(results[0].company_website).toBe('https://routebase.ai/');
+    expect(results[0].url).toBe('https://www.primary.vc/portfolio/routebase');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
