@@ -1513,6 +1513,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://lemonade.vc/portfolio/sparkcart');
   });
 
+  test('HtmlListAdapter supports anthemis-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/ledgerflow">Profile</a>
+            <div class="company-name">LedgerFlow</div>
+            <p class="description">Fintech workflow systems for modern banking teams</p>
+            <p class="subtext">Used by compliance and operations teams across Europe</p>
+            <div class="company-site">
+              <a href="https://ledgerflow.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://anthemis.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('LedgerFlow');
+    expect(results[0].content).toBe('Fintech workflow systems for modern banking teams | Used by compliance and operations teams across Europe');
+    expect(results[0].company_name).toBe('LedgerFlow');
+    expect(results[0].company_website).toBe('https://ledgerflow.io/');
+    expect(results[0].url).toBe('https://anthemis.com/portfolio/ledgerflow');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
