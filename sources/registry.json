@@ -22182,5 +22182,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Revenue operations systems, process tooling, and execution coverage."
+  },
+  {
+    "id": "A-QUEUEFABRIC-BLOG-RSS",
+    "name": "Queue Fabric Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "operators", "automation"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://queuefabric.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Queue orchestration, stateful jobs, and automation tooling coverage."
+  },
+  {
+    "id": "A-ACTIONFABRIC-BLOG-RSS",
+    "name": "Action Fabric Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "operators", "automation"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://actionfabric.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Action pipelines, execution state, and workflow automation coverage."
+  },
+  {
+    "id": "B-OPSGRID-PORTFOLIO",
+    "name": "Ops Grid Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["operators", "saas", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://opsgrid.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"opsgrid.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Operator workflow, systems software, and execution tooling portfolio coverage."
+  },
+  {
+    "id": "B-TECHRUNWAY-RSS",
+    "name": "Tech Runway Feed",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["startups", "operators", "automation"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://techrunway.co/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Startup execution, operational systems, and workflow coverage."
+  },
+  {
+    "id": "C-FOUNDERSYSTEMSCAPITAL-PORTFOLIO",
+    "name": "Founder Systems Capital Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["operators", "sales", "saas"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://foundersystemscapital.com/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"foundersystemscapital.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Founder-led systems, workflow, and revenue infrastructure portfolio coverage."
+  },
+  {
+    "id": "C-REVOPSSYSTEMS-BLOG-RSS",
+    "name": "RevOps Systems Blog Feed",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "sales", "saas"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://revopssystems.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Revenue systems, operator process, and execution tooling coverage."
   }
 ]
