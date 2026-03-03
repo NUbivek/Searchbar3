@@ -5502,6 +5502,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://operatorcommand.vc/portfolio/commandops');
   });
 
+  test('HtmlListAdapter extracts Operator Process-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <section class="portfolio-item">
+              <a href="/portfolio/process-ops">View</a>
+              <div class="company-name">Process Ops</div>
+              <div class="description">Workflow execution platform for approvals, task routing, and operator process reliability.</div>
+              <div class="subtext">US startup helping finance, support, and GTM teams manage operational workflows, process control, and execution visibility.</div>
+              <div class="company-site"><a href="https://processops.io/">Company</a></div>
+            </section>
+            <div class="footer-cta">Ignore this footer</div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://operatorprocess.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="operatorprocess.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'ops' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Process Ops');
+    expect(results[0].content).toBe('US startup helping finance, support, and GTM teams manage operational workflows, process control, and execution visibility. | Workflow execution platform for approvals, task routing, and operator process reliability.');
+    expect(results[0].company_name).toBe('Process Ops');
+    expect(results[0].company_website).toBe('https://processops.io/');
+    expect(results[0].url).toBe('https://operatorprocess.vc/portfolio/process-ops');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
