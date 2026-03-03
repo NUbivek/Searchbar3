@@ -3739,6 +3739,53 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://pair.vc/portfolio/shipyard');
   });
 
+  test('HtmlListAdapter extracts Uncork-style founder portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <div class="portfolio-item">
+            <a class="internal-link" href="/portfolio/railstack"></a>
+            <div class="company-name">RailStack</div>
+            <div class="description">Startup infrastructure for data workflows, reporting, and internal operating systems</div>
+            <div class="subtext">US tooling for operator teams managing finance, product, and customer execution across SaaS companies</div>
+            <div class="company-site"><a href="https://railstack.io/">Visit</a></div>
+          </div>
+          <div class="footer-cta">
+            <a href="/portfolio/ignore-me">Ignore me</a>
+          </div>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://uncork.com/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('RailStack');
+    expect(results[0].content).toBe('Startup infrastructure for data workflows, reporting, and internal operating systems | US tooling for operator teams managing finance, product, and customer execution across SaaS companies');
+    expect(results[0].company_name).toBe('RailStack');
+    expect(results[0].company_website).toBe('https://railstack.io/');
+    expect(results[0].url).toBe('https://uncork.com/portfolio/railstack');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
