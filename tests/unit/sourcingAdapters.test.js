@@ -4670,6 +4670,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://opsloop.vc/portfolio/opslooper');
   });
 
+  test('HtmlListAdapter extracts Ops Mesh-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/opsmeshpro">View</a>
+              <div class="company-name">OpsMesh Pro</div>
+              <div class="description">Operator tooling for multi-team workflow execution.</div>
+              <div class="subtext">US startup helping finance, support, and GTM teams coordinate approvals and delivery.</div>
+              <div class="company-site"><a href="https://opsmeshpro.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://opsmesh.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="opsmesh.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'ops' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('OpsMesh Pro');
+    expect(results[0].content).toBe('US startup helping finance, support, and GTM teams coordinate approvals and delivery. | Operator tooling for multi-team workflow execution.');
+    expect(results[0].company_name).toBe('OpsMesh Pro');
+    expect(results[0].company_website).toBe('https://opsmeshpro.io/');
+    expect(results[0].url).toBe('https://opsmesh.vc/portfolio/opsmeshpro');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
