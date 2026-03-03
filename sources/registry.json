@@ -16858,5 +16858,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Go-to-market systems and operator execution coverage."
+  },
+  {
+    "id": "A-TRACESHIFT-BLOG-RSS",
+    "name": "TraceShift Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "observability", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://traceshift.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Tracing, reliability, and infra engineering coverage."
+  },
+  {
+    "id": "A-ROUTINGKIT-BLOG-RSS",
+    "name": "RoutingKit Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "apis", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://routingkit.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "API infrastructure and backend developer tooling coverage."
+  },
+  {
+    "id": "B-PEARVCFOUNDERS-PORTFOLIO",
+    "name": "Pear VC Founders Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["saas", "developer_tools", "marketplaces"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://pear.vc/companies",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/companies/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/companies/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"pear.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/companies/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Early-stage founder portfolio coverage across software and marketplaces."
+  },
+  {
+    "id": "B-FOUNDERNEWS-RSS",
+    "name": "Founder News Feed",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["startups", "funding", "operators"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://foundernews.io/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Startup financing, product launch, and founder ecosystem coverage."
+  },
+  {
+    "id": "C-ELEVATIONPORTFOLIO-PORTFOLIO",
+    "name": "Elevation Portfolio",
+    "region": "Global",
+    "category": "investor_portfolio",
+    "thesis_tags": ["consumer", "saas", "fintech"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://elevation.capital/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"elevation.capital\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Global early-stage portfolio coverage across software and consumer sectors."
+  },
+  {
+    "id": "C-PIPELINEOPS-BLOG-RSS",
+    "name": "Pipeline Ops Blog Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "sales", "saas"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://pipelineops.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Revenue operations and pipeline execution systems coverage."
   }
 ]
