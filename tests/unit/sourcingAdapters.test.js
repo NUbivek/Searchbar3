@@ -5602,7 +5602,68 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://operatorpipeline.vc/portfolio/pipelineops');
   });
 
-  test('ApiSearchAdapter respects configured field paths', async () => {
+test('HtmlListAdapter extracts Operator Workflow-style portfolio entries', async () => {
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get(name) {
+        if (String(name).toLowerCase() === 'content-type') {
+          return 'text/html; charset=utf-8';
+        }
+        return null;
+      },
+    },
+    text: async () => `
+      <html>
+        <body>
+          <section class="portfolio-item">
+            <a href="/portfolio/workflowops">View</a>
+            <div class="company-name">WorkflowOps</div>
+            <div class="description">Workflow orchestration platform for approvals, routing, and operator execution visibility.</div>
+            <div class="subtext">US startup helping finance, support, and GTM teams manage workflow execution, approvals, and operational orchestration reliability.</div>
+            <div class="company-site"><a href="https://workflowops.io/">Company</a></div>
+          </section>
+          <div class="footer-cta">Ignore this footer</div>
+        </body>
+      </html>
+    `,
+  });
+
+  const adapter = new HtmlListAdapter({
+    method: {
+      url: 'https://operatorworkflow.vc/portfolio',
+      extract: {
+        itemSelector: ['.portfolio-item', '.portfolio-card'],
+        linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+        titleSelector: ['.company-name', 'h2'],
+        contentSelector: ['.subtext', '.description'],
+        mergeContentSelectors: true,
+        contentJoinWith: ' | ',
+        companyNameSelector: ['.company-name', 'h2'],
+        companyWebsiteSelector: [
+          'a[href*="http"]:not([href*="operatorworkflow.vc"])',
+          '.company-site a[href]',
+        ],
+        includePatterns: ['/portfolio/'],
+        excludeSelectors: ['.footer-cta', '.cta-banner'],
+      },
+    },
+  });
+
+  const items = await adapter.run({ query: 'workflow' });
+
+  expect(items).toHaveLength(1);
+  expect(items[0].title).toBe('WorkflowOps');
+  expect(items[0].content).toBe(
+    'US startup helping finance, support, and GTM teams manage workflow execution, approvals, and operational orchestration reliability. | Workflow orchestration platform for approvals, routing, and operator execution visibility.'
+  );
+  expect(items[0].company_name).toBe('WorkflowOps');
+  expect(items[0].company_website).toBe('https://workflowops.io/');
+  expect(items[0].url).toBe('https://operatorworkflow.vc/portfolio/workflowops');
+});
+
+test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
