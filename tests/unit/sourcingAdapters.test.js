@@ -4410,6 +4410,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://operatorpattern.vc/portfolio/patternops');
   });
 
+  test('HtmlListAdapter extracts Ops Foundry-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/foundryops">View</a>
+              <div class="company-name">FoundryOps</div>
+              <div class="description">Operator-led execution tooling for internal systems teams</div>
+              <div class="subtext">US startup helping finance, revenue, and product teams coordinate workflows and delivery</div>
+              <div class="company-site"><a href="https://foundryops.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://opsfoundry.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="opsfoundry.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'foundry' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('FoundryOps');
+    expect(results[0].content).toBe('US startup helping finance, revenue, and product teams coordinate workflows and delivery | Operator-led execution tooling for internal systems teams');
+    expect(results[0].company_name).toBe('FoundryOps');
+    expect(results[0].company_website).toBe('https://foundryops.io/');
+    expect(results[0].url).toBe('https://opsfoundry.vc/portfolio/foundryops');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
