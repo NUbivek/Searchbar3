@@ -22379,6 +22379,7 @@
       "url": "https://foundersystemscapital.com/portfolio",
       "extract": {
         "itemSelector": [
+          ".portfolio-item",
           ".portfolio-card",
           ".company-card",
           "article[data-company-card]",
@@ -26629,12 +26630,14 @@
           "a[href]"
         ],
         "titleSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
           "[data-company-name]"
         ],
         "contentSelector": [
+          ".subtext",
           "p",
           ".description",
           ".summary"
@@ -26642,6 +26645,7 @@
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
         "companyNameSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
@@ -26654,7 +26658,9 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta",
+          ".cta-banner"
         ],
         "excludePatterns": ["privacy", "terms", "cookie", "login"],
         "includePatterns": ["/portfolio/"],
@@ -26706,6 +26712,7 @@
       "url": "https://founderworkflowsystems.capital/portfolio",
       "extract": {
         "itemSelector": [
+          ".portfolio-item",
           ".portfolio-card",
           ".company-card",
           "article[data-company-card]",
@@ -26716,12 +26723,14 @@
           "a[href]"
         ],
         "titleSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
           "[data-company-name]"
         ],
         "contentSelector": [
+          ".subtext",
           "p",
           ".description",
           ".summary"
@@ -26729,6 +26738,7 @@
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
         "companyNameSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
@@ -26741,7 +26751,9 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta",
+          ".cta-banner"
         ],
         "excludePatterns": ["privacy", "terms", "cookie", "login"],
         "includePatterns": ["/portfolio/"],
@@ -26780,5 +26792,223 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operational workflows, process execution, and RevOps workflow analysis coverage."
+  },
+  {
+    "id": "A-QUEUERUNBOOK-BLOG-RSS",
+    "name": "Queue Runbook Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "automation", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://queuerunbook.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Queueing systems, runbook automation, and operator tooling coverage."
+  },
+  {
+    "id": "A-ACTIONRUNBOOK-BLOG-RSS",
+    "name": "Action Runbook Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "automation", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://actionrunbook.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Action orchestration, runbook execution, and operator automation coverage."
+  },
+  {
+    "id": "B-OPERATORRUNBOOK-PORTFOLIO",
+    "name": "Operator Runbook Portfolio",
+    "region": "US",
+    "category": "vc_portfolio",
+    "thesis_tags": ["operators", "automation", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://operatorrunbook.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"operatorrunbook.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Operator-led automation, workflow, and runbook portfolio coverage."
+  },
+  {
+    "id": "B-TECHRUNBOOKOPS-RSS",
+    "name": "Tech Runbook Ops",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "automation", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://techrunbookops.com/rss.xml"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operational runbooks, execution systems, and workflow tooling analysis coverage."
+  },
+  {
+    "id": "C-FOUNDERRUNBOOKCAPITAL-PORTFOLIO",
+    "name": "Founder Runbook Capital",
+    "region": "US",
+    "category": "vc_portfolio",
+    "thesis_tags": ["operators", "automation", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://founderrunbook.capital/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"founderrunbook.capital\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Founder-led automation, workflow, and runbook portfolio coverage."
+  },
+  {
+    "id": "C-OPSRUNBOOK-BLOG-RSS",
+    "name": "Ops Runbook Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "automation", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://opsrunbook.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Runbook operations, workflow execution, and operator process analysis coverage."
   }
 ]
