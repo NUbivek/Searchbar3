@@ -2959,5 +2959,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Venture and startup market analysis from an operator-investor lens."
+  },
+  {
+    "id": "A-FLYIO-BLOG-RSS",
+    "name": "Fly.io Blog Feed",
+    "region": "Global",
+    "category": "developer_ecosystem",
+    "thesis_tags": ["developer_tools", "infrastructure", "software"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://fly.io/blog/feed.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Developer platform and infra launch signals."
+  },
+  {
+    "id": "A-VERCEL-AI-RSS",
+    "name": "Vercel AI Feed",
+    "region": "Global",
+    "category": "ai_ecosystem",
+    "thesis_tags": ["ai", "developer_tools", "software"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://vercel.com/changelog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "AI app tooling and product launch updates."
+  },
+  {
+    "id": "B-GENERALCATALYST-PORTFOLIO",
+    "name": "General Catalyst Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["healthcare", "software", "ai"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "html",
+      "url": "https://www.generalcatalyst.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"generalcatalyst.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Large US venture portfolio with broad company coverage."
+  },
+  {
+    "id": "B-TECHINASIA-STARTUPS-RSS",
+    "name": "Tech in Asia Startups Feed",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["startups", "funding", "software"],
+    "stage_bias": ["pre-seed", "seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.techinasia.com/tag/startups/feed"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Startup and funding coverage with APAC signal overlap."
+  },
+  {
+    "id": "C-CREANDUM-PORTFOLIO",
+    "name": "Creandum Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["software", "fintech", "consumer"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://creandum.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"creandum.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "European portfolio source spanning software and fintech."
+  },
+  {
+    "id": "C-AVC-BLOG-RSS",
+    "name": "AVC Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["venture", "markets", "software"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://avc.com/feed/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Venture, startup, and market commentary with durable signal value."
   }
 ]
