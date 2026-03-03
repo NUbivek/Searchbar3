@@ -3786,6 +3786,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://uncork.com/portfolio/railstack');
   });
 
+  test('HtmlListAdapter extracts Founders First-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/atlasops">View</a>
+              <div class="company-name">AtlasOps</div>
+              <div class="description">Workflow automation for customer operations and revenue teams</div>
+              <div class="subtext">US startup helping sales, success, and finance teams run cross-functional playbooks</div>
+              <div class="company-site"><a href="https://atlasops.com/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.foundersfirst.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="foundersfirst.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'atlas' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('AtlasOps');
+    expect(results[0].content).toBe('US startup helping sales, success, and finance teams run cross-functional playbooks | Workflow automation for customer operations and revenue teams');
+    expect(results[0].company_name).toBe('AtlasOps');
+    expect(results[0].company_website).toBe('https://atlasops.com/');
+    expect(results[0].url).toBe('https://www.foundersfirst.vc/portfolio/atlasops');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
