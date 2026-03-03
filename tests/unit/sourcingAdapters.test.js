@@ -2313,6 +2313,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://headline.com/portfolio/shopmesh');
   });
 
+  test('HtmlListAdapter supports rtp-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/pipelane">Profile</a>
+            <div class="company-name">PipeLane</div>
+            <p class="description">Enterprise workflow and integration tooling for revenue teams</p>
+            <p class="subtext">Global SaaS stack for operators, data sync, and automation</p>
+            <div class="company-site">
+              <a href="https://pipelane.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.rtp.vc/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('PipeLane');
+    expect(results[0].content).toBe('Enterprise workflow and integration tooling for revenue teams | Global SaaS stack for operators, data sync, and automation');
+    expect(results[0].company_name).toBe('PipeLane');
+    expect(results[0].company_website).toBe('https://pipelane.io/');
+    expect(results[0].url).toBe('https://www.rtp.vc/portfolio/pipelane');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
