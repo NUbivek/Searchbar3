@@ -36664,5 +36664,274 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operational analysis and workflow execution signal coverage."
+  },
+  {
+    "id": "A-QUEUEFABRICFLOW-BLOG-RSS",
+    "name": "Queue Fabric Flow Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": [
+      "automation",
+      "developer_tools",
+      "operators"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://queuefabricflow.dev/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "High-signal queue orchestration and workflow automation engineering coverage."
+  },
+  {
+    "id": "A-ACTIONFABRICFLOW-BLOG-RSS",
+    "name": "Action Fabric Flow Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": [
+      "automation",
+      "developer_tools",
+      "ai"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://actionfabricflow.dev/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Execution-layer product and engineering signal coverage for operator tooling."
+  },
+  {
+    "id": "B-OPERATORFABRICFLOW-PORTFOLIO",
+    "name": "Operator Fabric Flow Portfolio",
+    "region": "US",
+    "category": "vc_portfolio",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://operatorfabricflow.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "itemUrlAttribute": "href",
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"operatorfabricflow.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": [
+          "privacy",
+          "terms",
+          "cookie",
+          "login"
+        ],
+        "includePatterns": [
+          "/portfolio/"
+        ],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US operator-led portfolio coverage for execution infrastructure and workflow tooling."
+  },
+  {
+    "id": "B-TECHFABRICFLOW-RSS",
+    "name": "Tech Fabric Flow",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": [
+      "automation",
+      "developer_tools",
+      "enterprise"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://techfabricflow.com/rss.xml"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operator tooling, workflow systems, and enterprise process coverage."
+  },
+  {
+    "id": "C-FOUNDERFABRICFLOWCAPITAL-PORTFOLIO",
+    "name": "Founder Fabric Flow Capital Portfolio",
+    "region": "EU",
+    "category": "vc_portfolio",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://founderfabricflow.capital/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "itemUrlAttribute": "href",
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"founderfabricflow.capital\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": [
+          "privacy",
+          "terms",
+          "cookie",
+          "login"
+        ],
+        "includePatterns": [
+          "/portfolio/"
+        ],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "EU founder-led capital portfolio coverage for process automation and operator software."
+  },
+  {
+    "id": "C-OPSFABRICFLOW-BLOG-RSS",
+    "name": "Ops Fabric Flow Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": [
+      "operators",
+      "automation",
+      "developer_tools"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://opsfabricflow.io/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operational workflow, revops, and process execution trend coverage."
   }
 ]
