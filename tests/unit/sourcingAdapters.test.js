@@ -363,6 +363,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://seedcamp.com/companies/nova');
   });
 
+  test('HtmlListAdapter supports portfolio cards with company-name selectors and banner exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-card" data-company-card="1">
+            <a class="internal-link" href="/portfolio/vector">Profile</a>
+            <div class="company-name">Vector Stack</div>
+            <p class="description">AI workflow infra</p>
+            <p class="subtext">Adopted by enterprise engineering teams</p>
+            <div class="company-site">
+              <a href="https://vectorstack.ai">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-card cta-banner" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.firstminute.capital/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-card'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.cta-banner'],
+          includePatterns: ['/portfolio'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Vector Stack');
+    expect(results[0].content).toBe('AI workflow infra | Adopted by enterprise engineering teams');
+    expect(results[0].company_name).toBe('Vector Stack');
+    expect(results[0].company_website).toBe('https://vectorstack.ai/');
+    expect(results[0].url).toBe('https://www.firstminute.capital/portfolio/vector');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
