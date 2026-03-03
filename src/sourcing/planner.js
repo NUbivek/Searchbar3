@@ -2,7 +2,7 @@ const { loadRegistry } = require('./registry');
 const { loadState } = require('./state');
 const {
   EXECUTION_MODES,
-  getDegradedCooldownMs,
+  getEffectiveDegradedCooldownMs,
   matchesExecutionMode,
   shouldRunSource,
 } = require('./runner');
@@ -82,7 +82,7 @@ function getDeferredReason(source, state, options) {
     return 'not_due_yet';
   }
 
-  const degradedCooldownMs = getDegradedCooldownMs(source);
+  const degradedCooldownMs = getEffectiveDegradedCooldownMs(source, sourceState);
   const ageMs = Date.now() - new Date(sourceState.last_run_at).getTime();
 
   if (

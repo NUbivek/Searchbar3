@@ -7,6 +7,7 @@ const { computeCoverageStats, validateCoverageTargets } = require('../../src/sou
 const { validateRegistry, validateRegistryEntry } = require('../../src/sourcing/schema');
 const { normalizeSignal } = require('../../src/sourcing/normalizer');
 const {
+  getEffectiveDegradedCooldownMs,
   getDegradedCooldownMs,
   matchesExecutionMode,
   runPipeline,
@@ -189,18 +190,26 @@ describe('sourcing foundation', () => {
     const source = {
       id: 'A-COOLDOWN',
       cadence: { tier: 'A', frequency: 'daily' },
-      runtime: { cooldownHoursAfterDegraded: 48 },
+      runtime: {
+        cooldownHoursAfterDegraded: 48,
+        cooldownBackoffMultiplier: 1.5,
+        maxCooldownHours: 168,
+      },
     };
     const state = {
       sources: {
         'A-COOLDOWN': {
           last_run_at: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
           last_status: 'degraded',
+          consecutive_degraded_count: 2,
         },
       },
     };
 
     expect(getDegradedCooldownMs(source)).toBe(48 * 60 * 60 * 1000);
+    expect(getEffectiveDegradedCooldownMs(source, state.sources['A-COOLDOWN'])).toBe(
+      48 * 60 * 60 * 1000 * 1.5 * 2
+    );
     expect(shouldRunSource(source, state, {})).toBe(false);
     expect(shouldRunSource(source, state, { force: true })).toBe(true);
   });
@@ -284,6 +293,7 @@ describe('sourcing foundation', () => {
           'A-COOLDOWN': {
             last_run_at: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
             last_status: 'degraded',
+            consecutive_degraded_count: 2,
           },
           'C-DEFERRED': {
             last_run_at: new Date().toISOString(),
@@ -580,5 +590,73 @@ describe('sourcing foundation', () => {
     expect(runReport.breakdowns.hiringSignals.none).toBe(1);
     expect(runReport.breakdowns.topThesisTags[0].key).toBe('ai');
     expect(runReport.breakdowns.topSources[0].key).toBe('Feed One');
+  });
+
+  test('runPipeline increments degraded streak on repeated failures', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'searchbar3-sourcing-degraded-'));
+    const registryPath = path.join(tempDir, 'registry.json');
+    const statePath = path.join(tempDir, 'source_state.json');
+    const outputPath = path.join(tempDir, 'signals.jsonl');
+    const rollupPath = path.join(tempDir, 'daily_rollup.csv');
+    const categoryExportPath = path.join(tempDir, 'category_rollup.csv');
+    const crmExportPath = path.join(tempDir, 'crm_export.csv');
+    const sourceHealthPath = path.join(tempDir, 'source_health.csv');
+    const runReportPath = path.join(tempDir, 'latest_run_summary.json');
+
+    fs.writeFileSync(
+      registryPath,
+      JSON.stringify([
+        {
+          id: 'A-BROKEN',
+          name: 'Broken Feed',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'rss', url: 'https://example.com/broken.xml' },
+          cadence: { tier: 'A', frequency: 'daily' },
+          query_strategy: { type: 'feed' },
+          requires_auth: false,
+          adapter: 'rss',
+          notes: 'Broken source',
+        },
+      ], null, 2),
+      'utf-8'
+    );
+
+    global.fetch = jest.fn()
+      .mockRejectedValueOnce(new Error('network fail'))
+      .mockRejectedValueOnce(new Error('still failing'));
+
+    await runPipeline({
+      registryPath,
+      statePath,
+      outputPath,
+      rollupPath,
+      categoryExportPath,
+      crmExportPath,
+      sourceHealthPath,
+      runReportPath,
+      force: true,
+    });
+
+    await runPipeline({
+      registryPath,
+      statePath,
+      outputPath,
+      rollupPath,
+      categoryExportPath,
+      crmExportPath,
+      sourceHealthPath,
+      runReportPath,
+      force: true,
+    });
+
+    const savedState = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+    const sourceHealthLines = fs.readFileSync(sourceHealthPath, 'utf-8').trim().split('\n');
+
+    expect(savedState.sources['A-BROKEN'].consecutive_degraded_count).toBe(2);
+    expect(sourceHealthLines).toHaveLength(2);
+    expect(sourceHealthLines[1]).toContain('"2"');
   });
 });

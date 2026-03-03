@@ -54,6 +54,29 @@ function getDegradedCooldownMs(source) {
   return hours * 60 * 60 * 1000;
 }
 
+function getEffectiveDegradedCooldownMs(source, sourceState) {
+  const baseCooldownMs = getDegradedCooldownMs(source);
+
+  if (baseCooldownMs <= 0) {
+    return 0;
+  }
+
+  const degradedCount = Math.max(1, Number(sourceState?.consecutive_degraded_count) || 1);
+  const multiplier = Number.isFinite(source.runtime?.cooldownBackoffMultiplier)
+    ? source.runtime.cooldownBackoffMultiplier
+    : 1;
+  const maxCooldownHours = Number.isFinite(source.runtime?.maxCooldownHours)
+    ? source.runtime.maxCooldownHours
+    : null;
+  const scaledCooldownMs = baseCooldownMs * Math.max(1, multiplier) * degradedCount;
+
+  if (!Number.isFinite(maxCooldownHours) || maxCooldownHours <= 0) {
+    return scaledCooldownMs;
+  }
+
+  return Math.min(scaledCooldownMs, maxCooldownHours * 60 * 60 * 1000);
+}
+
 function shouldRunSource(source, state, options = {}) {
   if (options.force) {
     return true;
@@ -80,7 +103,7 @@ function shouldRunSource(source, state, options = {}) {
   const lastRunAt = new Date(sourceState.last_run_at).getTime();
   const now = Date.now();
   const ageMs = now - lastRunAt;
-  const degradedCooldownMs = getDegradedCooldownMs(source);
+  const degradedCooldownMs = getEffectiveDegradedCooldownMs(source, sourceState);
 
   if (
     sourceState.last_status === 'degraded' &&
@@ -208,6 +231,7 @@ async function runSource(source, context) {
     last_status: 'ok',
     last_emitted_count: newSignals.length,
     last_deduped_count: dedupedCount,
+    consecutive_degraded_count: 0,
   };
 
   return {
@@ -247,11 +271,15 @@ async function runPipeline(options = {}) {
       emittedSignals.push(...result.signals);
       summaries.push(result.summary);
     } catch (error) {
+      const previousState = state.sources[source.id] || {};
+      const nextDegradedCount = (previousState.consecutive_degraded_count || 0) + 1;
       state.sources[source.id] = {
         last_run_at: new Date().toISOString(),
         last_status: 'degraded',
         last_emitted_count: 0,
+        last_deduped_count: 0,
         last_error: error.message,
+        consecutive_degraded_count: nextDegradedCount,
       };
       summaries.push(buildSourceSummary(source, error, 0));
     }
@@ -301,6 +329,7 @@ async function runPipeline(options = {}) {
 
 module.exports = {
   EXECUTION_MODES,
+  getEffectiveDegradedCooldownMs,
   getDegradedCooldownMs,
   matchesExecutionMode,
   runPipeline,

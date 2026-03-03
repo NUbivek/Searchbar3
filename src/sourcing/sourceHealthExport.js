@@ -32,6 +32,7 @@ function buildRows(registry, summaries, state) {
         summary.status || sourceState.last_status || 'not_run',
         summary.emittedCount ?? sourceState.last_emitted_count ?? 0,
         summary.dedupedCount ?? sourceState.last_deduped_count ?? 0,
+        sourceState.consecutive_degraded_count ?? 0,
         sourceState.last_run_at || '',
         sourceState.last_error || summary.error || '',
       ].map(escapeCsv).join(',');
@@ -61,6 +62,7 @@ class SourceHealthExportWriter {
       'status',
       'emitted_count',
       'deduped_count',
+      'consecutive_degraded_count',
       'last_run_at',
       'last_error',
     ].join(',');
