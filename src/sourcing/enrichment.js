@@ -70,7 +70,39 @@ function buildWebsiteEnrichment({ companyWebsite, itemUrl, sourceUrl }) {
   };
 }
 
+function inferHiringSignals(text) {
+  const content = String(text || '');
+  const lower = content.toLowerCase();
+
+  const explicitOpenRoles = lower.match(/(\d{1,3})\+?\s+(open roles|open positions|job openings)/i);
+  const teamSize = lower.match(/(\d{1,4})\s*(employees|employee team|person team|person company)/i);
+  const growthPct = lower.match(/(\d{1,3})%\s+(headcount growth|team growth|employee growth)/i);
+
+  let hiringSignal = 'none';
+  if (/\b(hiring|hiring across|now hiring|growing team|expanding team|we are hiring)\b/i.test(content)) {
+    hiringSignal = 'active';
+  }
+
+  if (explicitOpenRoles) {
+    hiringSignal = 'strong';
+  }
+
+  return {
+    hiring_signal: hiringSignal,
+    open_roles_guess: explicitOpenRoles ? Number(explicitOpenRoles[1]) : null,
+    employee_count_guess: teamSize ? Number(teamSize[1]) : null,
+    headcount_growth_pct_guess: growthPct ? Number(growthPct[1]) : null,
+  };
+}
+
+function buildHiringEnrichment({ item }) {
+  const content = `${item.title || ''} ${item.content || ''} ${item.snippet || ''}`.trim();
+  return inferHiringSignals(content);
+}
+
 module.exports = {
+  buildHiringEnrichment,
   buildWebsiteEnrichment,
   inferRootDomain,
+  inferHiringSignals,
 };
