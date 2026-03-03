@@ -9894,5 +9894,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Enterprise software venture analysis and operator insights."
+  },
+  {
+    "id": "A-TRYCERATOPS-BLOG-RSS",
+    "name": "Tryceratops Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "engineering", "saas"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://tryceratops.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Engineering productivity and developer workflow tooling coverage."
+  },
+  {
+    "id": "A-TRIEVE-ENGINEERING-RSS",
+    "name": "Trieve Engineering Feed",
+    "region": "Global",
+    "category": "ai_infrastructure",
+    "thesis_tags": ["ai", "search", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://trieve.ai/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Search infrastructure, retrieval systems, and AI engineering signals."
+  },
+  {
+    "id": "B-NORDICMAKERS-PORTFOLIO",
+    "name": "Nordic Makers Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "b2b", "saas"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://nordicmakers.vc/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"nordicmakers.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Nordic founder-backed early-stage SaaS and B2B portfolio coverage."
+  },
+  {
+    "id": "B-SHIFTMAG-RSS",
+    "name": "ShiftMag Startup Feed",
+    "region": "Global",
+    "category": "funding_news",
+    "thesis_tags": ["startups", "funding", "operators"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://theshiftmag.com/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Startup, venture, and operator ecosystem coverage."
+  },
+  {
+    "id": "C-AV8-PORTFOLIO",
+    "name": "AV8 Ventures Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "ai", "enterprise"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://av8.vc/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"av8.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US early-stage AI and enterprise software portfolio monitoring."
+  },
+  {
+    "id": "C-ELAD-BLOG-RSS",
+    "name": "Elad Blog Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["venture", "marketplaces", "saas"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://blog.eladgil.com/feeds/posts/default"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operator and venture market analysis across software and marketplaces."
   }
 ]
