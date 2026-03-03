@@ -1863,6 +1863,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://pear.vc/portfolio/foundrykit');
   });
 
+  test('HtmlListAdapter supports floodgate-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/stackpilot">Profile</a>
+            <div class="company-name">StackPilot</div>
+            <p class="description">Early-stage product tooling for startup teams</p>
+            <p class="subtext">Used by founders, engineering, and go-to-market teams</p>
+            <div class="company-site">
+              <a href="https://stackpilot.dev">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://floodgate.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('StackPilot');
+    expect(results[0].content).toBe('Early-stage product tooling for startup teams | Used by founders, engineering, and go-to-market teams');
+    expect(results[0].company_name).toBe('StackPilot');
+    expect(results[0].company_website).toBe('https://stackpilot.dev/');
+    expect(results[0].url).toBe('https://floodgate.com/portfolio/stackpilot');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
