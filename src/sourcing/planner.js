@@ -31,6 +31,34 @@ function isDueSoon(nextDueAt, withinHours) {
   return nextTime > now && nextTime <= now + windowMs;
 }
 
+function groupSources(items, keyName) {
+  return items.reduce((accumulator, item) => {
+    const key = item[keyName] || 'unknown';
+    if (!accumulator[key]) {
+      accumulator[key] = [];
+    }
+    accumulator[key].push(item);
+    return accumulator;
+  }, {});
+}
+
+function buildNextDueSummary(items, keyName) {
+  return items.reduce((accumulator, item) => {
+    if (!item.nextDueAt) {
+      return accumulator;
+    }
+
+    const key = item[keyName] || 'unknown';
+    const existingValue = accumulator[key];
+
+    if (!existingValue || new Date(item.nextDueAt).getTime() < new Date(existingValue).getTime()) {
+      accumulator[key] = item.nextDueAt;
+    }
+
+    return accumulator;
+  }, {});
+}
+
 function buildPlan(options = {}) {
   const registry = loadRegistry(options.registryPath);
   const state = loadState(options.statePath);
@@ -69,14 +97,8 @@ function buildPlan(options = {}) {
     });
   }
 
-  const groupedDue = dueSources.reduce((accumulator, source) => {
-    const key = source.tier;
-    if (!accumulator[key]) {
-      accumulator[key] = [];
-    }
-    accumulator[key].push(source);
-    return accumulator;
-  }, {});
+  const groupedDue = groupSources(dueSources, 'tier');
+  const groupedDueSoon = groupSources(dueSoonSources, 'tier');
 
   return {
     generatedAt: new Date().toISOString(),
@@ -88,6 +110,9 @@ function buildPlan(options = {}) {
     dueSoonCount: dueSoonSources.length,
     deferredCount: deferredSources.length,
     groupedDue,
+    groupedDueSoon,
+    nextDueByTier: buildNextDueSummary(deferredSources, 'tier'),
+    nextDueByFrequency: buildNextDueSummary(deferredSources, 'frequency'),
     dueSoonSources,
     dueSources,
     deferredSources,

@@ -258,10 +258,17 @@ describe('sourcing foundation', () => {
     expect(plan.dueCount).toBe(1);
     expect(plan.dueSoonCount).toBe(1);
     expect(plan.groupedDue.A).toHaveLength(1);
+    expect(plan.groupedDueSoon.A).toHaveLength(1);
     expect(plan.dueSoonSources).toHaveLength(1);
     expect(plan.dueSoonSources[0].id).toBe('A-SOON');
     expect(plan.deferredCount).toBe(2);
     expect(plan.deferredSources.find((entry) => entry.id === 'C-DEFERRED').reason).toBe('excluded_by_mode');
+    expect(plan.nextDueByTier.A).toBe(plan.dueSoonSources[0].nextDueAt);
+    expect(plan.nextDueByTier.C).toBe(plan.deferredSources.find((entry) => entry.id === 'C-DEFERRED').nextDueAt);
+    expect(plan.nextDueByFrequency.daily).toBe(plan.dueSoonSources[0].nextDueAt);
+    expect(plan.nextDueByFrequency.monthly).toBe(
+      plan.deferredSources.find((entry) => entry.id === 'C-DEFERRED').nextDueAt
+    );
   });
 
   test('runPipeline writes only net-new signals on repeated runs', async () => {
