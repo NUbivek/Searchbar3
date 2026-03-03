@@ -10,6 +10,7 @@ function buildRow(signal) {
   return [
     signal.company_name,
     signal.company_website,
+    signal.enrichment?.company_root_domain || '',
     signal.stage_guess,
     (signal.thesis_tags || []).join('|'),
     signal.region_guess,
@@ -39,6 +40,7 @@ class CrmExportWriter {
     const header = [
       'company_name',
       'company_website',
+      'company_root_domain',
       'stage_guess',
       'thesis_tags',
       'region_guess',

@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { buildWebsiteEnrichment } = require('./enrichment');
 
 const STAGE_PATTERNS = [
   { stage: 'pre-seed', pattern: /\bpre[\s-]?seed\b/i },
@@ -135,6 +136,12 @@ function normalizeSignal({ source, item, query }) {
   const thesisTags = inferThesisTags({ source, item, query });
   const companyWebsite = canonicalizeUrl(item.company_website || item.domain || itemUrl);
   const stageGuess = inferStageGuess({ source, item });
+  const sourceUrl = source.method?.url || '';
+  const enrichment = buildWebsiteEnrichment({
+    companyWebsite,
+    itemUrl,
+    sourceUrl,
+  });
   const scoring = computeConfidence({
     source,
     item,
@@ -152,7 +159,7 @@ function normalizeSignal({ source, item, query }) {
     signal_type: item.signal_type || 'mention',
     source_id: source.id,
     source_name: source.name,
-    source_url: source.method?.url || '',
+    source_url: sourceUrl,
     item_url: itemUrl,
     published_at: publishedAt,
     discovered_at: new Date().toISOString(),
@@ -163,6 +170,7 @@ function normalizeSignal({ source, item, query }) {
     },
     confidence: scoring.confidence,
     score_components: scoring.components,
+    enrichment,
   };
 }
 

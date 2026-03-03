@@ -44,6 +44,8 @@ describe('sourcing foundation', () => {
     expect(signalA.thesis_tags).toEqual(expect.arrayContaining(['ai']));
     expect(signalA.confidence).toBeGreaterThan(0.7);
     expect(signalA.score_components.website_present).toBe(true);
+    expect(signalA.enrichment.company_root_domain).toBe('acme.ai');
+    expect(signalA.enrichment.has_distinct_company_website).toBe(true);
   });
 
   test('normalizeSignal infers thesis tags from content and query', () => {
@@ -72,6 +74,7 @@ describe('sourcing foundation', () => {
       'logistics',
       'fintech',
     ]));
+    expect(signal.enrichment.item_root_domain).toBe('example.com');
   });
 
   test('validateRegistryEntry accepts generic adapter templates', () => {
