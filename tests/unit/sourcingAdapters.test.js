@@ -3457,6 +3457,53 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.indexventures.com/portfolio/flowmesh');
   });
 
+  test('HtmlListAdapter extracts Founder Collective-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <div class="portfolio-item">
+            <a class="internal-link" href="/portfolio/launchdeck"></a>
+            <div class="company-name">LaunchDeck</div>
+            <div class="description">Workflow software for operators, founders, and GTM teams shipping product faster</div>
+            <div class="subtext">US SaaS tooling for planning, execution, and automation across startup operating systems</div>
+            <div class="company-site"><a href="https://launchdeck.io/">Visit</a></div>
+          </div>
+          <div class="footer-cta">
+            <a href="/portfolio/ignore-me">Ignore me</a>
+          </div>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.foundercollective.com/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('LaunchDeck');
+    expect(results[0].content).toBe('Workflow software for operators, founders, and GTM teams shipping product faster | US SaaS tooling for planning, execution, and automation across startup operating systems');
+    expect(results[0].company_name).toBe('LaunchDeck');
+    expect(results[0].company_website).toBe('https://launchdeck.io/');
+    expect(results[0].url).toBe('https://www.foundercollective.com/portfolio/launchdeck');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
