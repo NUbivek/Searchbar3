@@ -4514,6 +4514,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://opsengine.vc/portfolio/engineops');
   });
 
+  test('HtmlListAdapter extracts Ops Works-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/workops">View</a>
+              <div class="company-name">WorkOps</div>
+              <div class="description">Operator-led workflow tooling for execution-heavy internal teams</div>
+              <div class="subtext">US startup helping finance, product, and customer teams coordinate systems, process, and delivery</div>
+              <div class="company-site"><a href="https://workops.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://opsworks.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="opsworks.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'work' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('WorkOps');
+    expect(results[0].content).toBe('US startup helping finance, product, and customer teams coordinate systems, process, and delivery | Operator-led workflow tooling for execution-heavy internal teams');
+    expect(results[0].company_name).toBe('WorkOps');
+    expect(results[0].company_website).toBe('https://workops.io/');
+    expect(results[0].url).toBe('https://opsworks.vc/portfolio/workops');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
