@@ -3363,6 +3363,53 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://uncork.com/portfolio/stackgrid');
   });
 
+  test('HtmlListAdapter extracts Bessemer-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <div class="portfolio-item">
+            <a class="internal-link" href="/portfolio/ledgerloop"></a>
+            <div class="company-name">LedgerLoop</div>
+            <div class="description">Embedded finance and treasury tooling for modern software companies</div>
+            <div class="subtext">US fintech infrastructure for programmable workflows, cash visibility, and payments orchestration</div>
+            <div class="company-site"><a href="https://ledgerloop.com/">Visit</a></div>
+          </div>
+          <div class="footer-cta">
+            <a href="/portfolio/ignore-me">Ignore me</a>
+          </div>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.bvp.com/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('LedgerLoop');
+    expect(results[0].content).toBe('Embedded finance and treasury tooling for modern software companies | US fintech infrastructure for programmable workflows, cash visibility, and payments orchestration');
+    expect(results[0].company_name).toBe('LedgerLoop');
+    expect(results[0].company_website).toBe('https://ledgerloop.com/');
+    expect(results[0].url).toBe('https://www.bvp.com/portfolio/ledgerloop');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
