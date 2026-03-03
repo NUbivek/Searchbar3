@@ -3879,5 +3879,227 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "VC and startup market analysis from an operator-investor perspective."
+  },
+  {
+    "id": "A-SCALEAI-BLOG-RSS",
+    "name": "Scale AI Blog Feed",
+    "region": "US",
+    "category": "ai_infrastructure",
+    "thesis_tags": ["ai", "infrastructure", "enterprise"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://scale.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "AI infrastructure and enterprise deployment updates from Scale AI."
+  },
+  {
+    "id": "A-MODAL-BLOG-RSS",
+    "name": "Modal Blog Feed",
+    "region": "US",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "ai", "cloud"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://modal.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Developer infrastructure and AI workload execution updates."
+  },
+  {
+    "id": "B-ATOMICO-PORTFOLIO",
+    "name": "Atomico Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "europe", "startups"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "html",
+      "url": "https://atomico.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".portfolio-item",
+          ".company-card",
+          "[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"atomico.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "European breakout company portfolio coverage."
+  },
+  {
+    "id": "B-CRUNCHBASE-NEWS-RSS",
+    "name": "Crunchbase News Feed",
+    "region": "US",
+    "category": "funding_news",
+    "thesis_tags": ["venture", "funding", "startups"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://news.crunchbase.com/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Funding and company signal coverage from Crunchbase News."
+  },
+  {
+    "id": "C-ANTHEMIS-PORTFOLIO",
+    "name": "Anthemis Portfolio",
+    "region": "Global",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "fintech", "startups"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "html",
+      "url": "https://www.anthemis.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".portfolio-item",
+          ".company-card",
+          "[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"anthemis.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Fintech-focused portfolio source with broad startup coverage."
+  },
+  {
+    "id": "C-NEXTVIEW-BLOG-RSS",
+    "name": "NextView Blog Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["venture", "seed", "startups"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://nextview.vc/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Early-stage founder and market observations from NextView."
   }
 ]
