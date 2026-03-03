@@ -333,6 +333,7 @@ describe('sourcing foundation', () => {
     expect(crmLines).toHaveLength(1);
     expect(runReport.emittedCount).toBe(0);
     expect(runReport.runCount).toBe(1);
+    expect(runReport.breakdowns.byStage).toEqual({});
   });
 
   test('runPipeline dedupes overlapping companies across sources using aliases', async () => {
@@ -425,5 +426,8 @@ describe('sourcing foundation', () => {
     expect(result.summaries[1].dedupedCount).toBe(1);
     expect(writtenLines).toHaveLength(1);
     expect(runReport.dedupedCount).toBe(1);
+    expect(runReport.breakdowns.byStage.seed).toBe(1);
+    expect(runReport.breakdowns.byCategory.startup_news).toBe(1);
+    expect(runReport.breakdowns.hiringSignals.none).toBe(1);
   });
 });

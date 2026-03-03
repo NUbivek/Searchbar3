@@ -81,6 +81,30 @@ function buildSourceSummary(source, error, emittedCount) {
   };
 }
 
+function countBy(items, selector) {
+  return items.reduce((accumulator, item) => {
+    const key = selector(item);
+    accumulator[key] = (accumulator[key] || 0) + 1;
+    return accumulator;
+  }, {});
+}
+
+function buildSignalBreakdowns(signals, registry) {
+  const sourceById = registry.reduce((accumulator, source) => {
+    accumulator[source.id] = source;
+    return accumulator;
+  }, {});
+
+  return {
+    byStage: countBy(signals, (signal) => signal.stage_guess || 'unknown'),
+    byCategory: countBy(signals, (signal) => sourceById[signal.source_id]?.category || 'unknown'),
+    byRegion: countBy(signals, (signal) => signal.region_guess || 'unknown'),
+    fundingSignals: countBy(signals, (signal) => signal.enrichment?.funding_signal || 'none'),
+    hiringSignals: countBy(signals, (signal) => signal.enrichment?.hiring_signal || 'none'),
+    investorSignals: countBy(signals, (signal) => signal.enrichment?.investor_signal || 'none'),
+  };
+}
+
 async function runSource(source, context) {
   const adapter = createAdapter(source, { timeoutMs: context.timeoutMs });
   const items = await adapter.run({ query: context.query || '' });
@@ -176,6 +200,7 @@ async function runPipeline(options = {}) {
     crmExportCount,
     degradedCount: summaries.filter((summary) => summary.status === 'degraded').length,
     dedupedCount: summaries.reduce((sum, summary) => sum + (summary.dedupedCount || 0), 0),
+    breakdowns: buildSignalBreakdowns(emittedSignals, registry),
     sourceSummaries: summaries,
   });
   saveState(state, options.statePath);
