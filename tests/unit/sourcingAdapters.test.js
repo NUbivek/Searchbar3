@@ -4722,6 +4722,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://opsmesh.vc/portfolio/opsmeshpro');
   });
 
+  test('HtmlListAdapter extracts Ops Grid-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/opsgridhq">View</a>
+              <div class="company-name">OpsGrid HQ</div>
+              <div class="description">Workflow control software for operations-heavy teams.</div>
+              <div class="subtext">US startup helping finance, legal, and GTM teams coordinate reviews, approvals, and launches.</div>
+              <div class="company-site"><a href="https://opsgridhq.com/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://opsgrid.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="opsgrid.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'ops' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('OpsGrid HQ');
+    expect(results[0].content).toBe('US startup helping finance, legal, and GTM teams coordinate reviews, approvals, and launches. | Workflow control software for operations-heavy teams.');
+    expect(results[0].company_name).toBe('OpsGrid HQ');
+    expect(results[0].company_website).toBe('https://opsgridhq.com/');
+    expect(results[0].url).toBe('https://opsgrid.vc/portfolio/opsgridhq');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
