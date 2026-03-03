@@ -787,12 +787,14 @@
           "a[href]"
         ],
         "titleSelector": [
+          ".company-name",
           "h2",
           "h3",
           "h4",
           "[data-title]"
         ],
         "contentSelector": [
+          ".subtext",
           "p",
           ".description",
           ".summary"
@@ -800,6 +802,7 @@
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
         "companyNameSelector": [
+          ".company-name",
           "h2",
           "h3",
           "h4",
@@ -888,11 +891,13 @@
           "a[href]"
         ],
         "titleSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title"
         ],
         "contentSelector": [
+          ".subtext",
           "p",
           ".description",
           ".excerpt"
@@ -900,6 +905,7 @@
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
         "companyNameSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title"
@@ -1007,6 +1013,7 @@
       "url": "https://signalfire.com/portfolio/",
       "extract": {
         "itemSelector": [
+          ".portfolio-item",
           ".portfolio-card",
           "article[data-portfolio-item]",
           "a[href*=\"/portfolio/\"]"
@@ -1040,7 +1047,9 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta",
+          ".cta-banner"
         ],
         "excludePatterns": [
           "privacy",
@@ -1177,7 +1186,9 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta",
+          ".cta-banner"
         ],
         "excludePatterns": [
           "privacy",
@@ -1312,6 +1323,7 @@
       "url": "https://pear.vc/portfolio/",
       "extract": {
         "itemSelector": [
+          ".portfolio-item",
           ".portfolio-card",
           "article[data-company-card]",
           "a[href*=\"/portfolio/\"]"

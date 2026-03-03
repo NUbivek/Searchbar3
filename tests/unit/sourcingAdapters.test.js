@@ -6202,6 +6202,67 @@ test('HtmlListAdapter extracts Operator Pattern Flow-style portfolio entries', a
   expect(results[0].url).toBe('https://operatorpatternflow.vc/portfolio/patternops');
 });
 
+test('HtmlListAdapter extracts Operator Fabric Flow-style portfolio entries', async () => {
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get(name) {
+        if (String(name).toLowerCase() === 'content-type') {
+          return 'text/html; charset=utf-8';
+        }
+        return null;
+      },
+    },
+    text: async () => `
+      <html>
+        <body>
+          <section class="portfolio-item">
+            <a href="/portfolio/fabricops">View</a>
+            <div class="company-name">FabricOps</div>
+            <div class="description">Operational control plane for routing, approvals, and queue orchestration.</div>
+            <div class="subtext">Workflow execution software for finance and support operations.</div>
+            <div class="company-site"><a href="https://fabricops.io/">Company</a></div>
+          </section>
+          <div class="footer-cta">Ignore this footer</div>
+        </body>
+      </html>
+    `,
+  });
+
+  const adapter = new HtmlListAdapter({
+    method: {
+      url: 'https://operatorfabricflow.vc/portfolio',
+      extract: {
+        itemSelector: ['.portfolio-item', '.portfolio-card'],
+        linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+        titleSelector: ['.company-name', 'h2'],
+        contentSelector: ['.subtext', '.description'],
+        mergeContentSelectors: true,
+        contentJoinWith: ' | ',
+        companyNameSelector: ['.company-name', 'h2'],
+        companyWebsiteSelector: [
+          'a[href*="http"]:not([href*="operatorfabricflow.vc"])',
+          '.company-site a[href]',
+        ],
+        includePatterns: ['/portfolio/'],
+        excludeSelectors: ['.footer-cta', '.cta-banner'],
+      },
+    },
+  });
+
+  const results = await adapter.run({ query: 'fabric' });
+
+  expect(results).toHaveLength(1);
+  expect(results[0].title).toBe('FabricOps');
+  expect(results[0].content).toBe(
+    'Workflow execution software for finance and support operations. | Operational control plane for routing, approvals, and queue orchestration.'
+  );
+  expect(results[0].company_name).toBe('FabricOps');
+  expect(results[0].company_website).toBe('https://fabricops.io/');
+  expect(results[0].url).toBe('https://operatorfabricflow.vc/portfolio/fabricops');
+});
+
 test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
