@@ -5190,6 +5190,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://operatorvision.vc/portfolio/visionops');
   });
 
+  test('HtmlListAdapter extracts Operator Intel-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/intelops">View</a>
+              <div class="company-name">IntelOps</div>
+              <div class="description">Operator intelligence software for workflow telemetry, execution oversight, and operational visibility.</div>
+              <div class="subtext">US startup helping finance, support, and GTM teams monitor routing, approvals, and launch execution with stronger process insight.</div>
+              <div class="company-site"><a href="https://intelops.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://operatorintel.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="operatorintel.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'ops' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('IntelOps');
+    expect(results[0].content).toBe('US startup helping finance, support, and GTM teams monitor routing, approvals, and launch execution with stronger process insight. | Operator intelligence software for workflow telemetry, execution oversight, and operational visibility.');
+    expect(results[0].company_name).toBe('IntelOps');
+    expect(results[0].company_website).toBe('https://intelops.io/');
+    expect(results[0].url).toBe('https://operatorintel.vc/portfolio/intelops');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
