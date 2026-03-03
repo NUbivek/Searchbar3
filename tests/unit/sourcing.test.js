@@ -185,6 +185,7 @@ describe('sourcing foundation', () => {
     const statePath = path.join(tempDir, 'source_state.json');
     const rollupPath = path.join(tempDir, 'daily_rollup.csv');
     const crmExportPath = path.join(tempDir, 'crm_export.csv');
+    const runReportPath = path.join(tempDir, 'latest_run_summary.json');
 
     fs.writeFileSync(
       registryPath,
@@ -235,6 +236,7 @@ describe('sourcing foundation', () => {
       statePath,
       rollupPath,
       crmExportPath,
+      runReportPath,
       frequency: 'daily',
       force: true,
     });
@@ -245,6 +247,7 @@ describe('sourcing foundation', () => {
       statePath,
       rollupPath,
       crmExportPath,
+      runReportPath,
       frequency: 'daily',
       force: true,
     });
@@ -252,6 +255,7 @@ describe('sourcing foundation', () => {
     const writtenLines = fs.readFileSync(outputPath, 'utf-8').trim().split('\n');
     const rollupLines = fs.readFileSync(rollupPath, 'utf-8').trim().split('\n');
     const crmLines = fs.readFileSync(crmExportPath, 'utf-8').trim().split('\n');
+    const runReport = JSON.parse(fs.readFileSync(runReportPath, 'utf-8'));
 
     expect(firstRun.emittedCount).toBe(1);
     expect(firstRun.rollupCount).toBe(1);
@@ -262,6 +266,8 @@ describe('sourcing foundation', () => {
     expect(writtenLines).toHaveLength(1);
     expect(rollupLines).toHaveLength(1);
     expect(crmLines).toHaveLength(1);
+    expect(runReport.emittedCount).toBe(0);
+    expect(runReport.runCount).toBe(1);
   });
 
   test('runPipeline dedupes overlapping companies across sources using aliases', async () => {
@@ -271,6 +277,7 @@ describe('sourcing foundation', () => {
     const statePath = path.join(tempDir, 'source_state.json');
     const rollupPath = path.join(tempDir, 'daily_rollup.csv');
     const crmExportPath = path.join(tempDir, 'crm_export.csv');
+    const runReportPath = path.join(tempDir, 'latest_run_summary.json');
 
     fs.writeFileSync(
       registryPath,
@@ -341,14 +348,17 @@ describe('sourcing foundation', () => {
       statePath,
       rollupPath,
       crmExportPath,
+      runReportPath,
       force: true,
     });
 
     const writtenLines = fs.readFileSync(outputPath, 'utf-8').trim().split('\n');
+    const runReport = JSON.parse(fs.readFileSync(runReportPath, 'utf-8'));
 
     expect(result.emittedCount).toBe(1);
     expect(result.crmExportCount).toBe(1);
     expect(result.summaries[1].dedupedCount).toBe(1);
     expect(writtenLines).toHaveLength(1);
+    expect(runReport.dedupedCount).toBe(1);
   });
 });
