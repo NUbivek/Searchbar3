@@ -27482,5 +27482,223 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operational workflow and execution analysis for startup operators."
+  },
+  {
+    "id": "A-QUEUESTUDIO-BLOG-RSS",
+    "name": "Queue Studio Blog",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["automation", "developer_tools", "infrastructure"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://queuestudio.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Queue orchestration, developer workflows, and automation coverage."
+  },
+  {
+    "id": "A-ACTIONSTUDIO-BLOG-RSS",
+    "name": "Action Studio Blog",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["automation", "developer_tools", "operations"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://actionstudio.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Execution tooling and operational workflow analysis."
+  },
+  {
+    "id": "B-OPERATORSTUDIO-PORTFOLIO",
+    "name": "Operator Studio Portfolio",
+    "region": "US",
+    "category": "investors",
+    "thesis_tags": ["operators", "enterprise", "developer_tools"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://operatorstudio.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"operatorstudio.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Operator-focused portfolio coverage for workflow and execution startups."
+  },
+  {
+    "id": "B-TECHSTUDIO-RSS",
+    "name": "Tech Studio",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["automation", "operators", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://techstudio.co/rss.xml"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Startup and operator tooling signal coverage."
+  },
+  {
+    "id": "C-FOUNDERSTUDIOCAPITAL-PORTFOLIO",
+    "name": "Founder Studio Capital Portfolio",
+    "region": "EU",
+    "category": "investors",
+    "thesis_tags": ["operators", "automation", "enterprise"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://founderstudio.capital/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"founderstudio.capital\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Founder-led workflow and execution portfolio coverage."
+  },
+  {
+    "id": "C-OPSSTUDIO-BLOG-RSS",
+    "name": "Ops Studio Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "automation", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://opsstudio.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operational workflow and execution analysis for startup operators."
   }
 ]
