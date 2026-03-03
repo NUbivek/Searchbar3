@@ -4618,6 +4618,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://opstrack.vc/portfolio/opstracker');
   });
 
+  test('HtmlListAdapter extracts Ops Loop-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/opslooper">View</a>
+              <div class="company-name">OpsLooper</div>
+              <div class="description">Execution workflow software for operator-led teams.</div>
+              <div class="subtext">US startup helping finance, revenue, and customer teams run repeatable processes.</div>
+              <div class="company-site"><a href="https://opslooper.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://opsloop.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="opsloop.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'ops' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('OpsLooper');
+    expect(results[0].content).toBe('US startup helping finance, revenue, and customer teams run repeatable processes. | Execution workflow software for operator-led teams.');
+    expect(results[0].company_name).toBe('OpsLooper');
+    expect(results[0].company_website).toBe('https://opslooper.io/');
+    expect(results[0].url).toBe('https://opsloop.vc/portfolio/opslooper');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
