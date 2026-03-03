@@ -2463,6 +2463,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://seedx.vc/portfolio/brandflow');
   });
 
+  test('HtmlListAdapter supports freestyle-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/creatorloop">Profile</a>
+            <div class="company-name">CreatorLoop</div>
+            <p class="description">Consumer creator tooling for monetization and audience workflows</p>
+            <p class="subtext">US software stack for creators, community, and lifecycle growth</p>
+            <div class="company-site">
+              <a href="https://creatorloop.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://freestyle.vc/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('CreatorLoop');
+    expect(results[0].content).toBe('Consumer creator tooling for monetization and audience workflows | US software stack for creators, community, and lifecycle growth');
+    expect(results[0].company_name).toBe('CreatorLoop');
+    expect(results[0].company_website).toBe('https://creatorloop.io/');
+    expect(results[0].url).toBe('https://freestyle.vc/portfolio/creatorloop');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
