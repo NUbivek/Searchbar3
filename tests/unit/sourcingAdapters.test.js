@@ -3063,6 +3063,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.ggv.com/portfolio/marketgrid');
   });
 
+  test('HtmlListAdapter supports craft-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/stackpilot">Profile</a>
+            <div class="company-name">StackPilot</div>
+            <p class="description">Marketplace and SaaS automation platform for revenue and product workflows</p>
+            <p class="subtext">US AI-native operating software for customer lifecycle and data orchestration</p>
+            <div class="company-site">
+              <a href="https://stackpilot.ai">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.craftventures.com/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('StackPilot');
+    expect(results[0].content).toBe('Marketplace and SaaS automation platform for revenue and product workflows | US AI-native operating software for customer lifecycle and data orchestration');
+    expect(results[0].company_name).toBe('StackPilot');
+    expect(results[0].company_website).toBe('https://stackpilot.ai/');
+    expect(results[0].url).toBe('https://www.craftventures.com/portfolio/stackpilot');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
