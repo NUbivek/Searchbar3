@@ -25870,5 +25870,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operational control planes, process systems, and revenue execution analysis coverage."
+  },
+  {
+    "id": "A-QUEUECOMMAND-BLOG-RSS",
+    "name": "Queue Command Blog",
+    "region": "Global",
+    "category": "engineering_blog",
+    "thesis_tags": ["operators", "automation", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://queuecommand.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Queue execution control, orchestration systems, and workflow tooling coverage."
+  },
+  {
+    "id": "A-ACTIONCOMMAND-BLOG-RSS",
+    "name": "Action Command Blog",
+    "region": "Global",
+    "category": "engineering_blog",
+    "thesis_tags": ["operators", "automation", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://actioncommand.dev/feed.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Action routing, approval control, and operator automation coverage."
+  },
+  {
+    "id": "B-OPERATORCOMMAND-PORTFOLIO",
+    "name": "Operator Command Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["operators", "automation", "sales"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://operatorcommand.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"operatorcommand.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Operator command systems, workflow execution, and orchestration portfolio coverage."
+  },
+  {
+    "id": "B-TECHCOMMANDOPS-RSS",
+    "name": "Tech Command Ops Feed",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["operators", "automation", "startups"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://techcommandops.co/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operator execution systems, workflow tooling, and startup operations coverage."
+  },
+  {
+    "id": "C-FOUNDERCOMMANDCAPITAL-PORTFOLIO",
+    "name": "Founder Command Capital Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["operators", "sales", "automation"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://foundercommand.capital/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"foundercommand.capital\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Founder-led control systems, workflow execution, and operator portfolio coverage."
+  },
+  {
+    "id": "C-OPSCOMMAND-BLOG-RSS",
+    "name": "Ops Command Blog",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "sales", "automation"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://opscommand.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operational command systems, process control, and revenue execution analysis coverage."
   }
 ]
