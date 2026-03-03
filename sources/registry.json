@@ -4338,5 +4338,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operator and founder execution guidance with early-stage relevance."
+  },
+  {
+    "id": "A-TURSO-BLOG-RSS",
+    "name": "Turso Blog Feed",
+    "region": "US",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "databases", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://turso.tech/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Database infrastructure and edge developer tooling updates."
+  },
+  {
+    "id": "A-LANGFUSE-BLOG-RSS",
+    "name": "Langfuse Blog Feed",
+    "region": "EU",
+    "category": "developer_tools",
+    "thesis_tags": ["ai", "developer_tools", "observability"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://langfuse.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "LLM observability and AI developer workflow coverage."
+  },
+  {
+    "id": "B-SEQUOIA-ARC-PORTFOLIO",
+    "name": "Sequoia Arc Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "startups", "software"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://www.sequoiacap.com/arc/companies/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/companies/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/companies/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"sequoiacap.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/companies/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Early-stage Sequoia Arc company directory."
+  },
+  {
+    "id": "B-SIFTED-FUNDING-RSS",
+    "name": "Sifted Funding Feed",
+    "region": "EU",
+    "category": "funding_news",
+    "thesis_tags": ["funding", "startups", "europe"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://sifted.eu/articles/funding/feed"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "European startup funding activity and company coverage."
+  },
+  {
+    "id": "C-OUTSIDEVC-PORTFOLIO",
+    "name": "Outside VC Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "seed", "startups"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://www.outsidevc.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"outsidevc.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Seed-focused venture portfolio coverage from Outside VC."
+  },
+  {
+    "id": "C-SOFTWARE-STACKINVESTING-RSS",
+    "name": "Software Stack Investing Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["software", "enterprise", "markets"],
+    "stage_bias": ["series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://softwarestackinvesting.com/feed/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Public and private software market analysis with startup signal overlap."
   }
 ]
