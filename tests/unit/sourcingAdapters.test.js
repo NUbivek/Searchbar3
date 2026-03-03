@@ -6263,6 +6263,67 @@ test('HtmlListAdapter extracts Operator Fabric Flow-style portfolio entries', as
   expect(results[0].url).toBe('https://operatorfabricflow.vc/portfolio/fabricops');
 });
 
+test('HtmlListAdapter extracts Operator Lattice-style portfolio entries', async () => {
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get(name) {
+        if (String(name).toLowerCase() === 'content-type') {
+          return 'text/html; charset=utf-8';
+        }
+        return null;
+      },
+    },
+    text: async () => `
+      <html>
+        <body>
+          <section class="portfolio-item">
+            <a href="/portfolio/latticeops">View</a>
+            <div class="company-name">LatticeOps</div>
+            <div class="description">Workflow execution, routing controls, and queue automation for ops teams.</div>
+            <div class="subtext">US startup helping finance, support, and GTM teams coordinate approvals, execution governance, and process visibility.</div>
+            <div class="company-site"><a href="https://latticeops.io/">Company</a></div>
+          </section>
+          <div class="footer-cta">Ignore this footer</div>
+        </body>
+      </html>
+    `,
+  });
+
+  const adapter = new HtmlListAdapter({
+    method: {
+      url: 'https://operatorlattice.vc/portfolio',
+      extract: {
+        itemSelector: ['.portfolio-item', '.portfolio-card'],
+        linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+        titleSelector: ['.company-name', 'h2'],
+        contentSelector: ['.subtext', '.description'],
+        mergeContentSelectors: true,
+        contentJoinWith: ' | ',
+        companyNameSelector: ['.company-name', 'h2'],
+        companyWebsiteSelector: [
+          'a[href*="http"]:not([href*="operatorlattice.vc"])',
+          '.company-site a[href]',
+        ],
+        includePatterns: ['/portfolio/'],
+        excludeSelectors: ['.footer-cta', '.cta-banner'],
+      },
+    },
+  });
+
+  const results = await adapter.run({ query: 'lattice' });
+
+  expect(results).toHaveLength(1);
+  expect(results[0].title).toBe('LatticeOps');
+  expect(results[0].content).toBe(
+    'US startup helping finance, support, and GTM teams coordinate approvals, execution governance, and process visibility. | Workflow execution, routing controls, and queue automation for ops teams.'
+  );
+  expect(results[0].company_name).toBe('LatticeOps');
+  expect(results[0].company_website).toBe('https://latticeops.io/');
+  expect(results[0].url).toBe('https://operatorlattice.vc/portfolio/latticeops');
+});
+
 test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
