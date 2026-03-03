@@ -3113,6 +3113,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.craftventures.com/portfolio/stackpilot');
   });
 
+  test('HtmlListAdapter supports merit-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/opslayer">Profile</a>
+            <div class="company-name">OpsLayer</div>
+            <p class="description">AI-native B2B software for enterprise operations, workflow automation, and reporting</p>
+            <p class="subtext">US platform for orchestration, compliance, and infrastructure coordination</p>
+            <div class="company-site">
+              <a href="https://opslayer.ai">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.merit.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('OpsLayer');
+    expect(results[0].content).toBe('AI-native B2B software for enterprise operations, workflow automation, and reporting | US platform for orchestration, compliance, and infrastructure coordination');
+    expect(results[0].company_name).toBe('OpsLayer');
+    expect(results[0].company_website).toBe('https://opslayer.ai/');
+    expect(results[0].url).toBe('https://www.merit.vc/portfolio/opslayer');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
