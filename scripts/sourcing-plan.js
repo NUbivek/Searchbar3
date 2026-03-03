@@ -10,6 +10,9 @@ function parseArgs(argv) {
     if (arg === '--mode' && next) {
       options.executionMode = next;
       index += 1;
+    } else if (arg === '--within-hours' && next) {
+      options.withinHours = Number(next);
+      index += 1;
     } else if (arg === '--tier' && next) {
       options.tier = next;
       index += 1;

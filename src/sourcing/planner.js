@@ -20,11 +20,24 @@ function computeNextDueAt(source, state) {
   return nextDueAt.toISOString();
 }
 
+function isDueSoon(nextDueAt, withinHours) {
+  if (!nextDueAt || !Number.isFinite(withinHours)) {
+    return false;
+  }
+
+  const nextTime = new Date(nextDueAt).getTime();
+  const now = Date.now();
+  const windowMs = withinHours * 60 * 60 * 1000;
+  return nextTime > now && nextTime <= now + windowMs;
+}
+
 function buildPlan(options = {}) {
   const registry = loadRegistry(options.registryPath);
   const state = loadState(options.statePath);
+  const withinHours = Number.isFinite(options.withinHours) ? options.withinHours : 24;
 
   const dueSources = [];
+  const dueSoonSources = [];
   const deferredSources = [];
 
   for (const source of registry) {
@@ -46,6 +59,10 @@ function buildPlan(options = {}) {
       continue;
     }
 
+    if (executionModeMatch && isDueSoon(nextDueAt, withinHours)) {
+      dueSoonSources.push(sourceEntry);
+    }
+
     deferredSources.push({
       ...sourceEntry,
       reason: executionModeMatch ? 'not_due_yet' : 'excluded_by_mode',
@@ -64,11 +81,14 @@ function buildPlan(options = {}) {
   return {
     generatedAt: new Date().toISOString(),
     executionMode: options.executionMode || null,
+    withinHours,
     supportedModes: Object.keys(EXECUTION_MODES),
     totalSources: registry.length,
     dueCount: dueSources.length,
+    dueSoonCount: dueSoonSources.length,
     deferredCount: deferredSources.length,
     groupedDue,
+    dueSoonSources,
     dueSources,
     deferredSources,
   };
@@ -77,4 +97,5 @@ function buildPlan(options = {}) {
 module.exports = {
   buildPlan,
   computeNextDueAt,
+  isDueSoon,
 };

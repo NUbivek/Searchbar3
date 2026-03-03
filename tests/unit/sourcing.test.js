@@ -202,6 +202,20 @@ describe('sourcing foundation', () => {
           notes: 'Due source',
         },
         {
+          id: 'A-SOON',
+          name: 'A Soon',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'rss', url: 'https://example.com/soon.xml' },
+          cadence: { tier: 'A', frequency: 'daily' },
+          query_strategy: { type: 'feed' },
+          requires_auth: false,
+          adapter: 'rss',
+          notes: 'Soon source',
+        },
+        {
           id: 'C-DEFERRED',
           name: 'C Deferred',
           region: 'Global',
@@ -223,6 +237,9 @@ describe('sourcing foundation', () => {
       statePath,
       JSON.stringify({
         sources: {
+          'A-SOON': {
+            last_run_at: new Date(Date.now() - 23 * 60 * 60 * 1000).toISOString(),
+          },
           'C-DEFERRED': {
             last_run_at: new Date().toISOString(),
           },
@@ -235,12 +252,16 @@ describe('sourcing foundation', () => {
       registryPath,
       statePath,
       executionMode: 'daily',
+      withinHours: 24,
     });
 
     expect(plan.dueCount).toBe(1);
+    expect(plan.dueSoonCount).toBe(1);
     expect(plan.groupedDue.A).toHaveLength(1);
-    expect(plan.deferredCount).toBe(1);
-    expect(plan.deferredSources[0].reason).toBe('excluded_by_mode');
+    expect(plan.dueSoonSources).toHaveLength(1);
+    expect(plan.dueSoonSources[0].id).toBe('A-SOON');
+    expect(plan.deferredCount).toBe(2);
+    expect(plan.deferredSources.find((entry) => entry.id === 'C-DEFERRED').reason).toBe('excluded_by_mode');
   });
 
   test('runPipeline writes only net-new signals on repeated runs', async () => {
