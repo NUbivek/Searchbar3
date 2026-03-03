@@ -2663,6 +2663,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://haystack.vc/portfolio/stackpilot');
   });
 
+  test('HtmlListAdapter supports felicis-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/agentdesk">Profile</a>
+            <div class="company-name">AgentDesk</div>
+            <p class="description">AI-native workflow tooling for support automation and operator productivity</p>
+            <p class="subtext">US software stack for automation, orchestration, and team efficiency</p>
+            <div class="company-site">
+              <a href="https://agentdesk.ai">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://felicis.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('AgentDesk');
+    expect(results[0].content).toBe('AI-native workflow tooling for support automation and operator productivity | US software stack for automation, orchestration, and team efficiency');
+    expect(results[0].company_name).toBe('AgentDesk');
+    expect(results[0].company_website).toBe('https://agentdesk.ai/');
+    expect(results[0].url).toBe('https://felicis.com/portfolio/agentdesk');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
