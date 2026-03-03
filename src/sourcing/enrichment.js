@@ -100,9 +100,75 @@ function buildHiringEnrichment({ item }) {
   return inferHiringSignals(content);
 }
 
+function inferFundingSignals(text) {
+  const content = String(text || '');
+
+  const roundPatterns = [
+    { type: 'pre-seed', pattern: /\bpre[\s-]?seed\b/i },
+    { type: 'seed', pattern: /\bseed round\b|\bseed financing\b|\braised seed\b/i },
+    { type: 'series_a', pattern: /\bseries\s+a\b/i },
+    { type: 'series_b', pattern: /\bseries\s+b\b/i },
+    { type: 'series_c', pattern: /\bseries\s+c\b/i },
+    { type: 'growth', pattern: /\bgrowth round\b|\bseries\s+d\b|\bseries\s+e\b/i },
+  ];
+
+  const amountMatch = content.match(/(?:\$|usd\s*)(\d+(?:\.\d+)?)\s*(m|mm|million|b|bn|billion|k|thousand)?/i);
+  const eurMatch = content.match(/(?:€|eur\s*)(\d+(?:\.\d+)?)\s*(m|mm|million|b|bn|billion|k|thousand)?/i);
+  const gbpMatch = content.match(/(?:£|gbp\s*)(\d+(?:\.\d+)?)\s*(m|mm|million|b|bn|billion|k|thousand)?/i);
+
+  let fundingRound = 'unknown';
+  for (const entry of roundPatterns) {
+    if (entry.pattern.test(content)) {
+      fundingRound = entry.type;
+      break;
+    }
+  }
+
+  const amountSource = amountMatch || eurMatch || gbpMatch;
+  let amount = null;
+
+  if (amountSource) {
+    amount = Number(amountSource[1]);
+    const suffix = (amountSource[2] || '').toLowerCase();
+
+    if (['k', 'thousand'].includes(suffix)) {
+      amount *= 1_000;
+    } else if (['m', 'mm', 'million'].includes(suffix)) {
+      amount *= 1_000_000;
+    } else if (['b', 'bn', 'billion'].includes(suffix)) {
+      amount *= 1_000_000_000;
+    }
+  }
+
+  let currency = null;
+  if (amountMatch) {
+    currency = 'USD';
+  } else if (eurMatch) {
+    currency = 'EUR';
+  } else if (gbpMatch) {
+    currency = 'GBP';
+  }
+
+  const fundingSignal = amount || fundingRound !== 'unknown' ? 'present' : 'none';
+
+  return {
+    funding_signal: fundingSignal,
+    funding_round_guess: fundingRound,
+    funding_amount_guess: amount,
+    funding_currency_guess: currency,
+  };
+}
+
+function buildFundingEnrichment({ item }) {
+  const content = `${item.title || ''} ${item.content || ''} ${item.snippet || ''}`.trim();
+  return inferFundingSignals(content);
+}
+
 module.exports = {
+  buildFundingEnrichment,
   buildHiringEnrichment,
   buildWebsiteEnrichment,
+  inferFundingSignals,
   inferRootDomain,
   inferHiringSignals,
 };

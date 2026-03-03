@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { buildHiringEnrichment, buildWebsiteEnrichment } = require('./enrichment');
+const { buildFundingEnrichment, buildHiringEnrichment, buildWebsiteEnrichment } = require('./enrichment');
 
 const STAGE_PATTERNS = [
   { stage: 'pre-seed', pattern: /\bpre[\s-]?seed\b/i },
@@ -143,6 +143,7 @@ function normalizeSignal({ source, item, query }) {
     sourceUrl,
   });
   const hiringEnrichment = buildHiringEnrichment({ item });
+  const fundingEnrichment = buildFundingEnrichment({ item });
   const scoring = computeConfidence({
     source,
     item,
@@ -173,6 +174,7 @@ function normalizeSignal({ source, item, query }) {
     score_components: scoring.components,
     enrichment: {
       ...enrichment,
+      ...fundingEnrichment,
       ...hiringEnrichment,
     },
   };
