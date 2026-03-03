@@ -35874,6 +35874,7 @@
       "url": "https://operatorforge.vc/portfolio",
       "extract": {
         "itemSelector": [
+          ".portfolio-item",
           ".portfolio-card",
           ".company-card",
           "article[data-company-card]",
@@ -35912,7 +35913,9 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta",
+          ".cta-banner"
         ],
         "excludePatterns": [
           "privacy",
@@ -35986,6 +35989,7 @@
       "url": "https://founderforge.capital/portfolio",
       "extract": {
         "itemSelector": [
+          ".portfolio-item",
           ".portfolio-card",
           ".company-card",
           "article[data-company-card]",
@@ -36024,7 +36028,9 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta",
+          ".cta-banner"
         ],
         "excludePatterns": [
           "privacy",

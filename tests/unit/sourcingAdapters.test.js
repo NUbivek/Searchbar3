@@ -5907,6 +5907,62 @@ test('HtmlListAdapter extracts Operator Studio-style portfolio entries', async (
   expect(results[0].url).toBe('https://operatorstudio.vc/portfolio/studioops');
 });
 
+test('HtmlListAdapter extracts Operator Forge-style portfolio entries', async () => {
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    headers: {
+      get: () => 'text/html',
+    },
+    text: async () => `
+      <main>
+        <section class="portfolio-item">
+          <a href="/portfolio/forgeops">
+            <div class="company-name">ForgeOps</div>
+            <div class="subtext">Platform for approvals, task routing, and operator workflow governance.</div>
+            <div class="description">US startup building execution infrastructure for support, finance, and GTM operators.</div>
+          </a>
+          <a class="company-site" href="https://forgeops.io/">Company</a>
+        </section>
+        <div class="footer-cta">Ignore this footer</div>
+      </main>
+    `,
+  });
+
+  const adapter = new HtmlListAdapter({
+    method: {
+      url: 'https://operatorforge.vc/portfolio',
+      extract: {
+        itemSelector: ['.portfolio-item', '.portfolio-card'],
+        linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+        titleSelector: ['.company-name', 'h2'],
+        contentSelector: ['.subtext', '.description'],
+        mergeContentSelectors: true,
+        contentJoinWith: ' | ',
+        companyNameSelector: ['.company-name', 'h2'],
+        companyWebsiteSelector: [
+          'a[href*="http"]:not([href*="operatorforge.vc"])',
+          '.company-site a[href]',
+          '.company-site',
+        ],
+        includePatterns: ['/portfolio/'],
+        excludeSelectors: ['.footer-cta', '.cta-banner'],
+      },
+    },
+  });
+
+  const results = await adapter.run({ query: 'ops' });
+
+  expect(results).toHaveLength(1);
+  expect(results[0].title).toBe('ForgeOps');
+  expect(results[0].content).toBe(
+    'Platform for approvals, task routing, and operator workflow governance. | US startup building execution infrastructure for support, finance, and GTM operators.'
+  );
+  expect(results[0].company_name).toBe('ForgeOps');
+  expect(results[0].company_website).toBe('https://forgeops.io/');
+  expect(results[0].url).toBe('https://operatorforge.vc/portfolio/forgeops');
+});
+
 test('HtmlListAdapter extracts Operator Hub-style portfolio entries', async () => {
   const html = `
     <main>
