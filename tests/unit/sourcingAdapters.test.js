@@ -5552,6 +5552,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://operatorprocess.vc/portfolio/process-ops');
   });
 
+  test('HtmlListAdapter extracts Operator Pipeline-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <section class="portfolio-item">
+              <a href="/portfolio/pipelineops">View</a>
+              <div class="company-name">PipelineOps</div>
+              <div class="description">Workflow pipeline platform for approvals, routing, and operator execution visibility.</div>
+              <div class="subtext">US startup helping finance, support, and GTM teams manage pipeline execution, approvals, and operational workflow reliability.</div>
+              <div class="company-site"><a href="https://pipelineops.io/">Company</a></div>
+            </section>
+            <div class="footer-cta">Ignore this footer</div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://operatorpipeline.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="operatorpipeline.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'ops' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('PipelineOps');
+    expect(results[0].content).toBe('US startup helping finance, support, and GTM teams manage pipeline execution, approvals, and operational workflow reliability. | Workflow pipeline platform for approvals, routing, and operator execution visibility.');
+    expect(results[0].company_name).toBe('PipelineOps');
+    expect(results[0].company_website).toBe('https://pipelineops.io/');
+    expect(results[0].url).toBe('https://operatorpipeline.vc/portfolio/pipelineops');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
