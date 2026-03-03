@@ -3410,6 +3410,53 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.bvp.com/portfolio/ledgerloop');
   });
 
+  test('HtmlListAdapter extracts Index-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <div class="portfolio-item">
+            <a class="internal-link" href="/portfolio/flowmesh"></a>
+            <div class="company-name">Flowmesh</div>
+            <div class="description">Infrastructure for developer workflow automation and internal orchestration</div>
+            <div class="subtext">US platform software for tooling teams managing API, data, and product operations</div>
+            <div class="company-site"><a href="https://flowmesh.dev/">Visit</a></div>
+          </div>
+          <div class="footer-cta">
+            <a href="/portfolio/ignore-me">Ignore me</a>
+          </div>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.indexventures.com/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Flowmesh');
+    expect(results[0].content).toBe('Infrastructure for developer workflow automation and internal orchestration | US platform software for tooling teams managing API, data, and product operations');
+    expect(results[0].company_name).toBe('Flowmesh');
+    expect(results[0].company_website).toBe('https://flowmesh.dev/');
+    expect(results[0].url).toBe('https://www.indexventures.com/portfolio/flowmesh');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
