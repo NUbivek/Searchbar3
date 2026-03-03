@@ -1,3 +1,5 @@
+import React from 'react';
+
 function Error({ statusCode }) {
   return (
     <div className="min-h-screen flex items-center justify-center">
