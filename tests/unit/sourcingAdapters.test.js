@@ -4462,6 +4462,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://opsfoundry.vc/portfolio/foundryops');
   });
 
+  test('HtmlListAdapter extracts Ops Engine-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/engineops">View</a>
+              <div class="company-name">EngineOps</div>
+              <div class="description">Operator-led internal systems tooling for execution-heavy teams</div>
+              <div class="subtext">US startup helping finance, product, and revenue teams coordinate delivery, workflows, and execution</div>
+              <div class="company-site"><a href="https://engineops.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://opsengine.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="opsengine.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'engine' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('EngineOps');
+    expect(results[0].content).toBe('US startup helping finance, product, and revenue teams coordinate delivery, workflows, and execution | Operator-led internal systems tooling for execution-heavy teams');
+    expect(results[0].company_name).toBe('EngineOps');
+    expect(results[0].company_website).toBe('https://engineops.io/');
+    expect(results[0].url).toBe('https://opsengine.vc/portfolio/engineops');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
