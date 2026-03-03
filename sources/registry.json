@@ -37306,6 +37306,8 @@
       "url": "https://operatorgridflow.vc/portfolio",
       "extract": {
         "itemSelector": [
+          ".portfolio-item",
+          ".portfolio-card",
           "article",
           "li",
           ".company-card",
@@ -37313,17 +37315,20 @@
         ],
         "itemUrlSelector": "a[href]",
         "titleSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
           "[data-company-name]"
         ],
         "contentSelector": [
+          ".subtext",
           "p",
           ".description",
           ".summary"
         ],
         "companyNameSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
@@ -37334,6 +37339,8 @@
           ".company-site a[href]"
         ],
         "excludeSelectors": [
+          ".footer-cta",
+          ".cta-banner",
           ".newsletter-signup",
           ".site-footer",
           ".nav"
@@ -37410,6 +37417,8 @@
       "url": "https://foundergridflow.capital/portfolio",
       "extract": {
         "itemSelector": [
+          ".portfolio-item",
+          ".portfolio-card",
           "article",
           "li",
           ".company-card",
@@ -37417,17 +37426,20 @@
         ],
         "itemUrlSelector": "a[href]",
         "titleSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
           "[data-company-name]"
         ],
         "contentSelector": [
+          ".subtext",
           "p",
           ".description",
           ".summary"
         ],
         "companyNameSelector": [
+          ".company-name",
           "h2",
           "h3",
           ".title",
@@ -37438,6 +37450,8 @@
           ".company-site a[href]"
         ],
         "excludeSelectors": [
+          ".footer-cta",
+          ".cta-banner",
           ".newsletter-signup",
           ".site-footer",
           ".nav"

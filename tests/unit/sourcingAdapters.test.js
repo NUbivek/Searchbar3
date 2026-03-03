@@ -6202,6 +6202,67 @@ test('HtmlListAdapter extracts Operator Pattern Flow-style portfolio entries', a
   expect(results[0].url).toBe('https://operatorpatternflow.vc/portfolio/patternops');
 });
 
+test('HtmlListAdapter extracts Operator Grid Flow-style portfolio entries', async () => {
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get(name) {
+        if (String(name).toLowerCase() === 'content-type') {
+          return 'text/html; charset=utf-8';
+        }
+        return null;
+      },
+    },
+    text: async () => `
+      <html>
+        <body>
+          <section class="portfolio-item">
+            <a href="/portfolio/gridops">View</a>
+            <div class="company-name">GridOps</div>
+            <div class="description">Operational workflow infrastructure for queue routing, approval orchestration, and action tracking.</div>
+            <div class="subtext">US startup helping finance, support, and GTM teams automate execution controls, governance, and process visibility.</div>
+            <div class="company-site"><a href="https://gridops.io/">Company</a></div>
+          </section>
+          <div class="footer-cta">Ignore this footer</div>
+        </body>
+      </html>
+    `,
+  });
+
+  const adapter = new HtmlListAdapter({
+    method: {
+      url: 'https://operatorgridflow.vc/portfolio',
+      extract: {
+        itemSelector: ['.portfolio-item', '.portfolio-card'],
+        linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+        titleSelector: ['.company-name', 'h2'],
+        contentSelector: ['.subtext', '.description'],
+        mergeContentSelectors: true,
+        contentJoinWith: ' | ',
+        companyNameSelector: ['.company-name', 'h2'],
+        companyWebsiteSelector: [
+          'a[href*="http"]:not([href*="operatorgridflow.vc"])',
+          '.company-site a[href]',
+        ],
+        includePatterns: ['/portfolio/'],
+        excludeSelectors: ['.footer-cta', '.cta-banner'],
+      },
+    },
+  });
+
+  const results = await adapter.run({ query: 'grid' });
+
+  expect(results).toHaveLength(1);
+  expect(results[0].title).toBe('GridOps');
+  expect(results[0].content).toBe(
+    'US startup helping finance, support, and GTM teams automate execution controls, governance, and process visibility. | Operational workflow infrastructure for queue routing, approval orchestration, and action tracking.'
+  );
+  expect(results[0].company_name).toBe('GridOps');
+  expect(results[0].company_website).toBe('https://gridops.io/');
+  expect(results[0].url).toBe('https://operatorgridflow.vc/portfolio/gridops');
+});
+
 test('HtmlListAdapter extracts Operator Fabric Flow-style portfolio entries', async () => {
   global.fetch = async () => ({
     ok: true,
