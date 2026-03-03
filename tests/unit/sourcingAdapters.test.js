@@ -1913,6 +1913,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://floodgate.com/portfolio/stackpilot');
   });
 
+  test('HtmlListAdapter supports xyz-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/ledgergrid">Profile</a>
+            <div class="company-name">LedgerGrid</div>
+            <p class="description">Seed-stage tooling for software and fintech teams</p>
+            <p class="subtext">Used by product, finance, and engineering operators</p>
+            <div class="company-site">
+              <a href="https://ledgergrid.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://xyz.vc/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('LedgerGrid');
+    expect(results[0].content).toBe('Seed-stage tooling for software and fintech teams | Used by product, finance, and engineering operators');
+    expect(results[0].company_name).toBe('LedgerGrid');
+    expect(results[0].company_website).toBe('https://ledgergrid.io/');
+    expect(results[0].url).toBe('https://xyz.vc/portfolio/ledgergrid');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
