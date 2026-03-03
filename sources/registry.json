@@ -19398,5 +19398,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operator playbook design and GTM systems coverage."
+  },
+  {
+    "id": "A-TRAYCE-BLOG-RSS",
+    "name": "Trayce Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "api", "automation"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://trayce.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "API orchestration and developer automation coverage."
+  },
+  {
+    "id": "A-TRACELESS-BLOG-RSS",
+    "name": "Traceless Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "observability", "infrastructure"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://traceless.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Observability and platform engineering product coverage."
+  },
+  {
+    "id": "B-OPSVENTURES-PORTFOLIO",
+    "name": "Ops Ventures Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["saas", "operators", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://opsventures.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"opsventures.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Operator-led B2B software and workflow portfolio coverage."
+  },
+  {
+    "id": "B-TECHWORKS-RSS",
+    "name": "Tech Works Feed",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["startups", "funding", "operators"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://techworks.co/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Startup launches, funding, and operator execution coverage."
+  },
+  {
+    "id": "C-FOUNDERGRID-PORTFOLIO",
+    "name": "Founder Grid Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["saas", "developer_tools", "operators"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://foundergrid.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"foundergrid.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US startup software and internal tools portfolio coverage."
+  },
+  {
+    "id": "C-OPERATORPULSE-BLOG-RSS",
+    "name": "Operator Pulse Blog Feed",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "sales", "saas"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://operatorpulse.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operator playbooks, execution systems, and GTM process coverage."
   }
 ]
