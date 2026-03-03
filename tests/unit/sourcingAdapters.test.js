@@ -2813,6 +2813,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.battery.com/portfolio/runtimegrid');
   });
 
+  test('HtmlListAdapter supports scale-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/launchstack">Profile</a>
+            <div class="company-name">LaunchStack</div>
+            <p class="description">Enterprise software tooling for product analytics, growth, and workflow visibility</p>
+            <p class="subtext">US SaaS infrastructure for product, ops, and go-to-market teams</p>
+            <div class="company-site">
+              <a href="https://launchstack.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://scalevp.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('LaunchStack');
+    expect(results[0].content).toBe('Enterprise software tooling for product analytics, growth, and workflow visibility | US SaaS infrastructure for product, ops, and go-to-market teams');
+    expect(results[0].company_name).toBe('LaunchStack');
+    expect(results[0].company_website).toBe('https://launchstack.io/');
+    expect(results[0].url).toBe('https://scalevp.com/portfolio/launchstack');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
