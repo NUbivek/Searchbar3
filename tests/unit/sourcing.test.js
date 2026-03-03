@@ -28,7 +28,7 @@ describe('sourcing foundation', () => {
     const item = {
       title: 'Acme AI Inc.',
       url: 'https://example.com/post?utm_source=test',
-      content: 'Raised a $12M Series A round for enterprise automation and is now hiring with 12 open roles',
+      content: 'Raised a $12M Series A round led by Accel and backed by Lightspeed, and is now hiring with 12 open roles',
       company_website: 'https://acme.ai',
       confidence: 0.8,
       publishedAt: '2026-03-02T00:00:00.000Z',
@@ -50,6 +50,9 @@ describe('sourcing foundation', () => {
     expect(signalA.enrichment.funding_round_guess).toBe('series_a');
     expect(signalA.enrichment.funding_amount_guess).toBe(12000000);
     expect(signalA.enrichment.funding_currency_guess).toBe('USD');
+    expect(signalA.enrichment.investor_signal).toBe('present');
+    expect(signalA.enrichment.lead_investor_guess).toBe('Accel');
+    expect(signalA.enrichment.investor_list_guess).toEqual(expect.arrayContaining(['Accel']));
     expect(signalA.enrichment.hiring_signal).toBe('strong');
     expect(signalA.enrichment.open_roles_guess).toBe(12);
   });
@@ -67,7 +70,7 @@ describe('sourcing foundation', () => {
       },
       item: {
         title: 'Freight API startup',
-        content: 'AI workflow for supply chain payments with a 40 person team and €3M seed financing',
+        content: 'AI workflow for supply chain payments with a 40 person team and €3M seed financing raised from Point Nine and Creandum',
         url: 'https://example.com/freight-api',
       },
       query: 'logistics fintech',
@@ -84,6 +87,8 @@ describe('sourcing foundation', () => {
     expect(signal.enrichment.employee_count_guess).toBe(40);
     expect(signal.enrichment.funding_amount_guess).toBe(3000000);
     expect(signal.enrichment.funding_currency_guess).toBe('EUR');
+    expect(signal.enrichment.investor_signal).toBe('present');
+    expect(signal.enrichment.investor_list_guess).toEqual(expect.arrayContaining(['Point Nine', 'Creandum']));
   });
 
   test('validateRegistryEntry accepts generic adapter templates', () => {

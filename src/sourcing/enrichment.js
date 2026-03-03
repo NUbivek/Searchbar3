@@ -164,11 +164,38 @@ function buildFundingEnrichment({ item }) {
   return inferFundingSignals(content);
 }
 
+function inferInvestorSignals(text) {
+  const content = String(text || '');
+  const leadMatch = content.match(/led by ([A-Z][A-Za-z0-9&.\-\s]{2,80})/);
+  const backingMatch = content.match(/backed by ([A-Z][A-Za-z0-9&.\-\s]{2,120})/);
+  const fromMatch = content.match(/raised from ([A-Z][A-Za-z0-9&.\-\s]{2,120})/);
+
+  const candidateText = leadMatch?.[1] || backingMatch?.[1] || fromMatch?.[1] || '';
+  const cleaned = candidateText
+    .split(/(?:,| and | along with | alongside )/i)
+    .map((entry) => entry.trim().replace(/\.$/, ''))
+    .filter(Boolean)
+    .slice(0, 3);
+
+  return {
+    investor_signal: cleaned.length > 0 ? 'present' : 'none',
+    lead_investor_guess: cleaned[0] || null,
+    investor_list_guess: cleaned,
+  };
+}
+
+function buildInvestorEnrichment({ item }) {
+  const content = `${item.title || ''} ${item.content || ''} ${item.snippet || ''}`.trim();
+  return inferInvestorSignals(content);
+}
+
 module.exports = {
   buildFundingEnrichment,
   buildHiringEnrichment,
+  buildInvestorEnrichment,
   buildWebsiteEnrichment,
   inferFundingSignals,
+  inferInvestorSignals,
   inferRootDomain,
   inferHiringSignals,
 };
