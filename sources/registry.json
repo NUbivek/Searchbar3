@@ -2499,5 +2499,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Curated startup and market signal source."
+  },
+  {
+    "id": "A-ANTHROPIC-ENGINEERING-RSS",
+    "name": "Anthropic Engineering Feed",
+    "region": "US",
+    "category": "ai_ecosystem",
+    "thesis_tags": ["ai", "developer_tools", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.anthropic.com/engineering/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "AI systems, infrastructure, and engineering launch signals."
+  },
+  {
+    "id": "A-OLLAMA-BLOG-RSS",
+    "name": "Ollama Blog Feed",
+    "region": "Global",
+    "category": "developer_ecosystem",
+    "thesis_tags": ["ai", "developer_tools", "open_source"],
+    "stage_bias": ["pre-seed", "seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://ollama.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Open-source model tooling and local AI workflow signals."
+  },
+  {
+    "id": "B-EQT-VENTURES-PORTFOLIO",
+    "name": "EQT Ventures Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["software", "climate", "fintech"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://eqtventures.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"eqtventures.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "European venture portfolio with broad software and climate coverage."
+  },
+  {
+    "id": "B-STARTUPSBEAT-RSS",
+    "name": "StartupsBeat Feed",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["startups", "funding", "software"],
+    "stage_bias": ["pre-seed", "seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://startupsbeat.com/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "General startup and funding news coverage."
+  },
+  {
+    "id": "C-BLOSSOM-PORTFOLIO",
+    "name": "Blossom Street Ventures Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["healthcare", "fintech", "software"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://www.blossomstreetventures.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"blossomstreetventures.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US portfolio source for healthcare and fintech discovery."
+  },
+  {
+    "id": "C-BRADFELD-BLOG-RSS",
+    "name": "Brad Feld Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["startups", "venture", "software"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://feld.com/feed/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Venture, founder, and startup ecosystem commentary."
   }
 ]
