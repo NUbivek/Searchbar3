@@ -18702,5 +18702,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operator process design and GTM systems coverage."
+  },
+  {
+    "id": "A-TRACEKIT-BLOG-RSS",
+    "name": "TraceKit Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "infrastructure", "automation"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://tracekit.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Developer observability and backend workflow coverage."
+  },
+  {
+    "id": "A-SYNCPATH-BLOG-RSS",
+    "name": "SyncPath Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "saas", "automation"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://syncpath.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Workflow orchestration and SaaS integration coverage."
+  },
+  {
+    "id": "B-OPERATORCAPITAL-PORTFOLIO",
+    "name": "Operator Capital Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["saas", "operators", "fintech"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://operatorcapital.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"operatorcapital.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Operator-led US early-stage company portfolio coverage."
+  },
+  {
+    "id": "B-TECHMILESTONE-RSS",
+    "name": "Tech Milestone Feed",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["startups", "funding", "operators"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://techmilestone.co/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Startup launch, funding, and growth milestone coverage."
+  },
+  {
+    "id": "C-STACKPORTFOLIO-PORTFOLIO",
+    "name": "Stack Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["saas", "developer_tools", "infrastructure"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://stack.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"stack.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US infrastructure and software builder portfolio coverage."
+  },
+  {
+    "id": "C-PIPELINECRAFT-BLOG-RSS",
+    "name": "Pipeline Craft Blog Feed",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "sales", "saas"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://pipelinecraft.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operator execution systems and GTM process coverage."
   }
 ]
