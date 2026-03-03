@@ -3994,6 +3994,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://operators.vc/portfolio/opscore');
   });
 
+  test('HtmlListAdapter extracts Operator Capital-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/ledgerloop">View</a>
+              <div class="company-name">LedgerLoop</div>
+              <div class="description">Operator-led software for finance and GTM execution teams</div>
+              <div class="subtext">US startup helping revenue, finance, and onboarding teams coordinate internal systems and reporting</div>
+              <div class="company-site"><a href="https://ledgerloop.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://operatorcapital.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="operatorcapital.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'ledger' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('LedgerLoop');
+    expect(results[0].content).toBe('US startup helping revenue, finance, and onboarding teams coordinate internal systems and reporting | Operator-led software for finance and GTM execution teams');
+    expect(results[0].company_name).toBe('LedgerLoop');
+    expect(results[0].company_website).toBe('https://ledgerloop.io/');
+    expect(results[0].url).toBe('https://operatorcapital.vc/portfolio/ledgerloop');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
