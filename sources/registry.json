@@ -22878,5 +22878,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operational systems, revenue process, and operator workflow analysis coverage."
+  },
+  {
+    "id": "A-QUEUECONTROL-BLOG-RSS",
+    "name": "QueueControl Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["operators", "automation", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://queuecontrol.dev/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Queue orchestration, automation controls, and developer systems coverage."
+  },
+  {
+    "id": "A-ACTIONCONTROL-BLOG-RSS",
+    "name": "ActionControl Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["operators", "ai", "automation"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://actioncontrol.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Action orchestration, execution tracing, and AI workflow coverage."
+  },
+  {
+    "id": "B-OPERATORCONTROL-PORTFOLIO",
+    "name": "Operator Control Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["operators", "saas", "automation"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://operatorcontrol.vc/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"operatorcontrol.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Operator software, process tooling, and workflow infrastructure portfolio coverage."
+  },
+  {
+    "id": "B-TECHCONTROL-RSS",
+    "name": "Tech Control Feed",
+    "region": "Global",
+    "category": "startup_news",
+    "thesis_tags": ["operators", "automation", "startups"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://techcontrol.co/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Startup operating controls, process systems, and operator tooling coverage."
+  },
+  {
+    "id": "C-FOUNDERCONTROLSYSTEMS-PORTFOLIO",
+    "name": "Founder Control Systems Portfolio",
+    "region": "US",
+    "category": "investor_portfolio",
+    "thesis_tags": ["operators", "sales", "saas"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://foundercontrolsystems.capital/portfolio",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"foundercontrolsystems.capital\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Founder-led workflow controls, revenue systems, and execution infrastructure portfolio coverage."
+  },
+  {
+    "id": "C-OPSCONTROL-BLOG-RSS",
+    "name": "Ops Control Blog Feed",
+    "region": "Global",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "sales", "automation"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://opscontrol.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operational controls, revenue process, and execution workflow analysis coverage."
   }
 ]
