@@ -3649,5 +3649,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Growth and scaling coverage with startup operating signals."
+  },
+  {
+    "id": "A-REPLOIT-BLOG-RSS",
+    "name": "Replit Blog Feed",
+    "region": "Global",
+    "category": "developer_ecosystem",
+    "thesis_tags": ["developer_tools", "ai", "software"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://blog.replit.com/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Developer workflow and AI coding product updates."
+  },
+  {
+    "id": "A-DBT-BLOG-RSS",
+    "name": "dbt Labs Blog Feed",
+    "region": "US",
+    "category": "developer_ecosystem",
+    "thesis_tags": ["developer_tools", "data", "software"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://docs.getdbt.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Data tooling and analytics engineering updates."
+  },
+  {
+    "id": "B-LIGHTSPEED-PORTFOLIO",
+    "name": "Lightspeed Portfolio",
+    "region": "Global",
+    "category": "venture_portfolio",
+    "thesis_tags": ["software", "consumer", "enterprise"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "html",
+      "url": "https://lsvp.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"lsvp.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Global venture portfolio spanning enterprise and consumer startups."
+  },
+  {
+    "id": "B-SILICONCANALS-RSS",
+    "name": "Silicon Canals Feed",
+    "region": "EU",
+    "category": "startup_news",
+    "thesis_tags": ["startups", "funding", "software"],
+    "stage_bias": ["pre-seed", "seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://siliconcanals.com/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "European startup and funding coverage."
+  },
+  {
+    "id": "C-FRST-PORTFOLIO",
+    "name": "Firstminute FRST Portfolio",
+    "region": "EU",
+    "category": "venture_portfolio",
+    "thesis_tags": ["software", "consumer", "fintech"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://www.frst.vc/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"frst.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "European seed-focused portfolio source."
+  },
+  {
+    "id": "C-TOMLOVERRO-INSIGHTS-RSS",
+    "name": "Tom Loverro Insights Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["venture", "markets", "startups"],
+    "stage_bias": ["seed", "series_a", "series_b", "growth"],
+    "method": {
+      "type": "rss",
+      "url": "https://tomloverro.com/feed/"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "VC and startup market analysis from an operator-investor perspective."
   }
 ]
