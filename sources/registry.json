@@ -1437,6 +1437,7 @@
       "extract": {
         "itemSelector": [
           ".portfolio-card",
+          ".portfolio-item",
           ".company-card",
           "article[data-company-card]",
           "a[href*=\"/companies/\"]"
@@ -3959,13 +3960,15 @@
           "h2",
           "h3",
           ".title",
-          "[data-company-name]"
+          "[data-company-name]",
+          ".company-name"
         ],
         "contentSelector": [
           "p",
           ".description",
           ".summary",
-          ".excerpt"
+          ".excerpt",
+          ".subtext"
         ],
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
@@ -3973,7 +3976,8 @@
           "h2",
           "h3",
           ".title",
-          "[data-company-name]"
+          "[data-company-name]",
+          ".company-name"
         ],
         "companyWebsiteSelector": [
           "a[href*=\"http\"]:not([href*=\"atomico.com\"])",
@@ -4073,7 +4077,9 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta",
+          ".cta-banner"
         ],
         "excludePatterns": ["privacy", "terms", "cookie", "login"],
         "includePatterns": ["/portfolio/"],
@@ -4264,6 +4270,7 @@
       "extract": {
         "itemSelector": [
           ".portfolio-card",
+          ".portfolio-item",
           ".company-card",
           "article[data-company-card]",
           "a[href*=\"/portfolio/\"]"
@@ -4276,13 +4283,15 @@
           "h2",
           "h3",
           ".title",
-          "[data-company-name]"
+          "[data-company-name]",
+          ".company-name"
         ],
         "contentSelector": [
           "p",
           ".description",
           ".summary",
-          ".excerpt"
+          ".excerpt",
+          ".subtext"
         ],
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
@@ -4290,7 +4299,8 @@
           "h2",
           "h3",
           ".title",
-          "[data-company-name]"
+          "[data-company-name]",
+          ".company-name"
         ],
         "companyWebsiteSelector": [
           "a[href*=\"http\"]:not([href*=\"gaingels.com\"])",
@@ -4299,7 +4309,9 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta",
+          ".cta-banner"
         ],
         "excludePatterns": ["privacy", "terms", "cookie", "login"],
         "includePatterns": ["/portfolio/"],
