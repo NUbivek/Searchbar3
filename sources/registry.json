@@ -689,5 +689,199 @@
     "requires_auth": false,
     "adapter": "html_list",
     "notes": "Tool and startup listings that surface new company activity."
+  },
+  {
+    "id": "A-OPENAI-BLOG-RSS",
+    "name": "OpenAI Blog Feed",
+    "region": "Global",
+    "category": "ai_ecosystem",
+    "thesis_tags": ["ai", "infrastructure", "developer_tools"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://openai.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Tracks AI platform launches and ecosystem momentum."
+  },
+  {
+    "id": "A-LATENTSPACE-RSS",
+    "name": "Latent Space Feed",
+    "region": "Global",
+    "category": "ai_ecosystem",
+    "thesis_tags": ["ai", "developer_tools", "infrastructure"],
+    "stage_bias": ["seed", "series_a"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.latent.space/feed"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "AI-native founder and tooling signals."
+  },
+  {
+    "id": "B-SIGNALFIRE-PORTFOLIO",
+    "name": "SignalFire Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["software", "ai", "b2b"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "html",
+      "url": "https://signalfire.com/portfolio/",
+      "extract": {
+        "itemSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "article",
+          ".portfolio-card"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Portfolio directory for recently backed startups."
+  },
+  {
+    "id": "B-PYMNTS-RSS",
+    "name": "PYMNTS Feed",
+    "region": "US",
+    "category": "fintech_ecosystem",
+    "thesis_tags": ["fintech", "payments", "software"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.pymnts.com/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Payments and fintech product activity."
+  },
+  {
+    "id": "C-SEMAFOR-BUSINESS-RSS",
+    "name": "Semafor Business Feed",
+    "region": "US",
+    "category": "startup_news",
+    "thesis_tags": ["software", "venture", "markets"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://www.semafor.com/feeds/business.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Business coverage that surfaces fundraising and startup launches."
+  },
+  {
+    "id": "C-FOUNDERWIKI",
+    "name": "FounderWiki",
+    "region": "Global",
+    "category": "startup_ecosystem",
+    "thesis_tags": ["software", "founders", "saas"],
+    "stage_bias": ["pre-seed", "seed"],
+    "method": {
+      "type": "html",
+      "url": "https://www.founderwiki.com",
+      "extract": {
+        "itemSelector": [
+          "article",
+          ".company-card",
+          "a[href*=\"/startup/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/startup/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title"
+        ],
+        "excludePatterns": ["privacy", "terms", "login", "newsletter"],
+        "includePatterns": ["/startup/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Founder and startup listings for long-tail discovery."
   }
 ]
