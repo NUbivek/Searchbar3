@@ -993,12 +993,14 @@
         "titleSelector": [
           "h2",
           "h3",
-          ".title"
+          ".title",
+          "[data-company-name]"
         ],
         "contentSelector": [
           "p",
           ".description",
-          ".summary"
+          ".summary",
+          ".excerpt"
         ],
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
@@ -1015,7 +1017,8 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta"
         ],
         "excludePatterns": ["privacy", "terms", "cookie", "login"],
         "includePatterns": ["/portfolio/"],
@@ -1078,12 +1081,14 @@
         "titleSelector": [
           "h2",
           "h3",
-          ".title"
+          ".title",
+          "[data-company-name]"
         ],
         "contentSelector": [
           "p",
           ".description",
-          ".summary"
+          ".summary",
+          ".excerpt"
         ],
         "mergeContentSelectors": true,
         "contentJoinWith": " | ",
@@ -1100,7 +1105,8 @@
         "excludeSelectors": [
           ".newsletter-signup",
           ".site-footer",
-          ".nav"
+          ".nav",
+          ".footer-cta"
         ],
         "excludePatterns": ["privacy", "terms", "cookie", "login"],
         "includePatterns": ["/portfolio/"],

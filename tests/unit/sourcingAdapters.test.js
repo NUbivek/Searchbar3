@@ -210,6 +210,59 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://signalfire.com/portfolio/acme');
   });
 
+  test('HtmlListAdapter supports data-company-card portfolio extraction patterns', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-card" data-company-card="1">
+            <a class="internal-link" href="/portfolio/orbit">Open</a>
+            <h3 data-company-name="Orbit Labs"></h3>
+            <p class="description">Developer workflow platform</p>
+            <p class="excerpt">Backed by early-stage funds</p>
+            <div class="company-site">
+              <a href="https://orbitlabs.ai">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-card footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <h3 data-company-name="Ignore"></h3>
+            <p class="description">Ignore this</p>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://pear.vc/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-card'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['h3'],
+          titleAttribute: 'data-company-name',
+          contentSelector: ['.description', '.excerpt'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['h3'],
+          companyNameAttribute: 'data-company-name',
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Orbit Labs');
+    expect(results[0].content).toBe('Developer workflow platform | Backed by early-stage funds');
+    expect(results[0].company_name).toBe('Orbit Labs');
+    expect(results[0].company_website).toBe('https://orbitlabs.ai/');
+    expect(results[0].url).toBe('https://pear.vc/portfolio/orbit');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
