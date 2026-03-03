@@ -4046,6 +4046,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://operatorcapital.vc/portfolio/ledgerloop');
   });
 
+  test('HtmlListAdapter extracts Exec VC-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/execgrid">View</a>
+              <div class="company-name">ExecGrid</div>
+              <div class="description">Operator-led software for B2B execution and internal workflows</div>
+              <div class="subtext">US startup helping product, finance, and customer teams coordinate internal systems and delivery</div>
+              <div class="company-site"><a href="https://execgrid.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://exec.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="exec.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'exec' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('ExecGrid');
+    expect(results[0].content).toBe('US startup helping product, finance, and customer teams coordinate internal systems and delivery | Operator-led software for B2B execution and internal workflows');
+    expect(results[0].company_name).toBe('ExecGrid');
+    expect(results[0].company_website).toBe('https://execgrid.io/');
+    expect(results[0].url).toBe('https://exec.vc/portfolio/execgrid');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
