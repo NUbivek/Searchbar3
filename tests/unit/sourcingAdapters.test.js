@@ -3645,6 +3645,53 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://signalfire.com/portfolio/modelgrid');
   });
 
+  test('HtmlListAdapter extracts Pear-style company entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <div class="portfolio-item">
+            <a class="internal-link" href="/companies/buildlane"></a>
+            <div class="company-name">BuildLane</div>
+            <div class="description">Software infrastructure for startup builders managing products, workflows, and delivery</div>
+            <div class="subtext">US tooling for founders and operators coordinating planning, execution, and customer systems</div>
+            <div class="company-site"><a href="https://buildlane.co/">Visit</a></div>
+          </div>
+          <div class="footer-cta">
+            <a href="/companies/ignore-me">Ignore me</a>
+          </div>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://pear.vc/companies',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/companies/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('BuildLane');
+    expect(results[0].content).toBe('Software infrastructure for startup builders managing products, workflows, and delivery | US tooling for founders and operators coordinating planning, execution, and customer systems');
+    expect(results[0].company_name).toBe('BuildLane');
+    expect(results[0].company_website).toBe('https://buildlane.co/');
+    expect(results[0].url).toBe('https://pear.vc/companies/buildlane');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
