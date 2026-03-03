@@ -6,7 +6,12 @@ const { buildPlan } = require('../../src/sourcing/planner');
 const { computeCoverageStats, validateCoverageTargets } = require('../../src/sourcing/coverage');
 const { validateRegistry, validateRegistryEntry } = require('../../src/sourcing/schema');
 const { normalizeSignal } = require('../../src/sourcing/normalizer');
-const { matchesExecutionMode, runPipeline, shouldRunSource } = require('../../src/sourcing/runner');
+const {
+  getDegradedCooldownMs,
+  matchesExecutionMode,
+  runPipeline,
+  shouldRunSource,
+} = require('../../src/sourcing/runner');
 
 describe('sourcing foundation', () => {
   test('validateRegistry accepts the seeded registry', () => {
@@ -180,6 +185,26 @@ describe('sourcing foundation', () => {
     }, state, { executionMode: 'weekly' })).toBe(false);
   });
 
+  test('shouldRunSource enforces degraded cooldown when configured', () => {
+    const source = {
+      id: 'A-COOLDOWN',
+      cadence: { tier: 'A', frequency: 'daily' },
+      runtime: { cooldownHoursAfterDegraded: 48 },
+    };
+    const state = {
+      sources: {
+        'A-COOLDOWN': {
+          last_run_at: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+          last_status: 'degraded',
+        },
+      },
+    };
+
+    expect(getDegradedCooldownMs(source)).toBe(48 * 60 * 60 * 1000);
+    expect(shouldRunSource(source, state, {})).toBe(false);
+    expect(shouldRunSource(source, state, { force: true })).toBe(true);
+  });
+
   test('buildPlan groups due sources and explains deferred ones', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'searchbar3-sourcing-plan-'));
     const registryPath = path.join(tempDir, 'registry.json');
@@ -217,6 +242,21 @@ describe('sourcing foundation', () => {
           notes: 'Soon source',
         },
         {
+          id: 'A-COOLDOWN',
+          name: 'A Cooldown',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'rss', url: 'https://example.com/cooldown.xml' },
+          cadence: { tier: 'A', frequency: 'daily' },
+          runtime: { cooldownHoursAfterDegraded: 48 },
+          query_strategy: { type: 'feed' },
+          requires_auth: false,
+          adapter: 'rss',
+          notes: 'Cooling down source',
+        },
+        {
           id: 'C-DEFERRED',
           name: 'C Deferred',
           region: 'Global',
@@ -241,6 +281,10 @@ describe('sourcing foundation', () => {
           'A-SOON': {
             last_run_at: new Date(Date.now() - 23 * 60 * 60 * 1000).toISOString(),
           },
+          'A-COOLDOWN': {
+            last_run_at: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+            last_status: 'degraded',
+          },
           'C-DEFERRED': {
             last_run_at: new Date().toISOString(),
           },
@@ -262,7 +306,8 @@ describe('sourcing foundation', () => {
     expect(plan.groupedDueSoon.A).toHaveLength(1);
     expect(plan.dueSoonSources).toHaveLength(1);
     expect(plan.dueSoonSources[0].id).toBe('A-SOON');
-    expect(plan.deferredCount).toBe(2);
+    expect(plan.deferredCount).toBe(3);
+    expect(plan.deferredSources.find((entry) => entry.id === 'A-COOLDOWN').reason).toBe('cooldown_after_degraded');
     expect(plan.deferredSources.find((entry) => entry.id === 'C-DEFERRED').reason).toBe('excluded_by_mode');
     expect(plan.nextDueByTier.A).toBe(plan.dueSoonSources[0].nextDueAt);
     expect(plan.nextDueByTier.C).toBe(plan.deferredSources.find((entry) => entry.id === 'C-DEFERRED').nextDueAt);

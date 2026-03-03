@@ -1,6 +1,11 @@
 const { loadRegistry } = require('./registry');
 const { loadState } = require('./state');
-const { EXECUTION_MODES, matchesExecutionMode, shouldRunSource } = require('./runner');
+const {
+  EXECUTION_MODES,
+  getDegradedCooldownMs,
+  matchesExecutionMode,
+  shouldRunSource,
+} = require('./runner');
 
 const FREQUENCY_TO_DAYS = {
   daily: 1,
@@ -59,6 +64,38 @@ function buildNextDueSummary(items, keyName) {
   }, {});
 }
 
+function getDeferredReason(source, state, options) {
+  if (!matchesExecutionMode(source, options.executionMode)) {
+    return 'excluded_by_mode';
+  }
+
+  if (options.frequency && source.cadence?.frequency !== options.frequency) {
+    return 'excluded_by_frequency';
+  }
+
+  if (options.tier && source.cadence?.tier !== options.tier) {
+    return 'excluded_by_tier';
+  }
+
+  const sourceState = state.sources?.[source.id];
+  if (!sourceState?.last_run_at) {
+    return 'not_due_yet';
+  }
+
+  const degradedCooldownMs = getDegradedCooldownMs(source);
+  const ageMs = Date.now() - new Date(sourceState.last_run_at).getTime();
+
+  if (
+    sourceState.last_status === 'degraded' &&
+    degradedCooldownMs > 0 &&
+    ageMs < degradedCooldownMs
+  ) {
+    return 'cooldown_after_degraded';
+  }
+
+  return 'not_due_yet';
+}
+
 function buildPlan(options = {}) {
   const registry = loadRegistry(options.registryPath);
   const state = loadState(options.statePath);
@@ -72,6 +109,7 @@ function buildPlan(options = {}) {
     const due = shouldRunSource(source, state, options);
     const executionModeMatch = matchesExecutionMode(source, options.executionMode);
     const nextDueAt = computeNextDueAt(source, state);
+    const deferredReason = getDeferredReason(source, state, options);
     const sourceEntry = {
       id: source.id,
       name: source.name,
@@ -87,13 +125,17 @@ function buildPlan(options = {}) {
       continue;
     }
 
-    if (executionModeMatch && isDueSoon(nextDueAt, withinHours)) {
+    if (
+      executionModeMatch &&
+      deferredReason !== 'cooldown_after_degraded' &&
+      isDueSoon(nextDueAt, withinHours)
+    ) {
       dueSoonSources.push(sourceEntry);
     }
 
     deferredSources.push({
       ...sourceEntry,
-      reason: executionModeMatch ? 'not_due_yet' : 'excluded_by_mode',
+      reason: deferredReason,
     });
   }
 
@@ -122,5 +164,6 @@ function buildPlan(options = {}) {
 module.exports = {
   buildPlan,
   computeNextDueAt,
+  getDeferredReason,
   isDueSoon,
 };

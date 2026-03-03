@@ -44,6 +44,16 @@ function matchesExecutionMode(source, executionMode) {
   return config.tiers.includes(source.cadence?.tier) && config.frequencies.includes(source.cadence?.frequency);
 }
 
+function getDegradedCooldownMs(source) {
+  const hours = source.runtime?.cooldownHoursAfterDegraded;
+
+  if (!Number.isFinite(hours) || hours <= 0) {
+    return 0;
+  }
+
+  return hours * 60 * 60 * 1000;
+}
+
 function shouldRunSource(source, state, options = {}) {
   if (options.force) {
     return true;
@@ -70,6 +80,16 @@ function shouldRunSource(source, state, options = {}) {
   const lastRunAt = new Date(sourceState.last_run_at).getTime();
   const now = Date.now();
   const ageMs = now - lastRunAt;
+  const degradedCooldownMs = getDegradedCooldownMs(source);
+
+  if (
+    sourceState.last_status === 'degraded' &&
+    degradedCooldownMs > 0 &&
+    ageMs < degradedCooldownMs
+  ) {
+    return false;
+  }
+
   return ageMs >= minAgeDays * 24 * 60 * 60 * 1000;
 }
 
@@ -281,6 +301,7 @@ async function runPipeline(options = {}) {
 
 module.exports = {
   EXECUTION_MODES,
+  getDegradedCooldownMs,
   matchesExecutionMode,
   runPipeline,
   shouldRunSource,
