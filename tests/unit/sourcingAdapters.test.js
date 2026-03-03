@@ -2213,6 +2213,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://moonfire.com/portfolio/cartloop');
   });
 
+  test('HtmlListAdapter supports atlantic-labs-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/climategrid">Profile</a>
+            <div class="company-name">ClimateGrid</div>
+            <p class="description">Climate analytics infrastructure for operators and industrial buyers</p>
+            <p class="subtext">European marketplaces and workflow software for energy teams</p>
+            <div class="company-site">
+              <a href="https://climategrid.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://atlanticlabs.de/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('ClimateGrid');
+    expect(results[0].content).toBe('Climate analytics infrastructure for operators and industrial buyers | European marketplaces and workflow software for energy teams');
+    expect(results[0].company_name).toBe('ClimateGrid');
+    expect(results[0].company_website).toBe('https://climategrid.io/');
+    expect(results[0].url).toBe('https://atlanticlabs.de/portfolio/climategrid');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
