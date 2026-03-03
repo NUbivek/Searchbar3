@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const { buildPlan } = require('../../src/sourcing/planner');
 const { validateRegistry, validateRegistryEntry } = require('../../src/sourcing/schema');
 const { normalizeSignal } = require('../../src/sourcing/normalizer');
 const { matchesExecutionMode, runPipeline, shouldRunSource } = require('../../src/sourcing/runner');
@@ -176,6 +177,70 @@ describe('sourcing foundation', () => {
     expect(shouldRunSource({
       cadence: { tier: 'C', frequency: 'monthly' },
     }, state, { executionMode: 'weekly' })).toBe(false);
+  });
+
+  test('buildPlan groups due sources and explains deferred ones', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'searchbar3-sourcing-plan-'));
+    const registryPath = path.join(tempDir, 'registry.json');
+    const statePath = path.join(tempDir, 'source_state.json');
+
+    fs.writeFileSync(
+      registryPath,
+      JSON.stringify([
+        {
+          id: 'A-DUE',
+          name: 'A Due',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'rss', url: 'https://example.com/a.xml' },
+          cadence: { tier: 'A', frequency: 'daily' },
+          query_strategy: { type: 'feed' },
+          requires_auth: false,
+          adapter: 'rss',
+          notes: 'Due source',
+        },
+        {
+          id: 'C-DEFERRED',
+          name: 'C Deferred',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'rss', url: 'https://example.com/c.xml' },
+          cadence: { tier: 'C', frequency: 'monthly' },
+          query_strategy: { type: 'feed' },
+          requires_auth: false,
+          adapter: 'rss',
+          notes: 'Deferred source',
+        },
+      ], null, 2),
+      'utf-8'
+    );
+
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({
+        sources: {
+          'C-DEFERRED': {
+            last_run_at: new Date().toISOString(),
+          },
+        },
+      }, null, 2),
+      'utf-8'
+    );
+
+    const plan = buildPlan({
+      registryPath,
+      statePath,
+      executionMode: 'daily',
+    });
+
+    expect(plan.dueCount).toBe(1);
+    expect(plan.groupedDue.A).toHaveLength(1);
+    expect(plan.deferredCount).toBe(1);
+    expect(plan.deferredSources[0].reason).toBe('excluded_by_mode');
   });
 
   test('runPipeline writes only net-new signals on repeated runs', async () => {
