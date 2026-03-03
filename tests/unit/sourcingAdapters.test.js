@@ -2763,6 +2763,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://amplifypartners.com/portfolio/flowgraph');
   });
 
+  test('HtmlListAdapter supports battery-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/runtimegrid">Profile</a>
+            <div class="company-name">RuntimeGrid</div>
+            <p class="description">Enterprise developer tooling for observability, deployment, and platform operations</p>
+            <p class="subtext">US infrastructure software for platform and backend teams</p>
+            <div class="company-site">
+              <a href="https://runtimegrid.dev">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.battery.com/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('RuntimeGrid');
+    expect(results[0].content).toBe('Enterprise developer tooling for observability, deployment, and platform operations | US infrastructure software for platform and backend teams');
+    expect(results[0].company_name).toBe('RuntimeGrid');
+    expect(results[0].company_website).toBe('https://runtimegrid.dev/');
+    expect(results[0].url).toBe('https://www.battery.com/portfolio/runtimegrid');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
