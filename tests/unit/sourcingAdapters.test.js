@@ -2513,6 +2513,56 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://freestyle.vc/portfolio/creatorloop');
   });
 
+  test('HtmlListAdapter supports base10-style portfolio items with footer exclusions', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item" data-company-card="1">
+            <a class="internal-link" href="/portfolio/datagrid">Profile</a>
+            <div class="company-name">DataGrid</div>
+            <p class="description">Enterprise infrastructure for workflow automation and data orchestration</p>
+            <p class="subtext">US software tooling for ops, finance, and infrastructure teams</p>
+            <div class="company-site">
+              <a href="https://datagrid.io">Site</a>
+            </div>
+          </article>
+          <article class="portfolio-item footer-cta" data-company-card="2">
+            <a class="internal-link" href="/portfolio/ignore">Ignore</a>
+            <div class="company-name">Ignore Co</div>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://base10.vc/portfolio/',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/portfolio/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('DataGrid');
+    expect(results[0].content).toBe('Enterprise infrastructure for workflow automation and data orchestration | US software tooling for ops, finance, and infrastructure teams');
+    expect(results[0].company_name).toBe('DataGrid');
+    expect(results[0].company_website).toBe('https://datagrid.io/');
+    expect(results[0].url).toBe('https://base10.vc/portfolio/datagrid');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
