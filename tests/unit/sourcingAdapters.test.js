@@ -3551,6 +3551,53 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://www.slow.co/portfolio/marketlane');
   });
 
+  test('HtmlListAdapter extracts Lux-style company entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <div class="portfolio-item">
+            <a class="internal-link" href="/companies/quantforge"></a>
+            <div class="company-name">QuantForge</div>
+            <div class="description">AI and deep tech infrastructure for model deployment, data systems, and simulation</div>
+            <div class="subtext">US platform tooling for technical teams building frontier software, research systems, and developer ops</div>
+            <div class="company-site"><a href="https://quantforge.ai/">Visit</a></div>
+          </div>
+          <div class="footer-cta">
+            <a href="/companies/ignore-me">Ignore me</a>
+          </div>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://www.luxcapital.com/companies',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['.internal-link'],
+          titleSelector: ['.company-name'],
+          contentSelector: ['.description', '.subtext'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name'],
+          companyWebsiteSelector: ['.company-site a'],
+          excludeSelectors: ['.footer-cta'],
+          includePatterns: ['/companies/'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('QuantForge');
+    expect(results[0].content).toBe('AI and deep tech infrastructure for model deployment, data systems, and simulation | US platform tooling for technical teams building frontier software, research systems, and developer ops');
+    expect(results[0].company_name).toBe('QuantForge');
+    expect(results[0].company_website).toBe('https://quantforge.ai/');
+    expect(results[0].url).toBe('https://www.luxcapital.com/companies/quantforge');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
