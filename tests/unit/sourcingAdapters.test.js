@@ -5846,6 +5846,67 @@ test('HtmlListAdapter extracts Operator Canvas-style portfolio entries', async (
   expect(results[0].url).toBe('https://operatorcanvas.vc/portfolio/canvasops');
 });
 
+test('HtmlListAdapter extracts Operator Studio-style portfolio entries', async () => {
+  global.fetch = async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get(name) {
+        if (String(name).toLowerCase() === 'content-type') {
+          return 'text/html; charset=utf-8';
+        }
+        return null;
+      },
+    },
+    text: async () => `
+      <html>
+        <body>
+          <section class="portfolio-item">
+            <a href="/portfolio/studioops">View</a>
+            <div class="company-name">StudioOps</div>
+            <div class="description">Execution platform for routing, approvals, and workflow coordination.</div>
+            <div class="subtext">US startup helping support, finance, and GTM teams manage operator workflows, automation handoffs, and execution reliability.</div>
+            <div class="company-site"><a href="https://studioops.io/">Company</a></div>
+          </section>
+          <div class="footer-cta">Ignore this footer</div>
+        </body>
+      </html>
+    `,
+  });
+
+  const adapter = new HtmlListAdapter({
+    method: {
+      url: 'https://operatorstudio.vc/portfolio',
+      extract: {
+        itemSelector: ['.portfolio-item', '.portfolio-card'],
+        linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+        titleSelector: ['.company-name', 'h2'],
+        contentSelector: ['.subtext', '.description'],
+        mergeContentSelectors: true,
+        contentJoinWith: ' | ',
+        companyNameSelector: ['.company-name', 'h2'],
+        companyWebsiteSelector: [
+          'a[href*="http"]:not([href*="operatorstudio.vc"])',
+          '.company-site a[href]',
+        ],
+        includePatterns: ['/portfolio/'],
+        excludeSelectors: ['.footer-cta', '.cta-banner'],
+      },
+    },
+  });
+
+  const results = await adapter.run({ query: 'ops' });
+
+  expect(results).toHaveLength(1);
+  expect(results[0].title).toBe('StudioOps');
+  expect(results[0].content).toBe(
+    'US startup helping support, finance, and GTM teams manage operator workflows, automation handoffs, and execution reliability. | Execution platform for routing, approvals, and workflow coordination.'
+  );
+  expect(results[0].company_name).toBe('StudioOps');
+  expect(results[0].company_website).toBe('https://studioops.io/');
+  expect(results[0].url).toBe('https://operatorstudio.vc/portfolio/studioops');
+});
+
 test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
