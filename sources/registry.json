@@ -11982,5 +11982,225 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Community-led growth, SaaS, and operator trend coverage."
+  },
+  {
+    "id": "A-ITERATE-BLOG-RSS",
+    "name": "Iterate Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "automation", "saas"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://iteratehq.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Workflow automation and product operations signal coverage."
+  },
+  {
+    "id": "A-LIVEBLOCKS-BLOG-RSS",
+    "name": "Liveblocks Blog Feed",
+    "region": "Global",
+    "category": "developer_tools",
+    "thesis_tags": ["developer_tools", "collaboration", "saas"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://liveblocks.io/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Realtime collaboration and developer infrastructure signal coverage."
+  },
+  {
+    "id": "B-PEARX-PORTFOLIO",
+    "name": "PearX Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "developer_tools", "saas"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://pearx.vc/portfolio/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"pearx.vc\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/portfolio/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US early-stage portfolio monitoring for developer tools and SaaS."
+  },
+  {
+    "id": "B-TECHINAFRICA-RSS",
+    "name": "Tech In Africa Feed",
+    "region": "Global",
+    "category": "funding_news",
+    "thesis_tags": ["startups", "funding", "africa"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://techinafrica.com/feed/"
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "African startup and venture activity signal coverage."
+  },
+  {
+    "id": "C-SOUTHPARK-PORTFOLIO",
+    "name": "South Park Portfolio",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": ["venture", "consumer", "marketplaces"],
+    "stage_bias": ["pre_seed", "seed", "series_a"],
+    "method": {
+      "type": "html",
+      "url": "https://southparkcommons.com/companies/",
+      "extract": {
+        "itemSelector": [
+          ".portfolio-card",
+          ".company-card",
+          "article[data-company-card]",
+          "a[href*=\"/portfolio/\"]"
+        ],
+        "linkSelector": [
+          "a[href*=\"/portfolio/\"]",
+          "a[href]"
+        ],
+        "titleSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "contentSelector": [
+          "p",
+          ".description",
+          ".summary",
+          ".excerpt"
+        ],
+        "mergeContentSelectors": true,
+        "contentJoinWith": " | ",
+        "companyNameSelector": [
+          "h2",
+          "h3",
+          ".title",
+          "[data-company-name]"
+        ],
+        "companyWebsiteSelector": [
+          "a[href*=\"http\"]:not([href*=\"southparkcommons.com\"])",
+          ".company-site a[href]"
+        ],
+        "excludeSelectors": [
+          ".newsletter-signup",
+          ".site-footer",
+          ".nav"
+        ],
+        "excludePatterns": ["privacy", "terms", "cookie", "login"],
+        "includePatterns": ["/companies/"],
+        "limit": 20
+      }
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "US founder community company monitoring and early traction coverage."
+  },
+  {
+    "id": "C-OPERATORS-BLOG-RSS",
+    "name": "Operators Blog Feed",
+    "region": "US",
+    "category": "market_analysis",
+    "thesis_tags": ["operators", "growth", "saas"],
+    "stage_bias": ["seed", "series_a", "series_b"],
+    "method": {
+      "type": "rss",
+      "url": "https://operators-guild.com/blog/rss.xml"
+    },
+    "cadence": {
+      "tier": "C",
+      "frequency": "monthly"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Operator-led growth and SaaS execution signal coverage."
   }
 ]
