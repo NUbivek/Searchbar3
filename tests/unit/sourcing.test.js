@@ -426,6 +426,10 @@ describe('sourcing foundation', () => {
     expect(result.summaries[1].dedupedCount).toBe(1);
     expect(writtenLines).toHaveLength(1);
     expect(runReport.dedupedCount).toBe(1);
+    expect(runReport.tierHealth.A.ok).toBe(2);
+    expect(runReport.tierHealth.A.degraded).toBe(0);
+    expect(runReport.tierHealth.A.emittedCount).toBe(1);
+    expect(runReport.tierHealth.A.dedupedCount).toBe(1);
     expect(runReport.breakdowns.byStage.seed).toBe(1);
     expect(runReport.breakdowns.byCategory.startup_news).toBe(1);
     expect(runReport.breakdowns.hiringSignals.none).toBe(1);

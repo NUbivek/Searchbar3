@@ -128,6 +128,30 @@ function buildSignalBreakdowns(signals, registry) {
   };
 }
 
+function buildTierHealth(summaries, registry) {
+  const tierBySourceId = registry.reduce((accumulator, source) => {
+    accumulator[source.id] = source.cadence?.tier || 'unknown';
+    return accumulator;
+  }, {});
+
+  return summaries.reduce((accumulator, summary) => {
+    const tier = tierBySourceId[summary.sourceId] || 'unknown';
+    if (!accumulator[tier]) {
+      accumulator[tier] = {
+        ok: 0,
+        degraded: 0,
+        emittedCount: 0,
+        dedupedCount: 0,
+      };
+    }
+
+    accumulator[tier][summary.status] = (accumulator[tier][summary.status] || 0) + 1;
+    accumulator[tier].emittedCount += summary.emittedCount || 0;
+    accumulator[tier].dedupedCount += summary.dedupedCount || 0;
+    return accumulator;
+  }, {});
+}
+
 async function runSource(source, context) {
   const adapter = createAdapter(source, { timeoutMs: context.timeoutMs });
   const items = await adapter.run({ query: context.query || '' });
@@ -223,6 +247,7 @@ async function runPipeline(options = {}) {
     crmExportCount,
     degradedCount: summaries.filter((summary) => summary.status === 'degraded').length,
     dedupedCount: summaries.reduce((sum, summary) => sum + (summary.dedupedCount || 0), 0),
+    tierHealth: buildTierHealth(summaries, registry),
     breakdowns: buildSignalBreakdowns(emittedSignals, registry),
     sourceSummaries: summaries,
   });
