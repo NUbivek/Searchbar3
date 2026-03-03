@@ -4566,6 +4566,58 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://opsworks.vc/portfolio/workops');
   });
 
+  test('HtmlListAdapter extracts Ops Track-style portfolio entries', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html>
+          <body>
+            <div class="portfolio-item">
+              <a class="internal-link" href="/portfolio/opstracker">View</a>
+              <div class="company-name">OpsTracker</div>
+              <div class="description">Operational workflow software for finance and GTM teams.</div>
+              <div class="subtext">US startup helping teams manage execution across systems and approvals.</div>
+              <div class="company-site"><a href="https://opstracker.io/">Website</a></div>
+            </div>
+            <div class="footer-cta">
+              <a href="/portfolio/footer-link">Ignore</a>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      method: {
+        url: 'https://opstrack.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item', '.portfolio-card'],
+          linkSelector: ['a[href*="/portfolio/"]', 'a[href]'],
+          titleSelector: ['.company-name', 'h2'],
+          contentSelector: ['.subtext', '.description'],
+          mergeContentSelectors: true,
+          contentJoinWith: ' | ',
+          companyNameSelector: ['.company-name', 'h2'],
+          companyWebsiteSelector: [
+            'a[href*="http"]:not([href*="opstrack.vc"])',
+            '.company-site a[href]',
+          ],
+          includePatterns: ['/portfolio/'],
+          excludeSelectors: ['.footer-cta', '.cta-banner'],
+        },
+      },
+    });
+
+    const results = await adapter.run({ query: 'ops' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('OpsTracker');
+    expect(results[0].content).toBe('US startup helping teams manage execution across systems and approvals. | Operational workflow software for finance and GTM teams.');
+    expect(results[0].company_name).toBe('OpsTracker');
+    expect(results[0].company_website).toBe('https://opstracker.io/');
+    expect(results[0].url).toBe('https://opstrack.vc/portfolio/opstracker');
+  });
+
   test('ApiSearchAdapter respects configured field paths', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
