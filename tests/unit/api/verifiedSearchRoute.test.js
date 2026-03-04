@@ -76,6 +76,7 @@ describe('/api/verifiedSearch', () => {
         mode: 'verified',
         useLLM: true,
       }),
+      signal: expect.any(Object),
     });
     expect(res.statusCode).toBe(200);
     expect(res.body.results).toEqual([]);

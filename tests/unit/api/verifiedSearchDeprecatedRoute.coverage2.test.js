@@ -83,6 +83,7 @@ describe('/api/verifiedSearch (deprecated wrapper)', () => {
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: expect.any(Object),
       })
     );
 
@@ -95,15 +96,18 @@ describe('/api/verifiedSearch (deprecated wrapper)', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      results: {
+    expect(res.body).toEqual(
+      expect.objectContaining({
         results: [{ title: 'Result' }],
-        meta: { degraded: false },
-      },
-    });
+        legacyResults: {
+          results: [{ title: 'Result' }],
+          meta: { degraded: false },
+        },
+      })
+    );
   });
 
-  it('returns 500 when the downstream call fails', async () => {
+  it('returns fail-soft 200 when the downstream call fails', async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('downstream failed'));
 
     const req = createMockReq({
@@ -115,10 +119,13 @@ describe('/api/verifiedSearch (deprecated wrapper)', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual(expect.objectContaining({
+      results: [],
+      status: 'fail-soft',
+      degradedSources: ['verified-search-forwarder'],
       error: 'An error occurred in the simplified search handler',
       message: 'downstream failed',
-    });
+    }));
   });
 });

@@ -10,6 +10,8 @@
 import { logger } from '../../utils/logger';
 import { normalizeSearchResponseV1 } from '../../utils/contracts/searchResponse';
 
+const FORWARD_TIMEOUT_MS = 12000;
+
 export default async function handler(req, res) {
   // Set proper headers
   res.setHeader('Content-Type', 'application/json');
@@ -29,19 +31,29 @@ export default async function handler(req, res) {
     // Log information about the deprecated endpoint being used
     logger.warn('Deprecated verifiedSearch endpoint being used', { query });
     
+    const baseUrl = req.headers.origin || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FORWARD_TIMEOUT_MS);
     // Forward the request to the main search API endpoint
-    const searchApiResponse = await fetch(`${req.headers.origin}/api/search`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ...req.body,
-        // Always set mode to verified for backward compatibility
-        mode: 'verified',
-        useLLM: true
-      })
-    });
+    const searchApiResponse = await (async () => {
+      try {
+        return await fetch(`${baseUrl}/api/search`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...req.body,
+            // Always set mode to verified for backward compatibility
+            mode: 'verified',
+            useLLM: true
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+    })();
     
     // Get the response from the main search API
     const searchResults = await searchApiResponse.json();
