@@ -5,6 +5,8 @@
 
 import axios from 'axios';
 
+const LINKEDIN_AUTH_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   // Handle GET requests to check authentication status
   if (req.method === 'GET') {
@@ -21,7 +23,8 @@ export default async function handler(req, res) {
       const profileResponse = await axios.get('https://api.linkedin.com/v2/me', {
         headers: {
           Authorization: `Bearer ${accessToken}`
-        }
+        },
+        timeout: LINKEDIN_AUTH_TIMEOUT_MS,
       });
       
       console.log('LinkedIn token is valid, user:', profileResponse.data.localizedFirstName);
@@ -90,6 +93,7 @@ export default async function handler(req, res) {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
+        timeout: LINKEDIN_AUTH_TIMEOUT_MS,
       }
     );
 
@@ -101,6 +105,7 @@ export default async function handler(req, res) {
       headers: {
         Authorization: `Bearer ${access_token}`,
       },
+      timeout: LINKEDIN_AUTH_TIMEOUT_MS,
     });
 
     // Get user email address (if we have the correct scope permissions)
@@ -110,6 +115,7 @@ export default async function handler(req, res) {
         headers: {
           Authorization: `Bearer ${access_token}`,
         },
+        timeout: LINKEDIN_AUTH_TIMEOUT_MS,
       });
       email = emailResponse.data?.elements?.[0]?.['handle~']?.emailAddress || null;
     } catch (emailError) {

@@ -88,6 +88,7 @@ describe('/api/auth/linkedin/token', () => {
       headers: {
         Authorization: 'Bearer valid-token',
       },
+      timeout: 10000,
     });
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
@@ -210,6 +211,7 @@ describe('/api/auth/linkedin/token', () => {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
+        timeout: 10000,
       }
     );
     expect(res.setHeader).toHaveBeenCalledWith('Set-Cookie', [
