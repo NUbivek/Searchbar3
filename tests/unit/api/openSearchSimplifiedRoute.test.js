@@ -8,6 +8,7 @@ jest.mock('../../../src/utils/logger', () => ({
 }));
 
 const handler = require('../../../src/pages/api/openSearch').default;
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 
 function createRouteRes() {
   return {
@@ -90,6 +91,7 @@ describe('/api/openSearch', () => {
       results: [],
     });
     expect(typeof res.jsonData.timestamp).toBe('string');
+    expect(validateSearchResponseV1(res.jsonData).valid).toBe(true);
   });
 
   test('returns fail-soft payload when an internal error occurs', async () => {
@@ -104,12 +106,13 @@ describe('/api/openSearch', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.jsonData).toEqual({
+    expect(res.jsonData).toEqual(expect.objectContaining({
       status: 'fail-soft',
       results: [],
       degradedSources: ['open-search-simplified'],
       error: 'An error occurred in the simplified search handler',
       message: 'body explode',
-    });
+    }));
+    expect(validateSearchResponseV1(res.jsonData).valid).toBe(true);
   });
 });

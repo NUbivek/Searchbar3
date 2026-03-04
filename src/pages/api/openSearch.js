@@ -1,5 +1,6 @@
 // LLM processing and search functionality temporarily disabled for simplification
 import { logger } from '../../utils/logger';
+import { normalizeSearchResponseV1 } from '../../utils/contracts/searchResponse';
 
 export default async function handler(req, res) {
   try {
@@ -34,25 +35,41 @@ export default async function handler(req, res) {
     
     // Return a simple placeholder response with empty results
     // This endpoint no longer performs actual searches or LLM processing
-    const simplifiedResponse = {
+    const simplifiedResponse = normalizeSearchResponseV1({
       query,
       model: model || 'mistral-7b',
       sources,
       timestamp: new Date().toISOString(),
       message: 'Search processing has been simplified. No results will be returned.',
-      results: []
-    };
+      results: [],
+      status: 'ok',
+      degradedSources: [],
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: model || 'mistral-7b',
+        content: null,
+      },
+      llmProcessed: false,
+    });
 
     return res.status(200).json(simplifiedResponse);
   } catch (error) {
     logger.error('API error (simplified):', error);
 
-    return res.status(200).json({
+    return res.status(200).json(normalizeSearchResponseV1({
       status: 'fail-soft',
       results: [],
       degradedSources: ['open-search-simplified'],
       error: 'An error occurred in the simplified search handler',
-      message: error.message
-    });
+      message: error.message,
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: null,
+        content: null,
+      },
+      llmProcessed: false,
+    }));
   }
 }
