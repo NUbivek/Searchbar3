@@ -106,17 +106,18 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { messages, model = 'mixtral-8x7b' } = req.body;
+    const { messages, model = 'mistral-7b' } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Messages array is required' });
     }
 
     // Process with LLM
-    let modelConfig = SUPPORTED_MODELS[model.toLowerCase()];
+    const requestedModel = typeof model === 'string' ? model.toLowerCase() : 'mistral-7b';
+    let modelConfig = SUPPORTED_MODELS[requestedModel];
     if (!modelConfig) {
-      logger.warn('Unsupported model, falling back to mixtral-8x7b', { requestedModel: model });
-      modelConfig = SUPPORTED_MODELS['mixtral-8x7b'];
+      logger.warn('Unsupported model, falling back to mistral-7b', { requestedModel: model });
+      modelConfig = SUPPORTED_MODELS['mistral-7b'];
     }
 
     const result = await processWithProvider(messages, modelConfig);
