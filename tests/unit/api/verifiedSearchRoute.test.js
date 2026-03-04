@@ -7,6 +7,7 @@ jest.mock('../../../src/utils/logger', () => ({
 }));
 
 const { createMockReq, createMockRes } = require('./testUtils');
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 const handler = require('../../../src/pages/api/verifiedSearch').default;
 
 describe('/api/verifiedSearch', () => {
@@ -45,7 +46,7 @@ describe('/api/verifiedSearch', () => {
     expect(res.body).toEqual({ error: 'Query is required' });
   });
 
-  test('forwards to the main search API and wraps the response', async () => {
+  test('forwards to the main search API and normalizes response contract', async () => {
     const searchResults = { items: [{ title: 'Example' }], mode: 'verified' };
     global.fetch.mockResolvedValue({
       json: jest.fn().mockResolvedValue(searchResults),
@@ -77,7 +78,9 @@ describe('/api/verifiedSearch', () => {
       }),
     });
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ results: searchResults });
+    expect(res.body.results).toEqual([]);
+    expect(res.body.legacyResults).toEqual(searchResults);
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   test('returns fail-soft 200 when forwarding fails', async () => {
@@ -96,12 +99,13 @@ describe('/api/verifiedSearch', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
+    expect(res.body).toEqual(expect.objectContaining({
       results: [],
       status: 'fail-soft',
       degradedSources: ['verified-search-forwarder'],
       error: 'An error occurred in the simplified search handler',
       message: 'upstream failed',
-    });
+    }));
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 });

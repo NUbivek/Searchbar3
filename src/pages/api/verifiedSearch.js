@@ -8,6 +8,7 @@
  * with the appropriate parameters.
  */
 import { logger } from '../../utils/logger';
+import { normalizeSearchResponseV1 } from '../../utils/contracts/searchResponse';
 
 export default async function handler(req, res) {
   // Set proper headers
@@ -47,17 +48,35 @@ export default async function handler(req, res) {
     
     logger.info('Successfully redirected from verifiedSearch to main search API');
     
-    // Return the results in the expected format for backward compatibility
-    return res.status(200).json({ results: searchResults });
+    // Return contract-compliant payload and preserve full legacy forwarded payload.
+    return res.status(200).json(normalizeSearchResponseV1({
+      ...(searchResults && typeof searchResults === 'object' ? searchResults : {}),
+      results: Array.isArray(searchResults?.results) ? searchResults.results : [],
+      degradedSources: Array.isArray(searchResults?.degradedSources) ? searchResults.degradedSources : [],
+      synthesis: searchResults?.synthesis || {
+        enabled: false,
+        provider: null,
+        model: null,
+        content: null,
+      },
+      llmProcessed: Boolean(searchResults?.llmProcessed),
+      legacyResults: searchResults,
+    }));
     
   } catch (error) {
     logger.error('Simplified verified search error:', error);
-    return res.status(200).json({
+    return res.status(200).json(normalizeSearchResponseV1({
       results: [],
       status: 'fail-soft',
       degradedSources: ['verified-search-forwarder'],
       error: 'An error occurred in the simplified search handler',
-      message: error.message
-    });
+      message: error.message,
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: null,
+        content: null,
+      },
+    }));
   }
 }
