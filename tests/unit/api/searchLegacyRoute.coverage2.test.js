@@ -10,6 +10,7 @@ jest.mock('../../../src/utils/llm-exports', () => ({
 const handler = require('../../../src/pages/api/search-legacy').default;
 const unifiedSearch = require('../../../src/utils/search-legacy').default;
 const { processWithLLM } = require('../../../src/utils/llm-exports');
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 
 function createMockReq(overrides = {}) {
   return {
@@ -92,6 +93,7 @@ describe('/api/search-legacy handler', () => {
     expect(res.jsonPayload.results).toEqual([]);
     expect(res.jsonPayload.query).toBe('ai founders');
     expect(typeof res.jsonPayload.executionTime).toBe('number');
+    expect(validateSearchResponseV1(res.jsonPayload).valid).toBe(true);
   });
 
   it('returns synthesized results when LLM processing succeeds', async () => {
@@ -127,6 +129,7 @@ describe('/api/search-legacy handler', () => {
       ],
       followUpQuestions: ['Who invested?'],
     });
+    expect(validateSearchResponseV1(res.jsonPayload).valid).toBe(true);
   });
 
   it('falls back to raw search results when LLM processing fails', async () => {
@@ -148,9 +151,10 @@ describe('/api/search-legacy handler', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.jsonPayload.results).toEqual(rawResults);
+    expect(validateSearchResponseV1(res.jsonPayload).valid).toBe(true);
   });
 
-  it('returns 500 when unified search throws', async () => {
+  it('returns fail-soft 200 when unified search throws', async () => {
     unifiedSearch.mockRejectedValue(new Error('Search failed'));
 
     const req = createMockReq({
@@ -160,10 +164,14 @@ describe('/api/search-legacy handler', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
-    expect(res.jsonPayload).toEqual({
+    expect(res.statusCode).toBe(200);
+    expect(res.jsonPayload).toEqual(expect.objectContaining({
+      status: 'fail-soft',
+      results: [],
+      degradedSources: ['legacy-search'],
       error: 'An error occurred during search',
       details: 'Search failed',
-    });
+    }));
+    expect(validateSearchResponseV1(res.jsonPayload).valid).toBe(true);
   });
 });

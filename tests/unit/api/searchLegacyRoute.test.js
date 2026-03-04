@@ -1,4 +1,5 @@
 const { createMockReq, createMockRes } = require('./testUtils');
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 
 jest.mock('../../../src/utils/search-legacy.js', () => ({
   __esModule: true,
@@ -85,6 +86,7 @@ describe('/api/search-legacy', () => {
     expect(res.body.results).toEqual([{ title: 'One result', link: 'https://example.com' }]);
     expect(typeof res.body.timestamp).toBe('string');
     expect(typeof res.body.executionTime).toBe('number');
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   it('wraps results in synthesizedAnswer when LLM succeeds', async () => {
@@ -131,6 +133,7 @@ describe('/api/search-legacy', () => {
         },
       },
     ]);
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   it('falls back to raw results when LLM processing fails', async () => {
@@ -147,6 +150,7 @@ describe('/api/search-legacy', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body.results).toEqual([{ title: 'One result', link: 'https://example.com' }]);
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   it('returns fail-soft 200 when unified search throws', async () => {
@@ -161,12 +165,13 @@ describe('/api/search-legacy', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
+    expect(res.body).toEqual(expect.objectContaining({
       status: 'fail-soft',
       results: [],
       degradedSources: ['legacy-search'],
       error: 'An error occurred during search',
       details: 'search failed',
-    });
+    }));
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 });
