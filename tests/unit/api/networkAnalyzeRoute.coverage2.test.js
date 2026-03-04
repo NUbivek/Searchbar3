@@ -1,14 +1,33 @@
+import handler from '../../../src/pages/api/network/analyze';
+import { processNetworkQuery } from '../../../src/utils/networkLLMUtils';
+
 jest.mock('../../../src/utils/networkLLMUtils', () => ({
   processNetworkQuery: jest.fn(),
   generateIndustryClassification: jest.fn(),
 }));
 
-const handler =
-  require('../../../src/pages/api/network/analyze').default;
-const {
-  processNetworkQuery,
-} = require('../../../src/utils/networkLLMUtils');
-const { createMockReq, createMockRes } = require('./testUtils');
+function createReq(overrides = {}) {
+  return {
+    method: 'POST',
+    body: {},
+    ...overrides,
+  };
+}
+
+function createRes() {
+  const res = {};
+  res.statusCode = 200;
+  res.body = null;
+  res.status = jest.fn((code) => {
+    res.statusCode = code;
+    return res;
+  });
+  res.json = jest.fn((payload) => {
+    res.body = payload;
+    return res;
+  });
+  return res;
+}
 
 describe('/api/network/analyze', () => {
   beforeEach(() => {
@@ -16,112 +35,109 @@ describe('/api/network/analyze', () => {
   });
 
   it('returns 405 for non-POST requests', async () => {
-    const req = createMockReq({ method: 'GET' });
-    const res = createMockRes();
+    const req = createReq({ method: 'GET' });
+    const res = createRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(405);
+    expect(res.status).toHaveBeenCalledWith(405);
     expect(res.body).toEqual({ error: 'Method not allowed' });
   });
 
   it('returns 400 when query is missing', async () => {
-    const req = createMockReq({
-      method: 'POST',
-      body: { networkData: { connections: [] } },
-    });
-    const res = createMockRes();
+    const req = createReq({ body: { networkData: { connections: [] } } });
+    const res = createRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(400);
+    expect(res.status).toHaveBeenCalledWith(400);
     expect(res.body).toEqual({ error: 'Query is required' });
   });
 
   it('returns 400 when network data is missing', async () => {
-    const req = createMockReq({
-      method: 'POST',
-      body: { query: 'fintech founders' },
-    });
-    const res = createMockRes();
+    const req = createReq({ body: { query: 'fintech' } });
+    const res = createRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(400);
+    expect(res.status).toHaveBeenCalledWith(400);
     expect(res.body).toEqual({ error: 'Network data is required' });
   });
 
   it('returns filtered connections and response text on success', async () => {
     processNetworkQuery.mockResolvedValue({
-      matches: [{ id: 'conn-1' }],
-      responseText: 'Found one relevant connection.',
+      matches: [
+        { id: '1', relevance: 0.95, reasoning: 'Strong match', category: 'fintech' },
+      ],
     });
 
-    const req = createMockReq({
-      method: 'POST',
+    const req = createReq({
       body: {
-        query: 'Find AI operators',
+        query: 'fintech',
         networkData: {
           linkedInConnected: true,
-          user: { name: 'Bivek' },
+          user: { firstName: 'Bivek' },
           connections: [
-            {
-              id: 'conn-1',
-              name: 'Alice',
-              title: 'Operator',
-              company: 'Acme',
-            },
+            { id: '1', firstName: 'Alice', lastName: 'Smith' },
+            { id: '2', firstName: 'Bob', lastName: 'Jones' },
           ],
+          networksData: { total: 2 },
         },
       },
     });
-    const res = createMockRes();
+    const res = createRes();
 
     await handler(req, res);
 
     expect(processNetworkQuery).toHaveBeenCalledWith(
-      'Find AI operators',
+      'fintech',
       expect.objectContaining({
         nodes: expect.arrayContaining([
-          expect.objectContaining({ id: 'user' }),
-          expect.objectContaining({ id: 'conn-1', name: 'Alice' }),
+          expect.objectContaining({ id: 'user', name: 'Bivek' }),
+          expect.objectContaining({ id: '1', name: 'Alice' }),
         ]),
         links: expect.arrayContaining([
-          expect.objectContaining({ source: 'user', target: 'conn-1' }),
+          expect.objectContaining({ source: 'user', target: '1' }),
         ]),
       }),
       'linkedin'
     );
-    expect(res.statusCode).toBe(200);
+
+    expect(res.status).toHaveBeenCalledWith(200);
     expect(res.body.filteredConnections).toEqual([
-      expect.objectContaining({ id: 'conn-1', name: 'Alice' }),
+      expect.objectContaining({
+        id: '1',
+        firstName: 'Alice',
+        lastName: 'Smith',
+        relevance: 0.95,
+        reasoning: 'Strong match',
+      }),
     ]);
-    expect(res.body.responseText).toBe(
-      'Found 1 connections matching your search: "Find AI operators"'
-    );
+    expect(res.body.responseText).toBe('Found 1 connections matching your search: "fintech"');
   });
 
   it('returns 500 when processing fails', async () => {
-    processNetworkQuery.mockRejectedValue(new Error('LLM failed'));
+    processNetworkQuery.mockRejectedValue(new Error('LLM down'));
 
-    const req = createMockReq({
-      method: 'POST',
+    const req = createReq({
       body: {
-        query: 'Find operators',
+        query: 'ai',
         networkData: {
           twitterConnected: true,
-          connections: [{ id: 'conn-2', name: 'Bob' }],
+          twitterUser: { username: 'bivek' },
+          connections: [],
+          networksData: { total: 0 },
         },
       },
     });
-    const res = createMockRes();
+    const res = createRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.status).toHaveBeenCalledWith(500);
     expect(res.body).toEqual({
       error: 'Failed to process network analysis',
-      details: 'LLM failed',
+      details: 'LLM down',
     });
   });
 });
