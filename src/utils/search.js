@@ -254,7 +254,20 @@ const callLLMAPI = async (query, results, options = {}, originalSources = []) =>
     const processingTime = endTime - startTime;
     
     if (!response.data || !response.data.choices || !response.data.choices[0]) {
-      throw new Error('Invalid response from LLM API');
+      logger.error('Invalid response from LLM API');
+      return {
+        data: {
+          content: "I wasn't able to process your query at this time. Please try again later.",
+          categories: [],
+          sources: {},
+          followUpQuestions: []
+        },
+        metadata: {
+          error: 'Invalid response from LLM API',
+          model: 'fallback',
+          sourceCount: combinedSources.length
+        }
+      };
     }
 
     const content = response.data.choices[0].message.content;
