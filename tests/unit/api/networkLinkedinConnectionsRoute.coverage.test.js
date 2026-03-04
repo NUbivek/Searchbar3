@@ -58,6 +58,7 @@ describe('/api/network/linkedin/connections', () => {
       'https://api.linkedin.com/v2/me',
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'Bearer token-123' }),
+        timeout: 10000,
       })
     );
     expect(axios.get).toHaveBeenNthCalledWith(
@@ -65,6 +66,7 @@ describe('/api/network/linkedin/connections', () => {
       'https://api.linkedin.com/v2/connections?q=viewer&start=0&count=50',
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'Bearer token-123' }),
+        timeout: 10000,
       })
     );
 

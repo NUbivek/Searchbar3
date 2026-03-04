@@ -76,6 +76,7 @@ describe('/api/network/linkedin/connections', () => {
         headers: {
           Authorization: 'Bearer token-123',
         },
+        timeout: 10000,
       }
     );
     expect(axios.get).toHaveBeenNthCalledWith(
@@ -85,6 +86,7 @@ describe('/api/network/linkedin/connections', () => {
         headers: {
           Authorization: 'Bearer token-123',
         },
+        timeout: 10000,
       }
     );
     expect(res.statusCode).toBe(200);

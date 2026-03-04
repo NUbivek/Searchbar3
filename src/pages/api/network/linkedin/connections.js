@@ -3,6 +3,8 @@
  */
 import axios from 'axios';
 
+const LINKEDIN_CONNECTIONS_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   // Only allow GET requests
   if (req.method !== 'GET') {
@@ -22,7 +24,8 @@ export default async function handler(req, res) {
     const profileResponse = await axios.get('https://api.linkedin.com/v2/me', {
       headers: {
         Authorization: `Bearer ${accessToken}`
-      }
+      },
+      timeout: LINKEDIN_CONNECTIONS_TIMEOUT_MS,
     });
 
     const userData = profileResponse.data;
@@ -35,7 +38,8 @@ export default async function handler(req, res) {
       {
         headers: {
           Authorization: `Bearer ${accessToken}`
-        }
+        },
+        timeout: LINKEDIN_CONNECTIONS_TIMEOUT_MS,
       }
     );
 
