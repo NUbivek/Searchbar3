@@ -233,18 +233,38 @@ export default async function handler(req, res) {
       perplexityApiStatus = 'Skipped (Together API succeeded)';
     }
     
-    // If both APIs failed, return an error response
+    const failSoftResponse = (apiStatus, errorMessage = null) => ({
+      status: 'fail-soft',
+      categories: {
+        key_insights: `I couldn't generate a model summary for "${query}" right now. Returning a safe fallback response.`
+      },
+      metrics: {
+        relevance: 60,
+        accuracy: 55,
+        credibility: 55
+      },
+      followUpQuestions: [
+        `Would you like a shorter summary for ${query}?`,
+        `Should I retry this with fewer sources?`,
+        `Do you want to continue with raw search results only?`
+      ],
+      apiStatus,
+      error: errorMessage || null
+    });
+
+    // If both APIs failed, return fail-soft response
     if (!llmResponse) {
       console.warn('DEBUG: Both LLM APIs failed, returning error response');
       
-      return res.status(500).json({
-        error: 'LLM API Error',
-        message: 'Failed to process query with LLM APIs',
-        apiStatus: {
-          together: togetherApiStatus,
-          perplexity: perplexityApiStatus
-        }
-      });
+      return res.status(200).json(
+        failSoftResponse(
+          {
+            together: togetherApiStatus,
+            perplexity: perplexityApiStatus
+          },
+          'Failed to process query with LLM APIs'
+        )
+      );
     }
     
     // Add API status information to the response
@@ -259,10 +279,22 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('API handler error:', error);
     
-    // Return an error response
-    return res.status(500).json({ 
-      error: 'Internal Server Error',
-      message: error.message,
+    // Return a fail-soft response
+    return res.status(200).json({ 
+      status: 'fail-soft',
+      categories: {
+        key_insights: 'An internal error occurred while processing LLM output. Returning a safe fallback response.'
+      },
+      metrics: {
+        relevance: 50,
+        accuracy: 50,
+        credibility: 50
+      },
+      followUpQuestions: [
+        'Would you like to retry this query?',
+        'Should I continue with search results only?'
+      ],
+      error: error.message,
       apiStatus: {
         together: `Error: ${error.message}`,
         perplexity: 'Not tested due to error'

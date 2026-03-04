@@ -184,7 +184,7 @@ describe('/api/llm/process', () => {
     expect(res.body.apiStatus.perplexity).toBe('Success');
   });
 
-  test('returns 500 with API status when both providers fail', async () => {
+  test('returns fail-soft 200 with API status when both providers fail', async () => {
     process.env.TOGETHER_API_KEY = 'together-key';
     process.env.PERPLEXITY_API_KEY = 'perplexity-key';
 
@@ -203,14 +203,34 @@ describe('/api/llm/process', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({
-      error: 'LLM API Error',
-      message: 'Failed to process query with LLM APIs',
-      apiStatus: {
-        together: 'Error: together failed',
-        perplexity: 'Error: perplexity failed',
+    expect(res.statusCode).toBe(200);
+    expect(res.body.status).toBe('fail-soft');
+    expect(res.body.error).toBe('Failed to process query with LLM APIs');
+    expect(res.body.apiStatus).toEqual({
+      together: 'Error: together failed',
+      perplexity: 'Error: perplexity failed',
+    });
+    expect(res.body.categories.key_insights).toContain('defensibility');
+  });
+
+  test('returns fail-soft 200 when both API keys are missing', async () => {
+    const req = createMockReq({
+      method: 'POST',
+      body: {
+        query: 'pricing power',
+        sources: [{ title: 'Source D' }],
       },
+    });
+    const res = createMockRes();
+
+    await handler(req, res);
+
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(res.body.status).toBe('fail-soft');
+    expect(res.body.apiStatus).toEqual({
+      together: 'Missing API key',
+      perplexity: 'Missing API key',
     });
   });
 });
