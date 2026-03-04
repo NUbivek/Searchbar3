@@ -79,6 +79,21 @@ describe('/api/auth/facebook/token', () => {
       expiresIn: 3600,
     });
     expect(axios.get).toHaveBeenCalledTimes(3);
+    expect(axios.get).toHaveBeenNthCalledWith(
+      1,
+      'https://graph.facebook.com/v17.0/oauth/access_token',
+      expect.objectContaining({ timeout: 10000 })
+    );
+    expect(axios.get).toHaveBeenNthCalledWith(
+      2,
+      'https://graph.facebook.com/me',
+      expect.objectContaining({ timeout: 10000 })
+    );
+    expect(axios.get).toHaveBeenNthCalledWith(
+      3,
+      'https://graph.facebook.com/me/friends',
+      expect.objectContaining({ timeout: 10000 })
+    );
   });
 
   it('returns fail-soft payload with failure details when exchange fails', async () => {

@@ -115,6 +115,7 @@ describe('/api/auth/facebook/token', () => {
           code: 'auth-code',
           redirect_uri: 'https://example.com/api/auth/facebook/callback',
         },
+        timeout: 10000,
       }
     );
     expect(axios.get).toHaveBeenNthCalledWith(
@@ -125,6 +126,7 @@ describe('/api/auth/facebook/token', () => {
           fields: 'id,name,email,picture',
           access_token: 'facebook-access-token',
         },
+        timeout: 10000,
       }
     );
     expect(axios.get).toHaveBeenNthCalledWith(
@@ -134,6 +136,7 @@ describe('/api/auth/facebook/token', () => {
         params: {
           access_token: 'facebook-access-token',
         },
+        timeout: 10000,
       }
     );
     expect(res.statusCode).toBe(200);
