@@ -17,6 +17,10 @@ describe('/api/relay', () => {
         this.body = payload;
         return this;
       },
+      json(payload) {
+        this.body = payload;
+        return this;
+      },
     };
   }
 
@@ -40,6 +44,6 @@ describe('/api/relay', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(405);
-    expect(res.body).toBe('Method not allowed');
+    expect(res.body).toEqual({ error: 'Method not allowed' });
   });
 });

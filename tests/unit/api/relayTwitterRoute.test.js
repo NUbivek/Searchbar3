@@ -17,6 +17,10 @@ function createMockRes() {
     res.body = payload;
     return res;
   });
+  res.json = jest.fn((payload) => {
+    res.body = payload;
+    return res;
+  });
   return res;
 }
 
@@ -31,7 +35,7 @@ describe('/api/relay/twitter', () => {
     handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(405);
-    expect(res.send).toHaveBeenCalledWith('Method not allowed');
+    expect(res.json).toHaveBeenCalledWith({ error: 'Method not allowed' });
   });
 
   it('renders the twitter relay page with the callback parameters', () => {

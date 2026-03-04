@@ -8,7 +8,7 @@
 
 export default function handler(req, res) {
   if (req.method && req.method !== 'GET') {
-    return res.status(405).send('Method not allowed');
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   // Extract the auth code and state from the query parameters
