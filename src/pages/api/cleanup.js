@@ -6,12 +6,25 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { filePath } = JSON.parse(req.body);
+    const payload = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+    const { filePath } = payload;
+
+    if (!filePath || typeof filePath !== 'string') {
+      return res.status(400).json({
+        error: 'filePath is required'
+      });
+    }
+
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
     res.status(200).json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: 'Cleanup failed' });
+    res.status(200).json({
+      status: 'fail-soft',
+      success: false,
+      degradedSources: ['cleanup'],
+      error: 'Cleanup failed'
+    });
   }
-} 
+}

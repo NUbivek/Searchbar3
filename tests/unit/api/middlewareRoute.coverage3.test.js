@@ -31,7 +31,7 @@ describe('/api/middleware withErrorHandler', () => {
     expect(res.body).toEqual({ ok: true });
   });
 
-  it('returns 500 with error details when the handler throws', async () => {
+  it('returns fail-soft payload when the handler throws', async () => {
     const req = { method: 'POST' };
     const res = createRes();
     const error = new Error('boom');
@@ -44,10 +44,12 @@ describe('/api/middleware withErrorHandler', () => {
     await wrapped(req, res);
 
     expect(consoleSpy).toHaveBeenCalledWith('API Error:', error);
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
       error: 'Internal server error',
-      message: 'boom'
+      message: 'boom',
+      degradedSources: ['middleware']
     });
 
     consoleSpy.mockRestore();

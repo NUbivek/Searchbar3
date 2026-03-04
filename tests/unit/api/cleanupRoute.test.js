@@ -57,7 +57,7 @@ describe('/api/cleanup', () => {
     expect(res.body).toEqual({ success: true });
   });
 
-  test('returns 500 when the request body is invalid JSON', async () => {
+  test('returns fail-soft payload when the request body is invalid JSON', async () => {
     const req = createMockReq({
       method: 'POST',
       body: '{invalid',
@@ -66,7 +66,12 @@ describe('/api/cleanup', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: 'Cleanup failed' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      status: 'fail-soft',
+      success: false,
+      degradedSources: ['cleanup'],
+      error: 'Cleanup failed',
+    });
   });
 });

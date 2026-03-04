@@ -51,7 +51,13 @@ export default async function handler(req, res) {
     
     if (!userData) {
       console.error('Twitter API returned success but no user data');
-      throw new Error('Missing user data in Twitter API response');
+      return res.status(200).json({
+        status: 'fail-soft',
+        user: null,
+        networksData: { nodes: [], links: [] },
+        degradedSources: ['twitter-network'],
+        error: 'Missing user data in Twitter API response'
+      });
     }
     
     // Generate visualization-ready data

@@ -154,7 +154,7 @@ describe('/api/network/linkedin/connections', () => {
     expect(res.body).toEqual({ error: 'LinkedIn session expired, please reconnect' });
   });
 
-  test('returns 500 on other linkedin failures', async () => {
+  test('returns fail-soft payload on other linkedin failures', async () => {
     axios.get.mockRejectedValueOnce(new Error('linkedin down'));
 
     const req = createMockReq({
@@ -165,8 +165,12 @@ describe('/api/network/linkedin/connections', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
+      nodes: [],
+      links: [],
+      degradedSources: ['linkedin-network'],
       error: 'Failed to fetch LinkedIn connections',
       details: 'linkedin down',
     });

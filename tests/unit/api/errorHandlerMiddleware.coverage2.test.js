@@ -46,7 +46,7 @@ describe('errorHandler middleware', () => {
     });
   });
 
-  test('returns explicit status for APIError', () => {
+  test('returns fail-soft for APIError with 5xx status', () => {
     const res = createMockRes();
     const error = {
       name: 'APIError',
@@ -57,10 +57,12 @@ describe('errorHandler middleware', () => {
 
     errorHandler(error, {}, res);
 
-    expect(res.statusCode).toBe(503);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
       error: 'Provider failed',
-      source: 'reddit'
+      source: 'reddit',
+      degradedSources: ['reddit']
     });
   });
 
@@ -71,10 +73,12 @@ describe('errorHandler middleware', () => {
 
     errorHandler(error, {}, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
       error: 'An unexpected error occurred',
-      message: 'Unexpected failure'
+      message: 'Unexpected failure',
+      degradedSources: ['api']
     });
   });
 
@@ -85,10 +89,12 @@ describe('errorHandler middleware', () => {
 
     errorHandler(error, {}, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
       error: 'An unexpected error occurred',
-      message: undefined
+      message: undefined,
+      degradedSources: ['api']
     });
   });
 });

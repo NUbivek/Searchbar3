@@ -18,7 +18,7 @@ describe('withErrorHandler', () => {
     expect(json).toHaveBeenCalledWith({ ok: true });
   });
 
-  it('returns a normalized 500 response when the handler throws', async () => {
+  it('returns a normalized fail-soft response when the handler throws', async () => {
     const req = { method: 'POST' };
     const json = jest.fn();
     const status = jest.fn(() => ({ json }));
@@ -34,10 +34,12 @@ describe('withErrorHandler', () => {
 
     expect(handler).toHaveBeenCalledWith(req, res);
     expect(errorSpy).toHaveBeenCalledWith('API Error:', error);
-    expect(status).toHaveBeenCalledWith(500);
+    expect(status).toHaveBeenCalledWith(200);
     expect(json).toHaveBeenCalledWith({
+      status: 'fail-soft',
       error: 'Internal server error',
-      message: 'boom'
+      message: 'boom',
+      degradedSources: ['middleware']
     });
 
     errorSpy.mockRestore();

@@ -137,8 +137,12 @@ export default async function handler(req, res) {
     if (error.response?.status === 401) {
       return res.status(401).json({ error: 'LinkedIn session expired, please reconnect' });
     }
-    
-    return res.status(500).json({ 
+
+    return res.status(200).json({
+      status: 'fail-soft',
+      nodes: [],
+      links: [],
+      degradedSources: ['linkedin-network'],
       error: 'Failed to fetch LinkedIn connections',
       details: error.message
     });

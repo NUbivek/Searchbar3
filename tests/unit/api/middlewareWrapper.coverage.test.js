@@ -31,7 +31,7 @@ describe('withErrorHandler', () => {
     expect(res.payload).toEqual({ ok: true });
   });
 
-  it('returns structured 500 when handler throws', async () => {
+  it('returns structured fail-soft payload when handler throws', async () => {
     const handler = jest.fn(async () => {
       throw new Error('boom');
     });
@@ -42,10 +42,12 @@ describe('withErrorHandler', () => {
 
     await wrapped({}, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.payload).toEqual({
+      status: 'fail-soft',
       error: 'Internal server error',
-      message: 'boom'
+      message: 'boom',
+      degradedSources: ['middleware']
     });
     expect(consoleSpy).toHaveBeenCalled();
 
