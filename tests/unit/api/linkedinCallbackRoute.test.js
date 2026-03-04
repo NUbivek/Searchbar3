@@ -119,12 +119,14 @@ describe('/api/auth/linkedin/callback', () => {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
+        timeout: 10000,
       }
     );
     expect(axios.get).toHaveBeenCalledWith('https://api.linkedin.com/v2/me', {
       headers: {
         Authorization: 'Bearer linkedin-access-token',
       },
+      timeout: 10000,
     });
     expect(res.setHeader).toHaveBeenCalledWith('Set-Cookie', [
       'linkedin_access_token=linkedin-access-token; Path=/; Max-Age=7200; HttpOnly; SameSite=Lax',

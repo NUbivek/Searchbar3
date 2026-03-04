@@ -4,6 +4,8 @@
  */
 import axios from 'axios';
 
+const LINKEDIN_CALLBACK_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   const { code, state, error, error_description } = req.query;
   console.log('LinkedIn callback received:', { code: !!code, state, error, error_description });
@@ -47,7 +49,8 @@ export default async function handler(req, res) {
         },
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
-        }
+        },
+        timeout: LINKEDIN_CALLBACK_TIMEOUT_MS,
       }
     );
 
@@ -58,7 +61,8 @@ export default async function handler(req, res) {
     const profileResponse = await axios.get('https://api.linkedin.com/v2/me', {
       headers: {
         Authorization: `Bearer ${access_token}`
-      }
+      },
+      timeout: LINKEDIN_CALLBACK_TIMEOUT_MS,
     });
     
     console.log('LinkedIn profile fetched successfully');
