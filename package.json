@@ -13,6 +13,7 @@
     "lint": "next lint",
     "test:unit": "jest --runInBand --testPathPattern=tests/unit",
     "smoke:api": "node scripts/api-smoke.js",
+    "smoke:api:local": "node scripts/api-smoke-local.js",
     "sourcing:plan": "node scripts/sourcing-plan.js",
     "sourcing:validate": "node scripts/sourcing-validate.js",
     "sourcing:run": "node scripts/sourcing-run.js",
