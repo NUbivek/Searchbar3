@@ -86,13 +86,13 @@ export async function processFile(file) {
 
     // Validate file type
     if (!FILE_PROCESSORS[extension] && !FILE_HANDLERS[`.${extension}`]) {
-      throw new Error(`Unsupported file type: ${extension}`);
+      return Promise.reject(new Error(`Unsupported file type: ${extension}`));
     }
 
     // Validate file size
     const sizeLimit = FILE_SIZE_LIMITS[extension] || MAX_FILE_SIZE;
     if (file.size > sizeLimit) {
-      throw new Error(`File size exceeds limit of ${sizeLimit / (1024 * 1024)}MB for ${extension} files`);
+      return Promise.reject(new Error(`File size exceeds limit of ${sizeLimit / (1024 * 1024)}MB for ${extension} files`));
     }
 
     const content = isNodeUpload(file)
@@ -114,7 +114,7 @@ export async function processFile(file) {
     };
   } catch (error) {
     logger.error('File processing error:', error);
-    throw error;
+    return Promise.reject(error);
   }
 }
 
@@ -148,7 +148,7 @@ async function processJSONFile(file) {
     const json = JSON.parse(text);
     return JSON.stringify(json, null, 2);
   } catch (error) {
-    throw new Error('Invalid JSON file');
+    return Promise.reject(new Error('Invalid JSON file'));
   }
 }
 
@@ -167,7 +167,7 @@ async function processCSVFile(file) {
       }
     };
   } catch (error) {
-    throw new Error('Invalid CSV file');
+    return Promise.reject(new Error('Invalid CSV file'));
   }
 }
 
@@ -194,7 +194,7 @@ async function processExcelFile(file) {
       }
     };
   } catch (error) {
-    throw new Error('Invalid Excel file');
+    return Promise.reject(new Error('Invalid Excel file'));
   }
 }
 
@@ -220,7 +220,7 @@ async function processPDFFile(file) {
       }
     };
   } catch (error) {
-    throw new Error('Invalid or corrupted PDF file');
+    return Promise.reject(new Error('Invalid or corrupted PDF file'));
   }
 }
 
@@ -235,12 +235,12 @@ async function processDocxFile(file) {
       }
     };
   } catch (error) {
-    throw new Error('Invalid DOCX file');
+    return Promise.reject(new Error('Invalid DOCX file'));
   }
 }
 
 async function processPPTXFile(file) {
-  throw new Error('PPTX processing not implemented');
+  return Promise.reject(new Error('PPTX processing not implemented'));
 }
 
 // Handle text files
@@ -256,7 +256,7 @@ async function handleJsonFile(file) {
     const data = JSON.parse(content);
     return JSON.stringify(data, null, 2);
   } catch (error) {
-    throw new Error('Invalid JSON file');
+    return Promise.reject(new Error('Invalid JSON file'));
   }
 }
 
@@ -278,7 +278,7 @@ async function handleCsvFile(file) {
       }
     };
   } catch (error) {
-    throw new Error('Invalid CSV file');
+    return Promise.reject(new Error('Invalid CSV file'));
   }
 }
 
@@ -310,7 +310,7 @@ async function handlePdfFile(file) {
       }
     };
   } catch (error) {
-    throw new Error('Invalid or corrupted PDF file');
+    return Promise.reject(new Error('Invalid or corrupted PDF file'));
   }
 }
 
@@ -326,7 +326,7 @@ async function handleDocxFile(file) {
       }
     };
   } catch (error) {
-    throw new Error('Invalid DOCX file');
+    return Promise.reject(new Error('Invalid DOCX file'));
   }
 }
 

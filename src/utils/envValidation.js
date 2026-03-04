@@ -37,7 +37,10 @@ export function getEnvDiagnostics(env = process.env) {
 export function assertCoreEnv(env = process.env) {
   const diag = getEnvDiagnostics(env);
   if (!diag.ok) {
-    throw new Error(`Missing required environment variables: ${diag.missingCore.join(', ')}`);
+    return {
+      ...diag,
+      error: `Missing required environment variables: ${diag.missingCore.join(', ')}`
+    };
   }
   return diag;
 }

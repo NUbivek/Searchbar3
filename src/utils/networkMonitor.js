@@ -95,7 +95,11 @@ class NetworkMonitor {
       return true;
     } catch (error) {
       console.error('Error handling request:', error);
-      res.status(500).json({ error: 'Internal Server Error' });
+      res.status(200).json({
+        status: 'fail-soft',
+        error: 'Internal Server Error',
+        degradedSources: ['network-monitor']
+      });
       return false;
     }
   }
