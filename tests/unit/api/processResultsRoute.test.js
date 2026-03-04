@@ -11,6 +11,16 @@ describe('/api/processResults', () => {
     jest.clearAllMocks();
   });
 
+  test('returns 405 for non-POST requests', async () => {
+    const req = createMockReq({ method: 'GET' });
+    const res = createMockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(405);
+    expect(res.body).toEqual({ error: 'Method not allowed' });
+  });
+
   test('returns fail-soft 200 for an invalid model', async () => {
     const req = createMockReq({
       method: 'POST',

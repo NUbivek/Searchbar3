@@ -54,6 +54,10 @@ const processWithTogether = async (results, modelConfig) => {
 };
 
 export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   const { results, model } = req.body;
   
   try {
