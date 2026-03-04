@@ -134,8 +134,26 @@ describe('/api/auth/twitter/token', () => {
 
     await handler(req, res);
 
-    expect(axios.post).toHaveBeenCalledTimes(1);
-    expect(axios.get).toHaveBeenCalledTimes(1);
+    expect(axios.post).toHaveBeenCalledWith(
+      'https://api.twitter.com/2/oauth2/token',
+      expect.any(String),
+      expect.objectContaining({
+        timeout: 10000,
+        headers: expect.objectContaining({
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization: expect.stringContaining('Basic '),
+        }),
+      })
+    );
+    expect(axios.get).toHaveBeenCalledWith(
+      'https://api.twitter.com/2/users/me',
+      expect.objectContaining({
+        timeout: 10000,
+        headers: expect.objectContaining({
+          Authorization: 'Bearer twitter-access-token',
+        }),
+      })
+    );
     expect(res.setHeader).toHaveBeenCalledWith(
       'Set-Cookie',
       expect.arrayContaining([

@@ -6,6 +6,8 @@
 import axios from 'axios';
 import { parse, serialize } from 'cookie';
 
+const TWITTER_AUTH_TIMEOUT_MS = 10000;
+
 function respondFailSoftWhenServerError(res, status, payload, degradedSource) {
   if (status >= 500) {
     return res.status(200).json({
@@ -170,6 +172,7 @@ async function handleTokenValidation(req, res) {
         params: {
           'user.fields': 'name,username,profile_image_url,description',
         },
+        timeout: TWITTER_AUTH_TIMEOUT_MS,
       });
       
       // Also get user's connections if available
@@ -182,7 +185,8 @@ async function handleTokenValidation(req, res) {
           params: {
             'max_results': 50, // Adjust as needed
             'user.fields': 'name,username,profile_image_url',
-          }
+          },
+          timeout: TWITTER_AUTH_TIMEOUT_MS,
         });
         connections = connectionsResponse.data.data || [];
       } catch (connectionsError) {
@@ -248,6 +252,7 @@ async function handleTokenValidation(req, res) {
               params: {
                 'user.fields': 'name,username,profile_image_url,description',
               },
+              timeout: TWITTER_AUTH_TIMEOUT_MS,
             });
             
             return res.status(200).json({
@@ -335,7 +340,8 @@ async function handleCodeExchange(req, res, code) {
           ...(clientSecret && {
             Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
           })
-        }
+        },
+        timeout: TWITTER_AUTH_TIMEOUT_MS,
       }
     );
     
@@ -350,6 +356,7 @@ async function handleCodeExchange(req, res, code) {
       params: {
         'user.fields': 'name,username,profile_image_url,description',
       },
+      timeout: TWITTER_AUTH_TIMEOUT_MS,
     });
     
     return res.status(200).json({
@@ -437,7 +444,8 @@ async function refreshTwitterToken(refreshToken) {
         ...(clientSecret && {
           Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
         })
-      }
+      },
+      timeout: TWITTER_AUTH_TIMEOUT_MS,
     }
   );
   
