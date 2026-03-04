@@ -12,6 +12,8 @@ import searchResultScorer from '../../../utils/scoring/SearchResultScorer';
 import { detectQueryContext } from '../../../components/search/utils/contextDetector';
 import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 
+const HN_FALLBACK_TIMEOUT_MS = 6000;
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -146,7 +148,21 @@ export default async function handler(req, res) {
 
     // Always-on HackerNews safety net (no API key required)
     try {
-      const hnResp = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'}/api/search/hackernews?q=${encodeURIComponent(query)}`);
+      const hnController = new AbortController();
+      const hnTimeout = setTimeout(() => hnController.abort(), HN_FALLBACK_TIMEOUT_MS);
+      const hnResp = await (async () => {
+        try {
+          return await fetch(
+            `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'}/api/search/hackernews?q=${encodeURIComponent(query)}`,
+            { signal: hnController.signal }
+          );
+        } finally {
+          clearTimeout(hnTimeout);
+        }
+      })();
+      if (!hnResp.ok) {
+        throw new Error(`HackerNews fallback returned ${hnResp.status}`);
+      }
       const hnData = await hnResp.json();
       const hnResults = Array.isArray(hnData?.results) ? hnData.results : [];
 

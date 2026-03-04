@@ -104,7 +104,10 @@ describe('/api/search', () => {
     await handler(req, res);
 
     expect(unifiedSearch).toHaveBeenCalled();
-    expect(global.fetch).toHaveBeenCalled();
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/search/hackernews'),
+      expect.objectContaining({ signal: expect.any(Object) })
+    );
     expect(res.statusCode).toBe(200);
     expect(res.body.status).toBe('fail-soft');
     expect(res.body.results).toEqual([]);
