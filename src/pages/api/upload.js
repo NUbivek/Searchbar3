@@ -33,6 +33,39 @@ function flattenFormidableFiles(fileMap) {
     .filter(Boolean);
 }
 
+function normalizeUploadError(error) {
+  const message = String(error?.message || '');
+  const lowerMessage = message.toLowerCase();
+
+  const isValidationError = (
+    error?.httpCode === 400 ||
+    error?.code === 1009 ||
+    lowerMessage.includes('maxfiles') ||
+    lowerMessage.includes('max file size') ||
+    lowerMessage.includes('maxfilesize') ||
+    lowerMessage.includes('maxfields') ||
+    lowerMessage.includes('allowemptyfiles')
+  );
+
+  if (isValidationError) {
+    return {
+      status: 400,
+      body: {
+        error: 'Upload validation failed',
+        details: message || 'Upload did not pass validation rules'
+      }
+    };
+  }
+
+  return {
+    status: 500,
+    body: {
+      error: 'Upload failed',
+      details: message || 'Unknown upload error'
+    }
+  };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -106,9 +139,7 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     logger.error('Upload error:', error);
-    return res.status(500).json({
-      error: 'Upload failed',
-      details: error.message
-    });
+    const normalized = normalizeUploadError(error);
+    return res.status(normalized.status).json(normalized.body);
   }
 }
