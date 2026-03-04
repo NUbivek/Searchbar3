@@ -84,7 +84,17 @@ describe('/api/auth/reddit/callback', () => {
 
     await handler(req, res);
 
-    expect(axios.post).toHaveBeenCalledTimes(1);
+    expect(axios.post).toHaveBeenCalledWith(
+      'https://www.reddit.com/api/v1/access_token',
+      expect.any(String),
+      expect.objectContaining({
+        timeout: 10000,
+        headers: expect.objectContaining({
+          Authorization: expect.stringContaining('Basic '),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        }),
+      })
+    );
     expect(res.setHeader).toHaveBeenCalledWith(
       'Set-Cookie',
       expect.arrayContaining([

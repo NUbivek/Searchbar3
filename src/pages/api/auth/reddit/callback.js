@@ -1,6 +1,8 @@
 import axios from 'axios';
 import { parse, serialize } from 'cookie';
 
+const REDDIT_AUTH_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   const { code, state, error } = req.query;
 
@@ -40,7 +42,8 @@ export default async function handler(req, res) {
           Authorization: `Basic ${auth}`,
           'Content-Type': 'application/x-www-form-urlencoded',
           'User-Agent': 'searchbar/1.0'
-        }
+        },
+        timeout: REDDIT_AUTH_TIMEOUT_MS,
       }
     );
 

@@ -120,7 +120,17 @@ describe('/api/auth/reddit/callback', () => {
 
     await handler(req, res);
 
-    expect(axios.post).toHaveBeenCalledTimes(1);
+    expect(axios.post).toHaveBeenCalledWith(
+      'https://www.reddit.com/api/v1/access_token',
+      expect.any(String),
+      expect.objectContaining({
+        timeout: 10000,
+        headers: expect.objectContaining({
+          Authorization: expect.stringContaining('Basic '),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        }),
+      })
+    );
     expect(Array.isArray(res.headers['Set-Cookie'])).toBe(true);
     expect(res.headers['Set-Cookie']).toHaveLength(2);
     expect(res.redirectTarget).toBe('/network?auth=reddit_success');
