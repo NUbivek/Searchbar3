@@ -46,6 +46,16 @@ describe('/api/auth/twitter', () => {
     }
   });
 
+  test('returns 405 for non-GET requests', () => {
+    const req = createMockReq({ method: 'POST' });
+    const res = createRedirectRes();
+
+    handler(req, res);
+
+    expect(res.statusCode).toBe(405);
+    expect(res.body).toEqual({ error: 'Method not allowed' });
+  });
+
   test('returns fail-soft payload when client id is missing', () => {
     const req = createMockReq();
     const res = createRedirectRes();

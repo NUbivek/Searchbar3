@@ -4,6 +4,10 @@
 import { getCallbackUrl } from '../../../../utils/oauthUtils';
 
 export default function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   // Get Twitter API key from environment variables
   const clientId = process.env.TWITTER_API_KEY || process.env.TWITTER_CLIENT_ID;
   
