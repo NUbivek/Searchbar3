@@ -63,7 +63,14 @@ export const searchSpecificSource = async (source, query) => {
     case 'Verified Sources':
       return await searchVerifiedSources(query);
     default:
-      throw new Error(`Unsupported source: ${source}`);
+      return {
+        data: {
+          status: 'fail-soft',
+          source,
+          results: [],
+          error: `Unsupported source: ${source}`
+        }
+      };
   }
 };
 

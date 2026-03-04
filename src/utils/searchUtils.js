@@ -106,7 +106,8 @@ async function performVerifiedSearch(query, options = {}) {
 // Perform search across selected sources
 async function performSearch(query, sources, options = {}) {
   if (!query) {
-    throw new Error('Search query is required');
+    log.warn('performSearch called without query');
+    return [];
   }
 
   try {
@@ -140,7 +141,7 @@ async function performSearch(query, sources, options = {}) {
       .flatMap((result) => Array.isArray(result.value) ? result.value : []);
   } catch (error) {
     log.error('Error in performSearch:', error);
-    throw error;
+    return [];
   }
 }
 
@@ -178,7 +179,8 @@ async function handleCustomSources(query, customUrls = [], files = []) {
  */
 async function searchOpenSources(query, selectedSources = [], options = {}) {
   if (!query) {
-    throw new Error('Search query is required');
+    log.warn('searchOpenSources called without query');
+    return [];
   }
 
   log.warn('searchOpenSources is deprecated. Use unifiedSearch from search.js instead');
@@ -197,7 +199,7 @@ async function searchOpenSources(query, selectedSources = [], options = {}) {
     });
   } catch (error) {
     log.error('Open search error:', error);
-    throw error;
+    return [];
   }
 }
 
@@ -258,7 +260,8 @@ async function searchVerifiedSources(query, options = {}) {
 async function performSimpleSearch(query, sources = ['web'], options = {}) {
   try {
     if (!query) {
-      throw new Error('Query is required');
+      log.warn('performSimpleSearch called without query');
+      return [];
     }
 
     log.debug('Using unified performSimpleSearch:', { query, sources });
@@ -294,7 +297,8 @@ async function performSimpleSearch(query, sources = ['web'], options = {}) {
 async function performSimpleVerifiedSearch(query, sources = ['fmp', 'sec'], options = {}) {
   try {
     if (!query) {
-      throw new Error('Query is required');
+      log.warn('performSimpleVerifiedSearch called without query');
+      return [];
     }
 
     log.debug('Using unified performSimpleVerifiedSearch:', { query, sources });
