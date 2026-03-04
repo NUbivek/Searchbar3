@@ -30,13 +30,22 @@ export const supportedFileTypes = [
 export const validateFile = (file) => {
   const extension = '.' + file.name.split('.').pop().toLowerCase();
   if (!supportedFileTypes.includes(extension)) {
-    throw new Error(`Unsupported file type. Supported types: ${supportedFileTypes.join(', ')}`);
+    return {
+      valid: false,
+      error: `Unsupported file type. Supported types: ${supportedFileTypes.join(', ')}`
+    };
   }
   
   // 50MB limit
   if (file.size > 50 * 1024 * 1024) {
-    throw new Error('File size must be less than 50MB');
+    return {
+      valid: false,
+      error: 'File size must be less than 50MB'
+    };
   }
   
-  return true;
-}; 
+  return {
+    valid: true,
+    error: null
+  };
+};

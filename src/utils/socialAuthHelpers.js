@@ -48,7 +48,7 @@ export const initiateLinkedInAuth = () => {
  */
 export const initiateTwitterAuth = () => {
   if (!TWITTER_CONFIG.clientId) {
-    throw new Error('Twitter Client ID is not configured');
+    return '/api/auth/twitter';
   }
 
   const authUrl = new URL('https://twitter.com/i/oauth2/authorize');
@@ -77,7 +77,7 @@ export const initiateRedditAuth = () => {
  */
 export const initiateFacebookAuth = () => {
   if (!FACEBOOK_CONFIG.clientId) {
-    throw new Error('Facebook App ID is not configured');
+    return '/api/auth/facebook';
   }
 
   const authUrl = new URL('https://www.facebook.com/v17.0/dialog/oauth');

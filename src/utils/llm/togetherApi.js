@@ -31,7 +31,7 @@ export async function callTogetherAPI(prompt, modelConfig) {
         })
       }).then(res => {
         if (!res.ok) {
-          throw new Error(`Together API error: ${res.status} ${res.statusText}`);
+          return Promise.reject(new Error(`Together API error: ${res.status} ${res.statusText}`));
         }
         return res.json();
       }), 3);

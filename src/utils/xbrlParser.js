@@ -82,7 +82,8 @@ export class XBRLParser {
             const xbrl = this.findXBRLRoot(parsed);
             
             if (!xbrl) {
-                throw new Error('No XBRL content found');
+                logger.warn('No XBRL content found');
+                return null;
             }
 
             // Extract contexts
