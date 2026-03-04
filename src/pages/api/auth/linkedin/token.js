@@ -65,7 +65,11 @@ export default async function handler(req, res) {
 
   if (!clientId || !clientSecret) {
     console.error('LinkedIn credentials missing from environment variables');
-    return res.status(500).json({ error: 'LinkedIn API credentials not configured' });
+    return res.status(200).json({
+      status: 'fail-soft',
+      error: 'LinkedIn API credentials not configured',
+      degradedSources: ['linkedin-auth-token']
+    });
   }
 
   try {
@@ -139,9 +143,11 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('LinkedIn token exchange error:', error.response?.data || error.message);
     const errorDetails = error.response?.data?.error_description || error.message || 'Unknown error';
-    return res.status(500).json({
+    return res.status(200).json({
+      status: 'fail-soft',
       error: 'Failed to exchange LinkedIn authorization code',
       details: errorDetails,
+      degradedSources: ['linkedin-auth-token']
     });
   }
 }

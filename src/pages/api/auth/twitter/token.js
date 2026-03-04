@@ -6,6 +6,18 @@
 import axios from 'axios';
 import { parse, serialize } from 'cookie';
 
+function respondFailSoftWhenServerError(res, status, payload, degradedSource) {
+  if (status >= 500) {
+    return res.status(200).json({
+      status: 'fail-soft',
+      ...payload,
+      degradedSources: [degradedSource]
+    });
+  }
+
+  return res.status(status).json(payload);
+}
+
 export default async function handler(req, res) {
   // Handle different request methods for different token operations
   if (req.method === 'GET') {
@@ -215,6 +227,15 @@ async function handleTokenValidation(req, res) {
         if (refreshToken) {
           try {
             const newTokens = await refreshTwitterToken(refreshToken);
+            if (!newTokens?.access_token) {
+              clearAuthCookies(res);
+              return res.status(200).json({
+                status: 'fail-soft',
+                error: 'Twitter API credentials not configured',
+                authenticated: false,
+                degradedSources: ['twitter-auth-token']
+              });
+            }
             
             // Set new cookies
             setTokenCookies(res, newTokens);
@@ -256,17 +277,20 @@ async function handleTokenValidation(req, res) {
       
       // Other errors
       console.error('Twitter API error:', error.response?.data || error.message);
-      return res.status(error.response?.status || 500).json({
+      const upstreamStatus = error.response?.status || 500;
+      return respondFailSoftWhenServerError(res, upstreamStatus, {
         error: 'Failed to validate Twitter token',
         details: error.response?.data || error.message,
         authenticated: false,
-      });
+      }, 'twitter-auth-token');
     }
   } catch (error) {
     console.error('Twitter token validation error:', error);
-    return res.status(500).json({
+    return res.status(200).json({
+      status: 'fail-soft',
       error: 'Internal server error during Twitter validation',
       authenticated: false,
+      degradedSources: ['twitter-auth-token']
     });
   }
 }
@@ -283,7 +307,11 @@ async function handleCodeExchange(req, res, code) {
     const redirectUri = process.env.TWITTER_REDIRECT_URI || `${baseUrl}/api/auth/twitter/callback`;
     
     if (!clientId) {
-      return res.status(500).json({ error: 'Twitter API credentials not configured' });
+      return res.status(200).json({
+        status: 'fail-soft',
+        error: 'Twitter API credentials not configured',
+        degradedSources: ['twitter-auth-token']
+      });
     }
     
     // Parse cookies to get the code verifier
@@ -331,10 +359,11 @@ async function handleCodeExchange(req, res, code) {
     });
   } catch (error) {
     console.error('Twitter token exchange error:', error.response?.data || error.message);
-    return res.status(error.response?.status || 500).json({
+    const upstreamStatus = error.response?.status || 500;
+    return respondFailSoftWhenServerError(res, upstreamStatus, {
       error: 'Failed to exchange Twitter authorization code',
       details: error.response?.data || error.message,
-    });
+    }, 'twitter-auth-token');
   }
 }
 
@@ -353,6 +382,14 @@ async function handleTokenRefresh(req, res) {
     
     // Refresh the token
     const newTokens = await refreshTwitterToken(refreshToken);
+    if (!newTokens?.access_token) {
+      clearAuthCookies(res);
+      return res.status(200).json({
+        status: 'fail-soft',
+        error: 'Twitter API credentials not configured',
+        degradedSources: ['twitter-auth-token']
+      });
+    }
     
     // Set new cookies
     setTokenCookies(res, newTokens);
@@ -367,10 +404,11 @@ async function handleTokenRefresh(req, res) {
     // Clear invalid cookies
     clearAuthCookies(res);
     
-    return res.status(error.response?.status || 500).json({
+    const upstreamStatus = error.response?.status || 500;
+    return respondFailSoftWhenServerError(res, upstreamStatus, {
       error: 'Failed to refresh Twitter token',
       details: error.response?.data || error.message,
-    });
+    }, 'twitter-auth-token');
   }
 }
 
@@ -382,7 +420,7 @@ async function refreshTwitterToken(refreshToken) {
   const clientSecret = process.env.TWITTER_CLIENT_SECRET;
   
   if (!clientId) {
-    throw new Error('Twitter API credentials not configured');
+    return null;
   }
   
   const tokenResponse = await axios.post(

@@ -23,7 +23,11 @@ export default async function handler(req, res) {
     : 'http://localhost:3000/api/auth/facebook/callback';
 
   if (!clientId || !clientSecret) {
-    return res.status(500).json({ error: 'Facebook API credentials not configured' });
+    return res.status(200).json({
+      status: 'fail-soft',
+      error: 'Facebook API credentials not configured',
+      degradedSources: ['facebook-auth-token']
+    });
   }
 
   try {
@@ -72,9 +76,11 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('Facebook token exchange error:', error.response?.data || error.message);
-    return res.status(500).json({
+    return res.status(200).json({
+      status: 'fail-soft',
       error: 'Failed to exchange Facebook authorization code',
       details: error.response?.data || error.message,
+      degradedSources: ['facebook-auth-token']
     });
   }
 }

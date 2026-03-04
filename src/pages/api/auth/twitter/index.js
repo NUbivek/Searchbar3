@@ -10,9 +10,11 @@ export default function handler(req, res) {
   // Validate required parameters
   if (!clientId) {
     console.error('Twitter API key is missing. Check your .env.local file.');
-    return res.status(500).json({ 
+    return res.status(200).json({
+      status: 'fail-soft',
       error: 'Configuration error',
-      details: 'Twitter API key is not configured.'
+      details: 'Twitter API key is not configured.',
+      degradedSources: ['twitter-auth']
     });
   }
   

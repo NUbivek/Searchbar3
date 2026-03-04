@@ -4,9 +4,11 @@ export default function handler(req, res) {
   const clientId = process.env.REDDIT_CLIENT_ID;
 
   if (!clientId) {
-    return res.status(500).json({
+    return res.status(200).json({
+      status: 'fail-soft',
       error: 'Configuration error',
-      details: 'REDDIT_CLIENT_ID is not configured.'
+      details: 'REDDIT_CLIENT_ID is not configured.',
+      degradedSources: ['reddit-auth']
     });
   }
 
