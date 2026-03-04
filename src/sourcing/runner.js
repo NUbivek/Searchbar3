@@ -6,6 +6,7 @@ const { loadRegistry } = require('./registry');
 const { createAdapter } = require('./adapters');
 const { RunReportWriter } = require('./runReport');
 const { DailyRollupWriter } = require('./rollup');
+const { validateStartupSignal } = require('./signalSchema');
 const { SourceHealthExportWriter } = require('./sourceHealthExport');
 const { loadState, normalizeSourceState, saveState } = require('./state');
 const { SignalWriter } = require('./writer');
@@ -177,6 +178,16 @@ function buildSourceSummary(source, error, emittedCount) {
   };
 }
 
+function hasMinimumClassification(signal) {
+  if (!signal || typeof signal !== 'object') {
+    return false;
+  }
+
+  const hasStage = Boolean(signal.stage_guess) && signal.stage_guess !== 'unknown';
+  const hasThesisTags = Array.isArray(signal.thesis_tags) && signal.thesis_tags.length > 0;
+  return hasStage && hasThesisTags;
+}
+
 function countBy(items, selector) {
   return items.reduce((accumulator, item) => {
     const key = selector(item);
@@ -254,6 +265,7 @@ async function runSource(source, context) {
   const seenBySource = context.state.seen_signal_ids[source.id] || {};
   const newSignals = [];
   let dedupedCount = 0;
+  let filteredCount = 0;
 
   for (const item of items) {
     const signal = normalizeSignal({
@@ -269,6 +281,12 @@ async function runSource(source, context) {
     const dedupeDecision = shouldEmitSignal(signal, context.state);
     if (!dedupeDecision.shouldEmit) {
       dedupedCount += 1;
+      continue;
+    }
+
+    const validation = validateStartupSignal(signal);
+    if (!validation.valid || !hasMinimumClassification(signal)) {
+      filteredCount += 1;
       continue;
     }
 
@@ -289,6 +307,7 @@ async function runSource(source, context) {
     last_status: 'ok',
     last_emitted_count: newSignals.length,
     last_deduped_count: dedupedCount,
+    last_filtered_count: filteredCount,
     consecutive_degraded_count: 0,
     recent_run_timestamps: recentRunTimestamps,
     last_error: null,
@@ -300,6 +319,7 @@ async function runSource(source, context) {
     summary: {
       ...buildSourceSummary(source, null, newSignals.length),
       dedupedCount,
+      filteredCount,
     },
   };
 }
@@ -344,6 +364,7 @@ async function runPipeline(options = {}) {
         last_status: 'degraded',
         last_emitted_count: 0,
         last_deduped_count: 0,
+        last_filtered_count: 0,
         last_error: error.message,
         consecutive_degraded_count: nextDegradedCount,
         recent_run_timestamps: recentRunTimestamps,
@@ -374,6 +395,7 @@ async function runPipeline(options = {}) {
     sourceHealthCount,
     degradedCount: summaries.filter((summary) => summary.status === 'degraded').length,
     dedupedCount: summaries.reduce((sum, summary) => sum + (summary.dedupedCount || 0), 0),
+    filteredCount: summaries.reduce((sum, summary) => sum + (summary.filteredCount || 0), 0),
     tierHealth: buildTierHealth(summaries, registry),
     breakdowns: buildSignalBreakdowns(emittedSignals, registry),
     sourceSummaries: summaries,
