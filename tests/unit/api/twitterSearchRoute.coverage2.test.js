@@ -11,6 +11,7 @@ jest.mock('../../../src/utils/logger', () => ({
 
 const routeModule = require('../../../src/pages/api/search/twitter');
 const handler = routeModule.default || routeModule;
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 const { createMockReq, createMockRes } = require('./testUtils');
 
 describe('/api/search/twitter', () => {
@@ -70,11 +71,14 @@ describe('/api/search/twitter', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body.sources).toHaveLength(1);
+    expect(res.body.results).toHaveLength(1);
+    expect(res.body.status).toBe('ok');
     expect(res.body.sources[0]).toMatchObject({
       type: 'TwitterResult',
       title: 'Tweet by author-1',
       url: 'https://twitter.com/i/web/status/1',
     });
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
     expect(axios.get).toHaveBeenCalledTimes(1);
     expect(axios.post).not.toHaveBeenCalled();
   });
@@ -105,11 +109,14 @@ describe('/api/search/twitter', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body.sources).toHaveLength(1);
+    expect(res.body.results).toHaveLength(1);
+    expect(res.body.status).toBe('ok');
     expect(res.body.sources[0]).toMatchObject({
       type: 'TwitterResult',
       title: 'Fallback result',
       url: 'https://example.com/result',
     });
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
     expect(axios.get).toHaveBeenCalledTimes(1);
     expect(axios.post).toHaveBeenCalledTimes(1);
   });
@@ -132,8 +139,9 @@ describe('/api/search/twitter', () => {
       status: 'fail-soft',
       degradedSources: ['twitter'],
       message: 'Search failed',
-      error: 'Twitter API key not configured',
+      error: 'Serper API key not configured',
     });
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
     expect(axios.get).not.toHaveBeenCalled();
     expect(axios.post).not.toHaveBeenCalled();
   });

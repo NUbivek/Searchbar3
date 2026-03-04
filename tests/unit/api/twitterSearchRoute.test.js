@@ -11,6 +11,7 @@ jest.mock('../../../src/utils/logger', () => ({
 
 const axios = require('axios');
 const { logger } = require('../../../src/utils/logger');
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 const handler = require('../../../src/pages/api/search/twitter').default;
 const { createMockReq, createMockRes } = require('./testUtils');
 
@@ -100,6 +101,9 @@ describe('/api/search/twitter', () => {
         },
       }),
     ]);
+    expect(res.body.results).toEqual(res.body.sources);
+    expect(res.body.status).toBe('ok');
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   it('falls back to Serper when the Twitter API request fails', async () => {
@@ -152,6 +156,9 @@ describe('/api/search/twitter', () => {
         url: 'https://twitter.com/user/status/55',
       }),
     ]);
+    expect(res.body.results).toEqual(res.body.sources);
+    expect(res.body.status).toBe('ok');
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   it('returns a fail-soft payload when both providers fail', async () => {
@@ -174,12 +181,13 @@ describe('/api/search/twitter', () => {
       expect.any(Error)
     );
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
+    expect(res.body).toEqual(expect.objectContaining({
       sources: [],
       status: 'fail-soft',
       degradedSources: ['twitter'],
       message: 'Search failed',
       error: 'serper down',
-    });
+    }));
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 });
