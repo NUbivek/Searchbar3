@@ -51,7 +51,7 @@ describe('/api/network/analyze', () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.body).toEqual({
-      error: 'Network data is required and must include connections or networks data',
+      error: 'Network data is required',
     });
   });
 
@@ -95,11 +95,11 @@ describe('/api/network/analyze', () => {
       'find operators in SaaS',
       expect.objectContaining({
         nodes: expect.arrayContaining([
-          expect.objectContaining({ id: 'user', label: 'Bivek' }),
-          expect.objectContaining({ id: 'c1', label: 'Alice Ng' }),
+          expect.objectContaining({ id: 'user', name: 'Bivek' }),
+          expect.objectContaining({ id: 'c1', name: 'Alice' }),
         ]),
         links: expect.arrayContaining([
-          expect.objectContaining({ source: 'user', target: 'c1' }),
+          expect.objectContaining({ source: 'user', target: 'c1', type: 'linkedin' }),
         ]),
       }),
       'linkedin'
