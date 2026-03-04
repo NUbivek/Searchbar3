@@ -9,6 +9,7 @@ jest.mock('../../../src/utils/logger', () => ({
 }));
 
 const { fetchUrlContent } = require('../../../src/utils/urlExtraction');
+const { logger } = require('../../../src/utils/logger');
 const { createMockReq, createMockRes } = require('./testUtils');
 const handler = require('../../../src/pages/api/fetch-url').default;
 
@@ -50,5 +51,36 @@ describe('/api/fetch-url', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.body.status).toBe('ok');
+  });
+
+  test('returns fail-soft error payload and logs warning when extractor errors', async () => {
+    fetchUrlContent.mockResolvedValue({
+      status: 'error',
+      url: 'https://example.com/file.pdf',
+      title: null,
+      content: '',
+      error: 'Unsupported content type: application/pdf',
+    });
+
+    const req = createMockReq({
+      method: 'POST',
+      body: { url: 'https://example.com/file.pdf' },
+    });
+    const res = createMockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      status: 'error',
+      url: 'https://example.com/file.pdf',
+      title: null,
+      content: '',
+      error: 'Unsupported content type: application/pdf',
+    });
+    expect(logger.warn).toHaveBeenCalledWith('URL fetch failed', {
+      url: 'https://example.com/file.pdf',
+      error: 'Unsupported content type: application/pdf',
+    });
   });
 });
