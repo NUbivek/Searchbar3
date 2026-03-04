@@ -10,6 +10,10 @@ import { serialize } from 'cookie';
 const TWITTER_CALLBACK_TIMEOUT_MS = 10000;
 
 export default async function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.redirect('/network?error=Method%20not%20allowed');
+  }
+
   console.log('Twitter callback handler called', req.query);
   const { code, state, error, error_description } = req.query;
 
