@@ -1,4 +1,4 @@
-const { createMockReq, createMockRes } = require('./testUtils');
+const { createMockReq } = require('./testUtils');
 
 jest.mock('../../../src/utils/logger', () => ({
   logger: {
@@ -9,10 +9,35 @@ jest.mock('../../../src/utils/logger', () => ({
 
 const handler = require('../../../src/pages/api/openSearch').default;
 
+function createRouteRes() {
+  return {
+    statusCode: 200,
+    headers: {},
+    body: null,
+    jsonData: null,
+    setHeader(name, value) {
+      this.headers[name] = value;
+    },
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      this.body = payload;
+      this.jsonData = payload;
+      return this;
+    },
+    end(payload = '') {
+      this.body = payload;
+      return this;
+    },
+  };
+}
+
 describe('/api/openSearch', () => {
   test('responds to OPTIONS with 200', async () => {
     const req = createMockReq({ method: 'OPTIONS' });
-    const res = createMockRes();
+    const res = createRouteRes();
 
     await handler(req, res);
 
@@ -22,7 +47,7 @@ describe('/api/openSearch', () => {
 
   test('rejects unsupported methods', async () => {
     const req = createMockReq({ method: 'GET' });
-    const res = createMockRes();
+    const res = createRouteRes();
 
     await handler(req, res);
 
@@ -35,7 +60,7 @@ describe('/api/openSearch', () => {
 
   test('requires query', async () => {
     const req = createMockReq({ method: 'POST', body: {} });
-    const res = createMockRes();
+    const res = createRouteRes();
 
     await handler(req, res);
 
@@ -51,7 +76,7 @@ describe('/api/openSearch', () => {
         sources: ['Web', 'News'],
       },
     });
-    const res = createMockRes();
+    const res = createRouteRes();
 
     await handler(req, res);
 
