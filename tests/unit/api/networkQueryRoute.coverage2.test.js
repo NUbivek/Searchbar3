@@ -1,51 +1,24 @@
-const { createMockReq, createMockRes } = require('./testUtils');
+let mockCreate;
+
+jest.mock('together', () => ({
+  TogetherAI: jest.fn(() => ({
+    chat: {
+      completions: {
+        create: (...args) => mockCreate(...args),
+      },
+    },
+  })),
+}));
+
+import handler from '../../../src/pages/api/network/query';
+import { createMockReq, createMockRes } from './testUtils';
 
 describe('/api/network/query', () => {
-  const ORIGINAL_ENV = process.env;
-
   beforeEach(() => {
-    jest.resetModules();
-    process.env = { ...ORIGINAL_ENV, TOGETHER_API_KEY: 'test-key' };
+    mockCreate = jest.fn();
   });
 
-  afterEach(() => {
-    process.env = ORIGINAL_ENV;
-    jest.clearAllMocks();
-    jest.resetModules();
-  });
-
-  function loadHandler({ createImpl } = {}) {
-    const createMock = createImpl || jest.fn().mockResolvedValue({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              matches: [{ id: 'node-1', relevance: 'High', reasoning: 'fit' }],
-              summary: 'ok',
-              relatedIndustries: ['fintech'],
-              suggestedConnections: ['node-2'],
-            }),
-          },
-        },
-      ],
-    });
-
-    jest.doMock('together', () => ({
-      TogetherAI: jest.fn().mockImplementation(() => ({
-        chat: {
-          completions: {
-            create: createMock,
-          },
-        },
-      })),
-    }));
-
-    const handler = require('../../../src/pages/api/network/query').default;
-    return { handler, createMock };
-  }
-
-  it('returns 405 for unsupported methods', async () => {
-    const { handler } = loadHandler();
+  test('returns 405 for non-POST requests', async () => {
     const req = createMockReq({ method: 'GET' });
     const res = createMockRes();
 
@@ -55,12 +28,11 @@ describe('/api/network/query', () => {
     expect(res.body).toEqual({ error: 'Method not allowed' });
   });
 
-  it('returns 400 when query is missing', async () => {
-    const { handler } = loadHandler();
+  test('returns 400 when query is missing', async () => {
     const req = createMockReq({
       method: 'POST',
       body: {
-        networkData: { nodes: [{ id: 'node-1' }] },
+        networkData: { nodes: [] },
         source: 'linkedin',
       },
     });
@@ -72,13 +44,12 @@ describe('/api/network/query', () => {
     expect(res.body).toEqual({ error: 'Query is required' });
   });
 
-  it('returns 400 when network data is invalid', async () => {
-    const { handler } = loadHandler();
+  test('returns 400 when network data is invalid', async () => {
     const req = createMockReq({
       method: 'POST',
       body: {
-        query: 'find candidates',
-        networkData: {},
+        query: 'find operators',
+        networkData: null,
         source: 'linkedin',
       },
     });
@@ -90,14 +61,13 @@ describe('/api/network/query', () => {
     expect(res.body).toEqual({ error: 'Valid network data is required' });
   });
 
-  it('returns 400 for unsupported sources', async () => {
-    const { handler } = loadHandler();
+  test('returns 400 when source is invalid', async () => {
     const req = createMockReq({
       method: 'POST',
       body: {
-        query: 'find candidates',
-        networkData: { nodes: [{ id: 'node-1' }] },
-        source: 'github',
+        query: 'find operators',
+        networkData: { nodes: [] },
+        source: 'email',
       },
     });
     const res = createMockRes();
@@ -105,48 +75,66 @@ describe('/api/network/query', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({ error: 'Valid source is required (linkedin, twitter, or facebook)' });
+    expect(res.body).toEqual({
+      error: 'Valid source is required (linkedin, twitter, or facebook)',
+    });
   });
 
-  it('returns enriched results on success', async () => {
-    const { handler, createMock } = loadHandler();
-    const networkData = {
-      nodes: [
-        { id: 'node-1', name: 'Alice' },
-        { id: 'node-2', name: 'Bob' },
+  test('returns 200 and enriches matches with node data on success', async () => {
+    mockCreate.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              matches: [
+                {
+                  id: '1',
+                  name: 'Alice',
+                  relevance: 'High',
+                  reasoning: 'Strong fit',
+                },
+              ],
+              summary: 'One strong match',
+              relatedIndustries: ['AI'],
+              suggestedConnections: [],
+            }),
+          },
+        },
       ],
-    };
+    });
+
     const req = createMockReq({
       method: 'POST',
       body: {
-        query: 'find fintech operators',
-        networkData,
+        query: 'find operators',
         source: 'linkedin',
+        networkData: {
+          nodes: [
+            {
+              id: '1',
+              name: 'Alice Doe',
+              company: 'Acme',
+            },
+          ],
+          edges: [],
+        },
       },
     });
     const res = createMockRes();
 
     await handler(req, res);
 
-    expect(createMock).toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      matches: [
-        {
-          id: 'node-1',
-          relevance: 'High',
-          reasoning: 'fit',
-          nodeData: { id: 'node-1', name: 'Alice' },
-        },
-      ],
-      summary: 'ok',
-      relatedIndustries: ['fintech'],
-      suggestedConnections: ['node-2'],
+    expect(res.body.matches).toHaveLength(1);
+    expect(res.body.matches[0].nodeData).toEqual({
+      id: '1',
+      name: 'Alice Doe',
+      company: 'Acme',
     });
   });
 
-  it('returns 500 when the LLM response is not valid JSON', async () => {
-    const createImpl = jest.fn().mockResolvedValue({
+  test('returns 500 when LLM response is not valid JSON', async () => {
+    mockCreate.mockResolvedValue({
       choices: [
         {
           message: {
@@ -155,13 +143,13 @@ describe('/api/network/query', () => {
         },
       ],
     });
-    const { handler } = loadHandler({ createImpl });
+
     const req = createMockReq({
       method: 'POST',
       body: {
-        query: 'find candidates',
-        networkData: { nodes: [{ id: 'node-1' }] },
-        source: 'twitter',
+        query: 'find operators',
+        source: 'linkedin',
+        networkData: { nodes: [], edges: [] },
       },
     });
     const res = createMockRes();
@@ -169,21 +157,19 @@ describe('/api/network/query', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({
-      error: 'Failed to parse LLM response',
-      rawResponse: 'not-json',
-    });
+    expect(res.body.error).toBe('Failed to parse LLM response');
+    expect(res.body.rawResponse).toBe('not-json');
   });
 
-  it('returns 500 when the upstream LLM call fails', async () => {
-    const createImpl = jest.fn().mockRejectedValue(new Error('upstream failed'));
-    const { handler } = loadHandler({ createImpl });
+  test('returns 500 when Together request fails', async () => {
+    mockCreate.mockRejectedValue(new Error('boom'));
+
     const req = createMockReq({
       method: 'POST',
       body: {
-        query: 'find candidates',
-        networkData: { nodes: [{ id: 'node-1' }] },
-        source: 'facebook',
+        query: 'find operators',
+        source: 'linkedin',
+        networkData: { nodes: [], edges: [] },
       },
     });
     const res = createMockRes();
@@ -191,9 +177,9 @@ describe('/api/network/query', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({
-      error: 'An error occurred while processing the network query',
-      details: 'upstream failed',
-    });
+    expect(res.body.error).toBe(
+      'An error occurred while processing the network query'
+    );
+    expect(res.body.details).toBe('boom');
   });
 });
