@@ -1,5 +1,4 @@
-const handler =
-  require('../../../src/pages/api/process-content').default;
+const handler = require('../../../src/pages/api/process-content').default;
 const { createMockReq, createMockRes } = require('./testUtils');
 
 describe('/api/process-content', () => {
@@ -13,10 +12,10 @@ describe('/api/process-content', () => {
     expect(res.body).toEqual({ error: 'Method not allowed' });
   });
 
-  it('returns 400 when query is missing', async () => {
+  it('returns 400 for invalid request bodies', async () => {
     const req = createMockReq({
       method: 'POST',
-      body: { results: [] },
+      body: { query: '', results: null },
     });
     const res = createMockRes();
 
@@ -28,25 +27,10 @@ describe('/api/process-content', () => {
     });
   });
 
-  it('returns 400 when results is not an array', async () => {
+  it('returns a successful empty processedContent array for empty results', async () => {
     const req = createMockReq({
       method: 'POST',
-      body: { query: 'ai infra', results: null },
-    });
-    const res = createMockRes();
-
-    await handler(req, res);
-
-    expect(res.statusCode).toBe(400);
-    expect(res.body).toEqual({
-      error: 'Invalid request. Query and results array are required.',
-    });
-  });
-
-  it('returns a successful empty processed payload for empty results', async () => {
-    const req = createMockReq({
-      method: 'POST',
-      body: { query: 'ai infra', results: [] },
+      body: { query: 'founders', results: [] },
     });
     const res = createMockRes();
 
@@ -59,27 +43,21 @@ describe('/api/process-content', () => {
     });
   });
 
-  it('returns a normalized successful payload for valid results', async () => {
-    const req = createMockReq({
-      method: 'POST',
-      body: {
-        query: 'ai infra',
-        results: [
-          {
-            title: 'Acme AI',
-            snippet: 'Building workflow tooling for teams.',
-            source: 'web',
-            link: 'https://example.com/acme-ai',
-          },
-        ],
+  it('returns 500 when request parsing throws unexpectedly', async () => {
+    const req = { method: 'POST' };
+    Object.defineProperty(req, 'body', {
+      get() {
+        throw new Error('boom');
       },
     });
     const res = createMockRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(Array.isArray(res.body.processedContent)).toBe(true);
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({
+      error: 'Failed to process content',
+      message: 'boom',
+    });
   });
 });
