@@ -128,7 +128,11 @@ export default async function handler(req, res) {
     }
     
     // For any other errors
-    return res.status(500).json({
+    return res.status(200).json({
+      status: 'fail-soft',
+      user: null,
+      networksData: { nodes: [], links: [] },
+      degradedSources: ['twitter-network'],
       error: 'Failed to fetch Twitter network data',
       details: error.response?.data?.error || error.message,
       errorData: JSON.stringify(error.response?.data || {})

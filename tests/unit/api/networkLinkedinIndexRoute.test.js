@@ -143,7 +143,7 @@ describe('/api/network/linkedin', () => {
     });
   });
 
-  it('returns 500 on generic upstream failure', async () => {
+  it('returns fail-soft 200 on generic upstream failure', async () => {
     const req = createMockReq({
       method: 'GET',
       cookies: { linkedin_access_token: 'token-123' },
@@ -154,8 +154,13 @@ describe('/api/network/linkedin', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
+      user: null,
+      connections: [],
+      networksData: { nodes: [], links: [] },
+      degradedSources: ['linkedin-network'],
       error: 'Failed to fetch LinkedIn network data',
       details: 'network down',
     });

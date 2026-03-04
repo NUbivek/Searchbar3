@@ -68,7 +68,12 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'LinkedIn session expired, please reconnect' });
     }
     
-    return res.status(500).json({ 
+    return res.status(200).json({
+      status: 'fail-soft',
+      user: null,
+      connections: [],
+      networksData: { nodes: [], links: [] },
+      degradedSources: ['linkedin-network'],
       error: 'Failed to fetch LinkedIn network data',
       details: error.message
     });

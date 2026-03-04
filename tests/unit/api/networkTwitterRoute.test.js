@@ -120,7 +120,7 @@ describe('/api/network/twitter', () => {
     });
   });
 
-  test('returns 500 for unexpected twitter failures', async () => {
+  test('returns fail-soft 200 for unexpected twitter failures', async () => {
     const error = new Error('boom');
     error.response = { data: { error: 'upstream broke' } };
     axios.get.mockRejectedValueOnce(error);
@@ -133,8 +133,12 @@ describe('/api/network/twitter', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
+      user: null,
+      networksData: { nodes: [], links: [] },
+      degradedSources: ['twitter-network'],
       error: 'Failed to fetch Twitter network data',
       details: 'upstream broke',
       errorData: JSON.stringify({ error: 'upstream broke' })
