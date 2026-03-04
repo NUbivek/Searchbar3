@@ -154,6 +154,45 @@ describe('/api/llm/chat', () => {
     });
   });
 
+  test('uses the supported deepseek model when explicitly requested', async () => {
+    process.env.TOGETHER_API_KEY = 'together-key';
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        output: {
+          choices: [{ text: 'DeepSeek reply' }],
+        },
+      }),
+    });
+
+    const req = createMockReq({
+      method: 'POST',
+      body: {
+        messages: [{ role: 'user', content: 'hello' }],
+        model: 'deepseek-70b',
+      },
+    });
+    const res = createMockRes();
+
+    await handler(req, res);
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://api.together.xyz/inference',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer together-key',
+        }),
+        body: expect.stringContaining('"model":"deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free"'),
+      })
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      content: 'DeepSeek reply',
+      model: 'deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free',
+    });
+  });
+
   test('returns provider errors when Together rejects the request', async () => {
     process.env.TOGETHER_API_KEY = 'together-key';
     global.fetch.mockResolvedValueOnce({
