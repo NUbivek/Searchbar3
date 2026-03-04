@@ -99,7 +99,7 @@ async function performVerifiedSearch(query, options = {}) {
     return results;
   } catch (error) {
     log.error('Error in performVerifiedSearch:', error);
-    throw error;
+    return [];
   }
 }
 
@@ -246,7 +246,7 @@ async function searchVerifiedSources(query, options = {}) {
     });
   } catch (error) {
     log.error('Verified search error:', error);
-    throw error;
+    return [];
   }
 }
 
