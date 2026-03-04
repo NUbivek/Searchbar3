@@ -49,6 +49,15 @@ describe('/api/auth/linkedin/callback', () => {
     else delete process.env.LINKEDIN_REDIRECT_URI;
   });
 
+  test('redirects non-GET requests back to the network page', async () => {
+    const req = createMockReq({ method: 'POST', query: {} });
+    const res = createRedirectRes();
+
+    await handler(req, res);
+
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=Method%20not%20allowed');
+  });
+
   test('redirects with auth error from linkedin', async () => {
     const req = createMockReq({
       query: {
