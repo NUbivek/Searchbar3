@@ -7,6 +7,14 @@ export default async function handler(req, res) {
 
   const { source, query, apiKey } = req.query;
 
+  const failSoft = (source, error) => ({
+    source,
+    results: [],
+    status: 'fail-soft',
+    degradedSources: [String(source || 'unknown').toLowerCase()],
+    error: error || 'Source search failed'
+  });
+
   try {
     let results;
 
@@ -21,13 +29,17 @@ export default async function handler(req, res) {
         results = await searchReddit(query, apiKey);
         break;
       default:
-        throw new Error(`Unsupported source: ${source}`);
+        return res.status(200).json(
+          failSoft(source, `Unsupported source: ${source}`)
+        );
     }
 
     res.status(200).json(results);
   } catch (error) {
     console.error(`${source} search error:`, error);
-    res.status(500).json({ error: `${source} search failed` });
+    res.status(200).json(
+      failSoft(source, error.message || `${source} search failed`)
+    );
   }
 }
 
