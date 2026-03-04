@@ -1,11 +1,7 @@
-import handler from '@/pages/api/search/substack';
-import axios from 'axios';
+const handler = require('../../../src/pages/api/search/substack').default;
+const axios = require('axios');
 
 jest.mock('axios');
-jest.mock('@/utils/logger', () => ({
-  logInfo: jest.fn(),
-  logError: jest.fn(),
-}));
 
 function createRes() {
   const res = {};
@@ -87,16 +83,22 @@ describe('/api/search/substack', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.body.sources).toEqual([
       {
-        title: 'Post One',
+        type: 'SubstackResult',
+        content: 'First snippet',
         url: 'https://blog.example.com/post-1',
-        snippet: 'First snippet',
-        source: 'substack',
+        timestamp: expect.any(String),
+        title: 'Post One',
+        confidence: 1,
+        sourceId: 'substack-0',
       },
       {
-        title: 'Post Two',
+        type: 'SubstackResult',
+        content: 'Second snippet',
         url: 'https://blog.example.com/post-2',
-        snippet: 'Second snippet',
-        source: 'substack',
+        timestamp: expect.any(String),
+        title: 'Post Two',
+        confidence: 1,
+        sourceId: 'substack-1',
       },
     ]);
   });
@@ -113,7 +115,8 @@ describe('/api/search/substack', () => {
     expect(res.body.status).toBe('fail-soft');
     expect(res.body.sources).toEqual([]);
     expect(res.body.degradedSources).toContain('substack');
-    expect(res.body.error).toBe('Missing SERPER_API_KEY');
+    expect(res.body.message).toBe('Search failed');
+    expect(res.body.error).toBe('Serper API key not configured');
   });
 
   it('returns fail-soft response when upstream request fails', async () => {
