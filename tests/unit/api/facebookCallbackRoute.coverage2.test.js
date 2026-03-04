@@ -7,6 +7,15 @@ describe('/api/auth/facebook/callback', () => {
     };
   }
 
+  it('redirects non-GET requests back to the network page', async () => {
+    const req = { method: 'POST', query: {} };
+    const res = createRes();
+
+    await handler(req, res);
+
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=Method%20not%20allowed');
+  });
+
   it('redirects with encoded provider error message', async () => {
     const req = {
       query: {

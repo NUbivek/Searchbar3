@@ -12,6 +12,15 @@ function createRedirectRes() {
 }
 
 describe('/api/auth/facebook/callback', () => {
+  test('redirects non-GET requests back to the network page', async () => {
+    const req = createMockReq({ method: 'POST', query: {} });
+    const res = createRedirectRes();
+
+    await handler(req, res);
+
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=Method%20not%20allowed');
+  });
+
   test('redirects when facebook returns an auth error', async () => {
     const req = createMockReq({
       query: {
