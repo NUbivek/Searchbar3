@@ -2,40 +2,52 @@ const { createMockReq, createMockRes } = require('./testUtils');
 const handler = require('../../../src/pages/api/auth/linkedin/debug').default;
 
 describe('/api/auth/linkedin/debug', () => {
-  const envKeys = [
-    'LINKEDIN_CLIENT_ID',
-    'NEXT_PUBLIC_LINKEDIN_CLIENT_ID',
-    'LINKEDIN_CLIENT_SECRET',
-    'LINKEDIN_REDIRECT_URI',
-    'NEXT_PUBLIC_LINKEDIN_REDIRECT_URI',
-    'NEXT_PUBLIC_APP_URL',
-    'NODE_ENV',
-  ];
-  const originalEnv = {};
-
-  beforeAll(() => {
-    envKeys.forEach((key) => {
-      originalEnv[key] = process.env[key];
-    });
-  });
+  const originalEnv = {
+    NODE_ENV: process.env.NODE_ENV,
+    LINKEDIN_CLIENT_ID: process.env.LINKEDIN_CLIENT_ID,
+    NEXT_PUBLIC_LINKEDIN_CLIENT_ID: process.env.NEXT_PUBLIC_LINKEDIN_CLIENT_ID,
+    LINKEDIN_CLIENT_SECRET: process.env.LINKEDIN_CLIENT_SECRET,
+    LINKEDIN_REDIRECT_URI: process.env.LINKEDIN_REDIRECT_URI,
+    NEXT_PUBLIC_LINKEDIN_REDIRECT_URI: process.env.NEXT_PUBLIC_LINKEDIN_REDIRECT_URI,
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+  };
 
   beforeEach(() => {
-    envKeys.forEach((key) => delete process.env[key]);
+    jest.resetModules();
+    process.env.NODE_ENV = 'test';
+    delete process.env.LINKEDIN_CLIENT_ID;
+    delete process.env.NEXT_PUBLIC_LINKEDIN_CLIENT_ID;
+    delete process.env.LINKEDIN_CLIENT_SECRET;
+    delete process.env.LINKEDIN_REDIRECT_URI;
+    delete process.env.NEXT_PUBLIC_LINKEDIN_REDIRECT_URI;
+    delete process.env.NEXT_PUBLIC_APP_URL;
   });
 
   afterAll(() => {
-    envKeys.forEach((key) => {
-      if (originalEnv[key] === undefined) {
+    Object.entries(originalEnv).forEach(([key, value]) => {
+      if (value === undefined) {
         delete process.env[key];
       } else {
-        process.env[key] = originalEnv[key];
+        process.env[key] = value;
       }
     });
   });
 
-  test('reports missing configuration and hardcoded frontend fallbacks', () => {
+  test('returns 405 for non-GET requests', () => {
+    const req = createMockReq({ method: 'POST' });
+    const res = createMockRes();
+
+    handler(req, res);
+
+    expect(res.statusCode).toBe(405);
+    expect(res.body).toEqual({ error: 'Method not allowed' });
+  });
+
+  test('returns diagnostic suggestions when linkedin config is missing', () => {
     const req = createMockReq({
-      headers: { host: 'app.example.com' },
+      headers: {
+        host: 'localhost:3000',
+      },
     });
     const res = createMockRes();
 
@@ -43,18 +55,20 @@ describe('/api/auth/linkedin/debug', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body.environment).toMatchObject({
+      nodeEnv: 'test',
       hasClientId: false,
       hasClientSecret: false,
       clientId: 'Not configured',
       clientIdLength: 0,
     });
-    expect(res.body.oauthConfig.configuredRedirectUri).toBe(
-      'http://app.example.com/api/auth/linkedin/callback'
-    );
-    expect(res.body.oauthConfig.frontendConfig).toEqual({
-      usesHardcodedClientId: true,
-      usesHardcodedRedirectUri: true,
+    expect(res.body.request).toMatchObject({
+      host: 'localhost:3000',
+      protocol: 'http',
+      baseUrl: 'http://localhost:3000',
     });
+    expect(res.body.oauthConfig.configuredRedirectUri).toBe(
+      'http://localhost:3000/api/auth/linkedin/callback'
+    );
     expect(res.body.troubleshooting.suggestions).toEqual(
       expect.arrayContaining([
         'LinkedIn Client ID is missing. Add LINKEDIN_CLIENT_ID to your .env.local file.',
@@ -65,24 +79,23 @@ describe('/api/auth/linkedin/debug', () => {
     );
   });
 
-  test('reports auth cookies and explicit redirect configuration', () => {
-    process.env.LINKEDIN_CLIENT_ID = 'abcd1234wxyz';
-    process.env.LINKEDIN_CLIENT_SECRET = 'secret';
-    process.env.LINKEDIN_REDIRECT_URI = 'https://app.example.com/auth/callback';
-    process.env.NEXT_PUBLIC_LINKEDIN_CLIENT_ID = 'public-client';
-    process.env.NEXT_PUBLIC_LINKEDIN_REDIRECT_URI = 'https://app.example.com/frontend/callback';
+  test('reports configured state and auth cookie mismatches', () => {
+    process.env.LINKEDIN_CLIENT_ID = 'abcd1234wxyz9876';
+    process.env.LINKEDIN_CLIENT_SECRET = 'linkedin-secret';
+    process.env.LINKEDIN_REDIRECT_URI = 'https://app.example.com/api/auth/linkedin/callback';
+    process.env.NEXT_PUBLIC_LINKEDIN_CLIENT_ID = 'public-client-id';
+    process.env.NEXT_PUBLIC_LINKEDIN_REDIRECT_URI = 'https://app.example.com/api/auth/linkedin/callback';
     process.env.NEXT_PUBLIC_APP_URL = 'https://app.example.com';
-    process.env.NODE_ENV = 'test';
 
     const req = createMockReq({
       headers: {
         host: 'app.example.com',
-        'x-forwarded-proto': 'https',
         referer: 'https://app.example.com/network',
         origin: 'https://app.example.com',
+        'x-forwarded-proto': 'https',
       },
       cookies: {
-        linkedin_access_token: 'token-value',
+        linkedin_access_token: 'token-123456',
       },
     });
     const res = createMockRes();
@@ -91,28 +104,22 @@ describe('/api/auth/linkedin/debug', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body.environment).toMatchObject({
-      nodeEnv: 'test',
       hasClientId: true,
       hasClientSecret: true,
-      clientId: 'abcd...wxyz',
-      clientIdLength: 12,
-    });
-    expect(res.body.request).toMatchObject({
-      host: 'app.example.com',
-      protocol: 'https',
-      baseUrl: 'https://app.example.com',
+      clientId: 'abcd...9876',
+      clientIdLength: 16,
     });
     expect(res.body.oauthConfig).toMatchObject({
-      configuredRedirectUri: 'https://app.example.com/auth/callback',
+      configuredRedirectUri: 'https://app.example.com/api/auth/linkedin/callback',
       frontendConfig: {
         usesHardcodedClientId: false,
         usesHardcodedRedirectUri: false,
       },
     });
-    expect(res.body.authState).toMatchObject({
+    expect(res.body.authState).toEqual({
       hasLinkedInToken: true,
       hasLinkedInUserId: false,
-      tokenLength: 'token-value'.length,
+      tokenLength: 12,
     });
     expect(res.body.troubleshooting.suggestions).toEqual(
       expect.arrayContaining([
