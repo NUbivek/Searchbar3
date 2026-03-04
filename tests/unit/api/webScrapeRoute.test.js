@@ -72,6 +72,7 @@ describe('/api/webScrape', () => {
     expect(axios.get).toHaveBeenCalledWith(
       'https://example.com/path/page',
       expect.objectContaining({
+        timeout: 10000,
         headers: expect.objectContaining({
           'User-Agent': expect.stringContaining('Mozilla/5.0'),
         }),
