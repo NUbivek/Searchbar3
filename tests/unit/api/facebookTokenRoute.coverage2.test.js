@@ -70,7 +70,7 @@ describe('/api/auth/facebook/token', () => {
     expect(res.body).toEqual({
       success: true,
       profile: { id: '1', name: 'User Example', email: 'user@example.com' },
-      friends: [{ id: 'friend-1' }],
+      friends: { data: [{ id: 'friend-1' }] },
       accessToken: 'token123',
       expiresIn: 3600,
     });
