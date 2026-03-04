@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { logger } from '../../../utils/logger';
+import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -11,12 +12,19 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: 'Query is required' });
   }
 
-  const failSoft = (message, error) => ({
+  const failSoft = (message, error) => normalizeSearchResponseV1({
+    results: [],
     sources: [],
     status: 'fail-soft',
     degradedSources: ['substack'],
     message,
-    error
+    error,
+    synthesis: {
+      enabled: false,
+      provider: null,
+      model: null,
+      content: null,
+    },
   });
 
   try {
@@ -56,7 +64,19 @@ export default async function handler(req, res) {
       sources.push(...organicResults);
     }
 
-    return res.status(200).json({ sources });
+    return res.status(200).json(normalizeSearchResponseV1({
+      sources,
+      results: Array.isArray(sources) ? sources : [],
+      status: 'ok',
+      degradedSources: [],
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: null,
+        content: null,
+      },
+      llmProcessed: false,
+    }));
 
   } catch (error) {
     logger.error('Substack search failed:', error);

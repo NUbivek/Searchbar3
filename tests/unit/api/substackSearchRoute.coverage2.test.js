@@ -1,5 +1,6 @@
 const handler = require('../../../src/pages/api/search/substack').default;
 const axios = require('axios');
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 
 jest.mock('axios');
 
@@ -101,6 +102,9 @@ describe('/api/search/substack', () => {
         sourceId: 'substack-1',
       },
     ]);
+    expect(res.body.results).toEqual(res.body.sources);
+    expect(res.body.status).toBe('ok');
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   it('returns fail-soft response when Serper key is missing', async () => {
@@ -117,6 +121,7 @@ describe('/api/search/substack', () => {
     expect(res.body.degradedSources).toContain('substack');
     expect(res.body.message).toBe('Search failed');
     expect(res.body.error).toBe('Serper API key not configured');
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   it('returns fail-soft response when upstream request fails', async () => {
@@ -133,5 +138,6 @@ describe('/api/search/substack', () => {
     expect(res.body.sources).toEqual([]);
     expect(res.body.degradedSources).toContain('substack');
     expect(res.body.error).toBe('upstream unavailable');
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 });
