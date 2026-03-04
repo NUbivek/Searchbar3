@@ -119,6 +119,7 @@ describe('/api/llm/process', () => {
           'Content-Type': 'application/json',
           Authorization: 'Bearer together-key',
         },
+        timeout: 15000,
       }
     );
     expect(res.statusCode).toBe(200);
@@ -176,6 +177,7 @@ describe('/api/llm/process', () => {
           'Content-Type': 'application/json',
           Authorization: 'Bearer perplexity-key',
         },
+        timeout: 15000,
       }
     );
     expect(res.statusCode).toBe(200);

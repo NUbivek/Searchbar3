@@ -4,6 +4,7 @@ import { generatePrompt } from '../../../utils/llmProcessing';
 
 // Create a log object for consistent logging
 const logger = log;
+const LLM_PROVIDER_TIMEOUT_MS = 15000;
 
 /**
  * Process content with LLM API
@@ -89,7 +90,10 @@ export default async function handler(req, res) {
           'Authorization': `Bearer ${togetherApiKey}`
         };
         
-        const response = await axios.post(apiUrl, requestData, { headers });
+        const response = await axios.post(apiUrl, requestData, {
+          headers,
+          timeout: LLM_PROVIDER_TIMEOUT_MS,
+        });
         
         // Extract the content from the response
         const result = response.data.choices[0].text;
@@ -175,7 +179,10 @@ export default async function handler(req, res) {
           'Authorization': `Bearer ${perplexityApiKey}`
         };
         
-        const response = await axios.post(apiUrl, requestData, { headers });
+        const response = await axios.post(apiUrl, requestData, {
+          headers,
+          timeout: LLM_PROVIDER_TIMEOUT_MS,
+        });
         
         // Extract the content from the response
         const result = response.data.choices[0].message.content;
