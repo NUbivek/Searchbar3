@@ -32,6 +32,14 @@ describe('/api/sourceSearch contract', () => {
 
     await handler(req, res);
 
+    expect(axios.get).toHaveBeenCalledWith(
+      'https://api.twitter.com/2/tweets/search/recent',
+      {
+        headers: { Authorization: 'Bearer token' },
+        params: { query: 'founders', max_results: 10 },
+        timeout: 10000,
+      }
+    );
     expect(res.statusCode).toBe(200);
     expect(res.body.status).toBe('ok');
     expect(res.body.results).toEqual([{ id: 'x-1', title: 'Result' }]);
@@ -57,6 +65,14 @@ describe('/api/sourceSearch contract', () => {
 
     await handler(req, res);
 
+    expect(axios.get).toHaveBeenCalledWith(
+      'https://api.twitter.com/2/tweets/search/recent',
+      {
+        headers: { Authorization: 'Bearer token' },
+        params: { query: 'founders', max_results: 10 },
+        timeout: 10000,
+      }
+    );
     expect(res.statusCode).toBe(200);
     expect(res.body.status).toBe('fail-soft');
     expect(res.body.degradedSources).toEqual(['x']);

@@ -1,6 +1,8 @@
 import axios from 'axios';
 import { normalizeSearchResponseV1 } from '../../utils/contracts/searchResponse';
 
+const SOURCE_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -74,7 +76,8 @@ export default async function handler(req, res) {
 async function searchLinkedIn(query, apiKey) {
   const response = await axios.get('https://api.linkedin.com/v2/search', {
     headers: { Authorization: `Bearer ${apiKey}` },
-    params: { q: query, count: 10 }
+    params: { q: query, count: 10 },
+    timeout: SOURCE_TIMEOUT_MS,
   });
   return response.data;
 }
@@ -82,7 +85,8 @@ async function searchLinkedIn(query, apiKey) {
 async function searchTwitter(query, apiKey) {
   const response = await axios.get('https://api.twitter.com/2/tweets/search/recent', {
     headers: { Authorization: `Bearer ${apiKey}` },
-    params: { query, max_results: 10 }
+    params: { query, max_results: 10 },
+    timeout: SOURCE_TIMEOUT_MS,
   });
   return response.data;
 }
@@ -90,7 +94,8 @@ async function searchTwitter(query, apiKey) {
 async function searchReddit(query, apiKey) {
   const response = await axios.get('https://oauth.reddit.com/search', {
     headers: { Authorization: `Bearer ${apiKey}` },
-    params: { q: query, limit: 10 }
+    params: { q: query, limit: 10 },
+    timeout: SOURCE_TIMEOUT_MS,
   });
   return response.data;
 } 
