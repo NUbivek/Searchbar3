@@ -92,6 +92,7 @@ describe('/api/llm/chat', () => {
           'Content-Type': 'application/json',
           Authorization: 'Bearer test-key',
         },
+        signal: expect.any(Object),
       })
     );
 

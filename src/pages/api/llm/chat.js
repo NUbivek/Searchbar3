@@ -1,5 +1,7 @@
 import { logger } from '../../../utils/logger';
 
+const TOGETHER_TIMEOUT_MS = 15000;
+
 const SUPPORTED_MODELS = {
   'mistral-7b': {
     provider: 'together',
@@ -57,23 +59,32 @@ async function processWithTogether(messages, config) {
   const prompt = `${systemPrompt}\n\n${formattedMessages}\nHuman: Please provide a response to continue this conversation:\nAssistant:`;
 
   try {
-    const response = await fetch('https://api.together.xyz/inference', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
-      },
-      body: JSON.stringify({
-        model: config.model,
-        prompt: prompt,
-        temperature: config.temperature,
-        max_tokens: config.max_tokens,
-        top_p: config.top_p,
-        top_k: config.top_k,
-        repetition_penalty: config.repetition_penalty,
-        stop: config.stop
-      })
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TOGETHER_TIMEOUT_MS);
+    const response = await (async () => {
+      try {
+        return await fetch('https://api.together.xyz/inference', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${API_KEY}`
+          },
+          body: JSON.stringify({
+            model: config.model,
+            prompt: prompt,
+            temperature: config.temperature,
+            max_tokens: config.max_tokens,
+            top_p: config.top_p,
+            top_k: config.top_k,
+            repetition_penalty: config.repetition_penalty,
+            stop: config.stop
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+    })();
 
     if (!response.ok) {
       return {
