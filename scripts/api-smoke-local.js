@@ -9,9 +9,16 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForServer(url, timeoutMs) {
+async function waitForServer(url, timeoutMs, shouldAbort) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
+    if (typeof shouldAbort === 'function') {
+      const reason = shouldAbort();
+      if (reason) {
+        throw new Error(reason);
+      }
+    }
+
     try {
       const response = await fetch(url);
       if (response.ok) {
@@ -47,9 +54,9 @@ function runCommand(command, args, env = {}) {
 }
 
 async function main() {
-  const startProcess = spawn('npm', ['run', 'start'], {
+  const startProcess = spawn('npm', ['run', 'start', '--', '-H', '127.0.0.1', '-p', '3001'], {
     stdio: 'inherit',
-    env: { ...process.env, PORT: '3001' },
+    env: { ...process.env },
     shell: process.platform === 'win32',
   });
 
@@ -70,7 +77,13 @@ async function main() {
   });
 
   try {
-    await waitForServer(`${BASE}/api/debug/env-check`, START_TIMEOUT_MS);
+    await waitForServer(`${BASE}/api/debug/env-check`, START_TIMEOUT_MS, () => {
+      if (startProcess.exitCode !== null && startProcess.exitCode !== 0) {
+        return `Server process exited early with code ${startProcess.exitCode}`;
+      }
+
+      return null;
+    });
     await runCommand('node', ['scripts/api-smoke.js'], { API_SMOKE_BASE: BASE });
     console.log('PASS api-smoke-local');
   } finally {
