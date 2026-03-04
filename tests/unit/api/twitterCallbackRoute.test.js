@@ -152,6 +152,7 @@ describe('/api/auth/twitter/callback', () => {
           'Content-Type': 'application/x-www-form-urlencoded',
           Authorization: `Basic ${Buffer.from('twitter-client-id:twitter-client-secret').toString('base64')}`,
         },
+        timeout: 10000,
       }
     );
     expect(res.setHeader).toHaveBeenCalledWith('Set-Cookie', [

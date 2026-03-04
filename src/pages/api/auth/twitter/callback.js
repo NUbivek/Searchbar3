@@ -7,6 +7,8 @@ import axios from 'axios';
 import { parse } from 'cookie';
 import { serialize } from 'cookie';
 
+const TWITTER_CALLBACK_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   console.log('Twitter callback handler called', req.query);
   const { code, state, error, error_description } = req.query;
@@ -71,7 +73,8 @@ export default async function handler(req, res) {
           ...(clientSecret && {
             Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`
           })
-        }
+        },
+        timeout: TWITTER_CALLBACK_TIMEOUT_MS,
       }
     );
     
