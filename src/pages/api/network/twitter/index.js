@@ -5,6 +5,8 @@
 import axios from 'axios';
 import { parse } from 'cookie';
 
+const TWITTER_NETWORK_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   // Get access token from cookies
   const cookies = parse(req.headers.cookie || '');
@@ -34,7 +36,8 @@ export default async function handler(req, res) {
       },
       params: {
         'user.fields': 'username,profile_image_url,description'
-      }
+      },
+      timeout: TWITTER_NETWORK_TIMEOUT_MS,
     }).catch(error => {
       // Enhanced error logging
       console.error('Twitter API user.me call failed:', {

@@ -54,7 +54,8 @@ describe('/api/network/twitter', () => {
         }),
         params: expect.objectContaining({
           'user.fields': 'username,profile_image_url,description'
-        })
+        }),
+        timeout: 10000
       })
     );
     expect(res.statusCode).toBe(200);
