@@ -4,6 +4,10 @@ import { parse, serialize } from 'cookie';
 const REDDIT_AUTH_TIMEOUT_MS = 10000;
 
 export default async function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.redirect('/network?error=Method%20not%20allowed');
+  }
+
   const { code, state, error } = req.query;
 
   if (error) {

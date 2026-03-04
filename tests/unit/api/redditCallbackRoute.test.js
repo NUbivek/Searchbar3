@@ -21,6 +21,15 @@ describe('/api/auth/reddit/callback', () => {
     delete process.env.NEXT_PUBLIC_BASE_URL;
   });
 
+  it('redirects non-GET requests back to the network page', async () => {
+    const req = { method: 'POST', query: {}, headers: {} };
+    const res = createRes();
+
+    await handler(req, res);
+
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=Method%20not%20allowed');
+  });
+
   it('redirects provider errors back to the network page', async () => {
     const req = { query: { error: 'access_denied' }, headers: {} };
     const res = createRes();

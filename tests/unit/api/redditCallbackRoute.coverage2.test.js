@@ -51,6 +51,15 @@ describe('/api/auth/reddit/callback', () => {
     process.env.NEXT_PUBLIC_BASE_URL = originalEnv.baseUrl;
   });
 
+  it('redirects non-GET requests back to the network page', async () => {
+    const req = createMockReq({ method: 'POST' });
+    const res = createMockRes();
+
+    await handler(req, res);
+
+    expect(res.redirectTarget).toBe('/network?error=Method%20not%20allowed');
+  });
+
   it('redirects provider errors back to the network page', async () => {
     const req = createMockReq({
       query: { error: 'access_denied' },
