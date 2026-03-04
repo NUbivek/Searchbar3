@@ -6,6 +6,31 @@ import SimplifiedLLMResults, { FollowUpChat } from './search/results/SimplifiedL
 import { isLLMResult } from '../utils/isLLMResult';
 import DegradedBanner from './search/DegradedBanner';
 
+function normalizeClientError(error) {
+  const axiosMessage = error?.response?.data?.error;
+  if (typeof axiosMessage === 'string' && axiosMessage.trim()) {
+    return axiosMessage;
+  }
+
+  const message = String(error?.message || '').trim();
+  const lower = message.toLowerCase();
+
+  if (!message) {
+    return 'Search request failed. Please try again.';
+  }
+
+  if (
+    lower === 'load failed' ||
+    lower.includes('failed to fetch') ||
+    lower.includes('network error') ||
+    lower.includes('network request failed')
+  ) {
+    return 'Unable to reach the search API right now. Check your connection and try again.';
+  }
+
+  return message;
+}
+
 export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -149,7 +174,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
       
     } catch (err) {
       console.error('Search error:', err.response?.data || err.message);
-      setError(err.response?.data?.error || 'An error occurred. Please try again.');
+      setError(normalizeClientError(err));
       // Set empty results
       setResults([]);
     } finally {
