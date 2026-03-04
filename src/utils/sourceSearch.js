@@ -3,6 +3,8 @@ import { VC_FIRMS, MARKET_DATA_SOURCES } from './dataSources';
 import { withRetry } from './errorHandling';
 import { rateLimiter } from './rateLimiter';
 import { searchCache } from './cache';
+import { deepWebSearch } from './deepWebSearch';
+import { scrapeSource } from './webScraper';
 
 // LinkedIn Search
 export async function searchLinkedIn(query) {
@@ -116,7 +118,7 @@ export async function searchSources(query, options) {
   if (mode === 'verified') {
     const results = await searchVerifiedSources(query);
     if (customUrls?.length || uploadedFiles?.length) {
-      const customResults = await searchCustomSources(query, customUrls, uploadedFiles);
+      const customResults = buildCustomSourceResults(query, customUrls, uploadedFiles);
       return [...results, ...customResults];
     }
     return results;
@@ -142,4 +144,35 @@ export async function searchSources(query, options) {
   return settled
     .filter(result => result.status === 'fulfilled')
     .flatMap(result => Array.isArray(result.value) ? result.value : []);
+}
+
+function buildCustomSourceResults(query, customUrls = [], uploadedFiles = []) {
+  const urlResults = (Array.isArray(customUrls) ? customUrls : [])
+    .filter((url) => typeof url === 'string' && url.trim().length > 0)
+    .map((url, index) => ({
+      title: `Custom URL ${index + 1}`,
+      content: `User-provided URL for "${query}": ${url}`,
+      url,
+      type: 'custom_url',
+      source: 'custom',
+      timestamp: new Date().toISOString()
+    }));
+
+  const fileResults = (Array.isArray(uploadedFiles) ? uploadedFiles : [])
+    .filter(Boolean)
+    .map((file, index) => {
+      const fileName = file.name || file.source || `file-${index + 1}`;
+      return {
+        title: `Uploaded File: ${fileName}`,
+        content: typeof file.content === 'string' && file.content.trim().length > 0
+          ? file.content
+          : `Uploaded file "${fileName}" for query "${query}"`,
+        url: '#',
+        type: 'uploaded_file',
+        source: 'custom',
+        timestamp: new Date().toISOString()
+      };
+    });
+
+  return [...urlResults, ...fileResults];
 }
