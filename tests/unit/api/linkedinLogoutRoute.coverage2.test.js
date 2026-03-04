@@ -1,56 +1,48 @@
 import handler from '../../../src/pages/api/auth/linkedin/logout';
-import { createMockReq } from './testUtils';
 
-function createRouteRes() {
-  return {
-    headers: {},
-    statusCode: 200,
-    body: null,
-    setHeader(name, value) {
-      this.headers[name] = value;
-    },
-    status(code) {
-      this.statusCode = code;
-      return this;
-    },
-    json(payload) {
-      this.body = payload;
-      return this;
-    }
-  };
-}
+describe('/api/auth/linkedin/logout', () => {
+  function createRes() {
+    const res = {
+      statusCode: 200,
+      headers: {},
+      body: undefined,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      setHeader(name, value) {
+        this.headers[name] = value;
+      },
+      json(payload) {
+        this.body = payload;
+        return this;
+      }
+    };
 
-describe('api/auth/linkedin/logout', () => {
-  it('returns 405 for non-GET requests', async () => {
-    const req = createMockReq({ method: 'POST' });
-    const res = createRouteRes();
+    return res;
+  }
 
-    await handler(req, res);
+  it('returns 405 for non-GET requests', () => {
+    const req = { method: 'POST' };
+    const res = createRes();
+
+    handler(req, res);
 
     expect(res.statusCode).toBe(405);
     expect(res.body).toEqual({ error: 'Method not allowed' });
   });
 
-  it('clears linkedin auth cookies and returns success', async () => {
-    const req = createMockReq({ method: 'GET' });
-    const res = createRouteRes();
+  it('clears linkedin auth cookies and returns success', () => {
+    const req = { method: 'GET' };
+    const res = createRes();
 
-    await handler(req, res);
+    handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      success: true,
-      message: 'Logged out from LinkedIn'
-    });
-
-    const cookies = res.headers['Set-Cookie'] || res.headers['set-cookie'];
-    expect(Array.isArray(cookies)).toBe(true);
-    expect(cookies).toHaveLength(2);
-    expect(cookies[0]).toBe(
-      'linkedin_access_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax'
-    );
-    expect(cookies[1]).toBe(
+    expect(res.headers['Set-Cookie']).toEqual([
+      'linkedin_access_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
       'linkedin_user_id=; Path=/; Max-Age=0; SameSite=Lax'
-    );
+    ]);
+    expect(res.body).toEqual({ success: true, message: 'Logged out from LinkedIn' });
   });
 });
