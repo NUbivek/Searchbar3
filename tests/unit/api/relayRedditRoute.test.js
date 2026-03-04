@@ -21,6 +21,19 @@ function createMockRes() {
 }
 
 describe('/api/relay/reddit', () => {
+  it('returns 405 for non-GET requests', () => {
+    const req = {
+      method: 'POST',
+      query: {},
+    };
+    const res = createMockRes();
+
+    handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(405);
+    expect(res.send).toHaveBeenCalledWith('Method not allowed');
+  });
+
   it('renders the reddit relay page with the callback parameters', () => {
     const req = {
       method: 'GET',
