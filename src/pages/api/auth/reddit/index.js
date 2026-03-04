@@ -1,6 +1,10 @@
 import { getCallbackUrl } from '../../../../utils/oauthUtils';
 
 export default function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   const clientId = process.env.REDDIT_CLIENT_ID;
 
   if (!clientId) {
