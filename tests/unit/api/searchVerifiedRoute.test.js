@@ -26,6 +26,7 @@ jest.mock('../../../src/utils/verifiedDataSources.js', () => ({
 }));
 
 const { createMockReq, createMockRes } = require('./testUtils');
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 
 describe('/api/search/verified', () => {
   beforeEach(() => {
@@ -75,7 +76,9 @@ describe('/api/search/verified', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ results: [] });
+    expect(res.body.results).toEqual([]);
+    expect(res.body.status).toBe('ok');
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   it('flattens fulfilled source results and sorts by relevance', async () => {
@@ -112,15 +115,15 @@ describe('/api/search/verified', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      results: [
-        { title: 'Custom item', relevance: 5 },
-        { title: 'File item', relevance: 4 },
-        { title: 'LinkedIn item', relevance: 3 },
-        { title: 'Verified data item', relevance: 2 },
-        { title: 'Lower relevance', relevance: 1 },
-      ],
-    });
+    expect(res.body.results).toEqual([
+      { title: 'Custom item', relevance: 5 },
+      { title: 'File item', relevance: 4 },
+      { title: 'LinkedIn item', relevance: 3 },
+      { title: 'Verified data item', relevance: 2 },
+      { title: 'Lower relevance', relevance: 1 },
+    ]);
+    expect(res.body.status).toBe('ok');
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
     expect(mockSourceHandlers.linkedin).toHaveBeenCalledWith('ai startups');
     expect(mockSourceHandlers.twitter).toHaveBeenCalledWith('ai startups');
     expect(mockSourceHandlers.custom).toHaveBeenCalledWith('ai startups', ['https://example.com']);
@@ -147,11 +150,12 @@ describe('/api/search/verified', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
+    expect(res.body).toEqual(expect.objectContaining({
       results: [],
       status: 'fail-soft',
       degradedSources: ['verified'],
       error: 'map exploded',
-    });
+    }));
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 });

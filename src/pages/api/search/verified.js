@@ -3,6 +3,7 @@ import { performSimpleVerifiedSearch } from '../../../utils/searchUtils.js';
 import { debug, info, error, warn } from '../../../utils/logger.js';
 import { getAllVerifiedSources } from '../../../utils/verifiedDataSources.js';
 import { sourceHandlers } from '../../../utils/sourceIntegration.js';
+import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 
 export default async function handler(req, res) {
   // Create a logger object for compatibility
@@ -28,7 +29,17 @@ export default async function handler(req, res) {
 
     // If no sources provided, return empty results
     if (sources.length === 0 && customUrls.length === 0 && uploadedFiles.length === 0) {
-      return res.status(200).json({ results: [] });
+      return res.status(200).json(normalizeSearchResponseV1({
+        results: [],
+        status: 'ok',
+        degradedSources: [],
+        synthesis: {
+          enabled: false,
+          provider: null,
+          model: model || null,
+          content: null,
+        },
+      }));
     }
 
     // Initialize results array
@@ -83,14 +94,30 @@ export default async function handler(req, res) {
       return 0;
     });
 
-    return res.status(200).json({ results });
+    return res.status(200).json(normalizeSearchResponseV1({
+      results,
+      status: 'ok',
+      degradedSources: [],
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: model || null,
+        content: null,
+      },
+    }));
   } catch (error) {
     log.error('Verified search error:', error);
-    return res.status(200).json({
+    return res.status(200).json(normalizeSearchResponseV1({
       results: [],
       status: 'fail-soft',
       degradedSources: ['verified'],
-      error: error.message || 'An error occurred during search'
-    });
+      error: error.message || 'An error occurred during search',
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: null,
+        content: null,
+      },
+    }));
   }
 }
