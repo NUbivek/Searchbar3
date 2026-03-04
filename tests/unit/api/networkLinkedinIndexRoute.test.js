@@ -102,6 +102,7 @@ describe('/api/network/linkedin', () => {
         headers: expect.objectContaining({
           Authorization: 'Bearer token-123',
         }),
+        timeout: 10000,
       })
     );
     expect(axios.get).toHaveBeenNthCalledWith(
@@ -111,6 +112,7 @@ describe('/api/network/linkedin', () => {
         headers: expect.objectContaining({
           Authorization: 'Bearer token-123',
         }),
+        timeout: 10000,
       })
     );
     expect(axios.get).toHaveBeenNthCalledWith(
@@ -120,6 +122,7 @@ describe('/api/network/linkedin', () => {
         headers: expect.objectContaining({
           Cookie: 'linkedin_access_token=token-123',
         }),
+        timeout: 10000,
       })
     );
   });

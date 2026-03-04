@@ -3,6 +3,8 @@
  */
 import axios from 'axios';
 
+const LINKEDIN_NETWORK_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   // Only allow GET requests
   if (req.method !== 'GET') {
@@ -22,7 +24,8 @@ export default async function handler(req, res) {
     const profileResponse = await axios.get('https://api.linkedin.com/v2/me', {
       headers: {
         Authorization: `Bearer ${accessToken}`
-      }
+      },
+      timeout: LINKEDIN_NETWORK_TIMEOUT_MS,
     });
 
     const userData = profileResponse.data;
@@ -31,7 +34,8 @@ export default async function handler(req, res) {
     const emailResponse = await axios.get('https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))', {
       headers: {
         Authorization: `Bearer ${accessToken}`
-      }
+      },
+      timeout: LINKEDIN_NETWORK_TIMEOUT_MS,
     });
 
     const userEmail = emailResponse.data.elements?.[0]?.['handle~']?.emailAddress || '';
@@ -42,7 +46,8 @@ export default async function handler(req, res) {
       {
         headers: {
           Cookie: req.headers.cookie // Pass the cookies for authentication
-        }
+        },
+        timeout: LINKEDIN_NETWORK_TIMEOUT_MS,
       }
     );
 
