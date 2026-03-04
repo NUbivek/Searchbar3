@@ -105,6 +105,7 @@ describe('/api/search/medium', () => {
         headers: expect.objectContaining({
           'X-API-KEY': 'test-key',
         }),
+        timeout: 10000,
       })
     );
     expect(res.statusCode).toBe(200);

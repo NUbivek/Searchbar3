@@ -99,6 +99,7 @@ describe('/api/search/medium', () => {
           'X-API-KEY': 'test-serper-key',
           'Content-Type': 'application/json',
         },
+        timeout: 10000,
       }
     );
 
