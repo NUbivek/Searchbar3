@@ -42,6 +42,34 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://a.test/1');
   });
 
+  test('RssAdapter enforces robots policy when enabled on source runtime', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => 'User-agent: *\nDisallow: /feed.xml',
+      });
+
+    const adapter = new RssAdapter({
+      method: {
+        url: 'https://example.com/feed.xml',
+      },
+      runtime: {
+        respectRobots: true,
+      },
+    });
+
+    await expect(adapter.run()).rejects.toThrow('Blocked by robots.txt policy');
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://example.com/robots.txt',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'User-Agent': 'Searchbar3-Sourcing/1.0',
+        }),
+      })
+    );
+  });
+
   test('HtmlListAdapter respects selectors and exclusion patterns', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
