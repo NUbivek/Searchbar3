@@ -7,6 +7,10 @@
  */
 
 export default function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   // Extract the auth code and state from the query parameters
   const { code, state } = req.query;
   
@@ -93,12 +97,12 @@ export default function handler(req, res) {
         const state = "${state || ''}";
         
         // Build the callback URL
-        let callbackUrl = `${localServerUrl}/api/auth/reddit/callback`;
+        let callbackUrl = localServerUrl + '/api/auth/reddit/callback';
         if (code || state) {
           callbackUrl += '?';
-          if (code) callbackUrl += `code=${encodeURIComponent(code)}`;
+          if (code) callbackUrl += 'code=' + encodeURIComponent(code);
           if (code && state) callbackUrl += '&';
-          if (state) callbackUrl += `state=${encodeURIComponent(state)}`;
+          if (state) callbackUrl += 'state=' + encodeURIComponent(state);
         }
         
         // Redirect to the local server
@@ -116,12 +120,12 @@ export default function handler(req, res) {
           // Update the visible callback URL
           const code = "${code || ''}";
           const state = "${state || ''}";
-          let callbackUrl = `${localServerUrl}/api/auth/reddit/callback`;
+          let callbackUrl = localServerUrl + '/api/auth/reddit/callback';
           if (code || state) {
             callbackUrl += '?';
-            if (code) callbackUrl += `code=${code}`;
+            if (code) callbackUrl += 'code=' + code;
             if (code && state) callbackUrl += '&';
-            if (state) callbackUrl += `state=${state}`;
+            if (state) callbackUrl += 'state=' + state;
           }
           document.getElementById('callbackUrl').textContent = callbackUrl;
         }
@@ -135,12 +139,12 @@ export default function handler(req, res) {
         // Set initial callback URL
         const code = "${code || ''}";
         const state = "${state || ''}";
-        let callbackUrl = `${localServerUrl}/api/auth/reddit/callback`;
+        let callbackUrl = localServerUrl + '/api/auth/reddit/callback';
         if (code || state) {
           callbackUrl += '?';
-          if (code) callbackUrl += `code=${code}`;
+          if (code) callbackUrl += 'code=' + code;
           if (code && state) callbackUrl += '&';
-          if (state) callbackUrl += `state=${state}`;
+          if (state) callbackUrl += 'state=' + state;
         }
         document.getElementById('callbackUrl').textContent = callbackUrl;
       });

@@ -13,7 +13,8 @@ import { SourceTypes } from './constants';
 export const searchWithSerper = async (query, domain, searchId) => {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) {
-    throw new Error('Serper API key not configured');
+    warn(`[${searchId}] Serper API key not configured for ${domain}. Returning fail-soft empty set.`);
+    return [];
   }
 
   try {

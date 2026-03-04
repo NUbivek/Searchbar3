@@ -57,7 +57,9 @@ export default async function handler(req, res) {
     return res.status(200).json(result);
   } catch (error) {
     console.error('LLM test error:', error);
-    return res.status(500).json({
+    return res.status(200).json({
+      status: 'fail-soft',
+      degradedSources: ['llm-test'],
       error: 'Failed to test LLM processing',
       message: error.message,
       isError: true,

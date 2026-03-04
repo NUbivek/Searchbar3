@@ -1,6 +1,10 @@
 import { MODEL_ENDPOINTS } from '../../../utils/llmProcessing';
 
 export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   try {
     // Get model config info
     const modelConfig = {
@@ -38,6 +42,24 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('Error in API status endpoint:', error);
-    return res.status(500).json({ error: 'Internal server error', message: error.message });
+    return res.status(200).json({
+      status: 'fail-soft',
+      apiKeys: {
+        together: false,
+        togetherKeyLength: 0,
+        perplexity: false,
+        perplexityKeyLength: 0
+      },
+      env: {
+        nodeEnv: process.env.NODE_ENV || 'unknown',
+        hasEnvFile: false
+      },
+      modelConfig: {
+        together: { endpoint: 'Not configured', model: 'Not configured' },
+        perplexity: { endpoint: 'Not configured', model: 'Not configured' }
+      },
+      error: 'Internal server error',
+      message: error.message
+    });
   }
 }

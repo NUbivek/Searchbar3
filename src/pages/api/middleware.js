@@ -4,10 +4,16 @@ export function withErrorHandler(handler) {
       await handler(req, res);
     } catch (error) {
       console.error('API Error:', error);
-      res.status(500).json({
+      if (res.headersSent) {
+        return;
+      }
+
+      res.status(200).json({
+        status: 'fail-soft',
         error: 'Internal server error',
-        message: error.message
+        message: error.message,
+        degradedSources: ['middleware']
       });
     }
   };
-} 
+}

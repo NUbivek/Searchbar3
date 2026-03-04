@@ -1,32 +1,30 @@
 import axios from 'axios';
 
 // Social Media APIs
+// Never pass API keys from client-side code. Server routes resolve credentials from env.
 export const searchLinkedIn = async (query) => {
   return await axios.get('/api/sourceSearch', {
-    params: { 
+    params: {
       source: 'LinkedIn',
-      query,
-      apiKey: process.env.LINKEDIN_API_KEY
+      query
     }
   });
 };
 
 export const searchTwitter = async (query) => {
   return await axios.get('/api/sourceSearch', {
-    params: { 
+    params: {
       source: 'X',
-      query,
-      apiKey: process.env.TWITTER_API_KEY
+      query
     }
   });
 };
 
 export const searchReddit = async (query) => {
   return await axios.get('/api/sourceSearch', {
-    params: { 
+    params: {
       source: 'Reddit',
-      query,
-      apiKey: process.env.REDDIT_API_KEY
+      query
     }
   });
 };
@@ -65,7 +63,14 @@ export const searchSpecificSource = async (source, query) => {
     case 'Verified Sources':
       return await searchVerifiedSources(query);
     default:
-      throw new Error(`Unsupported source: ${source}`);
+      return {
+        data: {
+          status: 'fail-soft',
+          source,
+          results: [],
+          error: `Unsupported source: ${source}`
+        }
+      };
   }
 };
 

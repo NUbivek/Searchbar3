@@ -10,15 +10,27 @@ export default function errorHandler(error, req, res, next) {
   }
 
   if (error.name === 'APIError') {
-    return res.status(error.status || 500).json({
+    const status = error.status || 500;
+    if (status >= 500) {
+      return res.status(200).json({
+        status: 'fail-soft',
+        error: error.message,
+        source: error.source,
+        degradedSources: [error.source || 'api']
+      });
+    }
+
+    return res.status(status).json({
       error: error.message,
       source: error.source
     });
   }
 
   // Default error response
-  res.status(500).json({
+  res.status(200).json({
+    status: 'fail-soft',
     error: 'An unexpected error occurred',
-    message: process.env.NODE_ENV === 'development' ? error.message : undefined
+    message: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    degradedSources: ['api']
   });
-} 
+}

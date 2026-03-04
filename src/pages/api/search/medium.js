@@ -1,5 +1,8 @@
 import axios from 'axios';
 import { logger } from '../../../utils/logger';
+import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
+
+const SEARCH_TIMEOUT_MS = 10000;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -11,10 +14,25 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: 'Query is required' });
   }
 
+  const failSoft = (message, error) => normalizeSearchResponseV1({
+    results: [],
+    sources: [],
+    status: 'fail-soft',
+    degradedSources: ['medium'],
+    message,
+    error,
+    synthesis: {
+      enabled: false,
+      provider: null,
+      model: null,
+      content: null,
+    },
+  });
+
   try {
     const serperApiKey = process.env.SERPER_API_KEY;
     if (!serperApiKey) {
-      throw new Error('Serper API key not configured');
+      return res.status(200).json(failSoft('Search failed', 'Serper API key not configured'));
     }
 
     const response = await axios.post(
@@ -27,7 +45,8 @@ export default async function handler(req, res) {
         headers: {
           'X-API-KEY': serperApiKey,
           'Content-Type': 'application/json'
-        }
+        },
+        timeout: SEARCH_TIMEOUT_MS,
       }
     );
 
@@ -48,10 +67,22 @@ export default async function handler(req, res) {
       sources.push(...organicResults);
     }
 
-    return res.status(200).json({ sources });
+    return res.status(200).json(normalizeSearchResponseV1({
+      sources,
+      results: Array.isArray(sources) ? sources : [],
+      status: 'ok',
+      degradedSources: [],
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: null,
+        content: null,
+      },
+      llmProcessed: false,
+    }));
 
   } catch (error) {
     logger.error('Medium search failed:', error);
-    return res.status(500).json({ message: 'Search failed', error: error.message });
+    return res.status(200).json(failSoft('Search failed', error.message));
   }
 }

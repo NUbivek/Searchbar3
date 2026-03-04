@@ -141,7 +141,7 @@ For detailed documentation on the metrics system, see [METRICS_SYSTEM.md](./docs
    ```
 
 2. **Environment Configuration**:
-   Copy `.env.template` to `.env.local` and fill in your API keys:
+   Copy `.env.local.example` (or `.env.local.sample`) to `.env.local` and fill in your API keys:
    ```env
    # LLM API Keys
    TOGETHER_API_KEY=your_together_api_key
@@ -253,6 +253,16 @@ For detailed documentation on the metrics system, see [METRICS_SYSTEM.md](./docs
    - Code splitting
    - Lazy loading
    - Debounced search
+
+## Environment Diagnostics
+
+Use this endpoint to validate configuration safely (no secret values returned):
+
+- `GET /api/debug/env-check`
+
+For provider readiness reference, see:
+
+- `PROVIDER_CAPABILITY_MATRIX.md`
 
 ## Contributing
 

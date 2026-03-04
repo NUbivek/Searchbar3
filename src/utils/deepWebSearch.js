@@ -14,12 +14,12 @@ export async function deepWebSearch(query, options = {}) {
   // Validate inputs
   if (!query) {
     console.error('ERROR: No query provided for deep web search');
-    throw new Error('Search query is required');
+    return [];
   }
 
   if (!apiKey) {
     console.error('ERROR: No API key provided for Serper API');
-    throw new Error('Serper API key is required');
+    return [];
   }
 
   console.log(`DEBUG: Starting deep web search for query: "${query}"`);
@@ -65,10 +65,10 @@ export async function deepWebSearch(query, options = {}) {
         console.error(`ERROR: Response data:`, JSON.stringify(error.response.data));
       }
       
-      // If we've reached max retries, throw the error
+      // If we've reached max retries, fail soft and return an empty result set
       if (retries > maxRetries) {
         console.error('ERROR: Max retries reached for Serper API search');
-        throw new Error(`Web search failed after ${maxRetries + 1} attempts: ${error.message}`);
+        return [];
       }
       
       // Otherwise, wait and retry with exponential backoff
@@ -151,8 +151,8 @@ function processSerperResponse(data, originalQuery) {
       return results;
     }
     
-    // If we couldn't extract any results, throw an error
-    throw new Error(`Failed to process search results: ${error.message}`);
+    // If we couldn't extract any results, fail soft
+    return [];
   }
 }
 

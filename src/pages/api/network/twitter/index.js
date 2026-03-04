@@ -5,6 +5,8 @@
 import axios from 'axios';
 import { parse } from 'cookie';
 
+const TWITTER_NETWORK_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   // Get access token from cookies
   const cookies = parse(req.headers.cookie || '');
@@ -34,7 +36,8 @@ export default async function handler(req, res) {
       },
       params: {
         'user.fields': 'username,profile_image_url,description'
-      }
+      },
+      timeout: TWITTER_NETWORK_TIMEOUT_MS,
     }).catch(error => {
       // Enhanced error logging
       console.error('Twitter API user.me call failed:', {
@@ -51,7 +54,13 @@ export default async function handler(req, res) {
     
     if (!userData) {
       console.error('Twitter API returned success but no user data');
-      throw new Error('Missing user data in Twitter API response');
+      return res.status(200).json({
+        status: 'fail-soft',
+        user: null,
+        networksData: { nodes: [], links: [] },
+        degradedSources: ['twitter-network'],
+        error: 'Missing user data in Twitter API response'
+      });
     }
     
     // Generate visualization-ready data
@@ -128,7 +137,11 @@ export default async function handler(req, res) {
     }
     
     // For any other errors
-    return res.status(500).json({
+    return res.status(200).json({
+      status: 'fail-soft',
+      user: null,
+      networksData: { nodes: [], links: [] },
+      degradedSources: ['twitter-network'],
       error: 'Failed to fetch Twitter network data',
       details: error.response?.data?.error || error.message,
       errorData: JSON.stringify(error.response?.data || {})

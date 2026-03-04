@@ -1,6 +1,7 @@
 // Next.js API route for search
 import unifiedSearch from '../../utils/search-legacy';
 import { processWithLLM } from '../../utils/llm-exports';
+import { normalizeSearchResponseV1 } from '../../utils/contracts/searchResponse';
 
 export default async function handler(req, res) {
   console.log('Legacy Search API endpoint called');
@@ -93,18 +94,36 @@ export default async function handler(req, res) {
     console.log('Returning results count:', processedResults.length);
     
     // Return the results
-    return res.status(200).json({
+    return res.status(200).json(normalizeSearchResponseV1({
       results: processedResults,
+      status: 'ok',
+      degradedSources: [],
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: model || null,
+        content: null,
+      },
+      llmProcessed: Boolean(model && searchResults.length > 0),
       query,
       timestamp: new Date().toISOString(),
       executionTime
-    });
+    }));
     
   } catch (error) {
     console.error('Search API error:', error);
-    return res.status(500).json({ 
+    return res.status(200).json(normalizeSearchResponseV1({
+      status: 'fail-soft',
+      results: [],
+      degradedSources: ['legacy-search'],
       error: 'An error occurred during search',
-      details: error.message 
-    });
+      details: error.message,
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: null,
+        content: null,
+      },
+    }));
   }
 } 

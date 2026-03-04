@@ -30,7 +30,16 @@ export async function executeSearch({
   // Always use LLM processing
   const useLLM = true;
   if (!query) {
-    throw new Error('Search query is required');
+    return {
+      error: true,
+      message: 'Search query is required',
+      query,
+      results: [],
+      metadata: {
+        timestamp: new Date().toISOString(),
+        errorType: 'ValidationError'
+      }
+    };
   }
   
   logger.info(`Executing ${mode} search`, {
@@ -60,7 +69,16 @@ export async function executeSearch({
     
     // Check for API errors
     if (response.data.error) {
-      throw new Error(response.data.error);
+      return {
+        error: true,
+        message: response.data.error,
+        query,
+        results: [],
+        metadata: {
+          timestamp: new Date().toISOString(),
+          errorType: 'SearchError'
+        }
+      };
     }
     
     // Extract results and categories

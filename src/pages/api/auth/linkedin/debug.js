@@ -16,6 +16,10 @@ function safeIncludes(str, searchStr) {
 }
 
 export default function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   // Get hostname information
   const getHostInfo = (req) => {
     try {

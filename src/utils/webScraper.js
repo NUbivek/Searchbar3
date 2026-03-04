@@ -43,7 +43,8 @@ const SCRAPING_CONFIGS = {
 export async function scrapeSource(source, query) {
   const config = SCRAPING_CONFIGS[source];
   if (!config) {
-    throw new Error(`No scraping configuration for source: ${source}`);
+    console.warn(`No scraping configuration for source: ${source}`);
+    return [];
   }
 
   try {

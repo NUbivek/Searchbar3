@@ -4,6 +4,10 @@
  */
 
 export default async function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.redirect('/network?error=Method%20not%20allowed');
+  }
+
   const { code, state, error, error_description } = req.query;
 
   // Handle error from Facebook

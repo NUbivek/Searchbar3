@@ -73,7 +73,8 @@ export async function performCombinedSearch(query, source) {
 
   const serperApiKey = process.env.SERPER_API_KEY;
   if (!serperApiKey) {
-    throw new Error('Serper API key not configured');
+    logger.warn(`[${searchId}] Serper API key not configured. Returning degraded empty set for ${source}.`);
+    return [];
   }
 
   let domain;
@@ -96,16 +97,17 @@ export async function performCombinedSearch(query, source) {
       type = 'MediumResult';
       break;
     default:
-      throw new Error(`Unsupported source: ${source}`);
+      logger.warn(`[${searchId}] Unsupported source '${source}'. Returning degraded empty set.`);
+      return [];
   }
 
   // First, get search results from the domain
   const searchResults = await searchDomain(query, domain, serperApiKey);
 
   // Then, scrape content from each result
-  const sources = await Promise.all(searchResults.map(async (result, index) => {
+  const settled = await Promise.allSettled(searchResults.map(async (result, index) => {
     const content = await scrapeUrl(result.link);
-    
+
     return {
       type,
       content: content || result.snippet || '',
@@ -116,6 +118,10 @@ export async function performCombinedSearch(query, source) {
       sourceId: `${source.toLowerCase()}-${index}`
     };
   }));
+
+  const sources = settled
+    .filter(item => item.status === 'fulfilled')
+    .map(item => item.value);
 
   logger.info(`[${searchId}] Combined search completed for ${source}`);
   return sources.filter(source => source.content);

@@ -43,3 +43,12 @@ yarn-error.log*
 
 # Local development
 research-hub-api/
+.npm-cache/
+*.swp
+/data/signals.jsonl
+/data/source_state.json
+/data/daily_rollup.csv
+/data/category_rollup.csv
+/data/crm_export.csv
+/data/source_health.csv
+/data/latest_run_summary.json

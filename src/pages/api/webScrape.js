@@ -2,14 +2,15 @@ import axios from 'axios';
 import cheerio from 'cheerio';
 import { logger } from '../../utils/logger';
 
+const WEB_SCRAPE_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { query, url, sources = [] } = req.body;
-
   try {
+    const { query, url, sources = [] } = req.body || {};
     // Handle both single URL and multiple sources
     if (url) {
       // Single URL case
@@ -22,12 +23,22 @@ export default async function handler(req, res) {
       });
     } else if (sources && sources.length > 0) {
       // Multiple sources case
-      const results = await Promise.all(
+      const settled = await Promise.allSettled(
         sources.map(source => scrapeSource(source, query))
       );
 
+      const degradedSources = settled
+        .map((result, index) => (result.status === 'rejected' ? sources[index] : null))
+        .filter(Boolean);
+
+      const results = settled
+        .filter(result => result.status === 'fulfilled')
+        .map(result => result.value);
+
       return res.status(200).json({
+        status: results.flat().length > 0 ? (degradedSources.length > 0 ? 'degraded' : 'ok') : 'fail-soft',
         summary: `Found results across ${sources.length} sources`,
+        degradedSources,
         results: results.flat()
       });
     } else {
@@ -35,7 +46,13 @@ export default async function handler(req, res) {
     }
   } catch (error) {
     logger.error('Web scraping error:', error);
-    res.status(500).json({ error: 'Scraping failed' });
+    return res.status(200).json({
+      status: 'fail-soft',
+      summary: 'Web scraping encountered an unexpected error',
+      degradedSources: ['webScrape'],
+      results: [],
+      error: 'Scraping failed'
+    });
   }
 }
 
@@ -44,7 +61,8 @@ async function scrapeUrl(url) {
     const response = await axios.get(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      }
+      },
+      timeout: WEB_SCRAPE_TIMEOUT_MS,
     });
     
     const $ = cheerio.load(response.data);
@@ -158,7 +176,7 @@ async function scrapeSource(source, query) {
         'Accept-Language': 'en-US,en;q=0.5',
         'Referer': 'https://www.google.com/'
       },
-      timeout: 10000
+      timeout: WEB_SCRAPE_TIMEOUT_MS
     });
 
     const $ = cheerio.load(response.data);

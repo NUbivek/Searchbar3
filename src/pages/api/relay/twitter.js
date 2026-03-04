@@ -6,6 +6,10 @@
  */
 
 export default function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   // Extract the auth code and state from the query parameters
   const { code, state } = req.query;
   
@@ -91,7 +95,7 @@ export default function handler(req, res) {
         const code = '${code ? code.replace(/'/g, "\\'"): ""}';
         const state = '${state ? state.replace(/'/g, "\\'"): ""}';
         
-        const callbackUrl = `\${localServerUrl}/api/auth/twitter/callback`;
+        const callbackUrl = localServerUrl + '/api/auth/twitter/callback';
         const url = new URL(callbackUrl);
         if (code) url.searchParams.append('code', code);
         if (state) url.searchParams.append('state', state);

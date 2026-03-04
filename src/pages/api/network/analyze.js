@@ -21,6 +21,17 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Network data is required' });
   }
 
+  const failSoft = (details) => ({
+    status: 'fail-soft',
+    matches: [],
+    filteredConnections: [],
+    summary: 'Network analysis is temporarily unavailable.',
+    responseText: `Could not process network analysis for "${query}" right now.`,
+    degradedSources: ['network-analyze'],
+    error: 'Failed to process network analysis',
+    details
+  });
+
   try {
     console.log('Processing network analysis query:', query);
     
@@ -107,9 +118,6 @@ export default async function handler(req, res) {
     return res.status(200).json(result);
   } catch (error) {
     console.error('Error processing network analysis:', error);
-    return res.status(500).json({
-      error: 'Failed to process network analysis',
-      details: error.message
-    });
+    return res.status(200).json(failSoft(error.message));
   }
 }

@@ -1,5 +1,7 @@
 import { logger } from '../../../utils/logger';
 
+const TOGETHER_TIMEOUT_MS = 15000;
+
 const SUPPORTED_MODELS = {
   'mistral-7b': {
     provider: 'together',
@@ -36,7 +38,11 @@ const SUPPORTED_MODELS = {
 async function processWithTogether(messages, config) {
   const API_KEY = process.env.TOGETHER_API_KEY;
   if (!API_KEY) {
-    throw new Error('Together API key not found');
+    return {
+      status: 'error',
+      error: 'Together API key not found',
+      content: null
+    };
   }
 
   const systemPrompt = `You are a helpful AI assistant that provides accurate and informative responses based on the conversation history. Keep your responses focused and relevant to the user's questions.`;
@@ -53,33 +59,54 @@ async function processWithTogether(messages, config) {
   const prompt = `${systemPrompt}\n\n${formattedMessages}\nHuman: Please provide a response to continue this conversation:\nAssistant:`;
 
   try {
-    const response = await fetch('https://api.together.xyz/inference', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
-      },
-      body: JSON.stringify({
-        model: config.model,
-        prompt: prompt,
-        temperature: config.temperature,
-        max_tokens: config.max_tokens,
-        top_p: config.top_p,
-        top_k: config.top_k,
-        repetition_penalty: config.repetition_penalty,
-        stop: config.stop
-      })
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TOGETHER_TIMEOUT_MS);
+    const response = await (async () => {
+      try {
+        return await fetch('https://api.together.xyz/inference', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${API_KEY}`
+          },
+          body: JSON.stringify({
+            model: config.model,
+            prompt: prompt,
+            temperature: config.temperature,
+            max_tokens: config.max_tokens,
+            top_p: config.top_p,
+            top_k: config.top_k,
+            repetition_penalty: config.repetition_penalty,
+            stop: config.stop
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+    })();
 
     if (!response.ok) {
-      throw new Error(`Together API error: ${response.status}`);
+      return {
+        status: 'error',
+        error: `Together API error: ${response.status}`,
+        content: null
+      };
     }
 
     const data = await response.json();
-    return data.output.choices[0].text.trim();
+    return {
+      status: 'ok',
+      error: null,
+      content: data.output.choices[0].text.trim()
+    };
   } catch (error) {
     logger.error('Error processing with Together API:', error);
-    throw error;
+    return {
+      status: 'error',
+      error: error.message || 'LLM provider request failed',
+      content: null
+    };
   }
 }
 
@@ -88,7 +115,11 @@ async function processWithProvider(messages, config) {
     case 'together':
       return processWithTogether(messages, config);
     default:
-      throw new Error(`Unsupported provider: ${config.provider}`);
+      return {
+        status: 'error',
+        error: `Unsupported provider: ${config.provider}`,
+        content: null
+      };
   }
 }
 
@@ -106,27 +137,42 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { messages, model = 'mixtral-8x7b' } = req.body;
+    const { messages, model = 'mistral-7b' } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Messages array is required' });
     }
 
     // Process with LLM
-    let modelConfig = SUPPORTED_MODELS[model.toLowerCase()];
+    const requestedModel = typeof model === 'string' ? model.toLowerCase() : 'mistral-7b';
+    let modelConfig = SUPPORTED_MODELS[requestedModel];
     if (!modelConfig) {
-      logger.warn('Unsupported model, falling back to mixtral-8x7b', { requestedModel: model });
-      modelConfig = SUPPORTED_MODELS['mixtral-8x7b'];
+      logger.warn('Unsupported model, falling back to mistral-7b', { requestedModel: model });
+      modelConfig = SUPPORTED_MODELS['mistral-7b'];
     }
 
     const result = await processWithProvider(messages, modelConfig);
+    if (result.status === 'error') {
+      return res.status(200).json({
+        status: 'fail-soft',
+        content: null,
+        model: modelConfig.model,
+        degradedSources: ['together'],
+        error: result.error
+      });
+    }
 
-    res.status(200).json({
-      content: result,
+    return res.status(200).json({
+      content: result.content,
       model: modelConfig.model
     });
   } catch (error) {
     logger.error('Error in chat endpoint:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(200).json({
+      status: 'fail-soft',
+      content: null,
+      degradedSources: ['together'],
+      error: error.message
+    });
   }
 }

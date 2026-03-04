@@ -44,9 +44,13 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     log.error('Error processing content:', error);
-    return res.status(500).json({ 
+    return res.status(200).json({
+      status: 'fail-soft',
+      success: false,
+      processedContent: [],
+      degradedSources: ['process-content'],
       error: 'Failed to process content',
-      message: error.message 
+      message: error.message
     });
   }
 }

@@ -4,7 +4,13 @@
  */
 import axios from 'axios';
 
+const LINKEDIN_CALLBACK_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.redirect('/network?error=Method%20not%20allowed');
+  }
+
   const { code, state, error, error_description } = req.query;
   console.log('LinkedIn callback received:', { code: !!code, state, error, error_description });
 
@@ -21,7 +27,8 @@ export default async function handler(req, res) {
   try {
     // Determine the redirect URI - must exactly match what's registered in LinkedIn Developer Console
     // Use environment variable with fallback
-    const redirectUri = process.env.LINKEDIN_REDIRECT_URI || 'http://localhost:3002/api/auth/linkedin/callback';
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
+    const redirectUri = process.env.LINKEDIN_REDIRECT_URI || `${baseUrl}/api/auth/linkedin/callback`;
     const clientId = process.env.LINKEDIN_CLIENT_ID;
     const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
     
@@ -46,7 +53,8 @@ export default async function handler(req, res) {
         },
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
-        }
+        },
+        timeout: LINKEDIN_CALLBACK_TIMEOUT_MS,
       }
     );
 
@@ -57,7 +65,8 @@ export default async function handler(req, res) {
     const profileResponse = await axios.get('https://api.linkedin.com/v2/me', {
       headers: {
         Authorization: `Bearer ${access_token}`
-      }
+      },
+      timeout: LINKEDIN_CALLBACK_TIMEOUT_MS,
     });
     
     console.log('LinkedIn profile fetched successfully');

@@ -1,11 +1,5 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/next"
-    }
-  ],
   "routes": [
     {
       "src": "/api/(.*)",
@@ -21,12 +15,5 @@
       "src": "/(.*)",
       "dest": "/$1"
     }
-  ],
-  "env": {
-    "LINKEDIN_API_KEY": "0sVb7qMzBPjpfV84215K5yLfrr_O9w",
-    "REDDIT_API_KEY": "0sVb7qMzBPjpfV84215K5yLfrr_O9w",
-    "PERPLEXITY_API_KEY": "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",
-    "TOGETHER_API_KEY": "15a66263c48b3736db06ba44e4c5992bf7fbd86c1c97e53efcf0f3366f624c2b",
-    "SERPER_API_KEY": "2579c9d8f31f4a7bb976168e2168e976"
-  }
+  ]
 }

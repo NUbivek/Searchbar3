@@ -5,6 +5,8 @@
 
 import axios from 'axios';
 
+const LINKEDIN_AUTH_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   // Handle GET requests to check authentication status
   if (req.method === 'GET') {
@@ -21,7 +23,8 @@ export default async function handler(req, res) {
       const profileResponse = await axios.get('https://api.linkedin.com/v2/me', {
         headers: {
           Authorization: `Bearer ${accessToken}`
-        }
+        },
+        timeout: LINKEDIN_AUTH_TIMEOUT_MS,
       });
       
       console.log('LinkedIn token is valid, user:', profileResponse.data.localizedFirstName);
@@ -60,11 +63,16 @@ export default async function handler(req, res) {
   // Use environment variable with fallback
   const clientId = process.env.LINKEDIN_CLIENT_ID;
   const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
-  const redirectUri = process.env.LINKEDIN_REDIRECT_URI || 'http://localhost:3000/api/auth/linkedin/callback';
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
+  const redirectUri = process.env.LINKEDIN_REDIRECT_URI || `${baseUrl}/api/auth/linkedin/callback`;
 
   if (!clientId || !clientSecret) {
     console.error('LinkedIn credentials missing from environment variables');
-    return res.status(500).json({ error: 'LinkedIn API credentials not configured' });
+    return res.status(200).json({
+      status: 'fail-soft',
+      error: 'LinkedIn API credentials not configured',
+      degradedSources: ['linkedin-auth-token']
+    });
   }
 
   try {
@@ -85,6 +93,7 @@ export default async function handler(req, res) {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
+        timeout: LINKEDIN_AUTH_TIMEOUT_MS,
       }
     );
 
@@ -96,6 +105,7 @@ export default async function handler(req, res) {
       headers: {
         Authorization: `Bearer ${access_token}`,
       },
+      timeout: LINKEDIN_AUTH_TIMEOUT_MS,
     });
 
     // Get user email address (if we have the correct scope permissions)
@@ -105,6 +115,7 @@ export default async function handler(req, res) {
         headers: {
           Authorization: `Bearer ${access_token}`,
         },
+        timeout: LINKEDIN_AUTH_TIMEOUT_MS,
       });
       email = emailResponse.data?.elements?.[0]?.['handle~']?.emailAddress || null;
     } catch (emailError) {
@@ -138,9 +149,11 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('LinkedIn token exchange error:', error.response?.data || error.message);
     const errorDetails = error.response?.data?.error_description || error.message || 'Unknown error';
-    return res.status(500).json({
+    return res.status(200).json({
+      status: 'fail-soft',
       error: 'Failed to exchange LinkedIn authorization code',
       details: errorDetails,
+      degradedSources: ['linkedin-auth-token']
     });
   }
 }

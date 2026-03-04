@@ -10,6 +10,9 @@ import MetricsCalculator from '../../../components/search/metrics/MetricsCalcula
 import { processCategories } from '../../../components/search/categories/processors/CategoryProcessor';
 import searchResultScorer from '../../../utils/scoring/SearchResultScorer';
 import { detectQueryContext } from '../../../components/search/utils/contextDetector';
+import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
+
+const HN_FALLBACK_TIMEOUT_MS = 6000;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -17,7 +20,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    let { query, mode = 'verified', model = 'mistral-7b', sources = ['Web'], customUrls = [], files = [], useLLM = true, options = {} } = req.body;
+    const body = req.body || {};
+    let { query, mode = 'verified', model = 'mistral-7b', sources = ['Web'], customUrls = [], files = [], useLLM = true, options = {} } = body;
     
     // Normalize model ID in case older format is passed
     const modelMap = {
@@ -50,6 +54,8 @@ export default async function handler(req, res) {
     // Verify API keys and configuration
     // Record the start time for performance tracking
     const startTime = Date.now();
+    const requestId = `srch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const degradedSources = [];
     
     console.log('DEBUG: Environment variables check:', {
       TOGETHER_API_KEY: process.env.TOGETHER_API_KEY ? 'Set (starts with: ' + process.env.TOGETHER_API_KEY.substring(0, 5) + '...)' : 'Not set',
@@ -60,41 +66,41 @@ export default async function handler(req, res) {
     });
 
     // Verify that the SERPER_API_KEY is valid (has correct format)
-    if (!process.env.SERPER_API_KEY || process.env.SERPER_API_KEY.length < 20) {
-      console.error('ERROR: SERPER_API_KEY is missing or appears to be invalid');
-      return res.status(500).json({ 
-        error: 'Configuration error',
-        message: 'The search API key is missing or invalid. Please check your environment configuration.'
-      });
+    const serperConfigured = !!process.env.SERPER_API_KEY && process.env.SERPER_API_KEY.length >= 20;
+    if (!serperConfigured) {
+      console.warn('WARNING: SERPER_API_KEY is missing or appears invalid. Continuing in degraded mode.');
+      degradedSources.push('web');
     }
 
-    // Verify Serper API connectivity directly
-    try {
-      console.log('DEBUG: Verifying Serper API connectivity...');
-      const axios = require('axios');
-      const testResponse = await axios.post('https://google.serper.dev/search', 
-        { 
-          q: 'test connectivity',
-          num: 1,
-          gl: 'us',
-          hl: 'en'
-        },
-        { 
-          headers: { 
-            'X-API-KEY': process.env.SERPER_API_KEY,
-            'Content-Type': 'application/json'
+    // Verify Serper API connectivity directly (only when configured)
+    if (serperConfigured) {
+      try {
+        console.log('DEBUG: Verifying Serper API connectivity...');
+        const axios = require('axios');
+        const testResponse = await axios.post('https://google.serper.dev/search', 
+          { 
+            q: 'test connectivity',
+            num: 1,
+            gl: 'us',
+            hl: 'en'
+          },
+          { 
+            headers: { 
+              'X-API-KEY': process.env.SERPER_API_KEY,
+              'Content-Type': 'application/json'
+            },
+            timeout: 5000
           }
+        );
+
+        if (testResponse.status === 200) {
+          console.log('DEBUG: Serper API connectivity verified successfully');
+        } else {
+          console.warn('WARNING: Serper API returned non-200 status:', testResponse.status);
         }
-      );
-      
-      if (testResponse.status === 200) {
-        console.log('DEBUG: Serper API connectivity verified successfully');
-      } else {
-        console.warn('WARNING: Serper API returned non-200 status:', testResponse.status);
+      } catch (apiError) {
+        console.error('ERROR: Failed to verify Serper API connectivity:', apiError.message);
       }
-    } catch (apiError) {
-      console.error('ERROR: Failed to verify Serper API connectivity:', apiError.message);
-      // Continue anyway, as this is just a connectivity test
     }
 
     logger.info('Search request', { query, mode, model, sources });
@@ -121,10 +127,14 @@ export default async function handler(req, res) {
         customUrls,
         uploadedFiles: files
       });
-      
+
       // Extract results from the search result object
       results = searchResults.results || [];
-      
+      const providerStatuses = Array.isArray(searchResults.providerStatuses) ? searchResults.providerStatuses : [];
+      providerStatuses
+        .filter(provider => provider && provider.status === 'error')
+        .forEach(provider => degradedSources.push(provider.source));
+
       console.log(`DEBUG: Unified search returned results:`, {
         resultCount: results.length,
         mode,
@@ -132,14 +142,48 @@ export default async function handler(req, res) {
       });
     } catch (error) {
       console.error('ERROR: Search failed:', error.message);
-      
-      // If search fails, return a helpful error
-      if (!results || results.length === 0) {
-        return res.status(500).json({ 
-          error: 'Search failed',
-          message: 'No results found. Error: ' + error.message
-        });
+      degradedSources.push('primary-orchestrator');
+      results = [];
+    }
+
+    // Always-on HackerNews safety net (no API key required)
+    try {
+      const hnController = new AbortController();
+      const hnTimeout = setTimeout(() => hnController.abort(), HN_FALLBACK_TIMEOUT_MS);
+      const hnResp = await (async () => {
+        try {
+          return await fetch(
+            `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'}/api/search/hackernews?q=${encodeURIComponent(query)}`,
+            { signal: hnController.signal }
+          );
+        } finally {
+          clearTimeout(hnTimeout);
+        }
+      })();
+      if (!hnResp.ok) {
+        throw new Error(`HackerNews fallback returned ${hnResp.status}`);
       }
+      const hnData = await hnResp.json();
+      const hnResults = Array.isArray(hnData?.results) ? hnData.results : [];
+
+      if (hnResults.length > 0) {
+        const merged = [...results, ...hnResults.map(item => ({ ...item, source: item.source || 'hackernews' }))];
+        const deduped = [];
+        const seen = new Set();
+        for (const r of merged) {
+          const k = `${r.url || ''}::${r.title || ''}`;
+          if (!seen.has(k)) {
+            seen.add(k);
+            deduped.push(r);
+          }
+        }
+        results = deduped;
+      } else {
+        degradedSources.push('hackernews');
+      }
+    } catch (fallbackError) {
+      console.error('HackerNews safety net failed:', fallbackError.message);
+      degradedSources.push('hackernews');
     }
 
     // Log initial results structure
@@ -153,6 +197,38 @@ export default async function handler(req, res) {
       });
     } else {
       console.log('DEBUG: No results returned from search');
+    }
+
+    if (!results || results.length === 0) {
+      return res.status(200).json(normalizeSearchResponseV1({
+        requestId,
+        status: 'fail-soft',
+        query,
+        results: [],
+        degradedSources: Array.from(new Set(degradedSources)),
+        synthesis: {
+          enabled: false,
+          provider: null,
+          model: model || null,
+          content: null
+        },
+        categories: [],
+        isLLMResults: false,
+        llmProcessed: false,
+        failSoftContent: {
+          message: 'No live sources returned results right now.',
+          suggestions: [
+            'Try a more specific query',
+            'Check provider readiness at /api/debug/env-check',
+            'Try Web + HackerNews sources'
+          ],
+          exampleQueries: [
+            'AI infrastructure Series B deals 2024',
+            'SaaS ARR multiples Q4 2024',
+            'Robotics logistics startup funding'
+          ]
+        }
+      }));
     }
 
     // After fetching results, calculate metrics for all results using the SearchResultScorer
@@ -264,23 +340,24 @@ export default async function handler(req, res) {
           // Force a properly formatted API key for Together API
           const apiKey = process.env.TOGETHER_API_KEY;
           
-          if (!apiKey || apiKey.length < 64) {
-            throw new Error(`Invalid Together API key: Key is too short (${apiKey?.length || 0} chars). Together API keys should be at least 64 characters long.`);
+          if (!apiKey || apiKey.length < 20) {
+            console.warn(`Together API key unavailable/invalid (${apiKey?.length || 0} chars). Skipping remote LLM and using fallback synthesizer.`);
+            useFallbackSynthesizer = true;
+          } else {
+            // Process with LLM with detailed logging
+            console.log('Calling processWithLLM with query:', query.substring(0, 30) + '...',
+              'Model:', llmModel,
+              'Results count:', validSources?.length || 0);
+
+            llmResponse = await processWithLLM(
+              validSources, // searchResults
+              query,         // query
+              llmModel,      // modelId 
+              {              // options
+                apiKey: apiKey
+              }
+            );
           }
-          
-          // Process with LLM with detailed logging
-          console.log('Calling processWithLLM with query:', query.substring(0, 30) + '...',
-            'Model:', llmModel,
-            'Results count:', validSources?.length || 0);
-          
-          llmResponse = await processWithLLM(
-            validSources, // searchResults
-            query,         // query
-            llmModel,      // modelId 
-            {              // options
-              apiKey: apiKey
-            }
-          );
           
           // Add necessary flags to ensure proper detection & display if not already present
           if (llmResponse) {
@@ -537,6 +614,15 @@ export default async function handler(req, res) {
       });
       
       const synthesizedResponse = {
+        requestId,
+        status: degradedSources.length > 0 ? 'degraded' : 'ok',
+        degradedSources: Array.from(new Set(degradedSources)),
+        synthesis: {
+          enabled: true,
+          provider: 'together-or-fallback',
+          model: llmModel || model || null,
+          content: typeof llmResponse?.content === 'string' ? llmResponse.content : null
+        },
         // Core LLM result fields - place content at top level for immediate accessibility
         content: typeof llmResponse.content === 'string' ? llmResponse.content : 
                  typeof llmResponse.text === 'string' ? llmResponse.text : 
@@ -587,8 +673,17 @@ export default async function handler(req, res) {
     } else {
       // Traditional response without LLM processing
       console.log('Returning traditional search results without LLM synthesis');
-      return res.status(200).json({
+      return res.status(200).json(normalizeSearchResponseV1({
+        requestId,
+        status: degradedSources.length > 0 ? 'degraded' : 'ok',
         results,
+        degradedSources: Array.from(new Set(degradedSources)),
+        synthesis: {
+          enabled: false,
+          provider: null,
+          model: model || null,
+          content: null
+        },
         query,
         timestamp: new Date().toISOString(),
         categories: Array.isArray(prioritizedCategories) ? prioritizedCategories : [],
@@ -597,7 +692,7 @@ export default async function handler(req, res) {
         __isImmutableLLMResult: false,
         llmProcessed: false,
         type: 'search_results'
-      });
+      }));
     }
   } catch (error) {
     logger.error('Search error:', error);
@@ -607,12 +702,34 @@ export default async function handler(req, res) {
         (error.content && typeof error.content === 'string' && error.content.includes('error-message'))) {
       // Return properly formatted LLM error with status 200 so it can be displayed in the UI
       console.log('DEBUG: Returning LLM error with proper formatting');
-      return res.status(200).json(error);
+      return res.status(200).json(normalizeSearchResponseV1({
+        requestId: `srch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        status: 'fail-soft',
+        results: [],
+        degradedSources: ['search-runtime'],
+        synthesis: {
+          enabled: true,
+          provider: 'fallback',
+          model: null,
+          content: typeof error.content === 'string' ? error.content : null
+        },
+        ...error
+      }));
     }
     
     // For other errors, create a properly formatted error response that will be recognized as an LLM result
     console.log('DEBUG: Creating formatted error message for', error.message);
-    return res.status(200).json({
+    return res.status(200).json(normalizeSearchResponseV1({
+      requestId: `srch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      status: 'fail-soft',
+      results: [],
+      degradedSources: ['search-runtime'],
+      synthesis: {
+        enabled: true,
+        provider: 'fallback',
+        model: null,
+        content: null
+      },
       content: `<div class="error-message">
         <h3>Search Failed</h3>
         <p>${error.message}</p>
@@ -624,6 +741,6 @@ export default async function handler(req, res) {
       isLLMResults: true,
       __isImmutableLLMResult: true,
       llmProcessed: true
-    });
+    }));
   }
 }

@@ -1,6 +1,8 @@
 import { API_CONFIG, MODEL_CONFIGS } from '../../config/api-config';
 import axios from 'axios';
 
+const PROCESS_RESULTS_TIMEOUT_MS = 15000;
+
 const processWithPerplexity = async (results, modelConfig) => {
   const response = await axios.post(
     `${API_CONFIG.PERPLEXITY.BASE_URL}/chat/completions`,
@@ -22,7 +24,8 @@ const processWithPerplexity = async (results, modelConfig) => {
       headers: {
         'Authorization': `Bearer ${API_CONFIG.PERPLEXITY.API_KEY}`,
         'Content-Type': 'application/json'
-      }
+      },
+      timeout: PROCESS_RESULTS_TIMEOUT_MS,
     }
   );
   
@@ -42,7 +45,8 @@ const processWithTogether = async (results, modelConfig) => {
       headers: {
         'Authorization': `Bearer ${API_CONFIG.TOGETHER.API_KEY}`,
         'Content-Type': 'application/json'
-      }
+      },
+      timeout: PROCESS_RESULTS_TIMEOUT_MS,
     }
   );
   
@@ -50,12 +54,24 @@ const processWithTogether = async (results, modelConfig) => {
 };
 
 export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   const { results, model } = req.body;
   
   try {
     const modelConfig = MODEL_CONFIGS[model];
     if (!modelConfig) {
-      throw new Error('Invalid model selected');
+      return res.status(200).json({
+        status: 'fail-soft',
+        categories: {},
+        sources: {},
+        followUpQuestions: [],
+        raw: null,
+        degradedSources: ['result-processor'],
+        error: 'Invalid model selected'
+      });
     }
 
     let processedResults;
@@ -73,9 +89,17 @@ export default async function handler(req, res) {
       raw: processedResults
     };
 
-    res.status(200).json(organizedResults);
+    return res.status(200).json(organizedResults);
   } catch (error) {
     console.error('Processing error:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(200).json({
+      status: 'fail-soft',
+      categories: {},
+      sources: {},
+      followUpQuestions: [],
+      raw: null,
+      degradedSources: ['result-processor'],
+      error: error.message
+    });
   }
-} 
+}

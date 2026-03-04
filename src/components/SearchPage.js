@@ -9,6 +9,30 @@ import SearchErrorBoundary from './SearchErrorBoundary';
 import FileUpload from './FileUpload';
 import UrlInput from './UrlInput';
 
+function normalizeClientError(error) {
+  const message = String(error?.message || '').trim();
+  const lower = message.toLowerCase();
+
+  if (!message) {
+    return 'Search request failed. Please try again.';
+  }
+
+  if (
+    lower === 'load failed' ||
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('network request failed')
+  ) {
+    return 'Unable to reach the search API right now. Check your connection and try again.';
+  }
+
+  if (lower.includes('non-json response')) {
+    return 'Search API returned an unexpected response. Please retry in a moment.';
+  }
+
+  return message;
+}
+
 export default function SearchPage() {
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState(SearchModes.VERIFIED);
@@ -38,6 +62,14 @@ export default function SearchPage() {
           sources: selectedSources 
         }),
       });
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        throw new Error(
+          `Server returned non-JSON response (status ${response.status})${text ? `: ${text.slice(0, 140)}` : ''}`
+        );
+      }
 
       const data = await response.json();
       
@@ -73,7 +105,7 @@ export default function SearchPage() {
         }]);
       }
     } catch (error) {
-      setError(error.message);
+      setError(normalizeClientError(error));
       console.error('Search error:', error);
     } finally {
       setIsLoading(false);

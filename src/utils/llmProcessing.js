@@ -250,6 +250,12 @@ const generateSearchPrompt = (query, content, options = {}) => {
   YOUR RESPONSE: Based on the search results provided, here is my comprehensive answer to the query: "${query}":`;
 };
 
+// Backward-compatible export used by /api/llm/process
+export const generatePrompt = (query, sources = []) => {
+  const formatted = formatContentForLLM(sources);
+  return generateSearchPrompt(query, formatted, {});
+};
+
 /**
  * Call the LLM API with the given prompt
  * @param {string} prompt LLM prompt

@@ -4,6 +4,7 @@ import { logger } from '../../../utils/logger';
 import { processWithLLM } from '../../../utils/llmProcessing';
 import { processCategories } from '../../../components/search/categories/processors/CategoryProcessor';
 import { deepWebSearch } from '../../../utils/deepWebSearch';
+import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 
 // Define valid sources
 const VALID_SOURCES = ['web', 'linkedin', 'twitter', 'reddit', 'substack', 'medium', 'crunchbase', 'pitchbook', 'verified'];
@@ -23,7 +24,15 @@ export default async function handler(req, res) {
 
   try {
     // Extract query and other parameters from request body
-    const { query, sources = ['web'], model, customUrls, uploadedFiles, useLLM = true } = req.body;
+    const {
+      query,
+      sources = ['web'],
+      model,
+      customUrls = [],
+      uploadedFiles = [],
+      files = [],
+      useLLM = true
+    } = req.body;
 
     if (!query) {
       return res.status(400).json({ error: 'Query is required' });
@@ -35,6 +44,8 @@ export default async function handler(req, res) {
     let results = [];
     let llmResponse = null;
     let categories = [];
+    const degradedSources = [];
+    const normalizedFiles = Array.isArray(uploadedFiles) && uploadedFiles.length > 0 ? uploadedFiles : files;
 
     // Check if verified sources is selected
     if (sources.includes('verified')) {
@@ -42,7 +53,7 @@ export default async function handler(req, res) {
       const verifiedResults = await performSimpleVerifiedSearch(query, ['fmp', 'sec', 'edgar'], {
         model,
         customUrls,
-        uploadedFiles
+        uploadedFiles: normalizedFiles
       });
       results = [...results, ...verifiedResults];
       
@@ -53,25 +64,18 @@ export default async function handler(req, res) {
       if (otherSources.length > 0) {
         // Perform regular search with selected sources
         if (otherSources.includes('web')) {
-          try {
-            console.log(`DEBUG: Executing web search for: "${query}"`);
-            const webResults = await deepWebSearch(query, { numResults: 10 });
-            console.log(`DEBUG: Web search returned ${webResults.length} results`);
-            results = [...results, ...webResults];
-          } catch (error) {
-            console.error('ERROR: Web search failed:', error.message);
-            logger.error('Web search failed', { error: error.message });
-            
-            return res.status(500).json({ 
-              error: 'Search failed',
-              message: 'Web search failed. Please try again later.'
-            });
+          console.log(`DEBUG: Executing web search for: "${query}"`);
+          const webResults = await deepWebSearch(query, { maxResults: 10 });
+          console.log(`DEBUG: Web search returned ${webResults.length} results`);
+          if (webResults.length === 0) {
+            degradedSources.push('web');
           }
+          results = [...results, ...webResults];
         } else {
           const otherResults = await performSimpleSearch(query, otherSources, {
             model,
             customUrls,
-            uploadedFiles
+            uploadedFiles: normalizedFiles
           });
           results = [...results, ...otherResults];
         }
@@ -79,25 +83,18 @@ export default async function handler(req, res) {
     } else {
       // Perform regular search with selected sources
       if (sources.includes('web')) {
-        try {
-          console.log(`DEBUG: Executing web search for: "${query}"`);
-          const webResults = await deepWebSearch(query, { numResults: 10 });
-          console.log(`DEBUG: Web search returned ${webResults.length} results`);
-          results = [...results, ...webResults];
-        } catch (error) {
-          console.error('ERROR: Web search failed:', error.message);
-          logger.error('Web search failed', { error: error.message });
-          
-          return res.status(500).json({ 
-            error: 'Search failed',
-            message: 'Web search failed. Please try again later.'
-          });
+        console.log(`DEBUG: Executing web search for: "${query}"`);
+        const webResults = await deepWebSearch(query, { maxResults: 10 });
+        console.log(`DEBUG: Web search returned ${webResults.length} results`);
+        if (webResults.length === 0) {
+          degradedSources.push('web');
         }
+        results = [...results, ...webResults];
       } else {
         results = await performSimpleSearch(query, sources, {
           model,
           customUrls,
-          uploadedFiles
+          uploadedFiles: normalizedFiles
         });
       }
     }
@@ -150,19 +147,26 @@ export default async function handler(req, res) {
     });
     
     // Return the full LLM response object instead of just the content
-    return res.status(200).json({
+    return res.status(200).json(normalizeSearchResponseV1({
       results,
+      status: results.length > 0 ? (degradedSources.length > 0 ? 'degraded' : 'ok') : 'fail-soft',
+      degradedSources: Array.from(new Set(degradedSources)),
       query,
       timestamp: new Date().toISOString(),
       // Return the complete LLM response object with all the flags
       ...(llmResponse ? llmResponse : { content: null }),
       categories
-    });
+    }));
   } catch (error) {
     logger.error('Error in open search API:', error);
-    return res.status(500).json({ 
+    return res.status(200).json(normalizeSearchResponseV1({
+      results: [],
+      status: 'fail-soft',
+      degradedSources: ['open-search'],
       error: 'An error occurred during search',
-      message: error.message
-    });
+      message: error.message,
+      content: null,
+      categories: []
+    }));
   }
 }

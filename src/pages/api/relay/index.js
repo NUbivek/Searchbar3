@@ -6,6 +6,10 @@
  */
 
 export default function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   // Generate HTML with detailed instructions
   const html = `
   <!DOCTYPE html>
@@ -108,11 +112,8 @@ export default function handler(req, res) {
       
       // Update callback URLs in the table
       function updateCallbackUrls() {
-        // Twitter uses a fixed callback URL, so we don't update it
-        // document.getElementById('twitter-callback').textContent = `\${localServerUrl}/api/auth/twitter/callback`;
-        // LinkedIn uses a fixed callback URL, so we don't update it
-        // document.getElementById('linkedin-callback').textContent = `\${localServerUrl}/api/auth/linkedin/callback`;
-        document.getElementById('reddit-callback').textContent = `\${localServerUrl}/api/auth/reddit/callback`;
+        // Twitter and LinkedIn use fixed callback URLs in this relay page.
+        document.getElementById('reddit-callback').textContent = localServerUrl + '/api/auth/reddit/callback';
       }
       
       // Initialize on page load

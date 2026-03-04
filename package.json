@@ -10,12 +10,21 @@
     "dev:3002": "PORT=3002 npm run dev:port",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:unit": "jest --runInBand --testPathPattern=tests/unit",
+    "smoke:api": "node scripts/api-smoke.js",
+    "smoke:api:local": "node scripts/api-smoke-local.js",
+    "sourcing:plan": "node scripts/sourcing-plan.js",
+    "sourcing:validate": "node scripts/sourcing-validate.js",
+    "sourcing:run": "node scripts/sourcing-run.js",
+    "sourcing:stats": "node scripts/sourcing-stats.js",
+    "buildplan:status": "node scripts/build-plan-status.js"
   },
   "dependencies": {
     "@headlessui/react": "^1.7.18",
     "@heroicons/react": "^2.1.1",
     "@tailwindcss/forms": "^0.5.7",
+    "@vercel/analytics": "^1.6.1",
     "ai": "^4.1.50",
     "axios": "^1.7.9",
     "cheerio": "^1.0.0",

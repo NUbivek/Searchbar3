@@ -5,6 +5,8 @@
 
 import axios from 'axios';
 
+const FACEBOOK_AUTH_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -23,7 +25,11 @@ export default async function handler(req, res) {
     : 'http://localhost:3000/api/auth/facebook/callback';
 
   if (!clientId || !clientSecret) {
-    return res.status(500).json({ error: 'Facebook API credentials not configured' });
+    return res.status(200).json({
+      status: 'fail-soft',
+      error: 'Facebook API credentials not configured',
+      degradedSources: ['facebook-auth-token']
+    });
   }
 
   try {
@@ -37,6 +43,7 @@ export default async function handler(req, res) {
           code,
           redirect_uri: redirectUri,
         },
+        timeout: FACEBOOK_AUTH_TIMEOUT_MS,
       }
     );
 
@@ -46,6 +53,7 @@ export default async function handler(req, res) {
         fields: 'id,name,email,picture',
         access_token: tokenResponse.data.access_token,
       },
+      timeout: FACEBOOK_AUTH_TIMEOUT_MS,
     });
 
     // Get user friends (will only return friends who have also authorized your app)
@@ -53,6 +61,7 @@ export default async function handler(req, res) {
       params: {
         access_token: tokenResponse.data.access_token,
       },
+      timeout: FACEBOOK_AUTH_TIMEOUT_MS,
     });
 
     const userData = {
@@ -72,9 +81,11 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('Facebook token exchange error:', error.response?.data || error.message);
-    return res.status(500).json({
+    return res.status(200).json({
+      status: 'fail-soft',
       error: 'Failed to exchange Facebook authorization code',
       details: error.response?.data || error.message,
+      degradedSources: ['facebook-auth-token']
     });
   }
 }

@@ -4,6 +4,10 @@
 import { getCallbackUrl } from '../../../../utils/oauthUtils';
 
 export default function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   // Get LinkedIn client ID from environment variables
   const clientId = process.env.LINKEDIN_CLIENT_ID;
   
@@ -13,9 +17,11 @@ export default function handler(req, res) {
   // Validate required parameters
   if (!clientId) {
     console.error('LinkedIn client ID is missing. Check your .env.local file.');
-    return res.status(500).json({ 
+    return res.status(200).json({
+      status: 'fail-soft',
       error: 'Configuration error',
-      details: 'LinkedIn client ID is not configured.'
+      details: 'LinkedIn client ID is not configured.',
+      degradedSources: ['linkedin-auth']
     });
   }
   

@@ -1,0 +1,109 @@
+## sb scan env --scope all
+
+### search scope
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\index.js:55 :: TOGETHER_API_KEY: process.env.TOGETHER_API_KEY ? 'Set (starts with: ' + process.env.TOGETHER_API_KEY.substring(0, 5) + '...)' : 'Not set',
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\index.js:56 :: PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY ? 'Set (starts with: ' + process.env.PERPLEXITY_API_KEY.substring(0, 5) + '...)' : 'Not set',
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\index.js:57 :: SERPER_API_KEY: process.env.SERPER_API_KEY ? 'Set (starts with: ' + process.env.SERPER_API_KEY.substring(0, 5) + '...)' : 'Not set',
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\index.js:58 :: NODE_ENV: process.env.NODE_ENV || 'Not set',
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\index.js:59 :: BASE_URL: process.env.NEXT_PUBLIC_BASE_URL || 'Not set'
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\index.js:63 :: const serperConfigured = !!process.env.SERPER_API_KEY && process.env.SERPER_API_KEY.length >= 20;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\index.js:81 :: 'X-API-KEY': process.env.SERPER_API_KEY,
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\index.js:136 :: const hnResp = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'}/api/search/hackernews?q=${encodeURIComponent(query)}`);
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\index.js:247 :: console.log(`API key check - Together API: ${process.env.TOGETHER_API_KEY ? 'Valid key (starts with ' + process.env.TOGETHER_API_KEY.substring(0, 5) + '...)' : 'MISSING'}`);
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\index.js:248 :: console.log(`API key length check: ${process.env.TOGETHER_API_KEY ? process.env.TOGETHER_API_KEY.length + ' characters' : 'No key'}`);
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\index.js:291 :: const apiKey = process.env.TOGETHER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\linkedin.js:15 :: const clientId = process.env.LINKEDIN_CLIENT_ID;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\linkedin.js:16 :: const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\linkedin.js:72 :: const serperApiKey = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\medium.js:15 :: const serperApiKey = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\reddit.js:15 :: const clientId = process.env.REDDIT_CLIENT_ID;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\reddit.js:16 :: const clientSecret = process.env.REDDIT_CLIENT_SECRET;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\reddit.js:78 :: const serperApiKey = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\substack.js:15 :: const serperApiKey = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\twitter.js:15 :: const twitterApiKey = process.env.TWITTER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\twitter.js:59 :: const serperApiKey = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\search\web.js:128 :: const serperApiKey = process.env.SERPER_API_KEY;
+
+### llm/util scope
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\llm\chat.js:37 :: const API_KEY = process.env.TOGETHER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\llm\process.js:67 :: const togetherApiKey = process.env.TOGETHER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\llm\process.js:149 :: const perplexityApiKey = process.env.PERPLEXITY_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\llm\status.js:18 :: const togetherApiKey = process.env.TOGETHER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\llm\status.js:22 :: const perplexityApiKey = process.env.PERPLEXITY_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\llm\status.js:34 :: nodeEnv: process.env.NODE_ENV,
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\llm\status.js:35 :: hasEnvFile: !!process.env.NEXT_PUBLIC_SEARCH_API_URL
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\llm\test.js:32 :: console.log(`API Key from env: ${process.env.TOGETHER_API_KEY ? 'Present' : 'Missing'} (${process.env.TOGETHER_API_KEY?.length || 0} chars)`);
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\pages\api\llm\test.js:40 :: apiKey: process.env.TOGETHER_API_KEY,
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\combinedSearch.js:74 :: const serperApiKey = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\constants.js:68 :: export const DEBUG_MODE = process.env.NEXT_PUBLIC_DEBUG_MODE === 'true';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\constants.js:69 :: export const SHOW_METRICS = process.env.NEXT_PUBLIC_SHOW_METRICS === 'true';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\constants.js:70 :: export const SHOW_CHAT_HISTORY = process.env.NEXT_PUBLIC_SHOW_CHAT_HISTORY === 'true';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\dataSources.js:283 :: apikey: process.env.FMP_API_KEY
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\dataSources.js:322 :: api_key: process.env.FRED_API_KEY,
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\dataSources.js:351 :: key: process.env.CENSUS_API_KEY
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\dataSources.js:371 :: apikey: process.env.FMP_API_KEY
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\dataSources.js:387 :: apikey: process.env.TD_AMERITRADE_API_KEY
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\deepWebSearch.js:11 :: apiKey = process.env.SERPER_API_KEY
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\governmentData.js:113 :: log.info('FMP API key:', process.env.FMP_API_KEY ? 'Present' : 'Not found');
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\governmentData.js:120 :: apikey: process.env.FMP_API_KEY // Explicitly set API key
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\llmProcessing.js:116 :: let apiKey = options.apiKey || process.env.TOGETHER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\llmProcessing.js:123 :: envVarExists: !!process.env.TOGETHER_API_KEY,
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\llmProcessing.js:124 :: envVarLength: process.env.TOGETHER_API_KEY?.length || 0
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\networkLLMUtils.js:10 :: apiKey: process.env.TOGETHER_API_KEY,
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\networkMonitor.js:57 :: if (process.env.NODE_ENV === 'development') {
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\oauthUtils.js:20 :: const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\oauthUtils.js:21 :: const productionUrl = process.env.NEXT_PUBLIC_PRODUCTION_URL || 'https://research.bivek.ai';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\oauthUtils.js:24 :: const useProductionCallbacks = process.env.NEXT_PUBLIC_USE_PRODUCTION_CALLBACKS === 'true';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\oauthUtils.js:54 :: const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\oauthUtils.js:66 :: return process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\oauthUtils.js:75 :: return process.env.NEXT_PUBLIC_PRODUCTION_URL || 'https://research.bivek.ai';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\oauthUtils.js:84 :: return process.env.NEXT_PUBLIC_USE_PRODUCTION_CALLBACKS === 'true';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\openSearch.js:14 :: const apiKey = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:15 :: web: process.env.RATE_LIMIT_WEB || (process.env.NODE_ENV === 'development' ? 10000 : 1000),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:16 :: linkedin: process.env.RATE_LIMIT_LINKEDIN || (process.env.NODE_ENV === 'development' ? 10000 : 500),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:17 :: x: process.env.RATE_LIMIT_X || (process.env.NODE_ENV === 'development' ? 10000 : 500),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:18 :: reddit: process.env.RATE_LIMIT_REDDIT || (process.env.NODE_ENV === 'development' ? 10000 : 500),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:19 :: crunchbase: process.env.RATE_LIMIT_CRUNCHBASE || (process.env.NODE_ENV === 'development' ? 10000 : 500),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:20 :: pitchbook: process.env.RATE_LIMIT_PITCHBOOK || (process.env.NODE_ENV === 'development' ? 10000 : 500),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:21 :: medium: process.env.RATE_LIMIT_MEDIUM || (process.env.NODE_ENV === 'development' ? 10000 : 500),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:22 :: substack: process.env.RATE_LIMIT_SUBSTACK || (process.env.NODE_ENV === 'development' ? 10000 : 500),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:23 :: marketdata: process.env.RATE_LIMIT_MARKET_DATA || (process.env.NODE_ENV === 'development' ? 10000 : 1000),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:24 :: vcfirms: process.env.RATE_LIMIT_VC_FIRMS || (process.env.NODE_ENV === 'development' ? 10000 : 1000),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:25 :: llm: process.env.RATE_LIMIT_LLM || (process.env.NODE_ENV === 'development' ? 10000 : 500),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:26 :: verified: process.env.RATE_LIMIT_VERIFIED || (process.env.NODE_ENV === 'development' ? 10000 : 1000),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:27 :: custom: process.env.RATE_LIMIT_CUSTOM || (process.env.NODE_ENV === 'development' ? 10000 : 500),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:28 :: together: process.env.RATE_LIMIT_TOGETHER || (process.env.NODE_ENV === 'development' ? 10000 : 500),
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\rateLimiter.js:29 :: verifiedsearch: process.env.RATE_LIMIT_VERIFIED_SEARCH || (process.env.NODE_ENV === 'development' ? 10000 : 500)
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\search-legacy.js:205 :: const apiKey = process.env.TOGETHER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\search-legacy.js:206 :: const apiEndpoint = process.env.LLM_API_ENDPOINT || 'https://api.together.xyz/v1/chat/completions';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\search-legacy.js:485 :: const apiKey = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\search-legacy.js:587 :: const webResults = await deepWebSearch(query, { apiKey: process.env.SERPER_API_KEY });
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\search.js:205 :: const apiKey = process.env.TOGETHER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\search.js:206 :: const apiEndpoint = process.env.LLM_API_ENDPOINT || 'https://api.together.xyz/v1/chat/completions';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\search.js:482 :: const apiKey = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\search.js:584 :: const webResults = await deepWebSearch(query, { apiKey: process.env.SERPER_API_KEY });
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\search.js.new:193 :: const apiKey = process.env.OPENAI_API_KEY || 'your-api-key';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\search.js.new:194 :: const apiEndpoint = process.env.LLM_API_ENDPOINT || 'https://api.openai.com/v1/chat/completions';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\searchUtils.js:67 :: baseUrl = process.env.NODE_ENV === 'development'
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\searchUtils.js:69 :: : process.env.NEXT_PUBLIC_BASE_URL || '';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\socialAuthHelpers.js:8 :: const APP_BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\socialAuthHelpers.js:18 :: clientId: process.env.NEXT_PUBLIC_TWITTER_CLIENT_ID || '',
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\socialAuthHelpers.js:30 :: clientId: process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || '',
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sourceIntegration.js:24 :: return process.env.NODE_ENV === 'development'
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sourceIntegration.js:26 :: : process.env.NEXT_PUBLIC_BASE_URL || '';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sourceIntegration.js:134 :: const SERPER_API_KEY = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sourceIntegration.js:184 :: const SERPER_API_KEY = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sourceIntegration.js:279 :: const SERPER_API_KEY = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sourceIntegration.js:318 :: const SERPER_API_KEY = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sourceIntegration.js:357 :: const SERPER_API_KEY = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sourceIntegration.js:401 :: const SERPER_API_KEY = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sourceIntegration.js:440 :: const SERPER_API_KEY = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sourceIntegration.js:479 :: const SERPER_API_KEY = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sourceIntegration.js:518 :: const SERPER_API_KEY = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sourceIntegration.js:557 :: const SERPER_API_KEY = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sourceIntegration.js:596 :: const FMP_API_KEY = process.env.FMP_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\llm\togetherApi.js:9 :: if (!process.env.TOGETHER_API_KEY) {
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\llm\togetherApi.js:17 :: 'Authorization': `Bearer ${process.env.TOGETHER_API_KEY}`,
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sources\medium.js:10 :: const serperApiKey = process.env.SERPER_API_KEY;
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sources\reddit.js:10 :: const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3010';
+- C:\Users\bivek\.openclaw\workspace\searchbar3\src\utils\sources\substack.js:10 :: const serperApiKey = process.env.SERPER_API_KEY;

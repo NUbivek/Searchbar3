@@ -3,6 +3,7 @@ const logger = require('./logger');
 const { searchCompany, getFilings } = require('./edgarUtils');
 const { MARKET_DATA_SOURCES, VC_FIRMS } = require('./dataSources');
 const { deepWebSearch, enrichResults } = require('./deepWebSearch');
+const { fetchUrlContent, buildUrlSearchResult } = require('./urlExtraction');
 const { 
   VERIFIED_DATA_SOURCES, 
   getVerifiedSourcesByCategory, 
@@ -134,7 +135,8 @@ const handleSocialMediaSearch = async (query, platform, handle = null) => {
     const SERPER_API_KEY = process.env.SERPER_API_KEY;
     
     if (!SERPER_API_KEY) {
-      throw new Error(`SERPER_API_KEY is not defined`);
+      logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+      return [];
     }
 
     // If a specific handle is provided, target that handle
@@ -184,7 +186,8 @@ const handleWebsiteScrape = async (query, domain) => {
     const SERPER_API_KEY = process.env.SERPER_API_KEY;
     
     if (!SERPER_API_KEY) {
-      throw new Error(`SERPER_API_KEY is not defined`);
+      logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+      return [];
     }
 
     const response = await axios.post(
@@ -260,8 +263,11 @@ const handleVerifiedDataSourcesWithSocial = async (query, verifiedDataSources) =
       }
     }
 
-    // Wait for all social media searches to complete
-    const socialResults = (await Promise.all(socialPromises)).flat();
+    // Wait for all social media searches to complete (fail-soft)
+    const socialSettled = await Promise.allSettled(socialPromises);
+    const socialResults = socialSettled
+      .filter(r => r.status === 'fulfilled')
+      .flatMap(r => r.value || []);
 
     // Combine and return all results
     return [...baseResults, ...socialResults];
@@ -279,7 +285,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -318,7 +325,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -357,7 +365,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -401,7 +410,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -440,7 +450,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -479,7 +490,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -518,7 +530,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -557,7 +570,8 @@ const sourceHandlers = {
       const SERPER_API_KEY = process.env.SERPER_API_KEY;
       
       if (!SERPER_API_KEY) {
-        throw new Error('SERPER_API_KEY is not defined');
+        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       const response = await axios.post(
@@ -596,7 +610,8 @@ const sourceHandlers = {
       const FMP_API_KEY = process.env.FMP_API_KEY;
       
       if (!FMP_API_KEY) {
-        throw new Error('FMP_API_KEY is not defined');
+        logger.warn('FMP_API_KEY is not defined; returning fail-soft []');
+        return [];
       }
 
       // Search for companies
@@ -614,7 +629,8 @@ const sourceHandlers = {
         axios.get(`https://financialmodelingprep.com/api/v3/profile/${company.symbol}?apikey=${FMP_API_KEY}`)
       );
       
-      const profiles = await Promise.all(profilePromises);
+      const profilesSettled = await Promise.allSettled(profilePromises);
+      const profiles = profilesSettled.filter(p => p.status === 'fulfilled').map(p => p.value);
       
       return profiles
         .filter(profile => profile.data && Array.isArray(profile.data) && profile.data.length > 0)
@@ -649,7 +665,10 @@ const sourceHandlers = {
         getFilings(company.cik)
       );
       
-      const filingResults = await Promise.all(filingsPromises);
+      const filingSettled = await Promise.allSettled(filingsPromises);
+      const filingResults = filingSettled
+        .filter(r => r.status === 'fulfilled')
+        .map(r => r.value || []);
       
       // Flatten and format results
       return filingResults
@@ -679,18 +698,19 @@ const sourceHandlers = {
       }
 
       logger.info(`Processing ${customUrls.length} custom URLs with query: ${query}`);
-      
-      // Process each URL and return results
-      const results = customUrls.map(url => ({
-        title: `Custom Source: ${url}`,
-        content: `This is a custom source from URL: ${url}. Query: ${query}`,
-        url: url,
-        source: 'custom',
-        type: 'custom_url',
-        relevance: 0.8
-      }));
-      
-      return results;
+
+      const settled = await Promise.allSettled(
+        customUrls.map((url) => fetchUrlContent(url, {
+          timeoutMs: 10000,
+          maxBytes: 1024 * 1024,
+          textLimit: 8000
+        }))
+      );
+
+      return settled
+        .filter(item => item.status === 'fulfilled')
+        .map(item => buildUrlSearchResult(item.value))
+        .filter(Boolean);
     } catch (error) {
       logger.error(`Error processing custom URLs:`, error);
       return [];
@@ -705,18 +725,30 @@ const sourceHandlers = {
       }
 
       logger.info(`Processing ${files.length} files for query: ${query}`);
-      
-      // Process each file and return results
-      const results = files.map(file => ({
-        title: `File Source: ${file.name}`,
-        content: `This is a file source from: ${file.name}. Size: ${file.size} bytes. Query: ${query}`,
-        url: '#',
-        source: 'file',
-        type: 'uploaded_file',
-        relevance: 0.8
-      }));
-      
-      return results;
+
+      return files
+        .filter(Boolean)
+        .map((file, index) => {
+          const fileName = file.name || file.source || `file-${index + 1}`;
+          const rawContent = typeof file.content === 'string' ? file.content : '';
+          const normalizedContent = rawContent.replace(/\s+/g, ' ').trim().slice(0, 8000);
+          const parseError = file.error || null;
+
+          return {
+            title: `File Source: ${fileName}`,
+            content: normalizedContent || `Uploaded file "${fileName}" had no extractable content.`,
+            url: '#',
+            source: 'file',
+            type: 'uploaded_file',
+            relevance: normalizedContent ? 0.85 : 0.35,
+            metadata: {
+              fileType: file.type || null,
+              fileSize: Number.isFinite(file.size) ? file.size : null,
+              parseError,
+              ...(file.metadata && typeof file.metadata === 'object' ? file.metadata : {})
+            }
+          };
+        });
     } catch (error) {
       logger.error(`Error processing files:`, error);
       return [];
@@ -822,10 +854,86 @@ const sourceHandlers = {
  * @param {Array<string>} sources - Array of source names to search
  * @returns {Promise<Array>} - Array of search results
  */
-const performSearch = async (query, sources = ['web']) => {
+const withTimeout = (promise, ms = 8000, label = 'source') => {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((resolve) => {
+      timer = setTimeout(() => {
+        logger.warn(`Timeout in ${label} after ${ms}ms; returning fail-soft []`);
+        resolve({ __timedOut: true });
+      }, ms);
+    })
+  ]).finally(() => clearTimeout(timer));
+};
+
+const normalizeProviderResponse = (source, rawResults, errorMessage = null) => {
+  const results = Array.isArray(rawResults)
+    ? rawResults.filter(Boolean).map(result => ({
+        ...result,
+        source: result?.source || source
+      }))
+    : [];
+
+  if (errorMessage) {
+    return {
+      source,
+      status: 'error',
+      results,
+      error: errorMessage
+    };
+  }
+
+  return {
+    source,
+    status: results.length > 0 ? 'ok' : 'empty',
+    results,
+    error: null
+  };
+};
+
+const runSourceHandler = async (source, query, options = {}) => {
+  const handler = sourceHandlers[source];
+  if (typeof handler !== 'function') {
+    return normalizeProviderResponse(source, [], 'No handler configured');
+  }
+
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 8000;
+  const args = [query];
+
+  if (source === 'custom') {
+    args.push(options.customUrls || []);
+  } else if (source === 'file') {
+    args.push(options.files || options.uploadedFiles || []);
+  } else if (source === 'verified') {
+    args.push(options);
+  } else if (source === 'verifiedData') {
+    args.push(options.verifiedDataSources || []);
+  }
+
+  try {
+    const rawResults = await withTimeout(
+      Promise.resolve(handler(...args)),
+      timeoutMs,
+      `${source} search`
+    );
+
+    if (rawResults && rawResults.__timedOut) {
+      return normalizeProviderResponse(source, [], `Timed out after ${timeoutMs}ms`);
+    }
+
+    return normalizeProviderResponse(source, rawResults);
+  } catch (error) {
+    logger.error(`Error in ${source} search:`, error);
+    return normalizeProviderResponse(source, [], error.message || 'Unhandled provider error');
+  }
+};
+
+const performSearchDetailed = async (query, sources = ['web'], options = {}) => {
   try {
     if (!query) {
-      throw new Error('Query is required');
+      logger.warn('performSearchDetailed called without query; returning fail-soft empty response');
+      return { results: [], providers: [] };
     }
 
     // Validate sources
@@ -838,23 +946,34 @@ const performSearch = async (query, sources = ['web']) => {
       validSources.push('web');
     }
 
-    // Execute searches in parallel
-    const searchPromises = validSources.map(source => 
-      sourceHandlers[source](query)
-        .catch(error => {
-          logger.error(`Error in ${source} search:`, error);
-          return []; // Return empty array on error
-        })
+    const providerPromises = validSources.map(source =>
+      runSourceHandler(source, query, options)
     );
 
-    const results = await Promise.all(searchPromises);
-    
-    // Flatten results
-    return results.flat();
+    const settled = await Promise.allSettled(providerPromises);
+    const providers = settled
+      .filter(item => item.status === 'fulfilled')
+      .map(item => item.value);
+
+    return {
+      providers,
+      results: providers.flatMap(provider => provider.results || [])
+    };
   } catch (error) {
-    logger.error('Error in performSearch:', error);
-    return [];
+    logger.error('Error in performSearchDetailed:', error);
+    return { results: [], providers: [] };
   }
 };
 
-module.exports = { sourceHandlers, performSearch };
+const performSearch = async (query, sources = ['web'], options = {}) => {
+  const result = await performSearchDetailed(query, sources, options);
+  return result.results;
+};
+
+module.exports = {
+  sourceHandlers,
+  performSearch,
+  performSearchDetailed,
+  runSourceHandler,
+  normalizeProviderResponse
+};

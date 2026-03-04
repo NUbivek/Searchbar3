@@ -86,7 +86,7 @@ export default function VerifiedSearch({ isNetworkMapMode = false, selectedModel
         model: selectedModel,
         sources: selectedSources,
         customUrls: customUrls,
-        files: uploadedFiles.map(f => f.name)
+        files: uploadedFiles
       }, {
         timeout: 120000, // 2 minute timeout
         timeoutErrorMessage: 'Search request timed out. The operation may be taking too long to complete.'
