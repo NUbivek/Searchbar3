@@ -11,6 +11,8 @@ const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searc
 const handler = require('../../../src/pages/api/verifiedSearch').default;
 
 describe('/api/verifiedSearch', () => {
+  const originalBaseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+
   beforeEach(() => {
     jest.clearAllMocks();
     global.fetch = jest.fn();
@@ -18,6 +20,11 @@ describe('/api/verifiedSearch', () => {
 
   afterEach(() => {
     delete global.fetch;
+    if (originalBaseUrl === undefined) {
+      delete process.env.NEXT_PUBLIC_BASE_URL;
+    } else {
+      process.env.NEXT_PUBLIC_BASE_URL = originalBaseUrl;
+    }
   });
 
   test('returns 405 for non-POST requests', async () => {
@@ -107,6 +114,35 @@ describe('/api/verifiedSearch', () => {
       error: 'An error occurred in the simplified search handler',
       message: 'upstream failed',
     }));
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
+  });
+
+  test('falls back to NEXT_PUBLIC_BASE_URL when origin header is missing', async () => {
+    process.env.NEXT_PUBLIC_BASE_URL = 'https://fallback.example';
+    global.fetch.mockResolvedValue({
+      json: jest.fn().mockResolvedValue({ results: [{ id: 'ok-1' }] }),
+    });
+
+    const req = createMockReq({
+      method: 'POST',
+      headers: {},
+      body: {
+        query: 'operator updates',
+      },
+    });
+    const res = createMockRes();
+    res.setHeader = jest.fn();
+
+    await handler(req, res);
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://fallback.example/api/search',
+      expect.objectContaining({
+        method: 'POST',
+        signal: expect.any(Object),
+      })
+    );
+    expect(res.statusCode).toBe(200);
     expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 });
