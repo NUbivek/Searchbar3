@@ -4,6 +4,7 @@ import { logger } from '../../../utils/logger';
 import { processWithLLM } from '../../../utils/llmProcessing';
 import { processCategories } from '../../../components/search/categories/processors/CategoryProcessor';
 import { deepWebSearch } from '../../../utils/deepWebSearch';
+import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 
 // Define valid sources
 const VALID_SOURCES = ['web', 'linkedin', 'twitter', 'reddit', 'substack', 'medium', 'crunchbase', 'pitchbook', 'verified'];
@@ -146,7 +147,7 @@ export default async function handler(req, res) {
     });
     
     // Return the full LLM response object instead of just the content
-    return res.status(200).json({
+    return res.status(200).json(normalizeSearchResponseV1({
       results,
       status: results.length > 0 ? (degradedSources.length > 0 ? 'degraded' : 'ok') : 'fail-soft',
       degradedSources: Array.from(new Set(degradedSources)),
@@ -155,10 +156,10 @@ export default async function handler(req, res) {
       // Return the complete LLM response object with all the flags
       ...(llmResponse ? llmResponse : { content: null }),
       categories
-    });
+    }));
   } catch (error) {
     logger.error('Error in open search API:', error);
-    return res.status(200).json({
+    return res.status(200).json(normalizeSearchResponseV1({
       results: [],
       status: 'fail-soft',
       degradedSources: ['open-search'],
@@ -166,6 +167,6 @@ export default async function handler(req, res) {
       message: error.message,
       content: null,
       categories: []
-    });
+    }));
   }
 }

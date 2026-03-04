@@ -32,6 +32,7 @@ const { performSimpleSearch, performSimpleVerifiedSearch } = require('../../../s
 const { processWithLLM } = require('../../../src/utils/llmProcessing');
 const { processCategories } = require('../../../src/components/search/categories/processors/CategoryProcessor');
 const { deepWebSearch } = require('../../../src/utils/deepWebSearch');
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 const handler = require('../../../src/pages/api/search/open').default;
 
 describe('/api/search/open', () => {
@@ -95,6 +96,7 @@ describe('/api/search/open', () => {
     expect(res.body.status).toBe('fail-soft');
     expect(res.body.degradedSources).toEqual(['web']);
     expect(res.body.content).toBe('summary');
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   test('merges verified and regular search results', async () => {
