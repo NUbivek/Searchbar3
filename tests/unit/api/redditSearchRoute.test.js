@@ -90,6 +90,7 @@ describe('/api/search/reddit', () => {
           username: 'client-id',
           password: 'client-secret',
         },
+        timeout: 10000,
       })
     );
     expect(axios.get).toHaveBeenCalledWith(
@@ -101,6 +102,7 @@ describe('/api/search/reddit', () => {
           limit: 10,
           t: 'month',
         }),
+        timeout: 10000,
       })
     );
     expect(res.statusCode).toBe(200);
@@ -162,6 +164,7 @@ describe('/api/search/reddit', () => {
         headers: expect.objectContaining({
           'X-API-KEY': 'serper-key',
         }),
+        timeout: 10000,
       })
     );
     expect(res.statusCode).toBe(200);

@@ -2,6 +2,8 @@ import axios from 'axios';
 import { logger } from '../../../utils/logger';
 import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 
+const SEARCH_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
@@ -46,7 +48,8 @@ export default async function handler(req, res) {
           headers: {
             'X-API-KEY': serperApiKey,
             'Content-Type': 'application/json'
-          }
+          },
+          timeout: SEARCH_TIMEOUT_MS,
         }
       );
 
@@ -104,7 +107,8 @@ export default async function handler(req, res) {
       {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
-        }
+        },
+        timeout: SEARCH_TIMEOUT_MS,
       }
     );
 
@@ -123,7 +127,8 @@ export default async function handler(req, res) {
           'Authorization': `Bearer ${accessToken}`,
           'X-Restli-Protocol-Version': '2.0.0',
           'LinkedIn-Version': '202401'
-        }
+        },
+        timeout: SEARCH_TIMEOUT_MS,
       }
     );
 

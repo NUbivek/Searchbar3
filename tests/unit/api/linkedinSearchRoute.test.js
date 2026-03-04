@@ -84,6 +84,7 @@ describe('/api/search/linkedin', () => {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
+        timeout: 10000,
       })
     );
     expect(axios.get).toHaveBeenCalledWith(
@@ -94,6 +95,7 @@ describe('/api/search/linkedin', () => {
           count: 10,
           start: 0,
         },
+        timeout: 10000,
         headers: expect.objectContaining({
           Authorization: 'Bearer linkedin-token',
         }),
@@ -153,6 +155,7 @@ describe('/api/search/linkedin', () => {
         headers: expect.objectContaining({
           'X-API-KEY': 'serper-key',
         }),
+        timeout: 10000,
       })
     );
     expect(res.statusCode).toBe(200);

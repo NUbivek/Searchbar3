@@ -2,6 +2,8 @@ import axios from 'axios';
 import { logger } from '../../../utils/logger';
 import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 
+const SEARCH_TIMEOUT_MS = 10000;
+
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
@@ -46,7 +48,8 @@ export default async function handler(req, res) {
           headers: {
             'X-API-KEY': serperApiKey,
             'Content-Type': 'application/json'
-          }
+          },
+          timeout: SEARCH_TIMEOUT_MS,
         }
       );
 
@@ -108,7 +111,8 @@ export default async function handler(req, res) {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           'User-Agent': 'Searchbar/1.0.0 (by /u/BivekAdhikari)'
-        }
+        },
+        timeout: SEARCH_TIMEOUT_MS,
       }
     );
     const accessToken = tokenResponse.data.access_token;
@@ -126,7 +130,8 @@ export default async function handler(req, res) {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'User-Agent': 'Searchbar/1.0.0 (by /u/BivekAdhikari)'
-        }
+        },
+        timeout: SEARCH_TIMEOUT_MS,
       }
     );
 

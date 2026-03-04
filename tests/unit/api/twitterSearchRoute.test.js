@@ -82,6 +82,7 @@ describe('/api/search/twitter', () => {
           query: 'workflow engine',
           max_results: 10,
         }),
+        timeout: 10000,
         headers: expect.objectContaining({
           Authorization: 'Bearer twitter-key',
         }),
@@ -145,6 +146,7 @@ describe('/api/search/twitter', () => {
         headers: expect.objectContaining({
           'X-API-KEY': 'serper-key',
         }),
+        timeout: 10000,
       })
     );
     expect(res.statusCode).toBe(200);
