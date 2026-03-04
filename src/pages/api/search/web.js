@@ -2,6 +2,7 @@ import axios from 'axios';
 import { logger } from '../../../utils/logger';
 import { withRetry } from '../../../utils/errorHandling';
 import { rateLimit } from '../../../utils/rateLimiter';
+import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 const { fetchUrlContent } = require('../../../utils/urlExtraction');
 
 // Constants
@@ -59,7 +60,8 @@ export default async function handler(req, res) {
       selectedSources = ['web']
     } = req.body;
 
-    const failSoft = (overrides = {}) => ({
+    const failSoft = (overrides = {}) => normalizeSearchResponseV1({
+      results: [],
       sources: [],
       summary: {
         content: '',
@@ -67,6 +69,12 @@ export default async function handler(req, res) {
       },
       status: 'fail-soft',
       degradedSources: ['web'],
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: model || null,
+        content: null,
+      },
       ...overrides
     });
     
@@ -312,18 +320,26 @@ export default async function handler(req, res) {
       logger.info(`[${searchId}] Processed ${customUrls.length} custom URLs`);
     }
 
-    res.json({ 
+    res.json(normalizeSearchResponseV1({
+      results: sources,
       sources, 
       status: sources.length > 0 ? 'ok' : 'fail-soft',
       degradedSources: sources.length > 0 ? [] : ['web'],
       summary: {
         content: '', // Will be filled by LLM processing
         sourceMap
-      }
-    });
+      },
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: model || null,
+        content: '',
+      },
+    }));
   } catch (error) {
     logger.error(`[${searchId}] Search error:`, error);
-    res.status(200).json({
+    res.status(200).json(normalizeSearchResponseV1({
+      results: [],
       sources: [],
       status: 'fail-soft',
       degradedSources: ['web'],
@@ -332,7 +348,13 @@ export default async function handler(req, res) {
         sourceMap: {}
       },
       message: 'Search failed',
-      error: error.message
-    });
+      error: error.message,
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: null,
+        content: null,
+      },
+    }));
   }
 }

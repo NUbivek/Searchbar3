@@ -18,6 +18,7 @@ jest.mock('../../../src/utils/rateLimiter', () => ({
 }));
 
 const { rateLimit } = require('../../../src/utils/rateLimiter');
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 const { createMockReq, createMockRes } = require('./testUtils');
 const handler = require('../../../src/pages/api/search/web').default;
 
@@ -56,6 +57,7 @@ describe('/api/search/web', () => {
     expect(res.body.status).toBe('fail-soft');
     expect(res.body.degradedSources).toEqual(['web']);
     expect(res.body.message).toBe('Serper API key not configured');
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   test('rejects invalid custom URLs', async () => {
