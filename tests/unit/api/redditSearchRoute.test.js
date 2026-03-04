@@ -11,6 +11,7 @@ jest.mock('../../../src/utils/logger', () => ({
 
 const axios = require('axios');
 const { logger } = require('../../../src/utils/logger');
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 const handler = require('../../../src/pages/api/search/reddit').default;
 const { createMockReq, createMockRes } = require('./testUtils');
 
@@ -104,6 +105,8 @@ describe('/api/search/reddit', () => {
     );
     expect(res.statusCode).toBe(200);
     expect(res.body.sources).toHaveLength(1);
+    expect(res.body.results).toHaveLength(1);
+    expect(res.body.status).toBe('ok');
     expect(res.body.sources[0]).toEqual(
       expect.objectContaining({
         type: 'RedditResult',
@@ -118,6 +121,7 @@ describe('/api/search/reddit', () => {
         }),
       })
     );
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   it('falls back to Serper when the Reddit API fails', async () => {
@@ -169,6 +173,9 @@ describe('/api/search/reddit', () => {
         url: 'https://reddit.com/r/test/comments/xyz',
       }),
     ]);
+    expect(res.body.results).toEqual(res.body.sources);
+    expect(res.body.status).toBe('ok');
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   it('returns a fail-soft payload when Reddit and Serper both fail', async () => {
@@ -190,12 +197,13 @@ describe('/api/search/reddit', () => {
 
     expect(logger.error).toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
+    expect(res.body).toEqual(expect.objectContaining({
       sources: [],
       status: 'fail-soft',
       degradedSources: ['reddit'],
       message: 'Search failed',
       error: 'serper down',
-    });
+    }));
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 });
