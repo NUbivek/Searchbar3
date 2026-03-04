@@ -1,127 +1,137 @@
-jest.mock('axios');
+jest.mock('axios', () => ({
+  post: jest.fn()
+}));
 
-const axios = require('axios');
-const { createMockReq } = require('./testUtils');
-const handler = require('../../../src/pages/api/auth/reddit/callback').default;
+import axios from 'axios';
+import handler from '../../../src/pages/api/auth/reddit/callback';
 
-function createRedirectRes() {
-  const headers = {};
-
+function createReq(overrides = {}) {
   return {
-    statusCode: 200,
-    headers,
-    redirectUrl: null,
-    setHeader(name, value) {
-      headers[name] = value;
-      return this;
-    },
-    getHeader(name) {
-      return headers[name];
-    },
-    redirect(url) {
-      this.redirectUrl = url;
-      return this;
-    },
+    method: 'GET',
+    query: {},
+    headers: {},
+    ...overrides
   };
 }
 
+function createRes() {
+  const res = {
+    headers: {},
+    redirect: jest.fn((location) => location),
+    setHeader: jest.fn((name, value) => {
+      res.headers[name] = value;
+    })
+  };
+  return res;
+}
+
 describe('/api/auth/reddit/callback', () => {
-  const originalEnv = process.env;
+  const env = process.env;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env = { ...originalEnv };
+    process.env = { ...env };
+    process.env.REDDIT_CLIENT_ID = 'reddit-client-id';
+    process.env.REDDIT_CLIENT_SECRET = 'reddit-client-secret';
+    process.env.REDDIT_REDIRECT_URI = 'https://example.com/api/auth/reddit/callback';
+    process.env.NODE_ENV = 'test';
   });
 
   afterAll(() => {
-    process.env = originalEnv;
+    process.env = env;
   });
 
-  it('redirects when Reddit returns an auth error', async () => {
-    const req = createMockReq({ query: { error: 'access_denied' } });
-    const res = createRedirectRes();
-
-    await handler(req, res);
-
-    expect(res.redirectUrl).toBe('/network?error=access_denied');
-  });
-
-  it('redirects when no authorization code is present', async () => {
-    const req = createMockReq({ query: {} });
-    const res = createRedirectRes();
-
-    await handler(req, res);
-
-    expect(res.redirectUrl).toBe('/network?error=No authorization code received from Reddit');
-  });
-
-  it('redirects when the OAuth state does not match the stored cookie', async () => {
-    const req = createMockReq({
-      query: { code: 'abc', state: 'incoming-state' },
-      headers: { cookie: 'reddit_auth_state=stored-state' },
+  it('redirects auth errors from Reddit', async () => {
+    const req = createReq({
+      query: { error: 'access_denied' }
     });
-    const res = createRedirectRes();
+    const res = createRes();
 
     await handler(req, res);
 
-    expect(res.redirectUrl).toBe('/network?error=Invalid Reddit OAuth state');
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=access_denied');
   });
 
-  it('redirects when Reddit client credentials are missing', async () => {
+  it('redirects when the authorization code is missing', async () => {
+    const req = createReq();
+    const res = createRes();
+
+    await handler(req, res);
+
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=No authorization code received from Reddit');
+  });
+
+  it('rejects invalid oauth state when a state cookie is present', async () => {
+    const req = createReq({
+      query: { code: 'oauth-code', state: 'returned-state' },
+      headers: { cookie: 'reddit_auth_state=stored-state' }
+    });
+    const res = createRes();
+
+    await handler(req, res);
+
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=Invalid Reddit OAuth state');
+  });
+
+  it('redirects when Reddit credentials are missing', async () => {
     delete process.env.REDDIT_CLIENT_ID;
-    delete process.env.REDDIT_CLIENT_SECRET;
-
-    const req = createMockReq({ query: { code: 'abc' }, headers: {} });
-    const res = createRedirectRes();
+    const req = createReq({
+      query: { code: 'oauth-code' }
+    });
+    const res = createRes();
 
     await handler(req, res);
 
-    expect(res.redirectUrl).toBe('/network?error=Missing Reddit client credentials');
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=Missing Reddit client credentials');
   });
 
-  it('sets cookies and redirects on successful token exchange', async () => {
-    process.env.REDDIT_CLIENT_ID = 'client-id';
-    process.env.REDDIT_CLIENT_SECRET = 'client-secret';
-    process.env.REDDIT_REDIRECT_URI = 'https://example.com/callback';
-
+  it('stores tokens and redirects on a successful token exchange', async () => {
     axios.post.mockResolvedValue({
       data: {
         access_token: 'access-token',
         refresh_token: 'refresh-token',
-        expires_in: 7200,
-      },
+        expires_in: 1800
+      }
     });
 
-    const req = createMockReq({
-      query: { code: 'abc', state: 'same-state' },
-      headers: { cookie: 'reddit_auth_state=same-state' },
+    const req = createReq({
+      query: { code: 'oauth-code', state: 'stored-state' },
+      headers: { cookie: 'reddit_auth_state=stored-state' }
     });
-    const res = createRedirectRes();
+    const res = createRes();
 
     await handler(req, res);
 
-    expect(axios.post).toHaveBeenCalled();
-    expect(res.redirectUrl).toBe('/network?auth=reddit_success');
-
-    const cookies = res.getHeader('Set-Cookie');
-    expect(Array.isArray(cookies)).toBe(true);
-    expect(cookies[0]).toContain('reddit_access_token=access-token');
-    expect(cookies[1]).toContain('reddit_refresh_token=refresh-token');
+    expect(axios.post).toHaveBeenCalledTimes(1);
+    expect(res.setHeader).toHaveBeenCalledWith(
+      'Set-Cookie',
+      expect.arrayContaining([
+        expect.stringContaining('reddit_access_token=access-token'),
+        expect.stringContaining('reddit_refresh_token=refresh-token')
+      ])
+    );
+    expect(res.redirect).toHaveBeenCalledWith('/network?auth=reddit_success');
   });
 
-  it('redirects with an encoded error when token exchange fails', async () => {
-    process.env.REDDIT_CLIENT_ID = 'client-id';
-    process.env.REDDIT_CLIENT_SECRET = 'client-secret';
-
+  it('redirects with a token exchange failure message', async () => {
     axios.post.mockRejectedValue({
-      response: { data: { error: 'invalid_grant' } },
+      response: {
+        data: {
+          error: 'invalid_grant'
+        }
+      }
     });
 
-    const req = createMockReq({ query: { code: 'abc' }, headers: {} });
-    const res = createRedirectRes();
+    const req = createReq({
+      query: { code: 'oauth-code', state: 'stored-state' },
+      headers: { cookie: 'reddit_auth_state=stored-state' }
+    });
+    const res = createRes();
 
     await handler(req, res);
 
-    expect(res.redirectUrl).toBe('/network?error=Reddit%20token%20exchange%20failed%3A%20invalid_grant');
+    expect(res.redirect).toHaveBeenCalledWith(
+      '/network?error=Reddit%20token%20exchange%20failed%3A%20invalid_grant'
+    );
   });
 });
