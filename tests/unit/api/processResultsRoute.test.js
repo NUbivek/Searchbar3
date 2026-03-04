@@ -78,6 +78,7 @@ describe('/api/processResults', () => {
           Authorization: 'Bearer undefined',
           'Content-Type': 'application/json',
         },
+        timeout: 15000,
       }
     );
     expect(res.statusCode).toBe(200);
@@ -127,6 +128,7 @@ describe('/api/processResults', () => {
           Authorization: 'Bearer undefined',
           'Content-Type': 'application/json',
         },
+        timeout: 15000,
       }
     );
     expect(res.statusCode).toBe(200);

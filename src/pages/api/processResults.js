@@ -1,6 +1,8 @@
 import { API_CONFIG, MODEL_CONFIGS } from '../../config/api-config';
 import axios from 'axios';
 
+const PROCESS_RESULTS_TIMEOUT_MS = 15000;
+
 const processWithPerplexity = async (results, modelConfig) => {
   const response = await axios.post(
     `${API_CONFIG.PERPLEXITY.BASE_URL}/chat/completions`,
@@ -22,7 +24,8 @@ const processWithPerplexity = async (results, modelConfig) => {
       headers: {
         'Authorization': `Bearer ${API_CONFIG.PERPLEXITY.API_KEY}`,
         'Content-Type': 'application/json'
-      }
+      },
+      timeout: PROCESS_RESULTS_TIMEOUT_MS,
     }
   );
   
@@ -42,7 +45,8 @@ const processWithTogether = async (results, modelConfig) => {
       headers: {
         'Authorization': `Bearer ${API_CONFIG.TOGETHER.API_KEY}`,
         'Content-Type': 'application/json'
-      }
+      },
+      timeout: PROCESS_RESULTS_TIMEOUT_MS,
     }
   );
   
