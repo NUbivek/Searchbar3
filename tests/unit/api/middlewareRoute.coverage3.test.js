@@ -1,42 +1,54 @@
-const { createMockReq, createMockRes } = require('./testUtils');
+import { withErrorHandler } from '../../../src/pages/api/middleware';
 
-const { withErrorHandler } = require('../../../src/pages/api/middleware');
+describe('/api/middleware withErrorHandler', () => {
+  function createRes() {
+    return {
+      statusCode: 200,
+      body: null,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        this.body = payload;
+        return this;
+      }
+    };
+  }
 
-describe('withErrorHandler', () => {
-  it('preserves successful handler responses', async () => {
-    const handler = jest.fn(async (_req, res) => {
-      res.status(201).json({ ok: true });
+  it('passes through when the handler succeeds', async () => {
+    const req = { method: 'GET' };
+    const res = createRes();
+    const handler = jest.fn(async (_req, response) => {
+      response.status(200).json({ ok: true });
     });
 
     const wrapped = withErrorHandler(handler);
-    const req = createMockReq({ method: 'POST' });
-    const res = createMockRes();
-
     await wrapped(req, res);
 
     expect(handler).toHaveBeenCalledWith(req, res);
-    expect(res.statusCode).toBe(201);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({ ok: true });
   });
 
-  it('returns a structured 500 when the handler throws', async () => {
+  it('returns 500 with error details when the handler throws', async () => {
+    const req = { method: 'POST' };
+    const res = createRes();
     const error = new Error('boom');
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const handler = jest.fn(async () => {
       throw error;
     });
-    const wrapped = withErrorHandler(handler);
-    const req = createMockReq();
-    const res = createMockRes();
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
+    const wrapped = withErrorHandler(handler);
     await wrapped(req, res);
 
+    expect(consoleSpy).toHaveBeenCalledWith('API Error:', error);
     expect(res.statusCode).toBe(500);
     expect(res.body).toEqual({
       error: 'Internal server error',
-      message: 'boom',
+      message: 'boom'
     });
-    expect(consoleSpy).toHaveBeenCalledWith('API Error:', error);
 
     consoleSpy.mockRestore();
   });
