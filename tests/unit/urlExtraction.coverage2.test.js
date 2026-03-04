@@ -49,6 +49,32 @@ describe('urlExtraction coverage', () => {
     expect(result.error).toBe('timeout');
   });
 
+  test('applies timeout/size/text limit options for guarded extraction', async () => {
+    axios.get.mockResolvedValue({
+      data: '<html><head><title>T</title></head><body><p>abcdefghijklmnopqrstuvwxyz</p></body></html>',
+      headers: {
+        'content-type': 'text/html',
+      },
+    });
+
+    const result = await fetchUrlContent('https://example.com/guarded', {
+      timeoutMs: 1234,
+      maxBytes: 4321,
+      textLimit: 5,
+    });
+
+    expect(axios.get).toHaveBeenCalledWith(
+      'https://example.com/guarded',
+      expect.objectContaining({
+        timeout: 1234,
+        maxContentLength: 4321,
+        maxBodyLength: 4321,
+      })
+    );
+    expect(result.status).toBe('ok');
+    expect(result.content).toBe('abcde');
+  });
+
   test('buildUrlSearchResult returns null on degraded payloads', () => {
     expect(buildUrlSearchResult({ status: 'error', content: 'x' })).toBeNull();
     expect(buildUrlSearchResult({ status: 'ok', content: '' })).toBeNull();
