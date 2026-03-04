@@ -905,4 +905,89 @@ describe('sourcing foundation', () => {
     expect(sourceHealthLines).toHaveLength(2);
     expect(sourceHealthLines[1]).toContain('"2"');
   });
+
+  test('runPipeline skips auth-required sources without blocking no-auth sources', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'searchbar3-sourcing-auth-skip-'));
+    const registryPath = path.join(tempDir, 'registry.json');
+    const outputPath = path.join(tempDir, 'signals.jsonl');
+    const statePath = path.join(tempDir, 'source_state.json');
+    const rollupPath = path.join(tempDir, 'daily_rollup.csv');
+    const categoryExportPath = path.join(tempDir, 'category_rollup.csv');
+    const crmExportPath = path.join(tempDir, 'crm_export.csv');
+    const sourceHealthPath = path.join(tempDir, 'source_health.csv');
+    const runReportPath = path.join(tempDir, 'latest_run_summary.json');
+    const originalFetch = global.fetch;
+    let fetchMock;
+
+    fs.writeFileSync(
+      registryPath,
+      JSON.stringify([
+        {
+          id: 'A-NOAUTH',
+          name: 'No Auth Feed',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'rss', url: 'https://example.com/noauth.xml' },
+          cadence: { tier: 'A', frequency: 'daily' },
+          query_strategy: { type: 'feed' },
+          requires_auth: false,
+          adapter: 'rss',
+          notes: 'No auth source',
+        },
+        {
+          id: 'B-AUTH',
+          name: 'Auth Feed',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'rss', url: 'https://example.com/auth.xml' },
+          cadence: { tier: 'B', frequency: 'weekly' },
+          query_strategy: { type: 'feed' },
+          requires_auth: true,
+          adapter: 'rss',
+          notes: 'Auth source',
+        },
+      ], null, 2),
+      'utf-8'
+    );
+
+    fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <rss><channel>
+          <item>
+            <title>No Auth Startup</title>
+            <link>https://example.com/noauth-startup</link>
+            <description>Seed startup profile</description>
+            <pubDate>2026-03-02T00:00:00.000Z</pubDate>
+          </item>
+        </channel></rss>
+      `,
+    });
+    global.fetch = fetchMock;
+
+    const result = await runPipeline({
+      registryPath,
+      outputPath,
+      statePath,
+      rollupPath,
+      categoryExportPath,
+      crmExportPath,
+      sourceHealthPath,
+      runReportPath,
+    });
+
+    global.fetch = originalFetch;
+
+    expect(result.runCount).toBe(1);
+    expect(result.skippedCount).toBe(1);
+    expect(result.emittedCount).toBe(1);
+    expect(result.summaries).toHaveLength(1);
+    expect(result.summaries[0].sourceId).toBe('A-NOAUTH');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fs.existsSync(outputPath)).toBe(true);
+  });
 });
