@@ -102,9 +102,12 @@ export default async function handler(req, res) {
     
   } catch (error) {
     console.error('Search API error:', error);
-    return res.status(500).json({ 
+    return res.status(200).json({
+      status: 'fail-soft',
+      results: [],
+      degradedSources: ['legacy-search'],
       error: 'An error occurred during search',
-      details: error.message 
+      details: error.message
     });
   }
 } 

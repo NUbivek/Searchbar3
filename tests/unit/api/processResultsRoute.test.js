@@ -11,7 +11,7 @@ describe('/api/processResults', () => {
     jest.clearAllMocks();
   });
 
-  test('returns 500 for an invalid model', async () => {
+  test('returns fail-soft 200 for an invalid model', async () => {
     const req = createMockReq({
       method: 'POST',
       body: {
@@ -24,8 +24,16 @@ describe('/api/processResults', () => {
     await handler(req, res);
 
     expect(axios.post).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: 'Invalid model selected' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      status: 'fail-soft',
+      categories: {},
+      sources: {},
+      followUpQuestions: [],
+      raw: null,
+      degradedSources: ['result-processor'],
+      error: 'Invalid model selected',
+    });
   });
 
   test('processes results with the Perplexity provider', async () => {

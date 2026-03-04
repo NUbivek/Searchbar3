@@ -55,7 +55,15 @@ export default async function handler(req, res) {
   try {
     const modelConfig = MODEL_CONFIGS[model];
     if (!modelConfig) {
-      throw new Error('Invalid model selected');
+      return res.status(200).json({
+        status: 'fail-soft',
+        categories: {},
+        sources: {},
+        followUpQuestions: [],
+        raw: null,
+        degradedSources: ['result-processor'],
+        error: 'Invalid model selected'
+      });
     }
 
     let processedResults;
@@ -73,9 +81,17 @@ export default async function handler(req, res) {
       raw: processedResults
     };
 
-    res.status(200).json(organizedResults);
+    return res.status(200).json(organizedResults);
   } catch (error) {
     console.error('Processing error:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(200).json({
+      status: 'fail-soft',
+      categories: {},
+      sources: {},
+      followUpQuestions: [],
+      raw: null,
+      degradedSources: ['result-processor'],
+      error: error.message
+    });
   }
-} 
+}
