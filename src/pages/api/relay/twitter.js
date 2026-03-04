@@ -6,6 +6,10 @@
  */
 
 export default function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.status(405).send('Method not allowed');
+  }
+
   // Extract the auth code and state from the query parameters
   const { code, state } = req.query;
   
