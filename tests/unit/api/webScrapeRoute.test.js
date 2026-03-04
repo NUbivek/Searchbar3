@@ -113,7 +113,9 @@ describe('/api/webScrape', () => {
     expect(axios.get).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
       summary: 'Found results across 1 sources',
+      degradedSources: [],
       results: [],
     });
   });
@@ -142,7 +144,9 @@ describe('/api/webScrape', () => {
       expect.objectContaining({ timeout: 10000 })
     );
     expect(res.statusCode).toBe(200);
+    expect(res.body.status).toBe('ok');
     expect(res.body.summary).toBe('Found results across 1 sources');
+    expect(res.body.degradedSources).toEqual([]);
     expect(res.body.results).toHaveLength(1);
     expect(res.body.results[0]).toEqual(
       expect.objectContaining({
@@ -154,5 +158,26 @@ describe('/api/webScrape', () => {
       })
     );
     expect(typeof res.body.results[0].timestamp).toBe('string');
+  });
+
+  test('returns fail-soft response for unexpected handler exceptions', async () => {
+    const req = { method: 'POST' };
+    Object.defineProperty(req, 'body', {
+      get() {
+        throw new Error('body crashed');
+      },
+    });
+    const res = createMockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      status: 'fail-soft',
+      summary: 'Web scraping encountered an unexpected error',
+      degradedSources: ['webScrape'],
+      results: [],
+      error: 'Scraping failed',
+    });
   });
 });

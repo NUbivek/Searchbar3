@@ -7,9 +7,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { query, url, sources = [] } = req.body;
-
   try {
+    const { query, url, sources = [] } = req.body || {};
     // Handle both single URL and multiple sources
     if (url) {
       // Single URL case
@@ -22,12 +21,22 @@ export default async function handler(req, res) {
       });
     } else if (sources && sources.length > 0) {
       // Multiple sources case
-      const results = await Promise.all(
+      const settled = await Promise.allSettled(
         sources.map(source => scrapeSource(source, query))
       );
 
+      const degradedSources = settled
+        .map((result, index) => (result.status === 'rejected' ? sources[index] : null))
+        .filter(Boolean);
+
+      const results = settled
+        .filter(result => result.status === 'fulfilled')
+        .map(result => result.value);
+
       return res.status(200).json({
+        status: results.flat().length > 0 ? (degradedSources.length > 0 ? 'degraded' : 'ok') : 'fail-soft',
         summary: `Found results across ${sources.length} sources`,
+        degradedSources,
         results: results.flat()
       });
     } else {
@@ -35,7 +44,13 @@ export default async function handler(req, res) {
     }
   } catch (error) {
     logger.error('Web scraping error:', error);
-    res.status(500).json({ error: 'Scraping failed' });
+    return res.status(200).json({
+      status: 'fail-soft',
+      summary: 'Web scraping encountered an unexpected error',
+      degradedSources: ['webScrape'],
+      results: [],
+      error: 'Scraping failed'
+    });
   }
 }
 
