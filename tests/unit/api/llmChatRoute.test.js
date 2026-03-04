@@ -39,7 +39,7 @@ describe('/api/llm/chat', () => {
     expect(res.body).toEqual({ error: 'Messages array is required' });
   });
 
-  test('returns 500 when the Together API key is missing', async () => {
+  test('returns fail-soft 200 when the Together API key is missing', async () => {
     const req = createMockReq({
       method: 'POST',
       body: {
@@ -51,8 +51,14 @@ describe('/api/llm/chat', () => {
     await handler(req, res);
 
     expect(global.fetch).not.toHaveBeenCalled();
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: 'Together API key not found' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      status: 'fail-soft',
+      content: null,
+      model: 'mistralai/Mistral-7B-v0.1',
+      degradedSources: ['together'],
+      error: 'Together API key not found',
+    });
   });
 
   test('falls back to mistral when an unsupported model is requested', async () => {
@@ -99,7 +105,7 @@ describe('/api/llm/chat', () => {
     });
   });
 
-  test('returns 500 when Together returns a non-ok response', async () => {
+  test('returns fail-soft 200 when Together returns a non-ok response', async () => {
     process.env.TOGETHER_API_KEY = 'test-key';
     global.fetch.mockResolvedValueOnce({
       ok: false,
@@ -117,7 +123,13 @@ describe('/api/llm/chat', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: 'Together API error: 500' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      status: 'fail-soft',
+      content: null,
+      model: 'mistralai/Mistral-7B-v0.1',
+      degradedSources: ['together'],
+      error: 'Together API error: 500',
+    });
   });
 });
