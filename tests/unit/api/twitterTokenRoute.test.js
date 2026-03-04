@@ -79,7 +79,7 @@ describe('/api/auth/twitter/token', () => {
     expect(res.body).toEqual({ error: 'No refresh token available' });
   });
 
-  it('returns configuration error when code exchange credentials are missing', async () => {
+  it('returns fail-soft payload when code exchange credentials are missing', async () => {
     delete process.env.TWITTER_CLIENT_ID;
     delete process.env.TWITTER_API_KEY;
     delete process.env.TWITTER_CLIENT_SECRET;
@@ -93,8 +93,12 @@ describe('/api/auth/twitter/token', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: 'Twitter API credentials not configured' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      status: 'fail-soft',
+      error: 'Twitter API credentials not configured',
+      degradedSources: ['twitter-auth-token'],
+    });
   });
 
   it('exchanges an authorization code and returns the Twitter profile', async () => {

@@ -144,14 +144,18 @@ describe('/api/auth/linkedin/token', () => {
     expect(axios.post).not.toHaveBeenCalled();
   });
 
-  test('returns configuration error when linkedin credentials are missing', async () => {
+  test('returns fail-soft payload when linkedin credentials are missing', async () => {
     const req = createMockReq({ method: 'POST', body: { code: 'auth-code' } });
     const res = createMockRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: 'LinkedIn API credentials not configured' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      status: 'fail-soft',
+      error: 'LinkedIn API credentials not configured',
+      degradedSources: ['linkedin-auth-token'],
+    });
     expect(axios.post).not.toHaveBeenCalled();
   });
 

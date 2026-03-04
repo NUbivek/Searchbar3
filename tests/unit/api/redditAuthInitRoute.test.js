@@ -43,16 +43,18 @@ describe('/api/auth/reddit', () => {
     process.env = originalEnv;
   });
 
-  it('returns 500 when REDDIT_CLIENT_ID is missing', async () => {
+  it('returns fail-soft payload when REDDIT_CLIENT_ID is missing', async () => {
     const req = { method: 'GET' };
     const res = createMockRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
       error: 'Configuration error',
       details: 'REDDIT_CLIENT_ID is not configured.',
+      degradedSources: ['reddit-auth'],
     });
   });
 

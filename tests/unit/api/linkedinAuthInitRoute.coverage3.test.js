@@ -47,17 +47,19 @@ describe('/api/auth/linkedin init route', () => {
     jest.clearAllMocks();
   });
 
-  it('returns 500 when LinkedIn client id is missing', async () => {
+  it('returns fail-soft payload when LinkedIn client id is missing', async () => {
     delete process.env.LINKEDIN_CLIENT_ID;
     const req = { method: 'GET' };
     const res = createRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
       error: 'Configuration error',
       details: 'LinkedIn client ID is not configured.',
+      degradedSources: ['linkedin-auth'],
     });
   });
 

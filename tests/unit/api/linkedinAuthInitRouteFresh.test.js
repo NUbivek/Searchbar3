@@ -41,16 +41,18 @@ describe('/api/auth/linkedin', () => {
     };
   }
 
-  it('returns 500 when LinkedIn client id is missing', async () => {
+  it('returns fail-soft payload when LinkedIn client id is missing', async () => {
     const req = { method: 'GET' };
     const res = createRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.jsonPayload).toEqual({
+      status: 'fail-soft',
       error: 'Configuration error',
       details: 'LinkedIn client ID is not configured.',
+      degradedSources: ['linkedin-auth'],
     });
   });
 

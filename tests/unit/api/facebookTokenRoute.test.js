@@ -60,14 +60,18 @@ describe('/api/auth/facebook/token', () => {
     expect(axios.get).not.toHaveBeenCalled();
   });
 
-  test('returns configuration error when facebook credentials are missing', async () => {
+  test('returns fail-soft payload when facebook credentials are missing', async () => {
     const req = createMockReq({ method: 'POST', body: { code: 'auth-code' } });
     const res = createMockRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: 'Facebook API credentials not configured' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      status: 'fail-soft',
+      error: 'Facebook API credentials not configured',
+      degradedSources: ['facebook-auth-token'],
+    });
     expect(axios.get).not.toHaveBeenCalled();
   });
 

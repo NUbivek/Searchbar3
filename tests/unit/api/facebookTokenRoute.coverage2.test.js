@@ -41,14 +41,18 @@ describe('/api/auth/facebook/token', () => {
     expect(res.body).toEqual({ error: 'Authorization code is required' });
   });
 
-  it('returns 500 when Facebook credentials are missing', async () => {
+  it('returns fail-soft payload when Facebook credentials are missing', async () => {
     const req = createMockReq({ method: 'POST', body: { code: 'auth-code' } });
     const res = createMockRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: 'Facebook API credentials not configured' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      status: 'fail-soft',
+      error: 'Facebook API credentials not configured',
+      degradedSources: ['facebook-auth-token'],
+    });
   });
 
   it('returns normalized token, profile, and friends on success', async () => {
@@ -77,7 +81,7 @@ describe('/api/auth/facebook/token', () => {
     expect(axios.get).toHaveBeenCalledTimes(3);
   });
 
-  it('returns 500 with failure details when exchange fails', async () => {
+  it('returns fail-soft payload with failure details when exchange fails', async () => {
     process.env.FACEBOOK_APP_ID = 'app-id';
     process.env.FACEBOOK_APP_SECRET = 'app-secret';
 
@@ -88,10 +92,12 @@ describe('/api/auth/facebook/token', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
       error: 'Failed to exchange Facebook authorization code',
       details: 'boom',
+      degradedSources: ['facebook-auth-token'],
     });
   });
 });

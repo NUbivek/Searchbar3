@@ -52,16 +52,18 @@ describe('/api/auth/twitter', () => {
     process.env = originalEnv;
   });
 
-  it('returns 500 when twitter credentials are missing', async () => {
+  it('returns fail-soft payload when twitter credentials are missing', async () => {
     const req = createReq();
     const res = createRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
       error: 'Configuration error',
       details: 'Twitter API key is not configured.',
+      degradedSources: ['twitter-auth'],
     });
   });
 

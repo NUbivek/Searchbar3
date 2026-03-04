@@ -45,16 +45,18 @@ describe('/api/auth/reddit', () => {
     }
   });
 
-  test('returns configuration error when client id is missing', () => {
+  test('returns fail-soft payload when client id is missing', () => {
     const req = createMockReq();
     const res = createRedirectRes();
 
     handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
       error: 'Configuration error',
       details: 'REDDIT_CLIENT_ID is not configured.',
+      degradedSources: ['reddit-auth'],
     });
     expect(getCallbackUrl).not.toHaveBeenCalled();
     expect(res.redirect).not.toHaveBeenCalled();

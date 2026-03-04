@@ -44,7 +44,7 @@ describe('/api/auth/twitter', () => {
     Math.random = originalRandom;
   });
 
-  it('returns 500 when twitter client id is missing', async () => {
+  it('returns fail-soft payload when twitter client id is missing', async () => {
     delete process.env.TWITTER_API_KEY;
     delete process.env.TWITTER_CLIENT_ID;
 
@@ -53,10 +53,12 @@ describe('/api/auth/twitter', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.jsonPayload).toEqual({
+      status: 'fail-soft',
       error: 'Configuration error',
       details: 'Twitter API key is not configured.',
+      degradedSources: ['twitter-auth'],
     });
   });
 
