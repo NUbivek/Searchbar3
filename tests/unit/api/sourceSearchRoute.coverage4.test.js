@@ -3,6 +3,7 @@ jest.mock('axios', () => ({
 }));
 
 const axios = require('axios');
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 const handler = require('../../../src/pages/api/sourceSearch').default;
 const { createMockReq, createMockRes } = require('./testUtils');
 
@@ -21,13 +22,14 @@ describe('/api/sourceSearch fail-soft behavior', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
+    expect(res.body).toEqual(expect.objectContaining({
       source: 'UnknownNet',
       results: [],
       status: 'fail-soft',
       degradedSources: ['unknownnet'],
       error: 'Unsupported source: UnknownNet',
-    });
+    }));
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   test('returns fail-soft payload when upstream provider call throws', async () => {
@@ -42,12 +44,13 @@ describe('/api/sourceSearch fail-soft behavior', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
+    expect(res.body).toEqual(expect.objectContaining({
       source: 'LinkedIn',
       results: [],
       status: 'fail-soft',
       degradedSources: ['linkedin'],
       error: 'linkedin upstream down',
-    });
+    }));
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 });

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { normalizeSearchResponseV1 } from '../../utils/contracts/searchResponse';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -7,12 +8,18 @@ export default async function handler(req, res) {
 
   const { source, query, apiKey } = req.query;
 
-  const failSoft = (source, error) => ({
+  const failSoft = (source, error) => normalizeSearchResponseV1({
     source,
     results: [],
     status: 'fail-soft',
     degradedSources: [String(source || 'unknown').toLowerCase()],
-    error: error || 'Source search failed'
+    error: error || 'Source search failed',
+    synthesis: {
+      enabled: false,
+      provider: null,
+      model: null,
+      content: null,
+    },
   });
 
   try {
@@ -34,7 +41,28 @@ export default async function handler(req, res) {
         );
     }
 
-    res.status(200).json(results);
+    const providerResults = results && typeof results === 'object' ? results : {};
+    const normalizedResults = Array.isArray(providerResults.results)
+      ? providerResults.results
+      : Array.isArray(providerResults.items)
+        ? providerResults.items
+        : [];
+
+    res.status(200).json(normalizeSearchResponseV1({
+      ...providerResults,
+      source,
+      status: 'ok',
+      results: normalizedResults,
+      degradedSources: [],
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: null,
+        content: null,
+      },
+      llmProcessed: false,
+      legacyResults: providerResults,
+    }));
   } catch (error) {
     console.error(`${source} search error:`, error);
     res.status(200).json(
