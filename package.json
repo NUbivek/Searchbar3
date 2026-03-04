@@ -17,7 +17,8 @@
     "sourcing:plan": "node scripts/sourcing-plan.js",
     "sourcing:validate": "node scripts/sourcing-validate.js",
     "sourcing:run": "node scripts/sourcing-run.js",
-    "sourcing:stats": "node scripts/sourcing-stats.js"
+    "sourcing:stats": "node scripts/sourcing-stats.js",
+    "buildplan:status": "node scripts/build-plan-status.js"
   },
   "dependencies": {
     "@headlessui/react": "^1.7.18",
