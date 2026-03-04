@@ -12,7 +12,7 @@ function createRedirectRes() {
 }
 
 describe('/api/auth/facebook/callback', () => {
-  test('redirects with auth error from facebook', async () => {
+  test('redirects when facebook returns an auth error', async () => {
     const req = createMockReq({
       query: {
         error: 'access_denied',
@@ -35,11 +35,11 @@ describe('/api/auth/facebook/callback', () => {
     expect(res.redirect).toHaveBeenCalledWith('/network?error=No authorization code received');
   });
 
-  test('redirects with code for frontend token exchange', async () => {
+  test('redirects with code and source when callback succeeds', async () => {
     const req = createMockReq({
       query: {
         code: 'facebook-auth-code',
-        state: 'csrf-state',
+        state: 'opaque-state',
       },
     });
     const res = createRedirectRes();
