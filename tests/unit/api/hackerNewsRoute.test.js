@@ -1,4 +1,5 @@
 const handler = require('../../../src/pages/api/search/hackernews').default;
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 const { createMockReq, createMockRes } = require('./testUtils');
 
 describe('/api/search/hackernews', () => {
@@ -57,6 +58,7 @@ describe('/api/search/hackernews', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.query).toBe('ai tools');
     expect(res.body.source).toBe('hackernews');
+    expect(res.body.status).toBe('ok');
     expect(res.body.results).toEqual([
       expect.objectContaining({
         title: 'Test HN Story',
@@ -68,6 +70,7 @@ describe('/api/search/hackernews', () => {
         score: 42,
       }),
     ]);
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
   it('returns degraded success payload when fetch fails', async () => {
@@ -79,12 +82,14 @@ describe('/api/search/hackernews', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
+    expect(res.body).toEqual(expect.objectContaining({
       query: 'agents',
       source: 'hackernews',
       results: [],
-      degraded: true,
+      status: 'fail-soft',
+      degradedSources: ['hackernews'],
       error: 'network down',
-    });
+    }));
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 });

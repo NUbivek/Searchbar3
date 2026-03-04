@@ -1,3 +1,5 @@
+import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
+
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -26,14 +28,36 @@ export default async function handler(req, res) {
       score: hit.points || 0
     }));
 
-    return res.status(200).json({ query, source: 'hackernews', results });
+    return res.status(200).json(normalizeSearchResponseV1({
+      query,
+      source: 'hackernews',
+      results,
+      status: 'ok',
+      degradedSources: [],
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: null,
+        content: null,
+      },
+      llmProcessed: false,
+    }));
   } catch (error) {
-    return res.status(200).json({
+    return res.status(200).json(normalizeSearchResponseV1({
       query,
       source: 'hackernews',
       results: [],
       degraded: true,
-      error: error.message
-    });
+      status: 'fail-soft',
+      degradedSources: ['hackernews'],
+      error: error.message,
+      synthesis: {
+        enabled: false,
+        provider: null,
+        model: null,
+        content: null,
+      },
+      llmProcessed: false,
+    }));
   }
 }
