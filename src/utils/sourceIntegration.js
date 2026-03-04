@@ -725,18 +725,30 @@ const sourceHandlers = {
       }
 
       logger.info(`Processing ${files.length} files for query: ${query}`);
-      
-      // Process each file and return results
-      const results = files.map(file => ({
-        title: `File Source: ${file.name}`,
-        content: `This is a file source from: ${file.name}. Size: ${file.size} bytes. Query: ${query}`,
-        url: '#',
-        source: 'file',
-        type: 'uploaded_file',
-        relevance: 0.8
-      }));
-      
-      return results;
+
+      return files
+        .filter(Boolean)
+        .map((file, index) => {
+          const fileName = file.name || file.source || `file-${index + 1}`;
+          const rawContent = typeof file.content === 'string' ? file.content : '';
+          const normalizedContent = rawContent.replace(/\s+/g, ' ').trim().slice(0, 8000);
+          const parseError = file.error || null;
+
+          return {
+            title: `File Source: ${fileName}`,
+            content: normalizedContent || `Uploaded file "${fileName}" had no extractable content.`,
+            url: '#',
+            source: 'file',
+            type: 'uploaded_file',
+            relevance: normalizedContent ? 0.85 : 0.35,
+            metadata: {
+              fileType: file.type || null,
+              fileSize: Number.isFinite(file.size) ? file.size : null,
+              parseError,
+              ...(file.metadata && typeof file.metadata === 'object' ? file.metadata : {})
+            }
+          };
+        });
     } catch (error) {
       logger.error(`Error processing files:`, error);
       return [];
