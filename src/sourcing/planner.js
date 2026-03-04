@@ -66,6 +66,10 @@ function buildNextDueSummary(items, keyName) {
 }
 
 function getDeferredReason(source, state, options) {
+  if (source.requires_auth && !options.includeAuthSources) {
+    return 'auth_disabled';
+  }
+
   if (!matchesExecutionMode(source, options.executionMode)) {
     return 'excluded_by_mode';
   }

@@ -24,6 +24,8 @@ function parseArgs(argv) {
       index += 1;
     } else if (arg === '--force') {
       options.force = true;
+    } else if (arg === '--include-auth-sources') {
+      options.includeAuthSources = true;
     }
   }
 

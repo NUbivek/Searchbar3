@@ -23,6 +23,8 @@ function parseArgs(argv) {
       options.force = true;
     } else if (arg === '--full') {
       options.full = true;
+    } else if (arg === '--include-auth-sources') {
+      options.includeAuthSources = true;
     }
   }
 

@@ -307,6 +307,18 @@ describe('sourcing foundation', () => {
     expect(shouldRunSource(source, state, { force: true })).toBe(true);
   });
 
+  test('shouldRunSource feature-flags auth-required sources by default', () => {
+    const source = {
+      id: 'B-AUTH-ONLY',
+      requires_auth: true,
+      cadence: { tier: 'B', frequency: 'weekly' },
+    };
+    const state = { sources: {} };
+
+    expect(shouldRunSource(source, state, {})).toBe(false);
+    expect(shouldRunSource(source, state, { includeAuthSources: true })).toBe(true);
+  });
+
   test('buildPlan groups due sources and explains deferred ones', () => {
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'searchbar3-sourcing-plan-'));
     const registryPath = path.join(tempDir, 'registry.json');
@@ -444,6 +456,42 @@ describe('sourcing foundation', () => {
     expect(plan.nextDueByFrequency.monthly).toBe(
       plan.deferredSources.find((entry) => entry.id === 'C-DEFERRED').nextDueAt
     );
+  });
+
+  test('buildPlan marks auth-required sources as deferred when auth sources are disabled', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'searchbar3-sourcing-plan-auth-'));
+    const registryPath = path.join(tempDir, 'registry.json');
+    const statePath = path.join(tempDir, 'source_state.json');
+
+    fs.writeFileSync(
+      registryPath,
+      JSON.stringify([
+        {
+          id: 'B-AUTH-SOURCE',
+          name: 'Auth Source',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'api', url: 'https://example.com/api' },
+          cadence: { tier: 'B', frequency: 'weekly' },
+          query_strategy: { type: 'search_api' },
+          requires_auth: true,
+          adapter: 'api_search',
+          notes: 'Auth required source',
+        },
+      ], null, 2),
+      'utf-8'
+    );
+
+    fs.writeFileSync(statePath, JSON.stringify({ sources: {}, seen_signal_ids: {} }, null, 2), 'utf-8');
+
+    const plan = buildPlan({ registryPath, statePath });
+    const deferred = plan.deferredSources.find((entry) => entry.id === 'B-AUTH-SOURCE');
+
+    expect(plan.dueCount).toBe(0);
+    expect(plan.deferredCount).toBe(1);
+    expect(deferred.reason).toBe('auth_disabled');
   });
 
   test('coverage stats enforce source count and RSS/HTML mix targets', () => {

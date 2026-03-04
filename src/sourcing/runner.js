@@ -128,6 +128,10 @@ function shouldRunSource(source, state, options = {}) {
     return true;
   }
 
+  if (source.requires_auth && !options.includeAuthSources) {
+    return false;
+  }
+
   if (!matchesExecutionMode(source, options.executionMode)) {
     return false;
   }
