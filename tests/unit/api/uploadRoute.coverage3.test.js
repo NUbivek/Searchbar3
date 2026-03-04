@@ -38,7 +38,7 @@ describe('/api/upload validation errors', () => {
     });
   });
 
-  test('returns 500 for unknown parse failures', async () => {
+  test('returns fail-soft payload for unknown parse failures', async () => {
     formidable.mockImplementation(() => ({
       parse: (_req, cb) => cb(new Error('unexpected parser failure')),
     }));
@@ -48,10 +48,12 @@ describe('/api/upload validation errors', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
       error: 'Upload failed',
       details: 'unexpected parser failure',
+      degradedSources: ['upload'],
     });
   });
 });

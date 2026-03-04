@@ -73,7 +73,7 @@ describe('/api/upload coverage', () => {
     });
   });
 
-  test('returns 500 when form parsing throws', async () => {
+  test('returns fail-soft payload when form parsing throws', async () => {
     formidable.mockImplementation(() => ({
       parse: (_req, cb) => cb(new Error('parse failed')),
     }));
@@ -83,8 +83,12 @@ describe('/api/upload coverage', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
-    expect(res.body.error).toBe('Upload failed');
-    expect(res.body.details).toBe('parse failed');
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      status: 'fail-soft',
+      error: 'Upload failed',
+      details: 'parse failed',
+      degradedSources: ['upload'],
+    });
   });
 });

@@ -58,10 +58,12 @@ function normalizeUploadError(error) {
   }
 
   return {
-    status: 500,
+    status: 200,
     body: {
+      status: 'fail-soft',
       error: 'Upload failed',
-      details: message || 'Unknown upload error'
+      details: message || 'Unknown upload error',
+      degradedSources: ['upload']
     }
   };
 }
