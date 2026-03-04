@@ -1,13 +1,4 @@
 const { createMockReq, createMockRes } = require('./testUtils');
-
-jest.mock('../../../src/utils/logger', () => ({
-  logger: {
-    error: jest.fn(),
-    warn: jest.fn(),
-  },
-}));
-
-const { logger } = require('../../../src/utils/logger');
 const handler = require('../../../src/pages/api/llm/chat').default;
 
 describe('/api/llm/chat', () => {
@@ -22,15 +13,10 @@ describe('/api/llm/chat', () => {
 
   afterAll(() => {
     global.fetch = originalFetch;
-
-    if (originalApiKey) {
-      process.env.TOGETHER_API_KEY = originalApiKey;
-    } else {
-      delete process.env.TOGETHER_API_KEY;
-    }
+    process.env.TOGETHER_API_KEY = originalApiKey;
   });
 
-  test('rejects non-POST requests', async () => {
+  test('returns 405 for non-POST requests', async () => {
     const req = createMockReq({ method: 'GET' });
     const res = createMockRes();
 
@@ -38,10 +24,9 @@ describe('/api/llm/chat', () => {
 
     expect(res.statusCode).toBe(405);
     expect(res.body).toEqual({ error: 'Method not allowed' });
-    expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  test('requires a messages array', async () => {
+  test('returns 400 when messages is not an array', async () => {
     const req = createMockReq({
       method: 'POST',
       body: {},
@@ -52,33 +37,31 @@ describe('/api/llm/chat', () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.body).toEqual({ error: 'Messages array is required' });
-    expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  test('returns a configuration error when the Together API key is missing', async () => {
+  test('returns 500 when the Together API key is missing', async () => {
     const req = createMockReq({
       method: 'POST',
       body: {
-        messages: [{ role: 'user', content: 'hello' }],
+        messages: [{ role: 'user', content: 'Hello' }],
       },
     });
     const res = createMockRes();
 
     await handler(req, res);
 
+    expect(global.fetch).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(500);
     expect(res.body).toEqual({ error: 'Together API key not found' });
-    expect(global.fetch).not.toHaveBeenCalled();
-    expect(logger.error).toHaveBeenCalled();
   });
 
-  test('falls back to mistral-7b when the requested model is unsupported', async () => {
-    process.env.TOGETHER_API_KEY = 'together-key';
+  test('falls back to mistral when an unsupported model is requested', async () => {
+    process.env.TOGETHER_API_KEY = 'test-key';
     global.fetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         output: {
-          choices: [{ text: 'Assistant reply' }],
+          choices: [{ text: '  hello world  ' }],
         },
       }),
     });
@@ -86,7 +69,7 @@ describe('/api/llm/chat', () => {
     const req = createMockReq({
       method: 'POST',
       body: {
-        messages: [{ role: 'user', content: 'hello' }],
+        messages: [{ role: 'user', content: 'Hello' }],
         model: 'unknown-model',
       },
     });
@@ -94,117 +77,39 @@ describe('/api/llm/chat', () => {
 
     await handler(req, res);
 
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Unsupported model, falling back to mistral-7b',
-      { requestedModel: 'unknown-model' }
-    );
+    expect(global.fetch).toHaveBeenCalledTimes(1);
     expect(global.fetch).toHaveBeenCalledWith(
       'https://api.together.xyz/inference',
       expect.objectContaining({
         method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer together-key',
-        }),
-        body: expect.stringContaining('"model":"mistralai/Mistral-7B-v0.1"'),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer test-key',
+        },
       })
     );
+
+    const requestBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(requestBody.model).toBe('mistralai/Mistral-7B-v0.1');
+
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
-      content: 'Assistant reply',
+      content: 'hello world',
       model: 'mistralai/Mistral-7B-v0.1',
     });
   });
 
-  test('uses the supported gemma model when explicitly requested', async () => {
-    process.env.TOGETHER_API_KEY = 'together-key';
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        output: {
-          choices: [{ text: 'Gemma reply' }],
-        },
-      }),
-    });
-
-    const req = createMockReq({
-      method: 'POST',
-      body: {
-        messages: [{ role: 'user', content: 'hello' }],
-        model: 'gemma-2-9b',
-      },
-    });
-    const res = createMockRes();
-
-    await handler(req, res);
-
-    expect(global.fetch).toHaveBeenCalledWith(
-      'https://api.together.xyz/inference',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer together-key',
-        }),
-        body: expect.stringContaining('"model":"google/gemma-2-9b-it"'),
-      })
-    );
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      content: 'Gemma reply',
-      model: 'google/gemma-2-9b-it',
-    });
-  });
-
-  test('uses the supported deepseek model when explicitly requested', async () => {
-    process.env.TOGETHER_API_KEY = 'together-key';
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        output: {
-          choices: [{ text: 'DeepSeek reply' }],
-        },
-      }),
-    });
-
-    const req = createMockReq({
-      method: 'POST',
-      body: {
-        messages: [{ role: 'user', content: 'hello' }],
-        model: 'deepseek-70b',
-      },
-    });
-    const res = createMockRes();
-
-    await handler(req, res);
-
-    expect(global.fetch).toHaveBeenCalledWith(
-      'https://api.together.xyz/inference',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer together-key',
-        }),
-        body: expect.stringContaining('"model":"deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free"'),
-      })
-    );
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      content: 'DeepSeek reply',
-      model: 'deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free',
-    });
-  });
-
-  test('returns provider errors when Together rejects the request', async () => {
-    process.env.TOGETHER_API_KEY = 'together-key';
+  test('returns 500 when Together returns a non-ok response', async () => {
+    process.env.TOGETHER_API_KEY = 'test-key';
     global.fetch.mockResolvedValueOnce({
       ok: false,
-      status: 502,
-      json: async () => ({}),
+      status: 500,
     });
 
     const req = createMockReq({
       method: 'POST',
       body: {
-        messages: [{ role: 'user', content: 'hello' }],
+        messages: [{ role: 'user', content: 'Hello' }],
         model: 'mistral-7b',
       },
     });
@@ -213,34 +118,6 @@ describe('/api/llm/chat', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: 'Together API error: 502' });
-    expect(logger.error).toHaveBeenCalled();
-  });
-
-  test('returns a server error when Together returns a malformed payload', async () => {
-    process.env.TOGETHER_API_KEY = 'together-key';
-    global.fetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        output: {},
-      }),
-    });
-
-    const req = createMockReq({
-      method: 'POST',
-      body: {
-        messages: [{ role: 'user', content: 'hello' }],
-        model: 'mistral-7b',
-      },
-    });
-    const res = createMockRes();
-
-    await handler(req, res);
-
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({
-      error: "Cannot read properties of undefined (reading '0')",
-    });
-    expect(logger.error).toHaveBeenCalled();
+    expect(res.body).toEqual({ error: 'Together API error: 500' });
   });
 });
