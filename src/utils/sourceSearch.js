@@ -138,6 +138,8 @@ export async function searchSources(query, options) {
     }
   });
 
-  const results = await Promise.all(searchPromises);
-  return results.flat();
-} 
+  const settled = await Promise.allSettled(searchPromises);
+  return settled
+    .filter(result => result.status === 'fulfilled')
+    .flatMap(result => Array.isArray(result.value) ? result.value : []);
+}

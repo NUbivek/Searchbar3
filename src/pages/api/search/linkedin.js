@@ -19,14 +19,60 @@ export default async function handler(req, res) {
     error
   });
 
+  const runSerperFallback = async (originalError = null) => {
+    try {
+      const serperApiKey = process.env.SERPER_API_KEY;
+      if (!serperApiKey) {
+        return res.status(200).json(
+          failSoft('Search failed', 'Serper API key not configured')
+        );
+      }
+
+      const response = await axios.post(
+        'https://google.serper.dev/search',
+        {
+          q: `site:linkedin.com ${query}`,
+          num: 10
+        },
+        {
+          headers: {
+            'X-API-KEY': serperApiKey,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      const sources = [];
+      if (response.data?.organic) {
+        const organicResults = response.data.organic
+          .filter(result => result.link && result.title)
+          .map((result, index) => ({
+            type: 'LinkedInResult',
+            content: result.snippet || '',
+            url: result.link,
+            timestamp: new Date().toISOString(),
+            title: result.title,
+            confidence: 1,
+            sourceId: `linkedin-${index}`
+          }));
+        sources.push(...organicResults);
+      }
+
+      return res.status(200).json({ sources });
+    } catch (fallbackError) {
+      logger.error('LinkedIn search and fallback failed:', { original: originalError, fallback: fallbackError });
+      return res.status(200).json(
+        failSoft('Search failed', fallbackError.message || originalError?.message || null)
+      );
+    }
+  };
+
   try {
     const clientId = process.env.LINKEDIN_CLIENT_ID;
     const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
-    
     if (!clientId || !clientSecret) {
-      throw new Error('LinkedIn credentials not configured');
+      return runSerperFallback(new Error('LinkedIn credentials not configured'));
     }
-
     // First, get an access token
     const tokenResponse = await axios.post(
       'https://www.linkedin.com/oauth/v2/accessToken',
@@ -73,53 +119,7 @@ export default async function handler(req, res) {
     })) || [];
 
     return res.status(200).json({ sources });
-
   } catch (error) {
-    // If LinkedIn API fails, fallback to Serper
-    try {
-      const serperApiKey = process.env.SERPER_API_KEY;
-      if (!serperApiKey) {
-        throw new Error('Serper API key not configured');
-      }
-
-      const response = await axios.post(
-        'https://google.serper.dev/search',
-        {
-          q: `site:linkedin.com ${query}`,
-          num: 10
-        },
-        {
-          headers: {
-            'X-API-KEY': serperApiKey,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      const sources = [];
-      
-      if (response.data?.organic) {
-        const organicResults = response.data.organic
-          .filter(result => result.link && result.title)
-          .map((result, index) => ({
-            type: 'LinkedInResult',
-            content: result.snippet || '',
-            url: result.link,
-            timestamp: new Date().toISOString(),
-            title: result.title,
-            confidence: 1,
-            sourceId: `linkedin-${index}`
-          }));
-        sources.push(...organicResults);
-      }
-
-      return res.status(200).json({ sources });
-
-    } catch (fallbackError) {
-      logger.error('LinkedIn search and fallback failed:', { original: error, fallback: fallbackError });
-      return res.status(200).json(
-        failSoft('Search failed', fallbackError.message || error.message)
-      );
-    }
+    return runSerperFallback(error);
   }
 }

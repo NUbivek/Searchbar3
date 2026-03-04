@@ -22,7 +22,7 @@ export default async function handler(req, res) {
   try {
     const serperApiKey = process.env.SERPER_API_KEY;
     if (!serperApiKey) {
-      throw new Error('Serper API key not configured');
+      return res.status(200).json(failSoft('Search failed', 'Serper API key not configured'));
     }
 
     const response = await axios.post(
