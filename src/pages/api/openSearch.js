@@ -46,11 +46,13 @@ export default async function handler(req, res) {
     return res.status(200).json(simplifiedResponse);
   } catch (error) {
     logger.error('API error (simplified):', error);
-    
-    // Simple error response
-    return res.status(500).json({
+
+    return res.status(200).json({
+      status: 'fail-soft',
+      results: [],
+      degradedSources: ['open-search-simplified'],
       error: 'An error occurred in the simplified search handler',
       message: error.message
     });
   }
-} 
+}

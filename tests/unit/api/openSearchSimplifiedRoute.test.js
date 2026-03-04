@@ -91,4 +91,25 @@ describe('/api/openSearch', () => {
     });
     expect(typeof res.jsonData.timestamp).toBe('string');
   });
+
+  test('returns fail-soft payload when an internal error occurs', async () => {
+    const req = { method: 'POST' };
+    Object.defineProperty(req, 'body', {
+      get() {
+        throw new Error('body explode');
+      },
+    });
+    const res = createRouteRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.jsonData).toEqual({
+      status: 'fail-soft',
+      results: [],
+      degradedSources: ['open-search-simplified'],
+      error: 'An error occurred in the simplified search handler',
+      message: 'body explode',
+    });
+  });
 });
