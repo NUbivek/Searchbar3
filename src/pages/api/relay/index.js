@@ -6,6 +6,10 @@
  */
 
 export default function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.status(405).send('Method not allowed');
+  }
+
   // Generate HTML with detailed instructions
   const html = `
   <!DOCTYPE html>

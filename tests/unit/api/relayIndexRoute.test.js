@@ -32,4 +32,14 @@ describe('/api/relay', () => {
     expect(res.body).toContain('https://research.bivek.ai/api/auth/twitter/callback');
     expect(res.body).toContain('NEXT_PUBLIC_USE_PRODUCTION_CALLBACKS=true');
   });
+
+  it('returns 405 for non-GET requests', async () => {
+    const req = { method: 'POST' };
+    const res = createMockRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(405);
+    expect(res.body).toBe('Method not allowed');
+  });
 });
