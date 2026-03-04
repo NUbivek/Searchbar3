@@ -1,49 +1,50 @@
 import handler from '../../../src/pages/api/auth/linkedin/logout';
 
-describe('/api/auth/linkedin/logout', () => {
-  function createMockRes() {
-    const res = {};
-    res.statusCode = 200;
-    res.headers = {};
-    res.status = jest.fn((code) => {
-      res.statusCode = code;
-      return res;
-    });
-    res.setHeader = jest.fn((name, value) => {
-      res.headers[name] = value;
-      return res;
-    });
-    res.json = jest.fn((payload) => {
-      res.body = payload;
-      return res;
-    });
-    return res;
-  }
+function createMockRes() {
+  return {
+    statusCode: 200,
+    headers: {},
+    body: null,
+    setHeader(name, value) {
+      this.headers[name] = value;
+      return this;
+    },
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      this.body = payload;
+      return this;
+    }
+  };
+}
 
-  it('returns 405 for non-GET requests', async () => {
+describe('/api/auth/linkedin/logout', () => {
+  it('returns 405 for non-GET requests', () => {
     const req = { method: 'POST' };
     const res = createMockRes();
 
-    await handler(req, res);
+    handler(req, res);
 
-    expect(res.status).toHaveBeenCalledWith(405);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Method not allowed' });
+    expect(res.statusCode).toBe(405);
+    expect(res.body).toEqual({ error: 'Method not allowed' });
   });
 
-  it('clears linkedin auth cookies and returns success for GET', async () => {
+  it('clears cookies and returns success for GET requests', () => {
     const req = { method: 'GET' };
     const res = createMockRes();
 
-    await handler(req, res);
+    handler(req, res);
 
-    expect(res.setHeader).toHaveBeenCalledWith('Set-Cookie', [
-      'linkedin_access_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
-      'linkedin_user_id=; Path=/; Max-Age=0; SameSite=Lax'
-    ]);
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
       success: true,
       message: 'Logged out from LinkedIn'
     });
+    expect(res.headers['Set-Cookie']).toEqual([
+      'linkedin_access_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
+      'linkedin_user_id=; Path=/; Max-Age=0; SameSite=Lax'
+    ]);
   });
 });
