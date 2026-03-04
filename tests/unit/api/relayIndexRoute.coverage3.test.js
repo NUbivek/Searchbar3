@@ -1,17 +1,10 @@
 import handler from '../../../src/pages/api/relay/index';
 
-describe('/api/relay', () => {
-  function createMockReq(overrides = {}) {
+describe('/api/relay/index', () => {
+  function createRes() {
     return {
-      method: 'GET',
-      ...overrides,
-    };
-  }
-
-  function createMockRes() {
-    return {
-      headers: {},
       statusCode: 200,
+      headers: {},
       body: '',
       setHeader(name, value) {
         this.headers[name] = value;
@@ -27,16 +20,16 @@ describe('/api/relay', () => {
     };
   }
 
-  it('returns the OAuth relay landing page HTML', async () => {
-    const req = createMockReq();
-    const res = createMockRes();
+  it('returns the relay landing page html', async () => {
+    const req = { method: 'GET' };
+    const res = createRes();
 
     await handler(req, res);
 
-    expect(res.headers['Content-Type']).toBe('text/html');
     expect(res.statusCode).toBe(200);
+    expect(res.headers['Content-Type']).toBe('text/html');
     expect(res.body).toContain('OAuth Relay System');
-    expect(res.body).toContain('https://research.bivek.ai/api/auth/twitter/callback');
-    expect(res.body).toContain('NEXT_PUBLIC_USE_PRODUCTION_CALLBACKS=true');
+    expect(res.body).toContain('How It Works');
+    expect(res.body).toContain('Provider Configuration');
   });
 });
