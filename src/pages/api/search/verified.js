@@ -86,6 +86,11 @@ export default async function handler(req, res) {
     return res.status(200).json({ results });
   } catch (error) {
     log.error('Verified search error:', error);
-    return res.status(500).json({ error: error.message || 'An error occurred during search' });
+    return res.status(200).json({
+      results: [],
+      status: 'fail-soft',
+      degradedSources: ['verified'],
+      error: error.message || 'An error occurred during search'
+    });
   }
 }

@@ -80,7 +80,7 @@ describe('/api/verifiedSearch', () => {
     expect(res.body).toEqual({ results: searchResults });
   });
 
-  test('returns 500 when forwarding fails', async () => {
+  test('returns fail-soft 200 when forwarding fails', async () => {
     global.fetch.mockRejectedValue(new Error('upstream failed'));
 
     const req = createMockReq({
@@ -95,8 +95,11 @@ describe('/api/verifiedSearch', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      results: [],
+      status: 'fail-soft',
+      degradedSources: ['verified-search-forwarder'],
       error: 'An error occurred in the simplified search handler',
       message: 'upstream failed',
     });

@@ -52,9 +52,12 @@ export default async function handler(req, res) {
     
   } catch (error) {
     logger.error('Simplified verified search error:', error);
-    return res.status(500).json({ 
+    return res.status(200).json({
+      results: [],
+      status: 'fail-soft',
+      degradedSources: ['verified-search-forwarder'],
       error: 'An error occurred in the simplified search handler',
-      message: error.message 
+      message: error.message
     });
   }
-} 
+}

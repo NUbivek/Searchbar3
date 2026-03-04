@@ -128,7 +128,7 @@ describe('/api/search/verified', () => {
     expect(mockSourceHandlers.verifiedData).toHaveBeenCalledWith('ai startups', ['verified-db']);
   });
 
-  it('returns 500 when the outer handler throws', async () => {
+  it('returns fail-soft 200 when the outer handler throws', async () => {
     const handler = await loadHandler();
     const req = createMockReq({
       method: 'POST',
@@ -146,7 +146,12 @@ describe('/api/search/verified', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({ error: 'map exploded' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      results: [],
+      status: 'fail-soft',
+      degradedSources: ['verified'],
+      error: 'map exploded',
+    });
   });
 });
