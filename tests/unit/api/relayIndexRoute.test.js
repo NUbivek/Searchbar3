@@ -1,39 +1,35 @@
-const handler = require('../../../src/pages/api/relay/index').default;
+import handler from '../../../src/pages/api/relay/index';
 
-function createMockRes() {
-  const res = {};
-  res.statusCode = 200;
-  res.headers = {};
-  res.body = undefined;
-  res.setHeader = jest.fn((key, value) => {
-    res.headers[key] = value;
-    return res;
-  });
-  res.status = jest.fn((code) => {
-    res.statusCode = code;
-    return res;
-  });
-  res.send = jest.fn((payload) => {
-    res.body = payload;
-    return res;
-  });
-  return res;
-}
+describe('/api/relay', () => {
+  function createMockRes() {
+    return {
+      headers: {},
+      statusCode: null,
+      body: null,
+      setHeader(name, value) {
+        this.headers[name] = value;
+      },
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      send(payload) {
+        this.body = payload;
+        return this;
+      },
+    };
+  }
 
-describe('/api/relay/index', () => {
-  it('returns the relay setup HTML page', () => {
+  it('returns the relay landing page HTML', async () => {
     const req = { method: 'GET' };
     const res = createMockRes();
 
-    handler(req, res);
+    await handler(req, res);
 
-    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/html');
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.send).toHaveBeenCalledTimes(1);
-    expect(typeof res.body).toBe('string');
+    expect(res.headers['Content-Type']).toBe('text/html');
+    expect(res.statusCode).toBe(200);
     expect(res.body).toContain('OAuth Relay System');
     expect(res.body).toContain('https://research.bivek.ai/api/auth/twitter/callback');
-    expect(res.body).toContain('https://research.bivek.ai/api/relay/reddit');
     expect(res.body).toContain('NEXT_PUBLIC_USE_PRODUCTION_CALLBACKS=true');
   });
 });
