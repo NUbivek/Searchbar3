@@ -10,6 +10,7 @@ import MetricsCalculator from '../../../components/search/metrics/MetricsCalcula
 import { processCategories } from '../../../components/search/categories/processors/CategoryProcessor';
 import searchResultScorer from '../../../utils/scoring/SearchResultScorer';
 import { detectQueryContext } from '../../../components/search/utils/contextDetector';
+import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -183,7 +184,7 @@ export default async function handler(req, res) {
     }
 
     if (!results || results.length === 0) {
-      return res.status(200).json({
+      return res.status(200).json(normalizeSearchResponseV1({
         requestId,
         status: 'fail-soft',
         query,
@@ -211,7 +212,7 @@ export default async function handler(req, res) {
             'Robotics logistics startup funding'
           ]
         }
-      });
+      }));
     }
 
     // After fetching results, calculate metrics for all results using the SearchResultScorer
@@ -656,7 +657,7 @@ export default async function handler(req, res) {
     } else {
       // Traditional response without LLM processing
       console.log('Returning traditional search results without LLM synthesis');
-      return res.status(200).json({
+      return res.status(200).json(normalizeSearchResponseV1({
         requestId,
         status: degradedSources.length > 0 ? 'degraded' : 'ok',
         results,
@@ -675,7 +676,7 @@ export default async function handler(req, res) {
         __isImmutableLLMResult: false,
         llmProcessed: false,
         type: 'search_results'
-      });
+      }));
     }
   } catch (error) {
     logger.error('Search error:', error);
@@ -685,7 +686,7 @@ export default async function handler(req, res) {
         (error.content && typeof error.content === 'string' && error.content.includes('error-message'))) {
       // Return properly formatted LLM error with status 200 so it can be displayed in the UI
       console.log('DEBUG: Returning LLM error with proper formatting');
-      return res.status(200).json({
+      return res.status(200).json(normalizeSearchResponseV1({
         requestId: `srch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         status: 'fail-soft',
         results: [],
@@ -697,12 +698,12 @@ export default async function handler(req, res) {
           content: typeof error.content === 'string' ? error.content : null
         },
         ...error
-      });
+      }));
     }
     
     // For other errors, create a properly formatted error response that will be recognized as an LLM result
     console.log('DEBUG: Creating formatted error message for', error.message);
-    return res.status(200).json({
+    return res.status(200).json(normalizeSearchResponseV1({
       requestId: `srch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       status: 'fail-soft',
       results: [],
@@ -724,6 +725,6 @@ export default async function handler(req, res) {
       isLLMResults: true,
       __isImmutableLLMResult: true,
       llmProcessed: true
-    });
+    }));
   }
 }

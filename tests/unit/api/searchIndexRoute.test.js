@@ -28,6 +28,7 @@ jest.mock('../../../src/utils/logger', () => ({
 }));
 
 const unifiedSearch = require('../../../src/utils/search-legacy').default;
+const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
 const { createMockReq, createMockRes } = require('./testUtils');
 const handler = require('../../../src/pages/api/search/index').default;
 
@@ -109,5 +110,6 @@ describe('/api/search', () => {
     expect(res.body.results).toEqual([]);
     expect(res.body.degradedSources).toContain('web');
     expect(res.body.failSoftContent).toBeTruthy();
+    expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 });
