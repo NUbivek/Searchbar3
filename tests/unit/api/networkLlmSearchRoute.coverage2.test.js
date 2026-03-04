@@ -86,7 +86,7 @@ describe('/api/network/llm-search', () => {
     });
   });
 
-  it('returns 500 when the LLM response is not valid JSON', async () => {
+  it('returns fail-soft 200 when the LLM response is not valid JSON', async () => {
     __createMock.mockResolvedValue({
       choices: [{ message: { content: 'not-json' } }],
     });
@@ -98,16 +98,20 @@ describe('/api/network/llm-search', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual(
-      expect.objectContaining({
-        error: 'Failed to parse LLM response',
-        rawResponse: 'not-json',
-      })
-    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      status: 'fail-soft',
+      matches: [],
+      summary: 'Unable to process network search with LLM right now.',
+      relatedIndustries: [],
+      suggestedConnections: [],
+      degradedSources: ['network-llm'],
+      error: 'Failed to parse LLM response',
+      rawResponse: 'not-json',
+    });
   });
 
-  it('returns 500 when the Together client throws', async () => {
+  it('returns fail-soft 200 when the Together client throws', async () => {
     __createMock.mockRejectedValue(new Error('upstream down'));
 
     const { req, res } = createRequestResponse({
@@ -117,8 +121,14 @@ describe('/api/network/llm-search', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
+      matches: [],
+      summary: 'Unable to process network search with LLM right now.',
+      relatedIndustries: [],
+      suggestedConnections: [],
+      degradedSources: ['network-llm'],
       error: 'An error occurred while processing your query',
       details: 'upstream down',
     });

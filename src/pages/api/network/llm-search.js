@@ -27,6 +27,17 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Valid source is required (linkedin, twitter, or facebook)' });
   }
 
+  const failSoft = (error, details = {}) => ({
+    status: 'fail-soft',
+    matches: [],
+    summary: 'Unable to process network search with LLM right now.',
+    relatedIndustries: [],
+    suggestedConnections: [],
+    degradedSources: ['network-llm'],
+    error,
+    ...details
+  });
+
   try {
     // Prepare context for LLM from network data
     const networkContext = prepareNetworkContext(networkData, source);
@@ -86,10 +97,9 @@ Be creative in understanding the user's intent. If they're looking for people in
       parsedResponse = JSON.parse(response.choices[0].message.content);
     } catch (parseError) {
       console.error("Error parsing LLM response:", parseError);
-      return res.status(500).json({ 
-        error: 'Failed to parse LLM response',
+      return res.status(200).json(failSoft('Failed to parse LLM response', {
         rawResponse: response.choices[0].message.content
-      });
+      }));
     }
 
     // Add node data to matches for easy reference
@@ -108,10 +118,9 @@ Be creative in understanding the user's intent. If they're looking for people in
     });
   } catch (error) {
     console.error("Error processing network query with LLM:", error);
-    return res.status(500).json({ 
-      error: 'An error occurred while processing your query',
+    return res.status(200).json(failSoft('An error occurred while processing your query', {
       details: error.message
-    });
+    }));
   }
 }
 

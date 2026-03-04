@@ -27,6 +27,17 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Valid source is required (linkedin, twitter, or facebook)' });
   }
 
+  const failSoft = (error, details = {}) => ({
+    status: 'fail-soft',
+    matches: [],
+    summary: 'Unable to process network query with LLM right now.',
+    relatedIndustries: [],
+    suggestedConnections: [],
+    degradedSources: ['network-llm'],
+    error,
+    ...details
+  });
+
   try {
     // Prepare context for LLM from network data
     const networkContext = prepareNetworkContext(networkData, source);
@@ -82,10 +93,9 @@ Return your response in the following JSON format:
       parsedResponse = JSON.parse(llmResponse.choices[0].message.content);
     } catch (parseError) {
       console.error("Error parsing LLM response:", parseError);
-      return res.status(500).json({ 
-        error: 'Failed to parse LLM response',
+      return res.status(200).json(failSoft('Failed to parse LLM response', {
         rawResponse: llmResponse.choices[0].message.content
-      });
+      }));
     }
 
     // Enhance response with node data for matches
@@ -104,10 +114,9 @@ Return your response in the following JSON format:
     });
   } catch (error) {
     console.error("Error processing network query:", error);
-    return res.status(500).json({ 
-      error: 'An error occurred while processing the network query',
+    return res.status(200).json(failSoft('An error occurred while processing the network query', {
       details: error.message
-    });
+    }));
   }
 }
 
