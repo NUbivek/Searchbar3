@@ -6,6 +6,10 @@
 import { parse } from 'cookie';
 
 export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   // Gather environment variable information (safely)
   const hasTwitterClientId = !!process.env.TWITTER_CLIENT_ID;
   const hasTwitterApiKey = !!process.env.TWITTER_API_KEY; 
