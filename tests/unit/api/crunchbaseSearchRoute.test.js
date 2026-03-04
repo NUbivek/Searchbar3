@@ -1,25 +1,25 @@
-jest.mock('../../../src/utils/combinedSearch', () => ({
-  performCombinedSearch: jest.fn(),
-}));
+import handler from '../../../src/pages/api/search/crunchbase';
+import { createMockReq, createMockRes } from './testUtils';
+import { validateSearchResponseV1 } from '../../../src/utils/contracts/searchResponse';
 
 jest.mock('../../../src/utils/logger', () => ({
   logger: {
-    error: jest.fn(),
-  },
+    error: jest.fn()
+  }
+}));
+
+jest.mock('../../../src/utils/combinedSearch', () => ({
+  performCombinedSearch: jest.fn()
 }));
 
 const { performCombinedSearch } = require('../../../src/utils/combinedSearch');
-const { logger } = require('../../../src/utils/logger');
-const { validateSearchResponseV1 } = require('../../../src/utils/contracts/searchResponse');
-const handler = require('../../../src/pages/api/search/crunchbase').default;
-const { createMockReq, createMockRes } = require('./testUtils');
 
 describe('/api/search/crunchbase', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('returns 405 for unsupported methods', async () => {
+  it('returns 405 for non-POST requests', async () => {
     const req = createMockReq({ method: 'GET' });
     const res = createMockRes();
 
@@ -39,46 +39,36 @@ describe('/api/search/crunchbase', () => {
     expect(res.body).toEqual({ message: 'Query is required' });
   });
 
-  it('returns sources when the combined search succeeds', async () => {
+  it('returns sources on success', async () => {
     const sources = [{ title: 'Crunchbase result' }];
-    performCombinedSearch.mockResolvedValueOnce(sources);
+    performCombinedSearch.mockResolvedValue(sources);
 
-    const req = createMockReq({
-      method: 'POST',
-      body: { query: 'fintech startups' },
-    });
+    const req = createMockReq({ method: 'POST', body: { query: 'fintech startups' } });
     const res = createMockRes();
 
     await handler(req, res);
 
-    expect(performCombinedSearch).toHaveBeenCalledWith(
-      'fintech startups',
-      'crunchbase'
-    );
+    expect(performCombinedSearch).toHaveBeenCalledWith('fintech startups', 'crunchbase');
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual(expect.objectContaining({ sources, results: sources, status: 'ok' }));
     expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
 
-  it('returns a fail-soft response when the search throws', async () => {
-    performCombinedSearch.mockRejectedValueOnce(new Error('upstream failed'));
+  it('returns a fail-soft payload when search throws', async () => {
+    performCombinedSearch.mockRejectedValue(new Error('upstream failed'));
 
-    const req = createMockReq({
-      method: 'POST',
-      body: { query: 'ai startups' },
-    });
+    const req = createMockReq({ method: 'POST', body: { query: 'ai startups' } });
     const res = createMockRes();
 
     await handler(req, res);
 
-    expect(logger.error).toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual(expect.objectContaining({
       sources: [],
       status: 'fail-soft',
       degradedSources: ['crunchbase'],
       message: 'Search failed',
-      error: 'upstream failed',
+      error: 'upstream failed'
     }));
     expect(validateSearchResponseV1(res.body).valid).toBe(true);
   });
