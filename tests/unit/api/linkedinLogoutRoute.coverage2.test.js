@@ -32,17 +32,20 @@ describe('/api/auth/linkedin/logout', () => {
     expect(res.body).toEqual({ error: 'Method not allowed' });
   });
 
-  it('clears linkedin auth cookies and returns success', () => {
+  it('clears LinkedIn cookies and returns success for GET', () => {
     const req = { method: 'GET' };
     const res = createRes();
 
     handler(req, res);
 
-    expect(res.statusCode).toBe(200);
     expect(res.headers['Set-Cookie']).toEqual([
       'linkedin_access_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
       'linkedin_user_id=; Path=/; Max-Age=0; SameSite=Lax'
     ]);
-    expect(res.body).toEqual({ success: true, message: 'Logged out from LinkedIn' });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      success: true,
+      message: 'Logged out from LinkedIn'
+    });
   });
 });
