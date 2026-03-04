@@ -4,6 +4,10 @@
 import { getCallbackUrl } from '../../../../utils/oauthUtils';
 
 export default function handler(req, res) {
+  if (req.method && req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   // Get LinkedIn client ID from environment variables
   const clientId = process.env.LINKEDIN_CLIENT_ID;
   

@@ -38,16 +38,28 @@ describe('/api/auth/linkedin', () => {
     }
   });
 
+  test('returns 405 for non-GET requests', () => {
+    const req = createMockReq({ method: 'POST' });
+    const res = createRedirectRes();
+
+    handler(req, res);
+
+    expect(res.statusCode).toBe(405);
+    expect(res.body).toEqual({ error: 'Method not allowed' });
+  });
+
   test('returns configuration error when client id is missing', () => {
     const req = createMockReq();
     const res = createRedirectRes();
 
     handler(req, res);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
+      status: 'fail-soft',
       error: 'Configuration error',
       details: 'LinkedIn client ID is not configured.',
+      degradedSources: ['linkedin-auth'],
     });
     expect(getCallbackUrl).toHaveBeenCalledWith('linkedin');
     expect(res.redirect).not.toHaveBeenCalled();
@@ -67,6 +79,8 @@ describe('/api/auth/linkedin', () => {
       'Set-Cookie',
       expect.stringContaining('linkedin_auth_state=')
     );
+    expect(res.headers['Set-Cookie']).toContain('HttpOnly');
+    expect(res.headers['Set-Cookie']).toContain('SameSite=Lax');
     expect(res.redirect).toHaveBeenCalledTimes(1);
     expect(res.redirectUrl).toContain('https://www.linkedin.com/oauth/v2/authorization');
     expect(res.redirectUrl).toContain('client_id=linkedin-client-id');
@@ -75,5 +89,13 @@ describe('/api/auth/linkedin', () => {
     expect(res.redirectUrl).toContain(
       encodeURIComponent('https://example.com/api/auth/linkedin/callback')
     );
+
+    const cookieState = res.headers['Set-Cookie']
+      .split(';')[0]
+      .split('=')[1];
+    const redirectState = new URL(res.redirectUrl).searchParams.get('state');
+
+    expect(cookieState).toBeTruthy();
+    expect(redirectState).toBe(cookieState);
   });
 });
