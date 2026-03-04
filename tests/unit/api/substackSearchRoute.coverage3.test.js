@@ -85,7 +85,17 @@ describe('/api/search/substack', () => {
 
     await handler(req, res);
 
-    expect(axios.post).toHaveBeenCalledTimes(1);
+    expect(axios.post).toHaveBeenCalledWith(
+      'https://google.serper.dev/search',
+      { q: 'site:substack.com operator updates', num: 10 },
+      {
+        headers: {
+          'X-API-KEY': 'test-key',
+          'Content-Type': 'application/json',
+        },
+        timeout: 10000,
+      }
+    );
     expect(res.statusCode).toBe(200);
     expect(res.body.sources).toHaveLength(1);
     expect(res.body.sources[0]).toMatchObject({
