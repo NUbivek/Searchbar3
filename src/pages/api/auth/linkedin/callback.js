@@ -3,12 +3,28 @@
  * This endpoint receives the authorization code from LinkedIn and exchanges it for access token
  */
 import axios from 'axios';
+import { getCallbackUrl } from '../../../../utils/oauthUtils';
 
 const LINKEDIN_CALLBACK_TIMEOUT_MS = 10000;
 
+function getNetworkRedirectBase(req) {
+  const proto = req.headers['x-forwarded-proto'] || 'http';
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const requestBase = host ? `${proto}://${host}` : '';
+  const isLocalHost = /localhost|127\.0\.0\.1/.test(String(host || ''));
+  if (isLocalHost) return requestBase;
+  return process.env.FRONTEND_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || requestBase;
+}
+
 export default async function handler(req, res) {
+  const networkBase = getNetworkRedirectBase(req);
+  const redirectToNetwork = (query = '') => {
+    const suffix = query ? `?${query}` : '';
+    return res.redirect(`${networkBase}/network${suffix}`);
+  };
+
   if (req.method && req.method !== 'GET') {
-    return res.redirect('/network?error=Method%20not%20allowed');
+    return redirectToNetwork('error=Method%20not%20allowed');
   }
 
   const { code, state, error, error_description } = req.query;
@@ -17,24 +33,23 @@ export default async function handler(req, res) {
   // Handle error from LinkedIn
   if (error) {
     console.error('LinkedIn auth error:', error, error_description);
-    return res.redirect(`/network?error=${encodeURIComponent(error_description || 'Authentication failed')}`);
+    return redirectToNetwork(`error=${encodeURIComponent(error_description || 'Authentication failed')}`);
   }
 
   if (!code) {
-    return res.redirect('/network?error=No authorization code received');
+    return redirectToNetwork('error=No authorization code received');
   }
 
   try {
     // Determine the redirect URI - must exactly match what's registered in LinkedIn Developer Console
     // Use environment variable with fallback
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
-    const redirectUri = process.env.LINKEDIN_REDIRECT_URI || `${baseUrl}/api/auth/linkedin/callback`;
+    const redirectUri = getCallbackUrl('linkedin', req);
     const clientId = process.env.LINKEDIN_CLIENT_ID;
     const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
     
     if (!clientId || !clientSecret) {
       console.error('LinkedIn credentials missing from environment variables');
-      return res.redirect('/network?error=LinkedIn API credentials not configured');
+      return redirectToNetwork('error=LinkedIn API credentials not configured');
     }
 
     console.log('Exchanging code for token with redirectUri:', redirectUri);
@@ -81,10 +96,10 @@ export default async function handler(req, res) {
 
     // Redirect back to the network page with success flag
     // This will trigger the useEffect in network.js to fetch user data
-    return res.redirect('/network?auth=linkedin_success');
+    return redirectToNetwork('auth=linkedin_success');
   } catch (error) {
     console.error('LinkedIn token exchange error:', error.response?.data || error.message);
     const errorDetails = error.response?.data?.error_description || error.message || 'Unknown error';
-    return res.redirect(`/network?error=${encodeURIComponent('Failed to authenticate with LinkedIn: ' + errorDetails)}`);
+    return redirectToNetwork(`error=${encodeURIComponent('Failed to authenticate with LinkedIn: ' + errorDetails)}`);
   }
 }

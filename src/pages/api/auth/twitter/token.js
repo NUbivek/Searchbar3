@@ -5,6 +5,7 @@
 
 import axios from 'axios';
 import { parse, serialize } from 'cookie';
+import { getCallbackUrl } from '../../../../utils/oauthUtils';
 
 const TWITTER_AUTH_TIMEOUT_MS = 10000;
 
@@ -308,8 +309,7 @@ async function handleCodeExchange(req, res, code) {
     // Get configuration
     const clientId = process.env.TWITTER_CLIENT_ID || process.env.TWITTER_API_KEY;
     const clientSecret = process.env.TWITTER_CLIENT_SECRET;
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
-    const redirectUri = process.env.TWITTER_REDIRECT_URI || `${baseUrl}/api/auth/twitter/callback`;
+    const redirectUri = getCallbackUrl('twitter', req);
     
     if (!clientId) {
       return res.status(200).json({

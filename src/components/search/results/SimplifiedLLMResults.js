@@ -170,6 +170,20 @@ const SimplifiedLLMResults = ({
   
   // Store processed sources separately to avoid render loops
   const [processedSources, setProcessedSources] = useState([]);
+  const isErrorPayload = (item) => Boolean(
+    item &&
+    (
+      item.isError === true ||
+      item.type === 'error' ||
+      item.errorType ||
+      item.status === 'error'
+    )
+  );
+  const sanitizeResults = (items = []) => items.filter((item) => (
+    item !== null &&
+    item !== undefined &&
+    !isErrorPayload(item)
+  ));
   
   // Calculate metrics from processed sources
   // We use a ref for storing metrics to avoid render loops
@@ -209,19 +223,25 @@ const SimplifiedLLMResults = ({
   // Detect if results contain errors
   const hasErrorResults = useMemo(() => {
     // Check if the entire results object is an error
-    if (results && (results.isError === true || results.type === 'error' || results.errorType)) {
+    if (isErrorPayload(results)) {
       console.log('Detected LLM error result:', results.error || results.content || 'Unknown error');
       return true;
     }
     
     // Check array items for errors
     if (Array.isArray(results)) {
-      return results.some(item => 
-        item && (item.isError === true || item.type === 'error' || item.errorType)
-      );
+      return results.some(item => isErrorPayload(item));
     }
     
     return false;
+  }, [results]);
+
+  const hasAuthError = useMemo(() => {
+    if (!results) return false;
+    if (Array.isArray(results)) {
+      return results.some((item) => item?.errorType === 'auth_error');
+    }
+    return results?.errorType === 'auth_error';
   }, [results]);
 
   // Process results into valid format with improved detection
@@ -288,7 +308,7 @@ const SimplifiedLLMResults = ({
         llmContent.isLLMResult = true;
         llmContent.__isImmutableLLMResult = true;
       }
-      return Array.isArray(llmContent) ? llmContent : [llmContent];
+      return sanitizeResults(Array.isArray(llmContent) ? llmContent : [llmContent]);
     }
     
     // Check for content property at the top level
@@ -304,7 +324,7 @@ const SimplifiedLLMResults = ({
       // Ensure proper flags
       results.isLLMResult = true;
       results.__isImmutableLLMResult = true;
-      return [results];
+      return sanitizeResults([results]);
     }
     
     // If results is a plain array
@@ -319,7 +339,7 @@ const SimplifiedLLMResults = ({
           item.__isImmutableLLMResult = true;
         }
         return item;
-      });
+      }).filter((item) => !isErrorPayload(item));
     }
     
     // Default case: treat the whole object as a single result
@@ -329,7 +349,7 @@ const SimplifiedLLMResults = ({
       results.isLLMResult = true;
       results.__isImmutableLLMResult = true;  
     }
-    return [results];
+    return sanitizeResults([results]);
   }, [results]);
 
   // Process results to create comprehensive, visually appealing Key Insights
@@ -981,12 +1001,20 @@ const createDescriptiveTitle = (result, index) => {
       </div>
       
       {/* Alert box for API errors if detected */}
-      {hasErrorResults && (
+      {hasErrorResults && validResults.length === 0 && (
         <div className={styles.errorAlert}>
           <h4 className={styles.errorTitle}>API Error</h4>
           <p className={styles.errorMessage}>
             An error occurred with the Together API. This may be due to an invalid API key.
             Please check your API key configuration or try again later.
+          </p>
+        </div>
+      )}
+      {hasAuthError && validResults.length > 0 && (
+        <div className={styles.errorAlert}>
+          <h4 className={styles.errorTitle}>Provider Warning</h4>
+          <p className={styles.errorMessage}>
+            The LLM provider returned an authentication warning. Showing available search results with fallback synthesis.
           </p>
         </div>
       )}

@@ -52,3 +52,4 @@ research-hub-api/
 /data/crm_export.csv
 /data/source_health.csv
 /data/latest_run_summary.json
+.env*.local

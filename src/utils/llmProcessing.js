@@ -41,6 +41,13 @@ export const MODEL_ENDPOINTS = {
   }
 };
 
+const FALLBACK_SERVERLESS_MODEL = {
+  endpoint: 'https://api.together.xyz/v1/completions',
+  modelId: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+  temperature: 0.7,
+  max_tokens: 4096
+};
+
 // Define aliases for backward compatibility
 const MODEL_ALIASES = {
   'mistral': 'mistral-7b',
@@ -93,10 +100,14 @@ export const processWithLLM = async (param1, param2, param3 = 'mistral-7b', para
     modelId
   });
   try {
+    const safeOptions = {
+      ...options,
+      apiKey: options?.apiKey ? '[redacted]' : undefined
+    };
     console.log(`Processing with LLM: ${modelId}`, {
       resultsLength: Array.isArray(searchResults) ? searchResults.length : 'not an array',
       query: query?.substring(0, 50) + (query?.length > 50 ? '...' : ''),
-      options
+      options: safeOptions
     });
     
     // Ensure we have search results to process
@@ -143,7 +154,20 @@ export const processWithLLM = async (param1, param2, param3 = 'mistral-7b', para
     const modelConfig = MODEL_ENDPOINTS[modelId] || MODEL_ENDPOINTS['mistral-7b'];
     
     // Call the LLM API
-    const llmResponse = await callLLMAPI(prompt, modelConfig, apiKey);
+    let llmResponse;
+    try {
+      llmResponse = await callLLMAPI(prompt, modelConfig, apiKey);
+    } catch (apiError) {
+      const shouldRetryWithFallbackModel =
+        apiError?.status === 400 &&
+        (apiError?.message || '').toLowerCase().includes('model');
+      if (!shouldRetryWithFallbackModel) {
+        throw apiError;
+      }
+
+      console.warn(`Primary Together model unavailable (${modelConfig.modelId}); retrying with fallback model ${FALLBACK_SERVERLESS_MODEL.modelId}`);
+      llmResponse = await callLLMAPI(prompt, FALLBACK_SERVERLESS_MODEL, apiKey);
+    }
     
     // Process the response
     return processLLMResponse(llmResponse, query, sourceMap);

@@ -34,6 +34,18 @@ export default async function handler(req, res) {
 
   try {
     console.log('Processing network analysis query:', query);
+    const hasConnections = Array.isArray(networkData.connections) && networkData.connections.length > 0;
+    if (!hasConnections) {
+      return res.status(200).json({
+        status: 'fail-soft',
+        matches: [],
+        filteredConnections: [],
+        summary: 'No network data is loaded yet.',
+        responseText: 'Connect LinkedIn or Twitter first to analyze your network.',
+        degradedSources: ['network-data'],
+        error: null
+      });
+    }
     
     // Prepare data for processing - format it appropriately
     const processableData = {
@@ -106,6 +118,15 @@ export default async function handler(req, res) {
     if (result.matches && result.matches.length > 0) {
       result.responseText = `Found ${result.matches.length} connections matching your search: "${query}"`;
     } else {
+      const summaryText = String(result.summary || '').toLowerCase();
+      if (
+        summaryText.includes('provided search results') ||
+        summaryText.includes('no specific information') ||
+        summaryText.includes('refining your search') ||
+        summaryText.includes('follow-up questions')
+      ) {
+        result.summary = 'No matching connections found in your connected network.';
+      }
       result.responseText = `No connections found matching your search: "${query}"`;
     }
     

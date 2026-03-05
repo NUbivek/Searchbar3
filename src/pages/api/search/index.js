@@ -366,11 +366,14 @@ export default async function handler(req, res) {
             llmResponse = await processWithLLM(
               validSources, // searchResults
               query,         // query
-              llmModel,      // modelId 
-              {              // options
-                apiKey: apiKey
-              }
+              llmModel       // modelId
             );
+
+            if (llmResponse?.isError || llmResponse?.type === 'error' || llmResponse?.errorType) {
+              console.warn('LLM returned error payload; switching to local fallback synthesizer');
+              useFallbackSynthesizer = true;
+              llmResponse = null;
+            }
           }
           
           // Add necessary flags to ensure proper detection & display if not already present
@@ -484,7 +487,7 @@ export default async function handler(req, res) {
           ];
           
           // Add additional categories based on the query context
-          if (searchContext && searchContext.includes('business')) {
+          if (searchContext?.isBusinessQuery) {
             console.log('DEBUG: Adding business-related categories based on context');
             categories.push({
               id: 'business_impact',
@@ -588,7 +591,8 @@ export default async function handler(req, res) {
     
     // Make LLM the primary response - not just a property within the response
     // Enhanced check for valid LLM response
-    const hasValidLLMResponse = llmResponse && 
+    const hasValidLLMResponse = llmResponse &&
+      !(llmResponse.isError === true || llmResponse.type === 'error' || llmResponse.errorType) &&
       (llmResponse.content || 
        (llmResponse.__isImmutableLLMResult === true) || 
        (llmResponse.isLLMResult === true) ||

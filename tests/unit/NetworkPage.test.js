@@ -95,4 +95,20 @@ describe('NetworkPage', () => {
     expect(screen.getAllByRole('button', { name: 'Connect' })).toHaveLength(2);
     expect(screen.getByRole('button', { name: '' }).hasAttribute('disabled')).toBe(true);
   });
+
+  it('renders decoded error query params and clears the URL state', async () => {
+    const replace = jest.fn();
+
+    useRouter.mockReturnValue({
+      query: { error: encodeURIComponent('Twitter failed') },
+      replace
+    });
+
+    render(<NetworkPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Twitter failed')).toBeTruthy();
+      expect(replace).toHaveBeenCalledWith('/network', undefined, { shallow: true });
+    });
+  });
 });

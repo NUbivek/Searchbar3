@@ -28,6 +28,64 @@ const getBaseUrl = () => {
   }
 };
 
+const normalizeSearchResults = (results = []) => (
+  (results || []).map((item) => ({
+    title: item.title || 'Untitled',
+    snippet: item.snippet || item.content || '',
+    link: item.link || item.url || ''
+  })).filter((item) => item.link)
+);
+
+const searchWithSerperOrTavily = async (query, options = {}) => {
+  const { num = 10, searchDepth = 'basic' } = options;
+  const serperApiKey = process.env.SERPER_API_KEY;
+  const tavilyApiKey = process.env.TAVILY_API_KEY;
+
+  if (tavilyApiKey) {
+    try {
+      const response = await axios.post(
+        'https://api.tavily.com/search',
+        {
+          api_key: tavilyApiKey,
+          query,
+          search_depth: searchDepth,
+          max_results: num
+        },
+        {
+          headers: { 'Content-Type': 'application/json' },
+          timeout: 12000
+        }
+      );
+      return normalizeSearchResults(response?.data?.results || []);
+    } catch (error) {
+      logger.warn(`Tavily search failed; attempting Serper fallback: ${error?.message || 'unknown error'}`);
+    }
+  }
+
+  if (serperApiKey) {
+    try {
+      const response = await axios.post(
+        'https://google.serper.dev/search',
+        { q: query, gl: 'us', hl: 'en', num },
+        {
+          headers: {
+            'X-API-KEY': serperApiKey,
+            'Content-Type': 'application/json',
+          },
+          timeout: 12000
+        }
+      );
+      return normalizeSearchResults(response?.data?.organic || []);
+    } catch (error) {
+      logger.warn(`Serper fallback search failed: ${error?.message || 'unknown error'}`);
+      return [];
+    }
+  }
+
+  logger.warn('SERPER_API_KEY and TAVILY_API_KEY are both unavailable; returning fail-soft []');
+  return [];
+};
+
 // Handler for verified data sources
 const handleVerifiedDataSources = async (query, verifiedDataSources) => {
   try {
@@ -132,35 +190,11 @@ const handleVCFirmsData = async (query) => {
 // Enhanced handler for social media sources
 const handleSocialMediaSearch = async (query, platform, handle = null) => {
   try {
-    const SERPER_API_KEY = process.env.SERPER_API_KEY;
-    
-    if (!SERPER_API_KEY) {
-      logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
-      return [];
-    }
-
     // If a specific handle is provided, target that handle
     const searchQuery = handle 
       ? `site:${platform}.com ${handle} ${query}`
       : `site:${platform}.com ${query}`;
-
-    const response = await axios.post(
-      'https://google.serper.dev/search',
-      {
-        q: searchQuery,
-        gl: 'us',
-        hl: 'en',
-        num: 10,
-      },
-      {
-        headers: {
-          'X-API-KEY': SERPER_API_KEY,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    const organicResults = response.data.organic || [];
+    const organicResults = await searchWithSerperOrTavily(searchQuery, { num: 10 });
     
     return organicResults.map(result => ({
       title: result.title,
@@ -183,30 +217,7 @@ const handleSocialMediaSearch = async (query, platform, handle = null) => {
 // Enhanced handler for website scraping
 const handleWebsiteScrape = async (query, domain) => {
   try {
-    const SERPER_API_KEY = process.env.SERPER_API_KEY;
-    
-    if (!SERPER_API_KEY) {
-      logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
-      return [];
-    }
-
-    const response = await axios.post(
-      'https://google.serper.dev/search',
-      {
-        q: `site:${domain} ${query}`,
-        gl: 'us',
-        hl: 'en',
-        num: 10,
-      },
-      {
-        headers: {
-          'X-API-KEY': SERPER_API_KEY,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    const organicResults = response.data.organic || [];
+    const organicResults = await searchWithSerperOrTavily(`site:${domain} ${query}`, { num: 10 });
     
     // Enrich results with additional metadata
     return organicResults.map(result => ({
@@ -282,30 +293,7 @@ const sourceHandlers = {
   // Web search using Serper API
   web: async (query) => {
     try {
-      const SERPER_API_KEY = process.env.SERPER_API_KEY;
-      
-      if (!SERPER_API_KEY) {
-        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
-        return [];
-      }
-
-      const response = await axios.post(
-        'https://google.serper.dev/search',
-        {
-          q: query,
-          gl: 'us',
-          hl: 'en',
-          num: 10,
-        },
-        {
-          headers: {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      const organicResults = response.data.organic || [];
+      const organicResults = await searchWithSerperOrTavily(query, { num: 10 });
       
       return organicResults.map(result => ({
         title: result.title,
@@ -322,30 +310,7 @@ const sourceHandlers = {
   // LinkedIn search using web search API with site:linkedin.com
   linkedin: async (query) => {
     try {
-      const SERPER_API_KEY = process.env.SERPER_API_KEY;
-      
-      if (!SERPER_API_KEY) {
-        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
-        return [];
-      }
-
-      const response = await axios.post(
-        'https://google.serper.dev/search',
-        {
-          q: `site:linkedin.com ${query}`,
-          gl: 'us',
-          hl: 'en',
-          num: 5,
-        },
-        {
-          headers: {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      const organicResults = response.data.organic || [];
+      const organicResults = await searchWithSerperOrTavily(`site:linkedin.com ${query}`, { num: 5 });
       
       return organicResults.map(result => ({
         title: result.title,
@@ -362,30 +327,7 @@ const sourceHandlers = {
   // Twitter/X search using web search API with site:twitter.com
   x: async (query) => {
     try {
-      const SERPER_API_KEY = process.env.SERPER_API_KEY;
-      
-      if (!SERPER_API_KEY) {
-        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
-        return [];
-      }
-
-      const response = await axios.post(
-        'https://google.serper.dev/search',
-        {
-          q: `site:twitter.com ${query}`,
-          gl: 'us',
-          hl: 'en',
-          num: 5,
-        },
-        {
-          headers: {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      const organicResults = response.data.organic || [];
+      const organicResults = await searchWithSerperOrTavily(`site:twitter.com ${query}`, { num: 5 });
       
       return organicResults.map(result => ({
         title: result.title,
@@ -407,30 +349,7 @@ const sourceHandlers = {
   // Reddit search using web search API with site:reddit.com
   reddit: async (query) => {
     try {
-      const SERPER_API_KEY = process.env.SERPER_API_KEY;
-      
-      if (!SERPER_API_KEY) {
-        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
-        return [];
-      }
-
-      const response = await axios.post(
-        'https://google.serper.dev/search',
-        {
-          q: `site:reddit.com ${query}`,
-          gl: 'us',
-          hl: 'en',
-          num: 5,
-        },
-        {
-          headers: {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      const organicResults = response.data.organic || [];
+      const organicResults = await searchWithSerperOrTavily(`site:reddit.com ${query}`, { num: 5 });
       
       return organicResults.map(result => ({
         title: result.title,
@@ -447,30 +366,7 @@ const sourceHandlers = {
   // Substack search using web search API with site:substack.com
   substack: async (query) => {
     try {
-      const SERPER_API_KEY = process.env.SERPER_API_KEY;
-      
-      if (!SERPER_API_KEY) {
-        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
-        return [];
-      }
-
-      const response = await axios.post(
-        'https://google.serper.dev/search',
-        {
-          q: `site:substack.com ${query}`,
-          gl: 'us',
-          hl: 'en',
-          num: 5,
-        },
-        {
-          headers: {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      const organicResults = response.data.organic || [];
+      const organicResults = await searchWithSerperOrTavily(`site:substack.com ${query}`, { num: 5 });
       
       return organicResults.map(result => ({
         title: result.title,
@@ -487,30 +383,7 @@ const sourceHandlers = {
   // Medium search using web search API with site:medium.com
   medium: async (query) => {
     try {
-      const SERPER_API_KEY = process.env.SERPER_API_KEY;
-      
-      if (!SERPER_API_KEY) {
-        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
-        return [];
-      }
-
-      const response = await axios.post(
-        'https://google.serper.dev/search',
-        {
-          q: `site:medium.com ${query}`,
-          gl: 'us',
-          hl: 'en',
-          num: 5,
-        },
-        {
-          headers: {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      const organicResults = response.data.organic || [];
+      const organicResults = await searchWithSerperOrTavily(`site:medium.com ${query}`, { num: 5 });
       
       return organicResults.map(result => ({
         title: result.title,
@@ -527,30 +400,7 @@ const sourceHandlers = {
   // Crunchbase search using web search API with site:crunchbase.com
   crunchbase: async (query) => {
     try {
-      const SERPER_API_KEY = process.env.SERPER_API_KEY;
-      
-      if (!SERPER_API_KEY) {
-        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
-        return [];
-      }
-
-      const response = await axios.post(
-        'https://google.serper.dev/search',
-        {
-          q: `site:crunchbase.com ${query}`,
-          gl: 'us',
-          hl: 'en',
-          num: 5,
-        },
-        {
-          headers: {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      const organicResults = response.data.organic || [];
+      const organicResults = await searchWithSerperOrTavily(`site:crunchbase.com ${query}`, { num: 5 });
       
       return organicResults.map(result => ({
         title: result.title,
@@ -567,30 +417,7 @@ const sourceHandlers = {
   // Pitchbook search using web search API with site:pitchbook.com
   pitchbook: async (query) => {
     try {
-      const SERPER_API_KEY = process.env.SERPER_API_KEY;
-      
-      if (!SERPER_API_KEY) {
-        logger.warn('SERPER_API_KEY is not defined; returning fail-soft []');
-        return [];
-      }
-
-      const response = await axios.post(
-        'https://google.serper.dev/search',
-        {
-          q: `site:pitchbook.com ${query}`,
-          gl: 'us',
-          hl: 'en',
-          num: 5,
-        },
-        {
-          headers: {
-            'X-API-KEY': SERPER_API_KEY,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      const organicResults = response.data.organic || [];
+      const organicResults = await searchWithSerperOrTavily(`site:pitchbook.com ${query}`, { num: 5 });
       
       return organicResults.map(result => ({
         title: result.title,

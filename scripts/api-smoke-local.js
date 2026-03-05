@@ -34,6 +34,15 @@ async function waitForServer(url, timeoutMs, shouldAbort) {
   throw new Error(`Timed out waiting for server at ${url}`);
 }
 
+async function isServerReady(url) {
+  try {
+    const response = await fetch(url);
+    return response.ok;
+  } catch (_error) {
+    return false;
+  }
+}
+
 function runCommand(command, args, env = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -54,14 +63,26 @@ function runCommand(command, args, env = {}) {
 }
 
 async function main() {
-  const startProcess = spawn('npm', ['run', 'start', '--', '-H', '127.0.0.1', '-p', '3001'], {
-    stdio: 'inherit',
-    env: { ...process.env },
-    shell: process.platform === 'win32',
-  });
+  const healthUrl = `${BASE}/api/debug/env-check`;
+  const parsedBase = new URL(BASE);
+  const host = parsedBase.hostname;
+  const port = parsedBase.port || (parsedBase.protocol === 'https:' ? '443' : '80');
+  let startProcess = null;
+  let startedByScript = false;
+
+  if (!(await isServerReady(healthUrl))) {
+    startProcess = spawn('npm', ['run', 'start', '--', '-H', host, '-p', port], {
+      stdio: 'inherit',
+      env: { ...process.env },
+      shell: process.platform === 'win32',
+    });
+    startedByScript = true;
+  } else {
+    console.log(`Reusing existing server at ${BASE}`);
+  }
 
   const cleanup = () => {
-    if (!startProcess.killed) {
+    if (startedByScript && startProcess && !startProcess.killed) {
       startProcess.kill('SIGTERM');
     }
   };
@@ -77,8 +98,8 @@ async function main() {
   });
 
   try {
-    await waitForServer(`${BASE}/api/debug/env-check`, START_TIMEOUT_MS, () => {
-      if (startProcess.exitCode !== null && startProcess.exitCode !== 0) {
+    await waitForServer(healthUrl, START_TIMEOUT_MS, () => {
+      if (startedByScript && startProcess && startProcess.exitCode !== null && startProcess.exitCode !== 0) {
         return `Server process exited early with code ${startProcess.exitCode}`;
       }
 

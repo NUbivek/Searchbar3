@@ -4,11 +4,31 @@ import { logger } from '../../../utils/logger';
 import { processWithLLM } from '../../../utils/llmProcessing';
 import { synthesizeFromResults } from '../../../utils/fallbackSynthesizer';
 import { processCategories } from '../../../components/search/categories/processors/CategoryProcessor';
-import { deepWebSearch } from '../../../utils/deepWebSearch';
 import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 
 // Define valid sources
 const VALID_SOURCES = ['web', 'linkedin', 'twitter', 'reddit', 'substack', 'medium', 'crunchbase', 'pitchbook', 'verified'];
+
+function normalizeSources(input) {
+  const raw = Array.isArray(input)
+    ? input
+    : typeof input === 'string'
+      ? input.split(',').map((s) => s.trim())
+      : [];
+
+  const aliasMap = {
+    x: 'twitter',
+    'x.com': 'twitter',
+    'verified sources': 'verified'
+  };
+
+  const normalized = raw
+    .map((source) => String(source || '').trim().toLowerCase())
+    .map((source) => aliasMap[source] || source)
+    .filter((source) => VALID_SOURCES.includes(source));
+
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : ['web'];
+}
 
 export const config = {
   api: {
@@ -39,8 +59,10 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Query is required' });
     }
 
+    const normalizedSources = normalizeSources(sources);
+
     // Log search request
-    logger.info('Open search request:', { query, model, sources });
+    logger.info('Open search request:', { query, model, sources: normalizedSources });
 
     let results = [];
     let llmResponse = null;
@@ -49,7 +71,7 @@ export default async function handler(req, res) {
     const normalizedFiles = Array.isArray(uploadedFiles) && uploadedFiles.length > 0 ? uploadedFiles : files;
 
     // Check if verified sources is selected
-    if (sources.includes('verified')) {
+    if (normalizedSources.includes('verified')) {
       // Use all verified sources (fmp, sec, edgar)
       const verifiedResults = await performSimpleVerifiedSearch(query, ['fmp', 'sec', 'edgar'], {
         model,
@@ -59,15 +81,19 @@ export default async function handler(req, res) {
       results = [...results, ...verifiedResults];
       
       // Filter out 'verified' from sources for regular search
-      const otherSources = sources.filter(source => source !== 'verified');
+      const otherSources = normalizedSources.filter(source => source !== 'verified');
       
       // Only perform regular search if there are other sources selected
       if (otherSources.length > 0) {
         // Perform regular search with selected sources
         if (otherSources.includes('web')) {
-          console.log(`DEBUG: Executing web search for: "${query}"`);
-          const webResults = await deepWebSearch(query, { maxResults: 10 });
-          console.log(`DEBUG: Web search returned ${webResults.length} results`);
+          console.log(`DEBUG: Executing web search via performSimpleSearch for: "${query}"`);
+          const webResults = await performSimpleSearch(query, ['web'], {
+            model,
+            customUrls,
+            uploadedFiles: normalizedFiles
+          });
+          console.log(`DEBUG: Web search (provider chain) returned ${webResults.length} results`);
           if (webResults.length === 0) {
             degradedSources.push('web');
           }
@@ -83,16 +109,20 @@ export default async function handler(req, res) {
       }
     } else {
       // Perform regular search with selected sources
-      if (sources.includes('web')) {
-        console.log(`DEBUG: Executing web search for: "${query}"`);
-        const webResults = await deepWebSearch(query, { maxResults: 10 });
-        console.log(`DEBUG: Web search returned ${webResults.length} results`);
+      if (normalizedSources.includes('web')) {
+        console.log(`DEBUG: Executing web search via performSimpleSearch for: "${query}"`);
+        const webResults = await performSimpleSearch(query, ['web'], {
+          model,
+          customUrls,
+          uploadedFiles: normalizedFiles
+        });
+        console.log(`DEBUG: Web search (provider chain) returned ${webResults.length} results`);
         if (webResults.length === 0) {
           degradedSources.push('web');
         }
         results = [...results, ...webResults];
       } else {
-        results = await performSimpleSearch(query, sources, {
+        results = await performSimpleSearch(query, normalizedSources, {
           model,
           customUrls,
           uploadedFiles: normalizedFiles
@@ -101,7 +131,7 @@ export default async function handler(req, res) {
     }
 
     // Generate LLM response if requested
-    if (useLLM && model) {
+    if (useLLM && model && results.length > 0) {
       try {
         console.log('DEBUG: Attempting to process with LLM - model:', model, 'results:', results.length);
         llmResponse = await processWithLLM({
@@ -172,15 +202,35 @@ export default async function handler(req, res) {
       categoriesCount: categories?.length || 0
     });
     
-    // Return the full LLM response object instead of just the content
+    // Merge only display-safe LLM fields; never let LLM payload override top-level contract status
+    const llmPayload = llmResponse ? {
+      content: llmResponse.content ?? null,
+      sourceMap: llmResponse.sourceMap || {},
+      metadata: llmResponse.metadata || {},
+      __isImmutableLLMResult: !!llmResponse.__isImmutableLLMResult,
+      isLLMResult: !!llmResponse.isLLMResult,
+      llmProcessed: llmResponse.llmProcessed !== false
+    } : {
+      content: null
+    };
+
     return res.status(200).json(normalizeSearchResponseV1({
       results,
       status: results.length > 0 ? (degradedSources.length > 0 ? 'degraded' : 'ok') : 'fail-soft',
       degradedSources: Array.from(new Set(degradedSources)),
       query,
       timestamp: new Date().toISOString(),
-      // Return the complete LLM response object with all the flags
-      ...(llmResponse ? llmResponse : { content: null }),
+      ...llmPayload,
+      ...(results.length === 0 ? {
+        failSoftContent: {
+          message: 'No live sources returned results right now.',
+          suggestions: [
+            'Try a more specific query',
+            'Check provider readiness at /api/debug/env-check',
+            'Try Web + HackerNews sources'
+          ]
+        }
+      } : {}),
       categories
     }));
   } catch (error) {

@@ -6,12 +6,28 @@
 import axios from 'axios';
 import { parse } from 'cookie';
 import { serialize } from 'cookie';
+import { getCallbackUrl } from '../../../../utils/oauthUtils';
 
 const TWITTER_CALLBACK_TIMEOUT_MS = 10000;
 
+function getNetworkRedirectBase(req) {
+  const proto = req.headers['x-forwarded-proto'] || 'http';
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const requestBase = host ? `${proto}://${host}` : '';
+  const isLocalHost = /localhost|127\.0\.0\.1/.test(String(host || ''));
+  if (isLocalHost) return requestBase;
+  return process.env.FRONTEND_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || requestBase;
+}
+
 export default async function handler(req, res) {
+  const networkBase = getNetworkRedirectBase(req);
+  const redirectToNetwork = (query = '') => {
+    const suffix = query ? `?${query}` : '';
+    return res.redirect(`${networkBase}/network${suffix}`);
+  };
+
   if (req.method && req.method !== 'GET') {
-    return res.redirect('/network?error=Method%20not%20allowed');
+    return redirectToNetwork('error=Method%20not%20allowed');
   }
 
   console.log('Twitter callback handler called', req.query);
@@ -20,13 +36,13 @@ export default async function handler(req, res) {
   // Handle error from Twitter
   if (error) {
     console.error('Twitter auth error:', error, error_description);
-    return res.redirect(`/network?error=${encodeURIComponent(error_description || 'Authentication failed')}`);
+    return redirectToNetwork(`error=${encodeURIComponent(error_description || 'Authentication failed')}`);
   }
 
   // Validate the code parameter
   if (!code) {
     console.error('No authorization code received from Twitter');
-    return res.redirect('/network?error=No authorization code received');
+    return redirectToNetwork('error=No authorization code received');
   }
   
   // Verify state parameter to prevent CSRF attacks
@@ -35,7 +51,7 @@ export default async function handler(req, res) {
   
   if (storedState && state !== storedState) {
     console.error('Invalid state parameter', { received: state, stored: storedState });
-    return res.redirect('/network?error=Invalid state parameter');
+    return redirectToNetwork('error=Invalid state parameter');
   }
   
   try {
@@ -46,12 +62,11 @@ export default async function handler(req, res) {
     // Get configuration from environment variables
     const clientId = process.env.TWITTER_CLIENT_ID || process.env.TWITTER_API_KEY;
     const clientSecret = process.env.TWITTER_CLIENT_SECRET;
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
-    const redirectUri = process.env.TWITTER_REDIRECT_URI || `${baseUrl}/api/auth/twitter/callback`;
+    const redirectUri = getCallbackUrl('twitter', req);
     
     if (!clientId) {
       console.error('Missing Twitter client ID');
-      return res.redirect('/network?error=Missing Twitter client configuration');
+      return redirectToNetwork('error=Missing Twitter client configuration');
     }
     
     console.log('Exchanging code for token with Twitter', {
@@ -107,7 +122,7 @@ export default async function handler(req, res) {
     ]);
     
     // Redirect back to the network page with success flag
-    return res.redirect('/network?auth=twitter_success');
+    return redirectToNetwork('auth=twitter_success');
   } catch (error) {
     console.error('Error in Twitter token exchange:', error.response?.data || error.message);
     
@@ -128,6 +143,6 @@ export default async function handler(req, res) {
       }
     }
     
-    return res.redirect(`/network?error=${encodeURIComponent(errorMessage)}`);
+    return redirectToNetwork(`error=${encodeURIComponent(errorMessage)}`);
   }
 }
