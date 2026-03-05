@@ -31,6 +31,25 @@ function normalizeClientError(error) {
   return message;
 }
 
+function resolveSearchEndpoints() {
+  if (typeof window === 'undefined') {
+    return ['/api/search'];
+  }
+
+  const host = window.location.hostname || '';
+  const isLocal = host === 'localhost' || host === '127.0.0.1';
+
+  if (isLocal) {
+    return ['/api/search', 'http://127.0.0.1:3001/api/search'];
+  }
+
+  return [
+    'https://api.research.bivek.ai/api/search',
+    'https://research.bivek.ai/api/search',
+    '/api/search'
+  ];
+}
+
 export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -97,8 +116,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
       console.log('Selected sources:', selectedSources);
       console.log('Using model:', selectedModel);
       
-      // Make actual API call to the search endpoint
-      const response = await axios.post('/api/search', {
+      const payload = {
         query: searchQuery,
         mode: 'open',
         model: selectedModel,
@@ -106,7 +124,24 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         customUrls: customUrls,
         files: uploadedFiles,
         useLLM: true
-      });
+      };
+
+      let response = null;
+      let lastError = null;
+
+      for (const endpoint of resolveSearchEndpoints()) {
+        try {
+          response = await axios.post(endpoint, payload, { timeout: 20000 });
+          break;
+        } catch (endpointError) {
+          lastError = endpointError;
+          console.warn(`Search endpoint failed: ${endpoint}`, endpointError?.response?.status || endpointError?.message);
+        }
+      }
+
+      if (!response) {
+        throw lastError || new Error('No search endpoint responded');
+      }
       
       setApiMeta({
         status: response.data?.status || null,
