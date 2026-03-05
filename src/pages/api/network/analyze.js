@@ -118,6 +118,15 @@ export default async function handler(req, res) {
     if (result.matches && result.matches.length > 0) {
       result.responseText = `Found ${result.matches.length} connections matching your search: "${query}"`;
     } else {
+      const summaryText = String(result.summary || '').toLowerCase();
+      if (
+        summaryText.includes('provided search results') ||
+        summaryText.includes('no specific information') ||
+        summaryText.includes('refining your search') ||
+        summaryText.includes('follow-up questions')
+      ) {
+        result.summary = 'No matching connections found in your connected network.';
+      }
       result.responseText = `No connections found matching your search: "${query}"`;
     }
     

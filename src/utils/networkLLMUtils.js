@@ -70,6 +70,11 @@ export async function processNetworkQuery(query, networkData, source) {
     
     // Process the matches to include node references
     const processedMatches = processLLMMatches(llmResponse.matches || [], networkData);
+
+    // Guard against generic internet-style summaries that are not network-specific.
+    if (isOffTopicNetworkResponse(llmResponse, processedMatches)) {
+      return buildHeuristicNetworkResponse(query, networkData, 'LLM response was not network-specific');
+    }
     
     return {
       matches: processedMatches,
@@ -81,6 +86,27 @@ export async function processNetworkQuery(query, networkData, source) {
     console.error("Error processing network query with LLM:", error);
     return buildHeuristicNetworkResponse(query, networkData, error.message);
   }
+}
+
+function isOffTopicNetworkResponse(llmResponse, processedMatches) {
+  const summary = String(llmResponse?.summary || '').toLowerCase();
+  const content = String(llmResponse?.content || '').toLowerCase();
+  const combined = `${summary}\n${content}`;
+
+  const genericIndicators = [
+    'provided search results',
+    'no specific information',
+    'refining your search',
+    'search terms',
+    'related topics',
+    'detailed analysis',
+    'follow-up questions'
+  ];
+
+  const hasGenericLanguage = genericIndicators.some((indicator) => combined.includes(indicator));
+  const hasMatches = Array.isArray(processedMatches) && processedMatches.length > 0;
+
+  return hasGenericLanguage && !hasMatches;
 }
 
 function buildHeuristicNetworkResponse(query, networkData, failureReason = null) {
