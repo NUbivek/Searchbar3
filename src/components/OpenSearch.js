@@ -31,6 +31,24 @@ function normalizeClientError(error) {
   return message;
 }
 
+function buildClientFallbackContent(query, results) {
+  const top = Array.isArray(results) ? results.slice(0, 5) : [];
+  if (top.length === 0) {
+    return `No synthesized summary available for "${query}".`;
+  }
+
+  const bullets = top
+    .map((item, index) => {
+      const title = item?.title || `Result ${index + 1}`;
+      const snippet = item?.snippet || item?.content || '';
+      const url = item?.url || '';
+      return `${index + 1}. ${title}${snippet ? ` - ${snippet}` : ''}${url ? ` (${url})` : ''}`;
+    })
+    .join('\n');
+
+  return `## Summary\nSearch returned results, but the LLM provider is unavailable. This is a free fallback synthesis based on raw results.\n\n## Top Findings\n${bullets}`;
+}
+
 export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -124,6 +142,19 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
       
       // Enhanced LLM detection using utility function
       console.log('Performing LLM result detection on response data');
+
+      if (data?.errorType === 'auth_error' && Array.isArray(data?.results) && data.results.length > 0) {
+        console.warn('LLM auth failed; using client-side synthesized fallback');
+        setResults({
+          content: buildClientFallbackContent(searchQuery, data.results),
+          isLLMResult: true,
+          __isImmutableLLMResult: true,
+          query: searchQuery,
+          metadata: { fallback: 'client-synthesizer' }
+        });
+        setHasSearched(true);
+        return;
+      }
       
       if (isLLMResult(data)) {
         console.log('✅ Successfully detected LLM-formatted results');
