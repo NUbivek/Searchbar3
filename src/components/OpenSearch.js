@@ -149,6 +149,15 @@ function normalizeAndRankFallbackResults(query, results) {
   return filtered;
 }
 
+function isLikelyHackerNewsOnly(results = []) {
+  if (!Array.isArray(results) || results.length === 0) return false;
+  return results.every((item) => {
+    const src = String(item?.source || '').toLowerCase();
+    const url = String(item?.url || '').toLowerCase();
+    return src.includes('hackernews') || url.includes('news.ycombinator.com');
+  });
+}
+
 async function fetchPublicFallbackResults(query) {
   const encodedQuery = encodeURIComponent(query || '');
   const timeoutMs = 10000;
@@ -357,31 +366,56 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         }
       }
       
+      const responseData = response?.data || {};
+      const apiResults = Array.isArray(responseData.results) ? responseData.results : [];
+      const llmAuthError =
+        responseData?.llmResults?.errorType === 'auth_error' ||
+        responseData?.errorType === 'auth_error' ||
+        String(responseData?.content || '').toLowerCase().includes('authentication failed');
+
+      let displayResults = apiResults;
+      if (isLikelyHackerNewsOnly(apiResults)) {
+        const publicFallbackResults = await fetchPublicFallbackResults(searchQuery);
+        displayResults = normalizeAndRankFallbackResults(searchQuery, [
+          ...apiResults,
+          ...publicFallbackResults
+        ]);
+      } else if (apiResults.length > 0) {
+        displayResults = normalizeAndRankFallbackResults(searchQuery, apiResults);
+      }
+
       setApiMeta({
-        status: response.data?.status || null,
-        degradedSources: Array.isArray(response.data?.degradedSources) ? response.data.degradedSources : [],
-        failSoftContent: response.data?.failSoftContent || null
+        status: responseData?.status || null,
+        degradedSources: Array.isArray(responseData?.degradedSources) ? responseData.degradedSources : [],
+        failSoftContent: responseData?.failSoftContent || null
       });
 
       // Log the response for debugging
       console.log('Search API response structure:', {
-        hasLLMResults: !!response.data.llmResults,
-        hasContent: !!response.data.content,
-        topLevelKeys: Object.keys(response.data).slice(0, 8),
-        llmFlags: response.data.isLLMResults || response.data.isLLMResult || response.data.__isImmutableLLMResult
+        hasLLMResults: !!responseData.llmResults,
+        hasContent: !!responseData.content,
+        topLevelKeys: Object.keys(responseData).slice(0, 8),
+        llmFlags: responseData.isLLMResults || responseData.isLLMResult || responseData.__isImmutableLLMResult
       });
       
       // Enhanced LLM detection using utility function
       console.log('Performing LLM result detection on response data');
+
+      if (llmAuthError && displayResults.length > 0) {
+        console.warn('LLM authentication failure detected; rendering curated source results only.');
+        setResults(displayResults);
+        setHasSearched(true);
+        return;
+      }
       
-      if (isLLMResult(response.data)) {
+      if (isLLMResult(responseData)) {
         console.log('✅ Successfully detected LLM-formatted results');
         
         // Determine if we should use a property or the whole object
-        if (response.data.llmResults && isLLMResult(response.data.llmResults)) {
+        if (responseData.llmResults && isLLMResult(responseData.llmResults)) {
           console.log('Using nested llmResults from response');
           setResults({
-            ...response.data.llmResults,
+            ...responseData.llmResults,
             __isImmutableLLMResult: true,
             isLLMResult: true,
             query: searchQuery
@@ -390,29 +424,29 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
           // Use the whole response when it's the LLM result itself
           console.log('Using entire response as LLM result');
           setResults({
-            ...response.data,
+            ...responseData,
             __isImmutableLLMResult: true,
             isLLMResult: true,
             query: searchQuery
           });
         }
-      } else if (response.data.content && typeof response.data.content === 'string') {
+      } else if (responseData.content && typeof responseData.content === 'string') {
         // Explicitly format as LLM result when content is present
         console.log('Formatting content property as LLM result');
         setResults({
-          content: response.data.content,
+          content: responseData.content,
           isLLMResult: true,
           __isImmutableLLMResult: true,
           query: searchQuery
         });
-      } else if (response.data.results) {
+      } else if (responseData.results) {
         // Fallback to regular results
         console.log('Using regular search results array');
-        setResults(response.data.results);
-      } else if (typeof response.data === 'string') {
+        setResults(displayResults);
+      } else if (typeof responseData === 'string') {
         // Handle case where response might be a plain string
         console.log('Handling string response');
-        setResults([response.data]);
+        setResults([responseData]);
       } else {
         // Create empty result if nothing found
         console.log('No recognizable results format');
