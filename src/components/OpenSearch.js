@@ -50,6 +50,29 @@ function resolveSearchEndpoints() {
   ];
 }
 
+function resolveHackerNewsFallbackEndpoints(query) {
+  const encodedQuery = encodeURIComponent(query || '');
+  if (typeof window === 'undefined') {
+    return [`/api/search/hackernews?q=${encodedQuery}`];
+  }
+
+  const host = window.location.hostname || '';
+  const isLocal = host === 'localhost' || host === '127.0.0.1';
+
+  if (isLocal) {
+    return [
+      `/api/search/hackernews?q=${encodedQuery}`,
+      `http://127.0.0.1:3001/api/search/hackernews?q=${encodedQuery}`
+    ];
+  }
+
+  return [
+    `https://api.research.bivek.ai/api/search/hackernews?q=${encodedQuery}`,
+    `https://research.bivek.ai/api/search/hackernews?q=${encodedQuery}`,
+    `/api/search/hackernews?q=${encodedQuery}`
+  ];
+}
+
 export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -140,7 +163,38 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
       }
 
       if (!response) {
-        throw lastError || new Error('No search endpoint responded');
+        let fallbackResponse = null;
+        let fallbackError = null;
+
+        for (const fallbackEndpoint of resolveHackerNewsFallbackEndpoints(searchQuery)) {
+          try {
+            fallbackResponse = await axios.get(fallbackEndpoint, { timeout: 20000 });
+            break;
+          } catch (endpointError) {
+            fallbackError = endpointError;
+            console.warn(`HN fallback endpoint failed: ${fallbackEndpoint}`, endpointError?.response?.status || endpointError?.message);
+          }
+        }
+
+        if (fallbackResponse?.data) {
+          const fallbackResults = Array.isArray(fallbackResponse.data?.results)
+            ? fallbackResponse.data.results
+            : [];
+          response = {
+            data: {
+              status: 'degraded',
+              query: searchQuery,
+              results: fallbackResults,
+              degradedSources: ['web'],
+              failSoftContent: fallbackResults.length === 0 ? {
+                message: 'Primary search API is unavailable right now. Showing limited fallback results.',
+                suggestions: ['Try again in a minute', 'Try a different query', 'Check provider readiness at /api/debug/env-check']
+              } : null
+            }
+          };
+        } else {
+          throw fallbackError || lastError || new Error('No search endpoint responded');
+        }
       }
       
       setApiMeta({
