@@ -3,7 +3,6 @@ import { performSimpleSearch, performSimpleVerifiedSearch } from '../../../utils
 import { logger } from '../../../utils/logger';
 import { processWithLLM } from '../../../utils/llmProcessing';
 import { processCategories } from '../../../components/search/categories/processors/CategoryProcessor';
-import { deepWebSearch } from '../../../utils/deepWebSearch';
 import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 
 // Define valid sources
@@ -64,9 +63,13 @@ export default async function handler(req, res) {
       if (otherSources.length > 0) {
         // Perform regular search with selected sources
         if (otherSources.includes('web')) {
-          console.log(`DEBUG: Executing web search for: "${query}"`);
-          const webResults = await deepWebSearch(query, { maxResults: 10 });
-          console.log(`DEBUG: Web search returned ${webResults.length} results`);
+          console.log(`DEBUG: Executing web search via performSimpleSearch for: "${query}"`);
+          const webResults = await performSimpleSearch(query, ['web'], {
+            model,
+            customUrls,
+            uploadedFiles: normalizedFiles
+          });
+          console.log(`DEBUG: Web search (provider chain) returned ${webResults.length} results`);
           if (webResults.length === 0) {
             degradedSources.push('web');
           }
@@ -83,9 +86,13 @@ export default async function handler(req, res) {
     } else {
       // Perform regular search with selected sources
       if (sources.includes('web')) {
-        console.log(`DEBUG: Executing web search for: "${query}"`);
-        const webResults = await deepWebSearch(query, { maxResults: 10 });
-        console.log(`DEBUG: Web search returned ${webResults.length} results`);
+        console.log(`DEBUG: Executing web search via performSimpleSearch for: "${query}"`);
+        const webResults = await performSimpleSearch(query, ['web'], {
+          model,
+          customUrls,
+          uploadedFiles: normalizedFiles
+        });
+        console.log(`DEBUG: Web search (provider chain) returned ${webResults.length} results`);
         if (webResults.length === 0) {
           degradedSources.push('web');
         }
