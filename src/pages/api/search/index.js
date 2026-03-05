@@ -160,36 +160,40 @@ export default async function handler(req, res) {
       results = [];
     }
 
-    // HackerNews safety net (no API key required) is a true fallback:
-    // only use it when primary providers returned no results.
-    try {
-      const hnController = new AbortController();
-      const hnTimeout = setTimeout(() => hnController.abort(), HN_FALLBACK_TIMEOUT_MS);
-      const hnResp = await (async () => {
-        try {
-          return await fetch(
-            `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'}/api/search/hackernews?q=${encodeURIComponent(query)}`,
-            { signal: hnController.signal }
-          );
-        } finally {
-          clearTimeout(hnTimeout);
+    // Optional HackerNews safety net:
+    // only use it when explicitly requested by source selection.
+    const sourceSet = new Set((Array.isArray(sources) ? sources : []).map((s) => String(s).toLowerCase()));
+    const allowHackerNewsFallback = sourceSet.has('hackernews') || sourceSet.has('hn');
+    if (allowHackerNewsFallback) {
+      try {
+        const hnController = new AbortController();
+        const hnTimeout = setTimeout(() => hnController.abort(), HN_FALLBACK_TIMEOUT_MS);
+        const hnResp = await (async () => {
+          try {
+            return await fetch(
+              `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'}/api/search/hackernews?q=${encodeURIComponent(query)}`,
+              { signal: hnController.signal }
+            );
+          } finally {
+            clearTimeout(hnTimeout);
+          }
+        })();
+        if (!hnResp.ok) {
+          throw new Error(`HackerNews fallback returned ${hnResp.status}`);
         }
-      })();
-      if (!hnResp.ok) {
-        throw new Error(`HackerNews fallback returned ${hnResp.status}`);
-      }
-      const hnData = await hnResp.json();
-      const hnResults = Array.isArray(hnData?.results) ? hnData.results : [];
+        const hnData = await hnResp.json();
+        const hnResults = Array.isArray(hnData?.results) ? hnData.results : [];
 
-      if (results.length === 0 && hnResults.length > 0) {
-        results = hnResults.map(item => ({ ...item, source: item.source || 'hackernews' }));
-      } else if (results.length === 0 && hnResults.length === 0) {
-        degradedSources.push('hackernews');
-      }
-    } catch (fallbackError) {
-      if (results.length === 0) {
-        console.error('HackerNews safety net failed:', fallbackError.message);
-        degradedSources.push('hackernews');
+        if (results.length === 0 && hnResults.length > 0) {
+          results = hnResults.map(item => ({ ...item, source: item.source || 'hackernews' }));
+        } else if (results.length === 0 && hnResults.length === 0) {
+          degradedSources.push('hackernews');
+        }
+      } catch (fallbackError) {
+        if (results.length === 0) {
+          console.error('HackerNews safety net failed:', fallbackError.message);
+          degradedSources.push('hackernews');
+        }
       }
     }
 
@@ -227,7 +231,7 @@ export default async function handler(req, res) {
           suggestions: [
             'Try a more specific query',
             'Check provider readiness at /api/debug/env-check',
-            'Try Web + HackerNews sources'
+            'Try a different query scope'
           ],
           exampleQueries: [
             'AI infrastructure Series B deals 2024',
@@ -295,15 +299,19 @@ export default async function handler(req, res) {
     let useFallbackSynthesizer = false;
     let skipFallbackSynthesizer = false;
     
-    // Use the model from the request or default to mixtral-8x7b
-    const llmModel = model || 'mixtral-8x7b';
+    // Use the model from the request or default to OpenRouter Mistral.
+    const llmModel = model || 'or-mistral';
     
     if (results.length > 0 && shouldUseLLM) {
       
       try {
         console.log(`Processing ${results.length} results with LLM model: ${llmModel}`);
-        console.log(`API key check - Together API: ${process.env.TOGETHER_API_KEY ? 'Valid key (starts with ' + process.env.TOGETHER_API_KEY.substring(0, 5) + '...)' : 'MISSING'}`);
-        console.log(`API key length check: ${process.env.TOGETHER_API_KEY ? process.env.TOGETHER_API_KEY.length + ' characters' : 'No key'}`);
+        const hasOpenRouterKey = !!process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.length >= 20;
+        const hasTogetherKey = !!process.env.TOGETHER_API_KEY && process.env.TOGETHER_API_KEY.length >= 20;
+        console.log('API key readiness:', {
+          openrouter: hasOpenRouterKey ? 'present' : 'missing',
+          together: hasTogetherKey ? 'present' : 'missing'
+        });
         
         // Validate and prepare sources before sending to LLM
         const validSources = results.filter(result => {
@@ -344,13 +352,12 @@ export default async function handler(req, res) {
             ]
           };
         } else {
-          // Call processWithLLM with individual parameters
-          // Force a properly formatted API key for Together API
-          const apiKey = process.env.TOGETHER_API_KEY;
-          
-          if (!apiKey || apiKey.length < 20) {
-            console.warn(`Together API key unavailable/invalid (${apiKey?.length || 0} chars). Skipping remote LLM and using fallback synthesizer.`);
-            useFallbackSynthesizer = true;
+          // Call processWithLLM with individual parameters.
+          // It handles OpenRouter primary + Together secondary internally.
+          if (!hasOpenRouterKey && !hasTogetherKey) {
+            console.warn('No LLM provider key available. Returning ranked source results without synthesis.');
+            skipFallbackSynthesizer = true;
+            useFallbackSynthesizer = false;
           } else {
             // Process with LLM with detailed logging
             console.log('Calling processWithLLM with query:', query.substring(0, 30) + '...',
@@ -372,15 +379,9 @@ export default async function handler(req, res) {
                 .toLowerCase()
                 .includes('payment required');
             if (llmResponse?.isError || llmResponse?.type === 'error' || llmResponse?.errorType || llmAuthFailure || llmBillingFailure) {
-              console.warn('LLM returned error payload; switching to local fallback synthesizer');
-              // For auth/billing failures, do NOT synthesize generic text from sources.
-              // Return normal ranked source results instead for higher quality.
-              if (llmAuthFailure || llmBillingFailure || llmResponse?.errorType === 'auth_error' || llmResponse?.errorType === 'billing_error') {
-                skipFallbackSynthesizer = true;
-                useFallbackSynthesizer = false;
-              } else {
-                useFallbackSynthesizer = true;
-              }
+              console.warn('LLM returned error payload; returning ranked source results without synthetic fallback');
+              skipFallbackSynthesizer = true;
+              useFallbackSynthesizer = false;
               llmResponse = null;
             }
           }
@@ -431,13 +432,16 @@ export default async function handler(req, res) {
           skipFallbackSynthesizer = true;
           useFallbackSynthesizer = false;
         } else {
-          useFallbackSynthesizer = true;
+          // Keep fail-soft output deterministic and readable by default.
+          skipFallbackSynthesizer = true;
+          useFallbackSynthesizer = false;
         }
       }
     }
     
-    // Use fallback synthesizer if LLM processing failed or didn't produce proper results
-    if (shouldUseLLM && !skipFallbackSynthesizer && (useFallbackSynthesizer || !llmResponse || !isLLMResult(llmResponse))) {
+    // Optional synthetic fallback (off by default).
+    const allowSyntheticFallback = req.body?.allowSyntheticFallback === true;
+    if (allowSyntheticFallback && shouldUseLLM && !skipFallbackSynthesizer && (useFallbackSynthesizer || !llmResponse || !isLLMResult(llmResponse))) {
       console.log('Using fallback synthesizer to create LLM-like response from search results');
       llmResponse = synthesizeFromResults(query, results);
       console.log('Generated synthetic LLM response with fallback synthesizer');
