@@ -36,8 +36,18 @@ export const MODEL_ENDPOINTS = {
   'gemma-7b': {
     endpoint: 'https://api.together.xyz/v1/completions',
     modelId: 'google/gemma-7b-it',
+    provider: 'together',
+    apiType: 'completions',
     temperature: 0.7,
     max_tokens: 4096
+  },
+  'deepseek-free': {
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    modelId: 'deepseek/deepseek-chat-v3-0324:free',
+    provider: 'openrouter',
+    apiType: 'chat',
+    temperature: 0.7,
+    max_tokens: 2048
   }
 };
 
@@ -55,7 +65,9 @@ const MODEL_ALIASES = {
   'llama': 'llama-2-13b',
   'llama-13b': 'llama-2-13b',
   'gemma': 'gemma-7b',
-  'gemma-27b': 'gemma-7b'
+  'gemma-27b': 'gemma-7b',
+  'deepseek': 'deepseek-free',
+  'deepseek-chat': 'deepseek-free'
 };
 
 /**
@@ -123,22 +135,30 @@ export const processWithLLM = async (param1, param2, param3 = 'mistral-7b', para
       };
     }
     
-    // Get API key - first check options, then environment variable
-    let apiKey = options.apiKey || process.env.TOGETHER_API_KEY;
+    // Get model configuration
+    const modelConfig = MODEL_ENDPOINTS[modelId] || MODEL_ENDPOINTS['mistral-7b'];
+    const usesOpenRouter = modelConfig.provider === 'openrouter';
+
+    // Get API key - first check options, then provider-specific environment variable
+    let apiKey =
+      options.apiKey ||
+      (usesOpenRouter ? process.env.OPENROUTER_API_KEY : process.env.TOGETHER_API_KEY);
     
     // For debugging - checking API key format without exposing the full key
     console.log('DEBUG: API Key check:', {
       provided: !!apiKey,
       length: apiKey?.length || 0,
       firstFiveChars: apiKey ? apiKey.substring(0, 5) + '...' : 'none',
-      envVarExists: !!process.env.TOGETHER_API_KEY,
-      envVarLength: process.env.TOGETHER_API_KEY?.length || 0
+      provider: usesOpenRouter ? 'openrouter' : 'together',
+      envVarExists: usesOpenRouter ? !!process.env.OPENROUTER_API_KEY : !!process.env.TOGETHER_API_KEY,
+      envVarLength: usesOpenRouter ? (process.env.OPENROUTER_API_KEY?.length || 0) : (process.env.TOGETHER_API_KEY?.length || 0)
     });
     
     // Validate API key
     if (!apiKey || apiKey.length < 20) {
-      console.error(`Invalid Together API key - must be at least 20 characters, got ${apiKey?.length || 0}`);
-      return createErrorResponse('API key validation failed - check your .env.local file', 'auth_error');
+      const providerName = usesOpenRouter ? 'OpenRouter' : 'Together';
+      console.error(`Invalid ${providerName} API key - must be at least 20 characters, got ${apiKey?.length || 0}`);
+      return createErrorResponse(`${providerName} API key validation failed - check your .env.local file`, 'auth_error');
     }
     
     // Create source map for reference
@@ -149,9 +169,6 @@ export const processWithLLM = async (param1, param2, param3 = 'mistral-7b', para
     
     // Generate a prompt for the LLM
     const prompt = generateSearchPrompt(query, formattedResults, options);
-    
-    // Get model configuration
-    const modelConfig = MODEL_ENDPOINTS[modelId] || MODEL_ENDPOINTS['mistral-7b'];
     
     // Call the LLM API
     let llmResponse;
@@ -292,7 +309,9 @@ export const generatePrompt = (query, sources = []) => {
  * @returns {Promise<Object>} LLM API response
  */
 const callLLMAPI = async (prompt, modelConfig, apiKey) => {
-  console.log('Calling Together API with model:', modelConfig.modelId);
+  const provider = modelConfig.provider || 'together';
+  const apiType = modelConfig.apiType || 'completions';
+  console.log(`Calling ${provider} API with model:`, modelConfig.modelId);
   try {
     // Log the request details (without the full API key)
     console.log('API Request:', {
@@ -305,23 +324,35 @@ const callLLMAPI = async (prompt, modelConfig, apiKey) => {
       apiKeyLength: apiKey?.length || 0
     });
 
-    const response = await axios.post(
-      modelConfig.endpoint,
-      {
-        model: modelConfig.modelId,
-        prompt: prompt,
-        temperature: modelConfig.temperature,
-        max_tokens: modelConfig.max_tokens,
-        top_p: 0.9,
-        stop: ['USER:', 'ASSISTANT:']
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
+    const requestBody = apiType === 'chat'
+      ? {
+          model: modelConfig.modelId,
+          messages: [
+            { role: 'system', content: 'You are a concise research assistant. Return grounded, source-aware summaries.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature: modelConfig.temperature,
+          max_tokens: modelConfig.max_tokens
         }
-      }
-    );
+      : {
+          model: modelConfig.modelId,
+          prompt: prompt,
+          temperature: modelConfig.temperature,
+          max_tokens: modelConfig.max_tokens,
+          top_p: 0.9,
+          stop: ['USER:', 'ASSISTANT:']
+        };
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    };
+    if (provider === 'openrouter') {
+      headers['HTTP-Referer'] = process.env.NEXT_PUBLIC_PRODUCTION_URL || 'https://airesearch.bivek.ai';
+      headers['X-Title'] = 'Searchbar3';
+    }
+
+    const response = await axios.post(modelConfig.endpoint, requestBody, { headers });
     
     // Log successful response format
     console.log('API Response format:', {
@@ -331,6 +362,20 @@ const callLLMAPI = async (prompt, modelConfig, apiKey) => {
       tokensUsed: response.data.usage?.total_tokens
     });
     
+    if (apiType === 'chat') {
+      return {
+        id: response.data?.id,
+        created: response.data?.created,
+        model: response.data?.model,
+        usage: response.data?.usage,
+        choices: [
+          {
+            text: response.data?.choices?.[0]?.message?.content || ''
+          }
+        ]
+      };
+    }
+
     return response.data;
   } catch (error) {
     // Create detailed error logs
@@ -338,6 +383,7 @@ const callLLMAPI = async (prompt, modelConfig, apiKey) => {
       response: error.response?.data,
       status: error.response?.status,
       message: error.message,
+      provider,
       errorType: error.response?.status === 401 ? 'Authentication Error' : 
                 error.response?.status === 429 ? 'Rate Limit Error' : 
                 error.response?.status >= 500 ? 'Server Error' : 'API Error'
@@ -354,7 +400,7 @@ const callLLMAPI = async (prompt, modelConfig, apiKey) => {
     } else if (error.response?.status === 429) {
       errorMessage = 'Rate limit exceeded. Please try again later or use a different API key.';
     } else if (error.response?.status >= 500) {
-      errorMessage = 'Together.ai server error. Please try again later.';
+      errorMessage = `${provider} server error. Please try again later.`;
     }
     
     throw {

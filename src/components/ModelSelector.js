@@ -4,7 +4,8 @@ import React from 'react';
 const MODEL_OPTIONS = [
   { id: 'mistral-7b', name: 'Mistral 7B' },
   { id: 'llama-13b', name: 'Llama 2 13B' },
-  { id: 'gemma-27b', name: 'Gemma 27B' }
+  { id: 'gemma-27b', name: 'Gemma 27B' },
+  { id: 'deepseek-free', name: 'DeepSeek (Free)' }
 ];
 
 const ModelSelector = ({ selectedModel, onChange }) => {

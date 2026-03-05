@@ -22,6 +22,12 @@ export const MODEL_OPTIONS = [
     name: 'Gemma 27B',
     icon: '⚡',
     description: 'Powerful model with excellent reasoning and instruction following.'
+  },
+  {
+    id: 'deepseek-free',
+    name: 'DeepSeek (Free)',
+    icon: '🆓',
+    description: 'Free DeepSeek route via OpenRouter.'
   }
 ];
 
