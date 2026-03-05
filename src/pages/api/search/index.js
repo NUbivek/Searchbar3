@@ -352,10 +352,7 @@ export default async function handler(req, res) {
             llmResponse = await processWithLLM(
               validSources, // searchResults
               query,         // query
-              llmModel,      // modelId 
-              {              // options
-                apiKey: apiKey
-              }
+              llmModel       // modelId
             );
 
             if (llmResponse?.isError || llmResponse?.type === 'error' || llmResponse?.errorType) {
