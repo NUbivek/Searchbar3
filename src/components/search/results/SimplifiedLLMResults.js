@@ -11,6 +11,17 @@ import styles from './SimplifiedLLMResults.module.css';
 import searchResultScorer from '../../../utils/scoring/SearchResultScorer';
 import { detectQueryContext } from '../utils/contextDetector';
 
+const stripHtml = (value = '') => String(value).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+const formatReadableResult = (result) => {
+  if (!result || typeof result !== 'object') return '';
+  const title = stripHtml(result.title || 'Untitled');
+  const url = String(result.url || result.link || '').trim();
+  const snippet = stripHtml(result.snippet || result.content || result.description || '');
+  const safeUrl = url || '#';
+  return `<div class="raw-result"><h3>${title}</h3>${url ? `<p><a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${safeUrl}</a></p>` : ''}<p>${snippet}</p></div>`;
+};
+
 /**
  * ExpandableContent Component
  * Handles expandable content with show more/less functionality
@@ -413,9 +424,14 @@ const SimplifiedLLMResults = ({
         aggregateScores.count = Math.max(aggregateScores.count, 1);
         
         // Extract content
-        const resultContent = typeof result === 'string' ? result : 
-                            (result.content || result.text || result.summary || 
-                             (result.insights ? JSON.stringify(result.insights) : JSON.stringify(result)));
+        const resultContent = typeof result === 'string'
+          ? result
+          : (
+              result.content ||
+              result.text ||
+              result.summary ||
+              [result.title, result.snippet, result.description].filter(Boolean).join('. ')
+            );
         allContent += resultContent + ' ';
       });
       
@@ -566,9 +582,11 @@ const SimplifiedLLMResults = ({
             <div key={`result-${index}`} className={styles.resultItem}>
               <div className={styles.resultContent}>
                 <ExpandableContent content={
-                  typeof result === 'string' ? result : 
-                  typeof result.content === 'string' ? result.content :
-                  JSON.stringify(result)
+                  typeof result === 'string'
+                    ? result
+                    : (typeof result.content === 'string' && result.content.trim().length > 0)
+                      ? result.content
+                      : formatReadableResult(result)
                 } />
               </div>
             </div>
