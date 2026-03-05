@@ -172,7 +172,11 @@ export const processWithLLM = async (param1, param2, param3 = 'mistral-7b', para
     // Process the response
     return processLLMResponse(llmResponse, query, sourceMap);
   } catch (error) {
-    console.error('LLM processing error:', error);
+    console.error('LLM processing error:', {
+      message: error?.message || 'Unknown LLM error',
+      code: error?.code || null,
+      status: error?.status || null
+    });
     return createErrorResponse(
       error.message || 'An error occurred during LLM processing',
       error.code || 'processing_error'

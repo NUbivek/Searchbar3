@@ -402,8 +402,23 @@ export default async function handler(req, res) {
         
         console.log('LLM processing completed successfully');
       } catch (error) {
-        console.error("Error processing with LLM:", error);
-        useFallbackSynthesizer = true;
+        const safeError = {
+          message: error?.message || 'Unknown LLM error',
+          code: error?.code || null,
+          status: error?.status || null
+        };
+        console.error('Error processing with LLM:', safeError);
+        const isAuthOrBillingFailure =
+          safeError.code === 'auth_error' ||
+          safeError.code === 'billing_error' ||
+          safeError.status === 401 ||
+          safeError.status === 402;
+        if (isAuthOrBillingFailure) {
+          skipFallbackSynthesizer = true;
+          useFallbackSynthesizer = false;
+        } else {
+          useFallbackSynthesizer = true;
+        }
       }
     }
     
@@ -430,8 +445,8 @@ export default async function handler(req, res) {
         categoryFinder,
         includeBusinessMetrics: true,
         llmResponse,
-        debug: true,  // Enable debug mode for more verbose output
-        showDebug: true, // Show debug info
+        debug: false,
+        showDebug: false,
         forceMultipleCategories: true, // Force creation of multiple categories
         context: queryContext, // Pass context to category processor
         maxCategories: 6, // Limit to max 6 categories for UI display
