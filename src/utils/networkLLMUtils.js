@@ -22,6 +22,10 @@ export async function processNetworkQuery(query, networkData, source) {
     return { matches: [], summary: "No data available to search." };
   }
 
+  if (!process.env.TOGETHER_API_KEY) {
+    return buildHeuristicNetworkResponse(query, networkData);
+  }
+
   try {
     // Prepare network data for LLM context
     const networkContext = prepareNetworkContext(networkData, source);
@@ -65,12 +69,68 @@ export async function processNetworkQuery(query, networkData, source) {
     };
   } catch (error) {
     console.error("Error processing network query with LLM:", error);
-    return { 
-      matches: [], 
-      summary: "An error occurred while processing your query. Please try again.",
-      error: error.message
-    };
+    return buildHeuristicNetworkResponse(query, networkData, error.message);
   }
+}
+
+function buildHeuristicNetworkResponse(query, networkData, failureReason = null) {
+  const queryTerms = String(query || '')
+    .toLowerCase()
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length > 2);
+
+  const candidates = (networkData.nodes || []).filter((node) => node && node.id !== 'user');
+
+  const matches = candidates
+    .map((node) => {
+      const haystack = [
+        node.name,
+        node.company,
+        node.position,
+        node.title,
+        node.location,
+        node.handle
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      const hitCount = queryTerms.length === 0
+        ? 0
+        : queryTerms.reduce((count, term) => count + (haystack.includes(term) ? 1 : 0), 0);
+
+      if (hitCount === 0 && queryTerms.length > 0) {
+        return null;
+      }
+
+      const relevance = hitCount >= 2 ? 'High' : (hitCount === 1 ? 'Medium' : 'Low');
+      return {
+        id: node.id,
+        name: node.name || 'Unknown',
+        relevance,
+        reasoning: hitCount > 0
+          ? `Matched ${hitCount} query term${hitCount > 1 ? 's' : ''} in profile fields.`
+          : 'Included as a broad fallback match.',
+        nodeData: node
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 25);
+
+  const summary = matches.length > 0
+    ? `Found ${matches.length} network connection${matches.length > 1 ? 's' : ''} using local fallback analysis.`
+    : 'No matching connections found using local fallback analysis.';
+
+  return {
+    matches,
+    summary,
+    relatedIndustries: [],
+    suggestedConnections: [],
+    degradedSources: ['together-llm'],
+    status: 'fail-soft',
+    ...(failureReason ? { error: failureReason } : {})
+  };
 }
 
 /**
