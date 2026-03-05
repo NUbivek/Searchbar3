@@ -3,12 +3,22 @@
  * Functions for processing network data with LLM for natural language search
  */
 
-import { TogetherAI } from 'together';
+import Together from 'together';
 
-// Initialize Together API client
-const togetherClient = new TogetherAI({
-  apiKey: process.env.TOGETHER_API_KEY,
-});
+function resolveTogetherConstructor(pkg) {
+  if (typeof pkg === 'function') return pkg;
+  if (pkg && typeof pkg.default === 'function') return pkg.default;
+  if (pkg && typeof pkg.TogetherAI === 'function') return pkg.TogetherAI;
+  if (pkg && pkg.default && typeof pkg.default.TogetherAI === 'function') {
+    return pkg.default.TogetherAI;
+  }
+  return null;
+}
+
+const TogetherCtor = resolveTogetherConstructor(Together);
+const togetherClient = TogetherCtor
+  ? new TogetherCtor({ apiKey: process.env.TOGETHER_API_KEY || '' })
+  : null;
 
 /**
  * Process a natural language query against network data using LLM
@@ -22,7 +32,7 @@ export async function processNetworkQuery(query, networkData, source) {
     return { matches: [], summary: "No data available to search." };
   }
 
-  if (!process.env.TOGETHER_API_KEY) {
+  if (!process.env.TOGETHER_API_KEY || !togetherClient) {
     return buildHeuristicNetworkResponse(query, networkData);
   }
 

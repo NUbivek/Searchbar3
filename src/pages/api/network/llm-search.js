@@ -1,12 +1,22 @@
 /**
  * API endpoint for LLM-powered network search queries
  */
-import { TogetherAI } from 'together';
+import Together from 'together';
 
-// Initialize Together AI client with API key from environment variables
-const togetherClient = new TogetherAI({
-  apiKey: process.env.TOGETHER_API_KEY || '',
-});
+function resolveTogetherConstructor(pkg) {
+  if (typeof pkg === 'function') return pkg;
+  if (pkg && typeof pkg.default === 'function') return pkg.default;
+  if (pkg && typeof pkg.TogetherAI === 'function') return pkg.TogetherAI;
+  if (pkg && pkg.default && typeof pkg.default.TogetherAI === 'function') {
+    return pkg.default.TogetherAI;
+  }
+  return null;
+}
+
+const TogetherCtor = resolveTogetherConstructor(Together);
+const togetherClient = TogetherCtor
+  ? new TogetherCtor({ apiKey: process.env.TOGETHER_API_KEY || '' })
+  : null;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -39,6 +49,12 @@ export default async function handler(req, res) {
   });
 
   try {
+    if (!togetherClient) {
+      return res.status(200).json(failSoft('Together client unavailable', {
+        details: 'Missing API key or invalid Together SDK import'
+      }));
+    }
+
     // Prepare context for LLM from network data
     const networkContext = prepareNetworkContext(networkData, source);
     
