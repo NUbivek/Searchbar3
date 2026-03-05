@@ -73,6 +73,65 @@ function resolveHackerNewsFallbackEndpoints(query) {
   ];
 }
 
+async function fetchPublicFallbackResults(query) {
+  const encodedQuery = encodeURIComponent(query || '');
+  const timeoutMs = 10000;
+  const abortWithTimeout = (signalController) => setTimeout(() => signalController.abort(), timeoutMs);
+
+  const wikipediaPromise = (async () => {
+    const controller = new AbortController();
+    const timeout = abortWithTimeout(controller);
+    try {
+      const resp = await fetch(
+        `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodedQuery}&utf8=1&format=json&origin=*`,
+        { signal: controller.signal }
+      );
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      return (data?.query?.search || []).slice(0, 5).map((item) => ({
+        title: item.title || 'Wikipedia Result',
+        url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title || '')}`,
+        snippet: String(item.snippet || '').replace(/<[^>]+>/g, ''),
+        content: String(item.snippet || '').replace(/<[^>]+>/g, ''),
+        source: 'Wikipedia'
+      }));
+    } catch {
+      return [];
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+
+  const hnPromise = (async () => {
+    const controller = new AbortController();
+    const timeout = abortWithTimeout(controller);
+    try {
+      const resp = await fetch(`https://hn.algolia.com/api/v1/search?query=${encodedQuery}&hitsPerPage=8`, {
+        signal: controller.signal
+      });
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      return (data?.hits || [])
+        .filter((item) => item?.url || item?.story_url)
+        .slice(0, 8)
+        .map((item) => ({
+          title: item.title || item.story_title || 'HackerNews Result',
+          url: item.url || item.story_url,
+          snippet: item.story_text || item.comment_text || '',
+          content: item.story_text || item.comment_text || '',
+          source: 'HackerNews'
+        }));
+    } catch {
+      return [];
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+
+  const [wikiResults, hnResults] = await Promise.all([wikipediaPromise, hnPromise]);
+  return [...wikiResults, ...hnResults];
+}
+
 export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -180,20 +239,43 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
           const fallbackResults = Array.isArray(fallbackResponse.data?.results)
             ? fallbackResponse.data.results
             : [];
+          const publicFallbackResults = fallbackResults.length > 0
+            ? []
+            : await fetchPublicFallbackResults(searchQuery);
+          const mergedFallbackResults = fallbackResults.length > 0
+            ? fallbackResults
+            : publicFallbackResults;
           response = {
             data: {
               status: 'degraded',
               query: searchQuery,
-              results: fallbackResults,
+              results: mergedFallbackResults,
               degradedSources: ['web'],
-              failSoftContent: fallbackResults.length === 0 ? {
+              failSoftContent: mergedFallbackResults.length === 0 ? {
                 message: 'Primary search API is unavailable right now. Showing limited fallback results.',
                 suggestions: ['Try again in a minute', 'Try a different query', 'Check provider readiness at /api/debug/env-check']
               } : null
             }
           };
         } else {
+          const publicFallbackResults = await fetchPublicFallbackResults(searchQuery);
+          if (publicFallbackResults.length > 0) {
+            response = {
+              data: {
+                status: 'degraded',
+                query: searchQuery,
+                results: publicFallbackResults,
+                degradedSources: ['web'],
+                failSoftContent: null
+              }
+            };
+          }
+        }
+
+        if (!response) {
           throw fallbackError || lastError || new Error('No search endpoint responded');
+        } else {
+          console.warn('Using degraded fallback search path');
         }
       }
       

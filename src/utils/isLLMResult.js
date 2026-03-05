@@ -45,7 +45,7 @@ export function isLLMResult(obj) {
   }
   
   // Strategy 1.5: Check for specific properties common in LLM results
-  if (obj.llmResults || obj.llm_results || obj.content || obj.synthesizedAnswer || 
+  if (obj.llmResults || obj.llm_results || obj.synthesizedAnswer || 
       obj.isLLMResults || obj.type === 'llm_summary' || obj.followUpQuestions) {
     console.log('✅ Detected LLM result via specific properties');
     return true;
@@ -87,7 +87,7 @@ function hasLLMFlag(obj) {
  */
 function hasLLMContentStructure(obj) {
   // Check for object with content property (most common case)
-  if (obj.content) {
+  if (typeof obj.content === 'string' && obj.content.trim().length > 0) {
     // If content is a string and reasonably long, it's likely LLM content
     if (typeof obj.content === 'string' && obj.content.length > 20) {
       // More aggressive pattern matching to catch LLM-generated content
@@ -117,11 +117,8 @@ function hasLLMContentStructure(obj) {
     }
   }
   
-  // Check for other common properties in LLM results
-  if (obj.results && Array.isArray(obj.results) && obj.results.length > 0) {
-    console.log('Has results array, might be LLM formatted results');
-    return true;
-  }
+  // NOTE: plain `results` arrays are common for non-LLM search APIs.
+  // Do not treat them as LLM output without explicit LLM markers.
   
   // Check for standard Together.ai structure
   if (obj.choices && Array.isArray(obj.choices) && obj.choices.length > 0) {
