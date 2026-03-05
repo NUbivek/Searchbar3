@@ -1,11 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import axios from 'axios';
 import ModelSelector from './ModelSelector';
 import SourceSelector from './SourceSelector';
 import SimplifiedLLMResults, { FollowUpChat } from './search/results/SimplifiedLLMResults';
 import { isLLMResult } from '../utils/isLLMResult';
 import DegradedBanner from './search/DegradedBanner';
-import { buildApiUrl } from '../utils/clientApi';
+import { postSearchRequest } from '../utils/clientApi';
 
 function normalizeClientError(error) {
   const axiosMessage = error?.response?.data?.error;
@@ -99,41 +98,41 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
       console.log('Using model:', selectedModel);
       
       // Make actual API call to the search endpoint
-      const response = await axios.post(buildApiUrl('/api/search'), {
+      const data = await postSearchRequest({
         query: searchQuery,
         mode: 'open',
         model: selectedModel,
         sources: selectedSources,
-        customUrls: customUrls,
+        customUrls,
         files: uploadedFiles,
         useLLM: true
       });
       
       setApiMeta({
-        status: response.data?.status || null,
-        degradedSources: Array.isArray(response.data?.degradedSources) ? response.data.degradedSources : [],
-        failSoftContent: response.data?.failSoftContent || null
+        status: data?.status || null,
+        degradedSources: Array.isArray(data?.degradedSources) ? data.degradedSources : [],
+        failSoftContent: data?.failSoftContent || null
       });
 
       // Log the response for debugging
       console.log('Search API response structure:', {
-        hasLLMResults: !!response.data.llmResults,
-        hasContent: !!response.data.content,
-        topLevelKeys: Object.keys(response.data).slice(0, 8),
-        llmFlags: response.data.isLLMResults || response.data.isLLMResult || response.data.__isImmutableLLMResult
+        hasLLMResults: !!data.llmResults,
+        hasContent: !!data.content,
+        topLevelKeys: Object.keys(data).slice(0, 8),
+        llmFlags: data.isLLMResults || data.isLLMResult || data.__isImmutableLLMResult
       });
       
       // Enhanced LLM detection using utility function
       console.log('Performing LLM result detection on response data');
       
-      if (isLLMResult(response.data)) {
+      if (isLLMResult(data)) {
         console.log('✅ Successfully detected LLM-formatted results');
         
         // Determine if we should use a property or the whole object
-        if (response.data.llmResults && isLLMResult(response.data.llmResults)) {
+        if (data.llmResults && isLLMResult(data.llmResults)) {
           console.log('Using nested llmResults from response');
           setResults({
-            ...response.data.llmResults,
+            ...data.llmResults,
             __isImmutableLLMResult: true,
             isLLMResult: true,
             query: searchQuery
@@ -142,29 +141,29 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
           // Use the whole response when it's the LLM result itself
           console.log('Using entire response as LLM result');
           setResults({
-            ...response.data,
+            ...data,
             __isImmutableLLMResult: true,
             isLLMResult: true,
             query: searchQuery
           });
         }
-      } else if (response.data.content && typeof response.data.content === 'string') {
+      } else if (data.content && typeof data.content === 'string') {
         // Explicitly format as LLM result when content is present
         console.log('Formatting content property as LLM result');
         setResults({
-          content: response.data.content,
+          content: data.content,
           isLLMResult: true,
           __isImmutableLLMResult: true,
           query: searchQuery
         });
-      } else if (response.data.results) {
+      } else if (data.results) {
         // Fallback to regular results
         console.log('Using regular search results array');
-        setResults(response.data.results);
-      } else if (typeof response.data === 'string') {
+        setResults(data.results);
+      } else if (typeof data === 'string') {
         // Handle case where response might be a plain string
         console.log('Handling string response');
-        setResults([response.data]);
+        setResults([data]);
       } else {
         // Create empty result if nothing found
         console.log('No recognizable results format');
