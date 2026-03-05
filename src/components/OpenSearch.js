@@ -132,6 +132,30 @@ async function fetchPublicFallbackResults(query) {
   return [...wikiResults, ...hnResults];
 }
 
+function normalizeText(value) {
+  return String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function isHackerNewsSource(result) {
+  const src = String(result?.source || '').toLowerCase();
+  const url = String(result?.url || '').toLowerCase();
+  return src.includes('hackernews') || url.includes('news.ycombinator.com');
+}
+
+function cleanupLowSignalResults(results = []) {
+  const cleaned = results
+    .filter(Boolean)
+    .map((item) => ({
+      ...item,
+      title: normalizeText(item.title || 'Untitled'),
+      snippet: normalizeText(item.snippet || item.content || '').slice(0, 360),
+      content: normalizeText(item.content || item.snippet || '').slice(0, 800),
+    }));
+
+  const nonShowHN = cleaned.filter((item) => !String(item.title || '').toLowerCase().startsWith('show hn:'));
+  return nonShowHN.length > 0 ? nonShowHN : cleaned;
+}
+
 export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -285,6 +309,35 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         failSoftContent: response.data?.failSoftContent || null
       });
 
+      const responseData = response.data || {};
+      const responseResults = Array.isArray(responseData.results) ? responseData.results : [];
+      const llmAuthError =
+        responseData?.errorType === 'auth_error' ||
+        responseData?.llmResults?.errorType === 'auth_error' ||
+        String(responseData?.error || '').toLowerCase().includes('authentication failed') ||
+        String(responseData?.content || '').toLowerCase().includes('authentication failed');
+      const isHNHeavy =
+        responseResults.length > 0 &&
+        responseResults.every((result) => isHackerNewsSource(result));
+
+      let cleanedResults = cleanupLowSignalResults(responseResults);
+
+      // If response is HN-heavy and low-signal, ask the dedicated HN route for a broader set
+      // and reuse only cleaned top entries.
+      if (isHNHeavy && cleanedResults.length <= 2) {
+        try {
+          for (const fallbackEndpoint of resolveHackerNewsFallbackEndpoints(searchQuery)) {
+            const hnExpanded = await axios.get(fallbackEndpoint, { timeout: 15000 });
+            if (Array.isArray(hnExpanded?.data?.results) && hnExpanded.data.results.length > 0) {
+              cleanedResults = cleanupLowSignalResults(hnExpanded.data.results).slice(0, 8);
+              break;
+            }
+          }
+        } catch (expandError) {
+          console.warn('Could not expand HackerNews result set:', expandError?.message || expandError);
+        }
+      }
+
       // Log the response for debugging
       console.log('Search API response structure:', {
         hasLLMResults: !!response.data.llmResults,
@@ -296,7 +349,10 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
       // Enhanced LLM detection using utility function
       console.log('Performing LLM result detection on response data');
       
-      if (isLLMResult(response.data)) {
+      if (llmAuthError && cleanedResults.length > 0) {
+        console.warn('LLM auth error detected; rendering source results instead of auth wrapper.');
+        setResults(cleanedResults);
+      } else if (isLLMResult(response.data)) {
         console.log('✅ Successfully detected LLM-formatted results');
         
         // Determine if we should use a property or the whole object
@@ -330,7 +386,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
       } else if (response.data.results) {
         // Fallback to regular results
         console.log('Using regular search results array');
-        setResults(response.data.results);
+        setResults(cleanedResults);
       } else if (typeof response.data === 'string') {
         // Handle case where response might be a plain string
         console.log('Handling string response');
