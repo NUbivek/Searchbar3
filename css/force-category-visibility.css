@@ -1,0 +1,69 @@
+/**
+ * Force Category Visibility CSS
+ * This stylesheet ensures all category elements are visible regardless of other styles
+ */
+
+/* Target entire search results area */
+.search-results,
+.intelligent-search-results,
+.search-result-wrapper,
+.search-results-container {
+  position: relative !important;
+  overflow: visible !important;
+  height: auto !important;
+  display: block !important;
+}
+
+/* Make category ribbon containers visible */
+.category-ribbon-container,
+#category-ribbon-main-container,
+#direct-injected-categories,
+.modern-category-display,
+[data-testid="category-ribbon-visual"],
+[data-testid="category-ribbon-wrapper"],
+[data-testid="llm-category-tabs"],
+.category-ribbon,
+.category-ribbon-content,
+[data-source="direct-injector"] {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  position: relative !important;
+  z-index: 900 !important;
+  min-height: 50px !important;
+  margin: 15px 0 !important;
+  padding: 10px !important;
+  border: 2px solid #6366f1 !important;
+  border-radius: 8px !important;
+  background-color: #f5f3ff !important;
+}
+
+/* Make category cards container visible */
+.category-cards-container,
+.ribbon-category-container,
+.category-cards {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  min-height: 40px !important;
+}
+
+/* Make individual category cards visible */
+.category-card,
+.ribbon-category-card,
+[data-category-id],
+[data-category-name] {
+  display: inline-block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  padding: 8px 12px !important;
+  border: 1px solid #d1d5db !important;
+  border-radius: 4px !important;
+  background-color: white !important;
+  margin: 4px !important;
+  min-width: 120px !important;
+  cursor: pointer !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important;
+}

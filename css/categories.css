@@ -1,0 +1,67 @@
+/* 
+ * Category System Styling - Public version
+ * This file contains all basic styles for category display components
+ */
+
+/* Base styles for the category container */
+.category-ribbon-container {
+  display: block !important;
+  margin: 10px 0 !important;
+  position: relative !important;
+}
+
+/* Ribbon content */
+.category-ribbon-content {
+  display: block !important;
+  margin-bottom: 10px !important;
+}
+
+/* Category cards container */
+.category-cards-container {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  margin-bottom: 10px !important;
+}
+
+/* Individual category card */
+.category-card, 
+.ribbon-category-card {
+  display: inline-block !important;
+  padding: 8px 12px !important;
+  margin: 4px !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  min-width: 120px !important;
+  transition: all 0.2s ease !important;
+}
+
+/* Hover and active states */
+.category-card:hover,
+.ribbon-category-card:hover {
+  background-color: #f9fafb !important;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+}
+
+/* Category name */
+.category-name {
+  font-weight: 500 !important;
+  color: #111827 !important;
+  margin-bottom: 4px !important;
+}
+
+/* Make the container and all children visible and clickable */
+[id*="category"],
+[class*="category"] {
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+/* Fix for React search results container */
+.search-results-container .category-ribbon-container,
+.intelligent-search-results .category-ribbon-container {
+  display: block !important;
+  margin-top: 15px !important;
+  margin-bottom: 15px !important;
+}
