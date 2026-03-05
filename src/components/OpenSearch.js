@@ -44,6 +44,7 @@ function resolveSearchEndpoints() {
   }
 
   return [
+    'https://searchbar3.vercel.app/api/search',
     'https://api.research.bivek.ai/api/search',
     'https://research.bivek.ai/api/search',
     '/api/search'
@@ -67,6 +68,7 @@ function resolveHackerNewsFallbackEndpoints(query) {
   }
 
   return [
+    `https://searchbar3.vercel.app/api/search/hackernews?q=${encodedQuery}`,
     `https://api.research.bivek.ai/api/search/hackernews?q=${encodedQuery}`,
     `https://research.bivek.ai/api/search/hackernews?q=${encodedQuery}`,
     `/api/search/hackernews?q=${encodedQuery}`
