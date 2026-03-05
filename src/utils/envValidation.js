@@ -1,8 +1,7 @@
-const REQUIRED_CORE = [
-  'SERPER_API_KEY'
-];
+const SEARCH_PROVIDER_KEYS = ['TAVILY_API_KEY', 'SERPER_API_KEY'];
 
 const OPTIONAL_PROVIDERS = {
+  search: SEARCH_PROVIDER_KEYS,
   llm: ['TOGETHER_API_KEY', 'PERPLEXITY_API_KEY', 'OPENAI_API_KEY'],
   twitter: ['TWITTER_CLIENT_ID', 'TWITTER_CLIENT_SECRET'],
   linkedin: ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET'],
@@ -11,7 +10,10 @@ const OPTIONAL_PROVIDERS = {
 };
 
 export function getEnvDiagnostics(env = process.env) {
-  const missingCore = REQUIRED_CORE.filter((k) => !env[k]);
+  const searchProviderPresent = SEARCH_PROVIDER_KEYS.filter((k) => !!env[k]);
+  const missingCore = searchProviderPresent.length > 0
+    ? []
+    : ['TAVILY_API_KEY or SERPER_API_KEY'];
 
   const providers = Object.entries(OPTIONAL_PROVIDERS).reduce((acc, [name, keys]) => {
     const present = keys.filter((k) => !!env[k]);
