@@ -80,6 +80,10 @@ describe('/api/search/twitter coverage', () => {
             text: 'Founder update',
             created_at: '2025-01-01T00:00:00.000Z',
             author_id: 'author-1',
+            public_metrics: {
+              like_count: 5,
+              retweet_count: 2,
+            },
           },
         ],
         includes: {
@@ -104,12 +108,15 @@ describe('/api/search/twitter coverage', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.sources).toHaveLength(1);
     expect(res.body.sources[0]).toMatchObject({
-      id: '123',
-      title: '@alice',
-      url: 'https://twitter.com/alice/status/123',
-      source: 'Twitter',
-      profileName: 'Alice Founder',
-      handle: '@alice',
+      type: 'TwitterResult',
+      title: 'Tweet by author-1',
+      content: 'Founder update',
+      url: 'https://twitter.com/i/web/status/123',
+      sourceId: 'twitter-0',
+      metadata: {
+        likes: 5,
+        retweets: 2,
+      },
     });
   });
 
@@ -140,10 +147,11 @@ describe('/api/search/twitter coverage', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.sources).toHaveLength(1);
     expect(res.body.sources[0]).toMatchObject({
+      type: 'TwitterResult',
       title: '@builder on X',
-      url: 'https://twitter.com/builder/status/999',
-      source: 'Twitter (Google)',
       content: 'Shipping product updates',
+      url: 'https://twitter.com/builder/status/999',
+      sourceId: 'twitter-0',
     });
   });
 

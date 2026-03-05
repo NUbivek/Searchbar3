@@ -11,6 +11,17 @@ function createHeaderRes() {
 }
 
 describe('/api/auth/twitter/logout', () => {
+  test('rejects non-GET requests', () => {
+    const req = createMockReq({ method: 'POST' });
+    const res = createHeaderRes();
+
+    handler(req, res);
+
+    expect(res.statusCode).toBe(405);
+    expect(res.body).toEqual({ error: 'Method not allowed' });
+    expect(res.setHeader).not.toHaveBeenCalled();
+  });
+
   test('clears twitter cookies and returns success', () => {
     const req = createMockReq({ method: 'GET' });
     const res = createHeaderRes();
