@@ -130,7 +130,7 @@ export default async function handler(req, res) {
     }
 
     // Generate LLM response if requested
-    if (useLLM && model) {
+    if (useLLM && model && results.length > 0) {
       try {
         console.log('DEBUG: Attempting to process with LLM - model:', model, 'results:', results.length);
         llmResponse = await processWithLLM({
@@ -176,15 +176,35 @@ export default async function handler(req, res) {
       categoriesCount: categories?.length || 0
     });
     
-    // Return the full LLM response object instead of just the content
+    // Merge only display-safe LLM fields; never let LLM payload override top-level contract status
+    const llmPayload = llmResponse ? {
+      content: llmResponse.content ?? null,
+      sourceMap: llmResponse.sourceMap || {},
+      metadata: llmResponse.metadata || {},
+      __isImmutableLLMResult: !!llmResponse.__isImmutableLLMResult,
+      isLLMResult: !!llmResponse.isLLMResult,
+      llmProcessed: llmResponse.llmProcessed !== false
+    } : {
+      content: null
+    };
+
     return res.status(200).json(normalizeSearchResponseV1({
       results,
       status: results.length > 0 ? (degradedSources.length > 0 ? 'degraded' : 'ok') : 'fail-soft',
       degradedSources: Array.from(new Set(degradedSources)),
       query,
       timestamp: new Date().toISOString(),
-      // Return the complete LLM response object with all the flags
-      ...(llmResponse ? llmResponse : { content: null }),
+      ...llmPayload,
+      ...(results.length === 0 ? {
+        failSoftContent: {
+          message: 'No live sources returned results right now.',
+          suggestions: [
+            'Try a more specific query',
+            'Check provider readiness at /api/debug/env-check',
+            'Try Web + HackerNews sources'
+          ]
+        }
+      } : {}),
       categories
     }));
   } catch (error) {
