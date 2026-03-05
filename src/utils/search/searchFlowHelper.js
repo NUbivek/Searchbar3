@@ -6,6 +6,7 @@ import axios from 'axios';
 import { logger } from '../logger';
 import { detectQueryContext } from '../../components/search/utils/contextDetector';
 import { ALL_VERIFIED_SOURCES } from '../allVerifiedSources';
+import { buildApiUrl } from '../clientApi';
 
 /**
  * Execute a search with proper error handling and result processing
@@ -56,7 +57,7 @@ export async function executeSearch({
     const context = detectQueryContext(query);
     
     // Call the search API
-    const response = await axios.post('/api/search', {
+    const response = await axios.post(buildApiUrl('/api/search'), {
       query,
       mode,
       model,

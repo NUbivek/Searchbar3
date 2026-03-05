@@ -13,6 +13,7 @@ import { safeStringify } from '../utils/reactUtils';
 import { executeSearch, getSourcesFromSelection } from '../utils/search/searchFlowHelper';
 import { FaSpinner, FaSearch } from 'react-icons/fa';
 import SourceSelector from './SourceSelector';
+import { buildApiUrl } from '../utils/clientApi';
 
 export default function VerifiedSearch({ isNetworkMapMode = false, selectedModel, setSelectedModel }) {
   const [query, setQuery] = useState('');
@@ -79,7 +80,7 @@ export default function VerifiedSearch({ isNetworkMapMode = false, selectedModel
       console.log('Sending unified search request:', { query: searchQuery, options: searchOptions });
       
       // Call the main search API directly
-      const response = await axios.post('/api/search', {
+      const response = await axios.post(buildApiUrl('/api/search'), {
         query: searchQuery,
         mode: 'verified',
         useLLM: true,

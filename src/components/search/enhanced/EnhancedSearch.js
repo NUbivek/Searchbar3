@@ -9,6 +9,7 @@ import UrlInput from '../../UrlInput';
 import { safeStringify } from '../../../utils/reactUtils';
 import { FaSpinner, FaSearch } from 'react-icons/fa';
 import SourceSelector from '../../SourceSelector';
+import { buildApiUrl } from '../../../utils/clientApi';
 
 /**
  * EnhancedSearch component with LLM processing capabilities
@@ -68,7 +69,7 @@ export default function EnhancedSearch({ isNetworkMapMode = false, selectedModel
       console.log('Sending search request:', { query: searchQuery, options: searchOptions });
       
       // Call the main search API directly
-      const response = await axios.post('/api/search', {
+      const response = await axios.post(buildApiUrl('/api/search'), {
         query: searchQuery,
         useLLM: true,
         model: selectedModel,

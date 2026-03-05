@@ -5,6 +5,7 @@ import SourceSelector from './SourceSelector';
 import SimplifiedLLMResults, { FollowUpChat } from './search/results/SimplifiedLLMResults';
 import { isLLMResult } from '../utils/isLLMResult';
 import DegradedBanner from './search/DegradedBanner';
+import { buildApiUrl } from '../utils/clientApi';
 
 function normalizeClientError(error) {
   const axiosMessage = error?.response?.data?.error;
@@ -98,7 +99,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
       console.log('Using model:', selectedModel);
       
       // Make actual API call to the search endpoint
-      const response = await axios.post('/api/search', {
+      const response = await axios.post(buildApiUrl('/api/search'), {
         query: searchQuery,
         mode: 'open',
         model: selectedModel,

@@ -8,6 +8,7 @@ import SearchResultsWrapper from './SearchResultsWrapper';
 import SearchErrorBoundary from './SearchErrorBoundary';
 import FileUpload from './FileUpload';
 import UrlInput from './UrlInput';
+import { buildApiUrl } from '../utils/clientApi';
 
 function normalizeClientError(error) {
   const message = String(error?.message || '').trim();
@@ -52,7 +53,7 @@ export default function SearchPage() {
 
     try {
       // Use the correct API endpoint
-      const response = await fetch('/api/search', {
+      const response = await fetch(buildApiUrl('/api/search'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
