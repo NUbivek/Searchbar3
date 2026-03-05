@@ -73,82 +73,6 @@ function resolveHackerNewsFallbackEndpoints(query) {
   ];
 }
 
-function stripHtml(value) {
-  return String(value || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function normalizeAndRankFallbackResults(query, results) {
-  const queryTerms = String(query || '')
-    .toLowerCase()
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length > 2);
-
-  const fundingTerms = ['funding', 'raise', 'raised', 'valuation', 'series', 'investor', 'round'];
-  const queryIsFunding = fundingTerms.some((term) => queryTerms.includes(term));
-  const trustedDomains = [
-    'openai.com',
-    'reuters.com',
-    'bloomberg.com',
-    'cnbc.com',
-    'wsj.com',
-    'ft.com',
-    'techcrunch.com',
-    'crunchbase.com',
-    'sec.gov',
-    'wikipedia.org'
-  ];
-
-  const deduped = [];
-  const seen = new Set();
-  for (const raw of (results || [])) {
-    if (!raw || !raw.url) continue;
-    const key = String(raw.url).trim().toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    const title = stripHtml(raw.title || 'Untitled');
-    const snippet = stripHtml(raw.snippet || raw.content || '');
-    const content = snippet.slice(0, 500);
-    const source = raw.source || 'Web';
-
-    let score = 0;
-    const haystack = `${title} ${snippet} ${String(raw.url || '')}`.toLowerCase();
-    for (const term of queryTerms) {
-      if (haystack.includes(term)) score += 2;
-    }
-    const domain = (() => {
-      try {
-        return new URL(String(raw.url)).hostname.toLowerCase();
-      } catch {
-        return '';
-      }
-    })();
-    if (trustedDomains.some((d) => domain.includes(d))) score += 4;
-    if (domain.includes('news.ycombinator.com')) score -= 2;
-    if (queryIsFunding && fundingTerms.some((t) => haystack.includes(t))) score += 4;
-    if (queryIsFunding && !fundingTerms.some((t) => haystack.includes(t))) score -= 2;
-    if (title.toLowerCase().includes('show hn')) score -= 3;
-
-    deduped.push({
-      title,
-      url: raw.url,
-      snippet: snippet.slice(0, 360),
-      content,
-      source,
-      __score: score
-    });
-  }
-
-  const filtered = deduped
-    .filter((item) => item.__score >= (queryIsFunding ? 2 : 0))
-    .sort((a, b) => b.__score - a.__score)
-    .slice(0, 10)
-    .map(({ __score, ...item }) => item);
-
-  return filtered;
-}
-
 async function fetchPublicFallbackResults(query) {
   const encodedQuery = encodeURIComponent(query || '');
   const timeoutMs = 10000;
@@ -315,11 +239,12 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
           const fallbackResults = Array.isArray(fallbackResponse.data?.results)
             ? fallbackResponse.data.results
             : [];
-          const publicFallbackResults = await fetchPublicFallbackResults(searchQuery);
-          const mergedFallbackResults = normalizeAndRankFallbackResults(searchQuery, [
-            ...fallbackResults,
-            ...publicFallbackResults
-          ]);
+          const publicFallbackResults = fallbackResults.length > 0
+            ? []
+            : await fetchPublicFallbackResults(searchQuery);
+          const mergedFallbackResults = fallbackResults.length > 0
+            ? fallbackResults
+            : publicFallbackResults;
           response = {
             data: {
               status: 'degraded',
@@ -333,10 +258,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
             }
           };
         } else {
-          const publicFallbackResults = normalizeAndRankFallbackResults(
-            searchQuery,
-            await fetchPublicFallbackResults(searchQuery)
-          );
+          const publicFallbackResults = await fetchPublicFallbackResults(searchQuery);
           if (publicFallbackResults.length > 0) {
             response = {
               data: {
