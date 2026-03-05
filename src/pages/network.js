@@ -426,94 +426,16 @@ export default function NetworkPage() {
         // Disconnect from LinkedIn
         handleDisconnect('linkedin');
       } else {
-        // Connect to LinkedIn - construct URL directly for more reliable redirect
-        // Use environment variable first with hardcoded fallback
-        const clientId = process.env.NEXT_PUBLIC_LINKEDIN_CLIENT_ID || '86lb62fau9v8nx';
-        // Determine which base URL to use for the redirect
-        let baseUrl;
-        if (process.env.NEXT_PUBLIC_USE_PRODUCTION_CALLBACKS === 'true') {
-          // Use the production URL for callbacks
-          baseUrl = process.env.NEXT_PUBLIC_PRODUCTION_URL || 'https://bivek.ai';
-          console.log('Using production URL for LinkedIn OAuth callback:', baseUrl);
-        } else {
-          // Use the local development URL
-          baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002';
-          console.log('Using local URL for LinkedIn OAuth callback:', baseUrl);
-        }
-        
-        // Construct the redirect URI
-        const redirectUri = `${baseUrl}/api/auth/linkedin/callback`;
-        const state = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-        // Include r_network_activity scope if connections access is needed
-        // Only use officially supported LinkedIn scopes
-        const scope = 'r_emailaddress r_liteprofile';
-        
-        const authUrl = new URL('https://www.linkedin.com/oauth/v2/authorization');
-        authUrl.searchParams.append('response_type', 'code');
-        authUrl.searchParams.append('client_id', clientId);
-        authUrl.searchParams.append('redirect_uri', redirectUri);
-        authUrl.searchParams.append('state', state);
-        authUrl.searchParams.append('scope', scope);
-        // Save state in localStorage to verify it later
-        localStorage.setItem('linkedin_oauth_state', state);
-        
-        console.log('LinkedIn OAuth URL:', authUrl.toString());
-        window.location.href = authUrl.toString();
+        // Delegate OAuth URL creation to server-side handler for consistent env/callback handling.
+        window.location.href = '/api/auth/linkedin';
       }
     } else if (source === 'Twitter') {
       if (connectionStatus.Twitter) {
         // Disconnect from Twitter
         handleDisconnect('twitter');
       } else {
-        // Connect to Twitter - construct URL directly for more reliable redirect
-        const clientId = process.env.NEXT_PUBLIC_TWITTER_CLIENT_ID || process.env.TWITTER_API_KEY;
-        if (!clientId) {
-          setErrorMessage('Twitter client ID not configured. Please check your environment variables.');
-          return;
-        }
-        
-        // Determine which base URL to use for the redirect
-        let baseUrl;
-        if (process.env.NEXT_PUBLIC_USE_PRODUCTION_CALLBACKS === 'true') {
-          // Use the production URL for callbacks
-          baseUrl = process.env.NEXT_PUBLIC_PRODUCTION_URL || 'https://bivek.ai';
-          console.log('Using production URL for Twitter OAuth callback:', baseUrl);
-        } else {
-          // Use the local development URL
-          baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002';
-          console.log('Using local URL for Twitter OAuth callback:', baseUrl);
-        }
-        
-        // Construct the redirect URI
-        const redirectUri = `${baseUrl}/api/auth/twitter/callback`;
-        
-        // Generate a random state for CSRF protection
-        const state = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-        localStorage.setItem('twitter_oauth_state', state);
-        
-        // Define the required scopes
-        const scope = 'tweet.read users.read follows.read offline.access';
-        
-        // Generate a code verifier and challenge for PKCE
-        // For simplicity in this example we use a fixed challenge, but in production this should be random
-        const codeVerifier = 'challenge' + Math.random().toString(36).substring(2, 15);
-        const codeChallenge = codeVerifier; // In production, hash this properly using SHA-256
-        
-        // Store code verifier in cookie for the callback
-        document.cookie = `twitter_code_verifier=${codeVerifier}; path=/; max-age=3600; SameSite=Lax`;
-        
-        // Build the authorization URL
-        const authUrl = new URL('https://twitter.com/i/oauth2/authorize');
-        authUrl.searchParams.append('response_type', 'code');
-        authUrl.searchParams.append('client_id', clientId);
-        authUrl.searchParams.append('redirect_uri', redirectUri);
-        authUrl.searchParams.append('state', state);
-        authUrl.searchParams.append('scope', scope);
-        authUrl.searchParams.append('code_challenge', codeChallenge);
-        authUrl.searchParams.append('code_challenge_method', 'plain'); // Should be S256 in production
-        
-        console.log('Twitter OAuth URL:', authUrl.toString());
-        window.location.href = authUrl.toString();
+        // Delegate OAuth URL creation to server-side handler for consistent env/callback handling.
+        window.location.href = '/api/auth/twitter';
       }
     }
   };

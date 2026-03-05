@@ -23,7 +23,7 @@ export default function handler(req, res) {
   }
   
   // Define the redirect URI using the utility function
-  const redirectUri = getCallbackUrl('twitter');
+  const redirectUri = getCallbackUrl('twitter', req);
   
   // Define scopes for requested data
   const scope = [

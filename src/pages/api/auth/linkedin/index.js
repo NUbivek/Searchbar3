@@ -12,7 +12,7 @@ export default function handler(req, res) {
   const clientId = process.env.LINKEDIN_CLIENT_ID;
   
   // Get the callback URL using our utility function
-  const redirectUri = getCallbackUrl('linkedin');
+  const redirectUri = getCallbackUrl('linkedin', req);
   
   // Validate required parameters
   if (!clientId) {

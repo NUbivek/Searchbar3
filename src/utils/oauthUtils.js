@@ -15,10 +15,27 @@
  * @param {string} provider - The OAuth provider (e.g., 'twitter', 'linkedin')
  * @returns {string} The callback URL to use
  */
-export function getCallbackUrl(provider) {
-  // Get base URLs from environment
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002';
-  const productionUrl = process.env.NEXT_PUBLIC_PRODUCTION_URL || 'https://research.bivek.ai';
+function getRequestBaseUrl(req) {
+  if (!req) return null;
+  const protoHeader = req.headers?.['x-forwarded-proto'];
+  const hostHeader = req.headers?.['x-forwarded-host'] || req.headers?.host;
+  const proto = Array.isArray(protoHeader) ? protoHeader[0] : (protoHeader || 'http');
+  const host = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
+  if (!host) return null;
+  return `${proto}://${host}`;
+}
+
+export function getCallbackUrl(provider, req = null) {
+  // Provider-specific explicit override has highest priority.
+  const providerEnvKey = `${String(provider || '').toUpperCase()}_REDIRECT_URI`;
+  if (process.env[providerEnvKey]) {
+    return process.env[providerEnvKey];
+  }
+
+  // Get base URLs from environment with request-host fallback.
+  const requestBaseUrl = getRequestBaseUrl(req);
+  const baseUrl = requestBaseUrl || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
+  const productionUrl = process.env.NEXT_PUBLIC_PRODUCTION_URL || baseUrl;
   
   // Check if we should use production callbacks
   const useProductionCallbacks = process.env.NEXT_PUBLIC_USE_PRODUCTION_CALLBACKS === 'true';
@@ -49,9 +66,9 @@ export function getCallbackUrl(provider) {
  * @param {string} provider - The OAuth provider (e.g., 'twitter', 'linkedin')
  * @returns {string} The redirect URL to use
  */
-export function getRedirectUrl(provider) {
+export function getRedirectUrl(provider, req = null) {
   // Get base URLs from environment
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002';
+  const baseUrl = getRequestBaseUrl(req) || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
   
   // Always use the local redirect URL
   return `${baseUrl}/api/auth/${provider}`;
@@ -63,7 +80,7 @@ export function getRedirectUrl(provider) {
  * @returns {string} The base URL for the application
  */
 export function getBaseUrl() {
-  return process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002';
+  return process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
 }
 
 /**
