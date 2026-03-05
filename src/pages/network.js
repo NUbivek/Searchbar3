@@ -12,6 +12,59 @@ function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 
+function runLocalNetworkAnalysis(query, connections = []) {
+  const terms = String(query || '')
+    .toLowerCase()
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length > 2);
+
+  const matches = (connections || [])
+    .map((conn) => {
+      const haystack = [
+        conn.firstName,
+        conn.lastName,
+        conn.name,
+        conn.company,
+        conn.organization,
+        conn.position,
+        conn.title,
+        conn.location
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      const hitCount = terms.reduce((count, term) => count + (haystack.includes(term) ? 1 : 0), 0);
+      if (hitCount === 0 && terms.length > 0) return null;
+
+      return {
+        ...conn,
+        relevance: hitCount >= 2 ? 'High' : (hitCount === 1 ? 'Medium' : 'Low'),
+        reasoning: hitCount > 0
+          ? `Matched ${hitCount} query term${hitCount > 1 ? 's' : ''}.`
+          : 'Included as broad fallback.',
+        category: conn.company || conn.organization || '',
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 25);
+
+  return {
+    status: 'fail-soft',
+    matches: matches.map((m) => ({ id: m.id, relevance: m.relevance, reasoning: m.reasoning })),
+    filteredConnections: matches,
+    summary: matches.length > 0
+      ? `Found ${matches.length} matching connection${matches.length > 1 ? 's' : ''} with local analysis.`
+      : 'No matching connections found in your loaded network.',
+    responseText: matches.length > 0
+      ? `Found ${matches.length} connections matching your search: "${query}"`
+      : `No connections found matching your search: "${query}"`,
+    degradedSources: ['network-analyze-api'],
+    error: null
+  };
+}
+
 export default function NetworkPage() {
   const router = useRouter();
   const { error, auth, code, state } = router.query;
@@ -490,25 +543,34 @@ export default function NetworkPage() {
       
       console.log('Submitting network analysis query:', searchQuery);
       
-      // Send the query to the LLM endpoint for processing
-      const response = await axios.post('/api/network/analyze', {
-        query: searchQuery,
-        networkData: networkDataToSend
-      });
-      
-      if (response.data) {
-        console.log('Network analysis result:', response.data);
-        setSearchResults(response.data);
-        
-        // Update network visualization based on the filtered/analyzed data
-        if (response.data.filteredConnections) {
-          setNetworkData(prevData => ({
-            ...prevData,
-            analyzedConnections: response.data.filteredConnections,
-            useAnalyzedConnections: true
-          }));
-        }
+      let resultPayload = null;
+
+      try {
+        // Try API analysis first.
+        const response = await axios.post('/api/network/analyze', {
+          query: searchQuery,
+          networkData: networkDataToSend
+        });
+        resultPayload = response?.data || null;
+      } catch (apiError) {
+        console.warn('Network analyze API unavailable, using local fallback:', apiError?.response?.status || apiError?.message);
+        resultPayload = runLocalNetworkAnalysis(searchQuery, networkDataToSend.connections || []);
       }
+
+      // Guard against malformed or non-network payloads.
+      if (!resultPayload || typeof resultPayload !== 'object' || !Array.isArray(resultPayload.filteredConnections)) {
+        resultPayload = runLocalNetworkAnalysis(searchQuery, networkDataToSend.connections || []);
+      }
+
+      console.log('Network analysis result:', resultPayload);
+      setSearchResults(resultPayload);
+
+      // Update network visualization based on filtered/analyzed data
+      setNetworkData(prevData => ({
+        ...prevData,
+        analyzedConnections: resultPayload.filteredConnections || [],
+        useAnalyzedConnections: true
+      }));
     } catch (error) {
       console.error('Network analysis failed:', error.response?.data || error.message);
       setErrorMessage(`Analysis failed: ${error.response?.data?.error || error.message || 'Unknown error'}`);
