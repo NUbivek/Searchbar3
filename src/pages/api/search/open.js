@@ -2,6 +2,7 @@ import axios from 'axios';
 import { performSimpleSearch, performSimpleVerifiedSearch } from '../../../utils/searchUtils';
 import { logger } from '../../../utils/logger';
 import { processWithLLM } from '../../../utils/llmProcessing';
+import { synthesizeFromResults } from '../../../utils/fallbackSynthesizer';
 import { processCategories } from '../../../components/search/categories/processors/CategoryProcessor';
 import { deepWebSearch } from '../../../utils/deepWebSearch';
 import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
@@ -116,11 +117,36 @@ export default async function handler(req, res) {
           hasContent: !!llmResponse?.content,
           contentLength: llmResponse?.content?.length || 0,
           hasFlags: !!llmResponse?.__isImmutableLLMResult,
-          metadata: llmResponse?.metadata || 'none'
+          metadata: llmResponse?.metadata || 'none',
+          isError: !!llmResponse?.isError,
+          errorType: llmResponse?.errorType || null
         });
       } catch (llmError) {
         console.error('DEBUG: Error generating LLM response:', llmError.message);
         logger.error('Error generating LLM response:', llmError);
+      }
+    }
+
+    // Guaranteed free fallback: synthesize from search results when LLM/auth fails
+    const shouldUseFallbackSynth =
+      !llmResponse ||
+      llmResponse.isError === true ||
+      !!llmResponse.error ||
+      !!llmResponse.errorType ||
+      !llmResponse?.content;
+
+    if (useLLM && shouldUseFallbackSynth) {
+      try {
+        const synthesized = synthesizeFromResults(query, results);
+        llmResponse = {
+          ...synthesized,
+          metadata: {
+            ...(synthesized?.metadata || {}),
+            fallback: 'local-synthesizer'
+          }
+        };
+      } catch (synthError) {
+        logger.error('Error generating synthesized fallback response:', synthError);
       }
     }
 
