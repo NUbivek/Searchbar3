@@ -786,7 +786,7 @@ export default function NetworkPage() {
         )}
         
         {/* Add CSS for animation */}
-        <style jsx>{`
+        <style>{`
           @keyframes fadeInDown {
             from {
               opacity: 0;

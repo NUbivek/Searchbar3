@@ -17,8 +17,15 @@ function synthesizeFromResults(query, results) {
     return createEmptyResponse(query);
   }
 
-  // Extract relevant information from results
-  const validResults = results.filter(r => r && r.title && r.snippet);
+  // Normalize heterogeneous result shapes so fallback synthesis can use web/provider outputs consistently.
+  const validResults = results
+    .map((result) => ({
+      ...result,
+      title: result?.title || 'Untitled',
+      snippet: result?.snippet || result?.content || result?.description || '',
+      url: result?.url || result?.link || '#'
+    }))
+    .filter((result) => result.title && result.snippet);
   
   if (validResults.length === 0) {
     return createEmptyResponse(query);
