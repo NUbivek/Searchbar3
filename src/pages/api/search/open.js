@@ -8,6 +8,27 @@ import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchRespon
 // Define valid sources
 const VALID_SOURCES = ['web', 'linkedin', 'twitter', 'reddit', 'substack', 'medium', 'crunchbase', 'pitchbook', 'verified'];
 
+function normalizeSources(input) {
+  const raw = Array.isArray(input)
+    ? input
+    : typeof input === 'string'
+      ? input.split(',').map((s) => s.trim())
+      : [];
+
+  const aliasMap = {
+    x: 'twitter',
+    'x.com': 'twitter',
+    'verified sources': 'verified'
+  };
+
+  const normalized = raw
+    .map((source) => String(source || '').trim().toLowerCase())
+    .map((source) => aliasMap[source] || source)
+    .filter((source) => VALID_SOURCES.includes(source));
+
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : ['web'];
+}
+
 export const config = {
   api: {
     bodyParser: {
@@ -37,8 +58,10 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Query is required' });
     }
 
+    const normalizedSources = normalizeSources(sources);
+
     // Log search request
-    logger.info('Open search request:', { query, model, sources });
+    logger.info('Open search request:', { query, model, sources: normalizedSources });
 
     let results = [];
     let llmResponse = null;
@@ -47,7 +70,7 @@ export default async function handler(req, res) {
     const normalizedFiles = Array.isArray(uploadedFiles) && uploadedFiles.length > 0 ? uploadedFiles : files;
 
     // Check if verified sources is selected
-    if (sources.includes('verified')) {
+    if (normalizedSources.includes('verified')) {
       // Use all verified sources (fmp, sec, edgar)
       const verifiedResults = await performSimpleVerifiedSearch(query, ['fmp', 'sec', 'edgar'], {
         model,
@@ -57,7 +80,7 @@ export default async function handler(req, res) {
       results = [...results, ...verifiedResults];
       
       // Filter out 'verified' from sources for regular search
-      const otherSources = sources.filter(source => source !== 'verified');
+      const otherSources = normalizedSources.filter(source => source !== 'verified');
       
       // Only perform regular search if there are other sources selected
       if (otherSources.length > 0) {
@@ -85,7 +108,7 @@ export default async function handler(req, res) {
       }
     } else {
       // Perform regular search with selected sources
-      if (sources.includes('web')) {
+      if (normalizedSources.includes('web')) {
         console.log(`DEBUG: Executing web search via performSimpleSearch for: "${query}"`);
         const webResults = await performSimpleSearch(query, ['web'], {
           model,
@@ -98,7 +121,7 @@ export default async function handler(req, res) {
         }
         results = [...results, ...webResults];
       } else {
-        results = await performSimpleSearch(query, sources, {
+        results = await performSimpleSearch(query, normalizedSources, {
           model,
           customUrls,
           uploadedFiles: normalizedFiles
