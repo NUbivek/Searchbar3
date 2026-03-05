@@ -345,6 +345,8 @@ const callLLMAPI = async (prompt, modelConfig, apiKey) => {
     let errorMessage = error.response?.data?.error?.message || error.message;
     if (error.response?.status === 401) {
       errorMessage = 'Authentication failed. Please check your API key in .env.local file.';
+    } else if (error.response?.status === 402) {
+      errorMessage = 'LLM provider billing/credits issue (402 Payment Required).';
     } else if (error.response?.status === 429) {
       errorMessage = 'Rate limit exceeded. Please try again later or use a different API key.';
     } else if (error.response?.status >= 500) {
@@ -354,6 +356,7 @@ const callLLMAPI = async (prompt, modelConfig, apiKey) => {
     throw {
       message: errorMessage,
       code: error.response?.status === 401 ? 'auth_error' : 
+            error.response?.status === 402 ? 'billing_error' :
             error.response?.status === 429 ? 'rate_limit_error' : 
             error.response?.status >= 500 ? 'server_error' : 'api_error',
       status: error.response?.status,

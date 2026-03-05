@@ -279,6 +279,7 @@ export default async function handler(req, res) {
     
     // Track if we need to use the fallback synthesizer
     let useFallbackSynthesizer = false;
+    let skipFallbackSynthesizer = false;
     
     // Use the model from the request or default to mixtral-8x7b
     const llmModel = model || 'mixtral-8x7b';
@@ -351,9 +352,21 @@ export default async function handler(req, res) {
             const llmAuthFailure = String(llmResponse?.error || llmResponse?.content || '')
               .toLowerCase()
               .includes('authentication failed');
-            if (llmResponse?.isError || llmResponse?.type === 'error' || llmResponse?.errorType || llmAuthFailure) {
+            const llmBillingFailure =
+              llmResponse?.errorType === 'billing_error' ||
+              String(llmResponse?.error || llmResponse?.content || '')
+                .toLowerCase()
+                .includes('payment required');
+            if (llmResponse?.isError || llmResponse?.type === 'error' || llmResponse?.errorType || llmAuthFailure || llmBillingFailure) {
               console.warn('LLM returned error payload; switching to local fallback synthesizer');
-              useFallbackSynthesizer = true;
+              // For auth/billing failures, do NOT synthesize generic text from sources.
+              // Return normal ranked source results instead for higher quality.
+              if (llmAuthFailure || llmBillingFailure || llmResponse?.errorType === 'auth_error' || llmResponse?.errorType === 'billing_error') {
+                skipFallbackSynthesizer = true;
+                useFallbackSynthesizer = false;
+              } else {
+                useFallbackSynthesizer = true;
+              }
               llmResponse = null;
             }
           }
@@ -395,7 +408,7 @@ export default async function handler(req, res) {
     }
     
     // Use fallback synthesizer if LLM processing failed or didn't produce proper results
-    if (shouldUseLLM && (useFallbackSynthesizer || !llmResponse || !isLLMResult(llmResponse))) {
+    if (shouldUseLLM && !skipFallbackSynthesizer && (useFallbackSynthesizer || !llmResponse || !isLLMResult(llmResponse))) {
       console.log('Using fallback synthesizer to create LLM-like response from search results');
       llmResponse = synthesizeFromResults(query, results);
       console.log('Generated synthetic LLM response with fallback synthesizer');
