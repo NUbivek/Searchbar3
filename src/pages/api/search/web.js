@@ -10,7 +10,17 @@ const MAX_CUSTOM_URLS = 10;
 const MAX_UPLOADED_FILES = 5;
 const REQUEST_TIMEOUT = 10000; // 10 seconds
 const MAX_CONTENT_LENGTH = 100000; // 100KB
-const VALID_MODELS = ['mixtral-8x7b', 'mistral-7b', 'deepseek-70b', 'gemma-7b', 'deepseek-free'];
+const VALID_MODELS = [
+  'or-mistral',
+  'or-bytedance',
+  'or-llama',
+  'or-gemma',
+  'or-openai',
+  'mixtral-8x7b',
+  'mistral-7b',
+  'deepseek-70b',
+  'gemma-7b'
+];
 const VALID_MODES = ['default', 'analysis', 'summary'];
 const VALID_SOURCES = ['web', 'news', 'academic', 'market_data'];
 

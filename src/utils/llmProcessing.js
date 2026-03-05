@@ -1,6 +1,7 @@
 /**
  * LLM Processing Functionality
- * This file provides LLM integration for the search application using the Together AI API.
+ * This file provides LLM integration for the search application.
+ * Primary provider: OpenRouter. Secondary fallback: Together.
  */
 
 import axios from 'axios';
@@ -9,41 +10,41 @@ const { isLLMResult, createEmptyLLMResult } = require('./llm/resultDetector');
 
 // Model configuration and endpoint mapping
 export const MODEL_ENDPOINTS = {
-  'mistral-7b': {
-    endpoint: 'https://api.together.xyz/v1/completions',
-    modelId: 'mistralai/Mistral-7B-Instruct-v0.2',
-    temperature: 0.7,
-    max_tokens: 4096
-  },
-  'mixtral-8x7b': {
-    endpoint: 'https://api.together.xyz/v1/completions',
-    modelId: 'mistralai/Mixtral-8x7B-Instruct-v0.1',
-    temperature: 0.7,
-    max_tokens: 4096
-  },
-  'llama-2-13b': {
-    endpoint: 'https://api.together.xyz/v1/completions',
-    modelId: 'meta-llama/Llama-2-13b-chat-hf',
-    temperature: 0.7,
-    max_tokens: 4096
-  },
-  'llama-2-70b': {
-    endpoint: 'https://api.together.xyz/v1/completions',
-    modelId: 'meta-llama/Llama-2-70b-chat-hf',
-    temperature: 0.7,
-    max_tokens: 4096
-  },
-  'gemma-7b': {
-    endpoint: 'https://api.together.xyz/v1/completions',
-    modelId: 'google/gemma-7b-it',
-    provider: 'together',
-    apiType: 'completions',
-    temperature: 0.7,
-    max_tokens: 4096
-  },
-  'deepseek-free': {
+  'or-mistral': {
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    modelId: 'deepseek/deepseek-chat-v3-0324:free',
+    modelId: 'mistralai/mistral-small-3.1-24b-instruct:free',
+    provider: 'openrouter',
+    apiType: 'chat',
+    temperature: 0.7,
+    max_tokens: 2048
+  },
+  'or-bytedance': {
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    modelId: 'bytedance/ui-tars-1.5-7b',
+    provider: 'openrouter',
+    apiType: 'chat',
+    temperature: 0.7,
+    max_tokens: 2048
+  },
+  'or-llama': {
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    modelId: 'meta-llama/llama-3.3-70b-instruct:free',
+    provider: 'openrouter',
+    apiType: 'chat',
+    temperature: 0.7,
+    max_tokens: 2048
+  },
+  'or-gemma': {
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    modelId: 'google/gemma-3-27b-it:free',
+    provider: 'openrouter',
+    apiType: 'chat',
+    temperature: 0.7,
+    max_tokens: 2048
+  },
+  'or-openai': {
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    modelId: 'openai/gpt-oss-20b:free',
     provider: 'openrouter',
     apiType: 'chat',
     temperature: 0.7,
@@ -54,20 +55,29 @@ export const MODEL_ENDPOINTS = {
 const FALLBACK_SERVERLESS_MODEL = {
   endpoint: 'https://api.together.xyz/v1/completions',
   modelId: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+  provider: 'together',
+  apiType: 'completions',
   temperature: 0.7,
   max_tokens: 4096
 };
 
 // Define aliases for backward compatibility
 const MODEL_ALIASES = {
-  'mistral': 'mistral-7b',
-  'mixtral': 'mixtral-8x7b',
-  'llama': 'llama-2-13b',
-  'llama-13b': 'llama-2-13b',
-  'gemma': 'gemma-7b',
-  'gemma-27b': 'gemma-7b',
-  'deepseek': 'deepseek-free',
-  'deepseek-chat': 'deepseek-free'
+  'mistral': 'or-mistral',
+  'mistral-7b': 'or-mistral',
+  'mixtral': 'or-mistral',
+  'mixtral-8x7b': 'or-mistral',
+  'bytedance': 'or-bytedance',
+  'llama': 'or-llama',
+  'llama-13b': 'or-llama',
+  'llama-2-13b': 'or-llama',
+  'llama-2-70b': 'or-llama',
+  'gemma': 'or-gemma',
+  'gemma-7b': 'or-gemma',
+  'gemma-27b': 'or-gemma',
+  'openai': 'or-openai',
+  'deepseek': 'or-mistral',
+  'deepseek-chat': 'or-mistral'
 };
 
 /**
@@ -81,7 +91,7 @@ const MODEL_ALIASES = {
  * @param {Object|string} param4 Additional options OR API key
  * @returns {Promise<Object>} Processed results
  */
-export const processWithLLM = async (param1, param2, param3 = 'mistral-7b', param4 = {}) => {
+export const processWithLLM = async (param1, param2, param3 = 'or-mistral', param4 = {}) => {
   // Check which parameter format is used
   let searchResults, query, modelId, options;
   
@@ -89,13 +99,13 @@ export const processWithLLM = async (param1, param2, param3 = 'mistral-7b', para
     // Old format: (query, searchResults, modelId, apiKey)
     query = param1;
     searchResults = param2;
-    modelId = param3 || 'mistral-7b';
+    modelId = param3 || 'or-mistral';
     options = typeof param4 === 'string' ? { apiKey: param4 } : (param4 || {});
   } else {
     // New format: (searchResults, query, modelId, options)
     searchResults = param1;
     query = param2;
-    modelId = param3 || 'mistral-7b';
+    modelId = param3 || 'or-mistral';
     options = param4 || {};
   }
   
@@ -136,7 +146,8 @@ export const processWithLLM = async (param1, param2, param3 = 'mistral-7b', para
     }
     
     // Get model configuration
-    const modelConfig = MODEL_ENDPOINTS[modelId] || MODEL_ENDPOINTS['mistral-7b'];
+    const modelConfig = MODEL_ENDPOINTS[modelId] || MODEL_ENDPOINTS['or-mistral'];
+    let activeModelConfig = modelConfig;
     const usesOpenRouter = modelConfig.provider === 'openrouter';
 
     // Get API key - first check options, then provider-specific environment variable
@@ -156,9 +167,15 @@ export const processWithLLM = async (param1, param2, param3 = 'mistral-7b', para
     
     // Validate API key
     if (!apiKey || apiKey.length < 20) {
-      const providerName = usesOpenRouter ? 'OpenRouter' : 'Together';
-      console.error(`Invalid ${providerName} API key - must be at least 20 characters, got ${apiKey?.length || 0}`);
-      return createErrorResponse(`${providerName} API key validation failed - check your .env.local file`, 'auth_error');
+      if (usesOpenRouter && process.env.TOGETHER_API_KEY && process.env.TOGETHER_API_KEY.length >= 20) {
+        console.warn('OpenRouter key missing/invalid; using Together fallback model as secondary provider.');
+        apiKey = process.env.TOGETHER_API_KEY;
+        activeModelConfig = FALLBACK_SERVERLESS_MODEL;
+      } else {
+        const providerName = usesOpenRouter ? 'OpenRouter' : 'Together';
+        console.error(`Invalid ${providerName} API key - must be at least 20 characters, got ${apiKey?.length || 0}`);
+        return createErrorResponse(`${providerName} API key validation failed - check your .env.local file`, 'auth_error');
+      }
     }
     
     // Create source map for reference
@@ -173,8 +190,17 @@ export const processWithLLM = async (param1, param2, param3 = 'mistral-7b', para
     // Call the LLM API
     let llmResponse;
     try {
-      llmResponse = await callLLMAPI(prompt, modelConfig, apiKey);
+      llmResponse = await callLLMAPI(prompt, activeModelConfig, apiKey);
     } catch (apiError) {
+      const isOpenRouterPrimaryFailure =
+        modelConfig.provider === 'openrouter' &&
+        [401, 402, 429, 500, 502, 503, 504].includes(apiError?.status);
+      if (isOpenRouterPrimaryFailure && process.env.TOGETHER_API_KEY) {
+        console.warn(`OpenRouter call failed (${apiError?.status || 'unknown'}); retrying with Together fallback model ${FALLBACK_SERVERLESS_MODEL.modelId}`);
+        llmResponse = await callLLMAPI(prompt, FALLBACK_SERVERLESS_MODEL, process.env.TOGETHER_API_KEY);
+        return processLLMResponse(llmResponse, query, sourceMap);
+      }
+
       const shouldRetryWithFallbackModel =
         apiError?.status === 400 &&
         (apiError?.message || '').toLowerCase().includes('model');

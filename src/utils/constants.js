@@ -5,29 +5,35 @@ export const SearchModes = {
 
 export const MODEL_OPTIONS = [
   {
-    id: 'mistral-7b',
-    name: 'Mistral 7B',
+    id: 'or-mistral',
+    name: 'Mistral',
     icon: '🚀',
-    description: 'Well-balanced model with good reasoning capabilities.',
+    description: 'OpenRouter: Mistral family.',
     default: true
   },
   {
-    id: 'llama-13b',
-    name: 'Llama 2 13B',
+    id: 'or-bytedance',
+    name: 'ByteDance',
     icon: '🔮',
-    description: 'Highly accurate with excellent reasoning and context handling.'
+    description: 'OpenRouter: ByteDance family.'
   },
   {
-    id: 'gemma-27b',
-    name: 'Gemma 27B',
+    id: 'or-llama',
+    name: 'Llama',
+    icon: '🦙',
+    description: 'OpenRouter: Llama family.'
+  },
+  {
+    id: 'or-gemma',
+    name: 'Google Gemma',
     icon: '⚡',
-    description: 'Powerful model with excellent reasoning and instruction following.'
+    description: 'OpenRouter: Gemma family.'
   },
   {
-    id: 'deepseek-free',
-    name: 'DeepSeek (Free)',
-    icon: '🆓',
-    description: 'Free DeepSeek route via OpenRouter.'
+    id: 'or-openai',
+    name: 'OpenAI',
+    icon: '🤖',
+    description: 'OpenRouter: OpenAI family.'
   }
 ];
 

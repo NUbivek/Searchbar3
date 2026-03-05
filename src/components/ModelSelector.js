@@ -2,10 +2,11 @@ import React from 'react';
 
 // Model options with display names - using standardized model IDs
 const MODEL_OPTIONS = [
-  { id: 'mistral-7b', name: 'Mistral 7B' },
-  { id: 'llama-13b', name: 'Llama 2 13B' },
-  { id: 'gemma-27b', name: 'Gemma 27B' },
-  { id: 'deepseek-free', name: 'DeepSeek (Free)' }
+  { id: 'or-mistral', name: 'Mistral' },
+  { id: 'or-bytedance', name: 'ByteDance' },
+  { id: 'or-llama', name: 'Llama' },
+  { id: 'or-gemma', name: 'Google Gemma' },
+  { id: 'or-openai', name: 'OpenAI' }
 ];
 
 const ModelSelector = ({ selectedModel, onChange }) => {

@@ -10,7 +10,7 @@ export default function SearchInterface({ onSearch }) {
   const [customMode, setCustomMode] = useState('combined'); // Default to combined mode
   const [customUrls, setCustomUrls] = useState([]);
   const [uploadedFiles, setUploadedFiles] = useState([]);
-  const [selectedModel, setSelectedModel] = useState('gemma-7b');
+  const [selectedModel, setSelectedModel] = useState('or-mistral');
 
   const handleSearch = (e) => {
     e.preventDefault();

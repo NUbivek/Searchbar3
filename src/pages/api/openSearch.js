@@ -37,7 +37,7 @@ export default async function handler(req, res) {
     // This endpoint no longer performs actual searches or LLM processing
     const simplifiedResponse = normalizeSearchResponseV1({
       query,
-      model: model || 'mistral-7b',
+      model: model || 'or-mistral',
       sources,
       timestamp: new Date().toISOString(),
       message: 'Search processing has been simplified. No results will be returned.',
@@ -47,7 +47,7 @@ export default async function handler(req, res) {
       synthesis: {
         enabled: false,
         provider: null,
-        model: model || 'mistral-7b',
+        model: model || 'or-mistral',
         content: null,
       },
       llmProcessed: false,

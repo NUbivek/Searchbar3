@@ -21,14 +21,18 @@ export default async function handler(req, res) {
 
   try {
     const body = req.body || {};
-    let { query, mode = 'verified', model = 'mistral-7b', sources = ['Web'], customUrls = [], files = [], useLLM = true, options = {} } = body;
+    let { query, mode = 'verified', model = 'or-mistral', sources = ['Web'], customUrls = [], files = [], useLLM = true, options = {} } = body;
     
     // Normalize model ID in case older format is passed
     const modelMap = {
-      'mistral': 'mistral-7b',
-      'llama': 'llama-13b',
-      'gemma': 'gemma-27b',
-      'mixtral-8x7b': 'mistral-7b' // Legacy model ID mapping
+      'mistral': 'or-mistral',
+      'mistral-7b': 'or-mistral',
+      'llama': 'or-llama',
+      'llama-13b': 'or-llama',
+      'gemma': 'or-gemma',
+      'gemma-27b': 'or-gemma',
+      'mixtral-8x7b': 'or-mistral',
+      'openai': 'or-openai'
     };
     
     // Convert old model ID to new standardized format if needed
@@ -668,7 +672,7 @@ export default async function handler(req, res) {
         __isImmutableLLMResult: true,
         llmProcessed: true,
         isLLMResult: true, // Additional flag for consistency
-        model: model || 'mistral-7b',
+        model: model || 'or-mistral',
         timestamp: new Date().toISOString(),
         
         // Include raw results for display as needed
