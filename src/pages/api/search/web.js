@@ -47,38 +47,8 @@ async function runWebSearchWithFallback(query, searchId) {
   const serperApiKey = process.env.SERPER_API_KEY;
   const tavilyApiKey = process.env.TAVILY_API_KEY;
 
-  if (serperApiKey) {
-    logger.info(`[${searchId}] Calling Serper API`);
-    const serperResponse = await withRetry(() => axios.post(
-      'https://google.serper.dev/search',
-      {
-        q: query,
-        num: 10,
-        gl: 'us',
-        hl: 'en'
-      },
-      {
-        headers: {
-          'X-API-KEY': serperApiKey,
-          'Content-Type': 'application/json'
-        },
-        timeout: REQUEST_TIMEOUT,
-        validateStatus: (status) => status >= 200 && status < 500
-      }
-    )).catch((error) => {
-      logger.error(`[${searchId}] Serper API error:`, error.response?.data || error.message);
-      return null;
-    });
-
-    if (serperResponse && serperResponse.status === 200) {
-      return { response: serperResponse, provider: 'serper' };
-    }
-
-    logger.warn(`[${searchId}] Serper unavailable, trying Tavily fallback`);
-  }
-
   if (tavilyApiKey) {
-    logger.info(`[${searchId}] Calling Tavily API fallback`);
+    logger.info(`[${searchId}] Calling Tavily API`);
     const tavilyResponse = await withRetry(() => axios.post(
       'https://api.tavily.com/search',
       {
@@ -110,6 +80,36 @@ async function runWebSearchWithFallback(query, searchId) {
         }
       };
       return { response: normalized, provider: 'tavily' };
+    }
+
+    logger.warn(`[${searchId}] Tavily unavailable, trying Serper fallback`);
+  }
+
+  if (serperApiKey) {
+    logger.info(`[${searchId}] Calling Serper API fallback`);
+    const serperResponse = await withRetry(() => axios.post(
+      'https://google.serper.dev/search',
+      {
+        q: query,
+        num: 10,
+        gl: 'us',
+        hl: 'en'
+      },
+      {
+        headers: {
+          'X-API-KEY': serperApiKey,
+          'Content-Type': 'application/json'
+        },
+        timeout: REQUEST_TIMEOUT,
+        validateStatus: (status) => status >= 200 && status < 500
+      }
+    )).catch((error) => {
+      logger.error(`[${searchId}] Serper API error:`, error.response?.data || error.message);
+      return null;
+    });
+
+    if (serperResponse && serperResponse.status === 200) {
+      return { response: serperResponse, provider: 'serper' };
     }
   }
 

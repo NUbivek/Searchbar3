@@ -41,25 +41,6 @@ const searchWithSerperOrTavily = async (query, options = {}) => {
   const serperApiKey = process.env.SERPER_API_KEY;
   const tavilyApiKey = process.env.TAVILY_API_KEY;
 
-  if (serperApiKey) {
-    try {
-      const response = await axios.post(
-        'https://google.serper.dev/search',
-        { q: query, gl: 'us', hl: 'en', num },
-        {
-          headers: {
-            'X-API-KEY': serperApiKey,
-            'Content-Type': 'application/json',
-          },
-          timeout: 12000
-        }
-      );
-      return normalizeSearchResults(response?.data?.organic || []);
-    } catch (error) {
-      logger.warn(`Serper search failed; attempting Tavily fallback: ${error?.message || 'unknown error'}`);
-    }
-  }
-
   if (tavilyApiKey) {
     try {
       const response = await axios.post(
@@ -77,7 +58,26 @@ const searchWithSerperOrTavily = async (query, options = {}) => {
       );
       return normalizeSearchResults(response?.data?.results || []);
     } catch (error) {
-      logger.warn(`Tavily fallback search failed: ${error?.message || 'unknown error'}`);
+      logger.warn(`Tavily search failed; attempting Serper fallback: ${error?.message || 'unknown error'}`);
+    }
+  }
+
+  if (serperApiKey) {
+    try {
+      const response = await axios.post(
+        'https://google.serper.dev/search',
+        { q: query, gl: 'us', hl: 'en', num },
+        {
+          headers: {
+            'X-API-KEY': serperApiKey,
+            'Content-Type': 'application/json',
+          },
+          timeout: 12000
+        }
+      );
+      return normalizeSearchResults(response?.data?.organic || []);
+    } catch (error) {
+      logger.warn(`Serper fallback search failed: ${error?.message || 'unknown error'}`);
       return [];
     }
   }
