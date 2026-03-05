@@ -136,8 +136,8 @@ export const processWithLLM = async (param1, param2, param3 = 'mistral-7b', para
     });
     
     // Validate API key
-    if (!apiKey || apiKey.length < 64) {
-      console.error(`Invalid Together API key - must be at least 64 characters, got ${apiKey?.length || 0}`);
+    if (!apiKey || apiKey.length < 20) {
+      console.error(`Invalid Together API key - must be at least 20 characters, got ${apiKey?.length || 0}`);
       return createErrorResponse('API key validation failed - check your .env.local file', 'auth_error');
     }
     

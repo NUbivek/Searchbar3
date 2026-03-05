@@ -146,7 +146,8 @@ export default async function handler(req, res) {
       results = [];
     }
 
-    // Always-on HackerNews safety net (no API key required)
+    // HackerNews safety net (no API key required) is a true fallback:
+    // only use it when primary providers returned no results.
     try {
       const hnController = new AbortController();
       const hnTimeout = setTimeout(() => hnController.abort(), HN_FALLBACK_TIMEOUT_MS);
@@ -166,24 +167,16 @@ export default async function handler(req, res) {
       const hnData = await hnResp.json();
       const hnResults = Array.isArray(hnData?.results) ? hnData.results : [];
 
-      if (hnResults.length > 0) {
-        const merged = [...results, ...hnResults.map(item => ({ ...item, source: item.source || 'hackernews' }))];
-        const deduped = [];
-        const seen = new Set();
-        for (const r of merged) {
-          const k = `${r.url || ''}::${r.title || ''}`;
-          if (!seen.has(k)) {
-            seen.add(k);
-            deduped.push(r);
-          }
-        }
-        results = deduped;
-      } else {
+      if (results.length === 0 && hnResults.length > 0) {
+        results = hnResults.map(item => ({ ...item, source: item.source || 'hackernews' }));
+      } else if (results.length === 0 && hnResults.length === 0) {
         degradedSources.push('hackernews');
       }
     } catch (fallbackError) {
-      console.error('HackerNews safety net failed:', fallbackError.message);
-      degradedSources.push('hackernews');
+      if (results.length === 0) {
+        console.error('HackerNews safety net failed:', fallbackError.message);
+        degradedSources.push('hackernews');
+      }
     }
 
     // Log initial results structure
@@ -355,7 +348,10 @@ export default async function handler(req, res) {
               llmModel       // modelId
             );
 
-            if (llmResponse?.isError || llmResponse?.type === 'error' || llmResponse?.errorType) {
+            const llmAuthFailure = String(llmResponse?.error || llmResponse?.content || '')
+              .toLowerCase()
+              .includes('authentication failed');
+            if (llmResponse?.isError || llmResponse?.type === 'error' || llmResponse?.errorType || llmAuthFailure) {
               console.warn('LLM returned error payload; switching to local fallback synthesizer');
               useFallbackSynthesizer = true;
               llmResponse = null;
@@ -628,9 +624,11 @@ export default async function handler(req, res) {
           content: typeof llmResponse?.content === 'string' ? llmResponse.content : null
         },
         // Core LLM result fields - place content at top level for immediate accessibility
-        content: typeof llmResponse.content === 'string' ? llmResponse.content : 
-                 typeof llmResponse.text === 'string' ? llmResponse.text : 
-                 JSON.stringify(llmResponse),
+        content: typeof llmResponse.content === 'string'
+          ? llmResponse.content
+          : (typeof llmResponse.text === 'string'
+            ? llmResponse.text
+            : ''),
         query: query,
         categories: responseCategories,
         followUpQuestions: llmResponse.followUpQuestions || [],
