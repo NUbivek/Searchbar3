@@ -61,6 +61,15 @@ const FALLBACK_SERVERLESS_MODEL = {
   max_tokens: 4096
 };
 
+const OPENROUTER_FREE_FALLBACK_MODEL = {
+  endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+  modelId: 'mistralai/mistral-small-3.1-24b-instruct:free',
+  provider: 'openrouter',
+  apiType: 'chat',
+  temperature: 0.7,
+  max_tokens: 2048
+};
+
 // Define aliases for backward compatibility
 const MODEL_ALIASES = {
   'mistral': 'or-mistral',
@@ -195,10 +204,20 @@ export const processWithLLM = async (param1, param2, param3 = 'or-mistral', para
       const isOpenRouterPrimaryFailure =
         modelConfig.provider === 'openrouter' &&
         [401, 402, 429, 500, 502, 503, 504].includes(apiError?.status);
-      if (isOpenRouterPrimaryFailure && process.env.TOGETHER_API_KEY) {
-        console.warn(`OpenRouter call failed (${apiError?.status || 'unknown'}); retrying with Together fallback model ${FALLBACK_SERVERLESS_MODEL.modelId}`);
-        llmResponse = await callLLMAPI(prompt, FALLBACK_SERVERLESS_MODEL, process.env.TOGETHER_API_KEY);
-        return processLLMResponse(llmResponse, query, sourceMap);
+      if (isOpenRouterPrimaryFailure) {
+        // Try a known free OpenRouter model first to avoid paid-model billing failures.
+        try {
+          console.warn(`OpenRouter call failed (${apiError?.status || 'unknown'}); retrying with OpenRouter free fallback model ${OPENROUTER_FREE_FALLBACK_MODEL.modelId}`);
+          llmResponse = await callLLMAPI(prompt, OPENROUTER_FREE_FALLBACK_MODEL, process.env.OPENROUTER_API_KEY || apiKey);
+          return processLLMResponse(llmResponse, query, sourceMap);
+        } catch (openRouterFallbackError) {
+          if (process.env.TOGETHER_API_KEY) {
+            console.warn(`OpenRouter free fallback failed (${openRouterFallbackError?.status || 'unknown'}); retrying with Together secondary model ${FALLBACK_SERVERLESS_MODEL.modelId}`);
+            llmResponse = await callLLMAPI(prompt, FALLBACK_SERVERLESS_MODEL, process.env.TOGETHER_API_KEY);
+            return processLLMResponse(llmResponse, query, sourceMap);
+          }
+          throw openRouterFallbackError;
+        }
       }
 
       const shouldRetryWithFallbackModel =
@@ -436,6 +455,7 @@ const callLLMAPI = async (prompt, modelConfig, apiKey) => {
             error.response?.status === 429 ? 'rate_limit_error' : 
             error.response?.status >= 500 ? 'server_error' : 'api_error',
       status: error.response?.status,
+      provider,
       original: error
     };
   }
