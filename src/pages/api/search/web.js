@@ -43,6 +43,79 @@ function sanitizeContent(content) {
     .trim();
 }
 
+async function runWebSearchWithFallback(query, searchId) {
+  const serperApiKey = process.env.SERPER_API_KEY;
+  const tavilyApiKey = process.env.TAVILY_API_KEY;
+
+  if (serperApiKey) {
+    logger.info(`[${searchId}] Calling Serper API`);
+    const serperResponse = await withRetry(() => axios.post(
+      'https://google.serper.dev/search',
+      {
+        q: query,
+        num: 10,
+        gl: 'us',
+        hl: 'en'
+      },
+      {
+        headers: {
+          'X-API-KEY': serperApiKey,
+          'Content-Type': 'application/json'
+        },
+        timeout: REQUEST_TIMEOUT,
+        validateStatus: (status) => status >= 200 && status < 500
+      }
+    )).catch((error) => {
+      logger.error(`[${searchId}] Serper API error:`, error.response?.data || error.message);
+      return null;
+    });
+
+    if (serperResponse && serperResponse.status === 200) {
+      return { response: serperResponse, provider: 'serper' };
+    }
+
+    logger.warn(`[${searchId}] Serper unavailable, trying Tavily fallback`);
+  }
+
+  if (tavilyApiKey) {
+    logger.info(`[${searchId}] Calling Tavily API fallback`);
+    const tavilyResponse = await withRetry(() => axios.post(
+      'https://api.tavily.com/search',
+      {
+        api_key: tavilyApiKey,
+        query,
+        search_depth: 'basic',
+        max_results: 10
+      },
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: REQUEST_TIMEOUT,
+        validateStatus: (status) => status >= 200 && status < 500
+      }
+    )).catch((error) => {
+      logger.error(`[${searchId}] Tavily API error:`, error.response?.data || error.message);
+      return null;
+    });
+
+    if (tavilyResponse && tavilyResponse.status === 200) {
+      const normalized = {
+        ...tavilyResponse,
+        data: {
+          ...tavilyResponse.data,
+          organic: (tavilyResponse.data?.results || []).map((item) => ({
+            title: item.title || 'Untitled',
+            snippet: item.content || '',
+            link: item.url || ''
+          }))
+        }
+      };
+      return { response: normalized, provider: 'tavily' };
+    }
+  }
+
+  return { response: null, provider: null };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
@@ -141,46 +214,18 @@ export default async function handler(req, res) {
 
     logger.info(`[${searchId}] Processing web search for query: ${query}`);
 
-    // Always use real API results
-    let response;
-    // Use Serper API for web search
-    logger.info(`[${searchId}] Calling Serper API`);
-    const serperApiKey = process.env.SERPER_API_KEY;
-    if (!serperApiKey) {
+    if (!process.env.SERPER_API_KEY && !process.env.TAVILY_API_KEY) {
       return res.status(200).json(failSoft({
-        message: 'Serper API key not configured'
+        message: 'No search provider key configured (SERPER_API_KEY or TAVILY_API_KEY)'
       }));
     }
-
-      logger.info(`[${searchId}] Using Serper API key: ${serperApiKey}`);
-      response = await withRetry(() => axios.post(
-        'https://google.serper.dev/search', 
-        { 
-          q: query,
-          num: 10,
-          gl: 'us',
-          hl: 'en'
-        },
-        { 
-          headers: { 
-            'X-API-KEY': serperApiKey,
-            'Content-Type': 'application/json'
-          },
-          timeout: REQUEST_TIMEOUT,
-          validateStatus: function (status) {
-            return status >= 200 && status < 500;
-          }
-        }
-      )).catch(error => {
-        logger.error(`[${searchId}] Serper API error:`, error.response?.data || error.message);
-        return null;
-      });
-
-      if (!response || response.status !== 200) {
-        return res.status(200).json(failSoft({
-          message: response ? `Serper API returned status ${response.status}` : 'Serper API request failed'
-        }));
-      }
+    const { response, provider } = await runWebSearchWithFallback(query, searchId);
+    if (!response || response.status !== 200) {
+      return res.status(200).json(failSoft({
+        message: 'Search provider request failed (Serper/Tavily)'
+      }));
+    }
+    logger.info(`[${searchId}] Search provider used: ${provider}`);
 
     const sources = [];
     const sourceMap = {};
