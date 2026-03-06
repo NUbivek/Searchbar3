@@ -1,0 +1,10 @@
+input_rows=487
+final_rows=485
+issues=286
+missing_website=66
+missing_founded=1
+missing_total_funding_m=484
+output=/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My Drive/MBA/VC/Resume & Applications/Startups to recommend/Bulk Data/SCM_Companies_List_clean_final.csv
+high_confidence_output=/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My Drive/MBA/VC/Resume & Applications/Startups to recommend/Bulk Data/SCM_Companies_List_clean_final_high_confidence.csv
+high_confidence_rows=311
+issues_file=/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My Drive/MBA/VC/Resume & Applications/Startups to recommend/Bulk Data/SCM_Companies_List_clean_issues.csv

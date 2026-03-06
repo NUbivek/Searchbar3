@@ -1,0 +1,10 @@
+input_rows=487
+output_rows=487
+qa_pass_rows=260
+qa_fail_rows=227
+missing_company=0
+missing_added_date=118
+missing_website=62
+missing_last_funding_type=195
+pipe_cells=0
+output_file=/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My Drive/MBA/VC/Resume & Applications/Startups to recommend/Bulk Data/SCM_Companies_List_all_rows_clean_structured.csv
