@@ -63,7 +63,7 @@ export function SignalsTable({
             )}
             {!isLoading &&
               rows.map((r: any) => (
-                <tr key={r.id} className="border-t border-slate-100 transition hover:bg-blue-50/40">
+                <tr key={r.id} className="border-t border-slate-100 transition odd:bg-white even:bg-slate-50/40 hover:bg-blue-50/50">
                   <td className="p-3">
                     <input type="checkbox" checked={(selectedIds || new Set()).has(r.id)} onChange={() => toggleRow(r.id)} />
                   </td>
