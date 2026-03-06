@@ -27,11 +27,17 @@ export function StartupWatchTab() {
   };
 
   return (
-    <div className='flex flex-col h-full gap-3 p-3'>
-      <CommandBar filters={filters} total={total} selectedCount={selectedIds.size} onFilterChange={updateFilter} onClearAll={clearAllFilters} />
-      <div className='flex flex-1 overflow-hidden gap-3'>
+    <div className="flex h-full flex-col gap-3 rounded-2xl border border-slate-200 bg-white/70 p-3 shadow-sm backdrop-blur">
+      <CommandBar
+        filters={filters}
+        total={total}
+        selectedCount={selectedIds.size}
+        onFilterChange={updateFilter}
+        onClearAll={clearAllFilters}
+      />
+      <div className="flex flex-1 gap-3 overflow-hidden">
         <FiltersPanel filters={filters} onFilterChange={updateFilter} />
-        <div className='flex-1 overflow-auto'>
+        <div className="flex-1 overflow-auto">
           <SignalsTable
             rows={rows}
             total={total}
