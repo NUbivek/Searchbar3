@@ -25,17 +25,22 @@ function getRequestBaseUrl(req) {
   return `${proto}://${host}`;
 }
 
+function expandEnvTemplate(value) {
+  if (typeof value !== 'string') return value;
+  return value.replace(/\$\{([A-Z0-9_]+)\}/g, (_match, varName) => process.env[varName] || '');
+}
+
 export function getCallbackUrl(provider, req = null) {
   // Provider-specific explicit override has highest priority.
   const providerEnvKey = `${String(provider || '').toUpperCase()}_REDIRECT_URI`;
   if (process.env[providerEnvKey]) {
-    return process.env[providerEnvKey];
+    return expandEnvTemplate(process.env[providerEnvKey]);
   }
 
   // Get base URLs from environment with request-host fallback.
   const requestBaseUrl = getRequestBaseUrl(req);
-  const baseUrl = requestBaseUrl || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
-  const productionUrl = process.env.NEXT_PUBLIC_PRODUCTION_URL || baseUrl;
+  const baseUrl = expandEnvTemplate(requestBaseUrl || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001');
+  const productionUrl = expandEnvTemplate(process.env.NEXT_PUBLIC_PRODUCTION_URL || baseUrl);
   
   // Check if we should use production callbacks
   const useProductionCallbacks = process.env.NEXT_PUBLIC_USE_PRODUCTION_CALLBACKS === 'true';
