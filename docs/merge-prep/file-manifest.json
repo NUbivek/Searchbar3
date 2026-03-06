@@ -1,0 +1,62 @@
+{
+  "base_ref": "829cca6",
+  "head_ref": "a089e7e",
+  "branch": "prep/merge-ready-searchbar3",
+  "files": [
+    {
+      "path": "docs/merge-prep/baseline.md",
+      "change_type": "add",
+      "reason": "Captured baseline git/repo inventory for merge prep."
+    },
+    {
+      "path": "docs/merge-prep/tooling.md",
+      "change_type": "add",
+      "reason": "Documented runtime/toolchain/scripts/env requirements."
+    },
+    {
+      "path": "src/components/ModeTabs.js",
+      "change_type": "add",
+      "reason": "Extracted shared Open Research / Network Map tab header to reduce coupling."
+    },
+    {
+      "path": "src/pages/index.js",
+      "change_type": "modify",
+      "reason": "Switched duplicated tab markup to shared ModeTabs component (no behavior change)."
+    },
+    {
+      "path": "src/pages/network.js",
+      "change_type": "modify",
+      "reason": "Switched duplicated tab markup to shared ModeTabs component (no behavior change)."
+    },
+    {
+      "path": "docs/merge-prep/new-tab-map.md",
+      "change_type": "add",
+      "reason": "Mapped new-tab entry points, APIs, state contracts, and dependencies for integration."
+    },
+    {
+      "path": "docs/merge-prep/conflict-matrix.md",
+      "change_type": "add",
+      "reason": "Enumerated likely merge conflicts and suggested per-path resolution strategies."
+    },
+    {
+      "path": "docs/merge-prep/assumptions-open-questions.md",
+      "change_type": "add",
+      "reason": "Captured assumptions and unresolved design/integration decisions for OpenClaw."
+    },
+    {
+      "path": "docs/merge-prep/validation-report.md",
+      "change_type": "add",
+      "reason": "Recorded lint/test/build execution status with known failures and root-cause summary."
+    },
+    {
+      "path": "docs/merge-prep/patches/new-tab-ui-prep.patch",
+      "change_type": "add",
+      "reason": "Machine-applicable patch artifact for UI decoupling changes."
+    },
+    {
+      "path": "docs/merge-prep/patches/merge-prep-docs.patch",
+      "change_type": "add",
+      "reason": "Machine-applicable patch artifact for merge-prep documentation package."
+    }
+  ]
+}

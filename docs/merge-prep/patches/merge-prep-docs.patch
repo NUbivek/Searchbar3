@@ -1,0 +1,412 @@
+diff --git a/docs/merge-prep/assumptions-open-questions.md b/docs/merge-prep/assumptions-open-questions.md
+new file mode 100644
+index 0000000..5d96e2a
+--- /dev/null
++++ b/docs/merge-prep/assumptions-open-questions.md
+@@ -0,0 +1,28 @@
++# Assumptions and Open Questions for OpenClaw Integration
++
++## Assumptions used in this prep
++
++1. OpenClaw will execute final cross-repo merge/cherry-pick and resolve destination-specific conflicts.
++2. Searchbar3 `openclaw-fixes` is the source-of-truth for current fail-soft search and network behavior.
++3. Target repo (Sourcing101 side) may already have overlapping route ownership for `/`, `/api/search`, and auth routes.
++4. Environment secrets are managed in deployment platform (Vercel), not committed repo files.
++5. Desired UI keeps two top-level modes:
++   - `Open Research`
++   - `Network Map`
++
++## Open questions requiring explicit resolution during final merge
++
++1. Which repo owns the canonical `/` page shell after merge?
++2. Should `/network` be a separate route, or rendered as a tab panel under `/` in target?
++3. Which auth implementation is canonical for OAuth state/token storage (Searchbar3 vs target)?
++4. Which API contract is canonical for network analyze responses if target already has one?
++5. Should Together remain enabled as secondary for network analysis, or be replaced with OpenRouter parity there too?
++6. Are there target-side middleware wrappers (auth, logging, CORS) that all `/api/network/*` routes must adopt?
++7. Should `.fixed` / `.bak` artifacts be retained for historical reference or excluded from final integration scope?
++
++## Non-goals of this prep branch
++
++- No final cross-repo merge.
++- No history rewrite.
++- No destructive cleanup of potentially-referenced modules.
++
+diff --git a/docs/merge-prep/baseline.md b/docs/merge-prep/baseline.md
+new file mode 100644
+index 0000000..62c2b86
+--- /dev/null
++++ b/docs/merge-prep/baseline.md
+@@ -0,0 +1,48 @@
++# Searchbar3 Merge Prep Baseline
++
++## Snapshot
++- Captured at: 2026-03-05 (America/Los_Angeles)
++- Working branch: `prep/merge-ready-searchbar3`
++- Baseline commit SHA: `829cca6b1ce5ed134954a6a04c1f2b050f374276`
++- Primary remote: `origin git@github.com:NUbivek/Searchbar3.git`
++
++## Remotes
++```bash
++origin  git@github.com:NUbivek/Searchbar3.git (fetch)
++origin  git@github.com:NUbivek/Searchbar3.git (push)
++```
++
++## Branches
++Local:
++- `codex/promote-main`
++- `main`
++- `openclaw-fixes`
++- `prep/merge-ready-searchbar3`
++
++Remote tracking:
++- `origin/main`
++- `origin/openclaw-fixes`
++- `origin/gh-pages`
++- `origin/release/v0.3.0`
++- `origin/feature/code-organization`
++- `origin/feature/full-search-implementation`
++- `origin/backup-54cb42e`
++- `origin/backup/complete-v1`
++
++## Tags
++- No git tags in local clone at capture time.
++
++## Project Structure Summary
++Top-level directories with merge relevance:
++- `src/`: Next.js pages/components/utils (primary application code)
++- `tests/`: unit tests
++- `scripts/`: smoke, validation, and build-plan scripts
++- `docs/`: project docs (now includes `docs/merge-prep/*`)
++- `public/`: static assets
++- `styles/`: global styles
++- `sources/`: source registry/pipeline artifacts
++- `server/`, `research-hub-api/`: auxiliary server/runtime artifacts
++
++Non-merge/runtime-generated/local artifacts present:
++- `.next/`, `node_modules/`, `.vercel/`, `.npm-cache/`, `out/`, `temp-uploads/`
++- backup folders/files (`backup*`, `.ui-backup`, `api.backup`, `*.bak`, `network.js.*`)
+diff --git a/docs/merge-prep/conflict-matrix.md b/docs/merge-prep/conflict-matrix.md
+new file mode 100644
+index 0000000..fd5d7ce
+--- /dev/null
++++ b/docs/merge-prep/conflict-matrix.md
+@@ -0,0 +1,53 @@
++# Merge Conflict Matrix (Searchbar3 -> OpenClaw integration prep)
++
++## Legend
++- Risk: `low` | `medium` | `high`
++- Strategy types:
++  - **Prefer target**: keep destination repo file and port minimal pieces from Searchbar3.
++  - **Prefer source**: copy Searchbar3 file as primary implementation.
++  - **Layered merge**: preserve both by adding adapter/wrapper/feature flag.
++
++## Conflict-prone paths
++
++| Path / Area | Risk | Why it can conflict | Recommended resolution strategy |
++|---|---|---|---|
++| `package.json` + `package-lock.json` | high | dependency set and scripts differ across repos; lockfiles conflict frequently | Prefer target for baseline; port only required deps/scripts for new-tab flow (`react-icons`, auth/network deps if missing), then regenerate lockfile once |
++| `next.config.js` | high | static export / env injection / webpack rules may differ | Layered merge: keep target defaults, add only required options for imported functionality, avoid overwriting whole config |
++| `src/pages/index.js` | high | likely customized in both repos; primary landing route collision | Prefer target page shell; port Searchbar3 mode tabs + open-research integration as composable component |
++| `src/pages/network.js` | high | route-level feature likely absent or divergent in target | Prefer source for this route, then adapt imports/services to target conventions |
++| `src/components/*` shared UI | medium | component naming/styling overlap possible | Namespace merge: port under explicit names (`ModeTabs`, `NetworkDebug`) and map usage incrementally |
++| `src/pages/api/search/*` | high | provider stack and fail-soft behavior likely differs | Layered merge: preserve target search contract, then fold Searchbar3 provider ordering/timeout/fail-soft logic behind existing interface |
++| `src/pages/api/network/*` | high | new API namespace likely collides with existing auth/search middlewares | Prefer source for network namespace, then align middleware/auth helpers to target project wrappers |
++| `src/pages/api/auth/*` | high | OAuth callback and token handling are environment/domain-sensitive | Layered merge: keep target auth framework, port provider-specific handlers and callback URL logic |
++| `src/utils/llmProcessing.js` | high | model routing logic and provider preference may be different | Prefer target contract, port provider-routing strategy (OpenRouter primary, Together secondary) behind same function signature |
++| `src/utils/networkLLMUtils.js` | medium | standalone utility but depends on env/provider + response shape | Prefer source with adapter if target uses different LLM client abstraction |
++| Tailwind/CSS global styling (`styles/*`, `tailwind.config.js`) | medium | visual regressions if class semantics differ | Prefer target global style system; scope Searchbar3 additions to route-level classes/components |
++| Env files / Vercel env | high | key names and callback domains differ | Do not merge env files; use explicit env mapping checklist during integration |
++
++## Naming collisions identified
++
++- Route collisions likely:
++  - `/` (`src/pages/index.js`)
++  - Potential existing `/network` in target repo
++  - `/api/search` namespace
++  - `/api/auth/*` namespace
++- Utility collisions likely:
++  - Generic helper names like `search.js`, `searchUtils.js`, `oauthUtils.js`, `llmProcessing.js`
++- Component collisions likely:
++  - `OpenSearch`, `NetworkMap`, tab components
++
++## Dependency/version mismatch hotspots
++
++- Next.js pinned to `14.1.0` in Searchbar3; target may differ.
++- React major is `18`; ensure target major compatibility.
++- Dual LLM client stack (`openai` + `together`) and provider-specific env assumptions.
++- Search stack mixes `tavily`/`serper` assumptions inside API handlers.
++
++## Integration order recommendation (conflict-minimizing)
++
++1. Introduce `ModeTabs` + `/network` page shell first (UI only, mocked data path if needed).
++2. Port `/api/network/analyze` + `networkLLMUtils` fail-soft local fallback.
++3. Port social auth/token/connect endpoints and callbacks.
++4. Integrate search provider stack changes (`/api/search` + provider utils).
++5. Finalize lockfile/dependency reconciliation and full test/build.
++
+diff --git a/docs/merge-prep/new-tab-map.md b/docs/merge-prep/new-tab-map.md
+new file mode 100644
+index 0000000..333c79d
+--- /dev/null
++++ b/docs/merge-prep/new-tab-map.md
+@@ -0,0 +1,131 @@
++# New-Tab UI Integration Map (Searchbar3)
++
++## Scope
++This map covers the "new tab" experience in Searchbar3:
++- `Open Research` tab (`/`)
++- `Network Map` tab (`/network`)
++
++It isolates code that OpenClaw can port from Searchbar3 into Sourcing101 during final integration.
++
++## Entry Points
++
++### Routes
++- `src/pages/index.js`
++  - Open Research page entry.
++  - Owns default model selection and renders open-search UI.
++- `src/pages/network.js`
++  - Network Map page entry.
++  - Owns account connection state, network fetch flow, and network query flow.
++
++### Shared tab navigation
++- `src/components/ModeTabs.js`
++  - Reusable mode switcher for `Open Research` vs `Network Map`.
++  - Refactor added in prep branch to remove duplicated tab markup from both pages.
++
++### Primary UI components
++- `src/components/OpenSearch.js`
++  - Open Research search form, source selection, model selection, and results rendering.
++- `src/components/NetworkDebug.js`
++  - Optional diagnostics rendering for network flow.
++
++## API Dependencies
++
++### Open Research
++- `POST /api/search`
++  - Primary open-search endpoint.
++- `GET /api/search/hackernews`
++  - Optional fallback provider path.
++
++### Network Map
++- `POST /api/network/analyze`
++  - Natural-language network query analysis.
++- `GET /api/network/linkedin/index`
++  - Fetch LinkedIn-derived network payload.
++- `GET /api/network/twitter`
++  - Fetch Twitter/X-derived network payload.
++- `GET /api/auth/linkedin/token`
++  - LinkedIn auth status.
++- `GET /api/auth/twitter/token`
++  - Twitter auth status.
++- `GET /api/auth/linkedin`, `GET /api/auth/twitter`
++  - OAuth start routes.
++- `POST /api/auth/linkedin/logout`, `POST /api/auth/twitter/logout`
++  - Disconnect routes.
++
++## Data / state contracts
++
++### Mode tabs
++- `ModeTabs` contract:
++  - prop: `activeMode` (`"open"` | `"network"`)
++  - route target only; no global store dependency.
++
++### Network page state (`src/pages/network.js`)
++- `connectionStatus`: `{ LinkedIn: boolean, Twitter: boolean }`
++- `networkData`: normalized object with `connections`, optional `user`/`twitterUser`, source flags
++- `searchResults`: result from `/api/network/analyze` with fail-soft support
++
++### Network analysis response contract (observed)
++- `{ status, matches, filteredConnections, summary, responseText, degradedSources, error }`
++- API should return 200 fail-soft payloads for provider/runtime failures.
++
++## Shared UI primitives and styling dependencies
++- Tailwind utility classes are used directly in page markup.
++- React icon dependencies:
++  - `react-icons/fa`
++  - `react-icons/fa6`
++- No external design system dependency for tab header after refactor; now local component.
++
++## Feature flags / config toggles involved
++- Runtime env gates for provider behavior are handled server-side (search + LLM + social auth).
++- Frontend tab UI itself has no feature-flag gating.
++
++## Exact file map (new-tab relevant)
++
++### UI routes and shared component
++- `src/pages/index.js`
++  - Open Research route and model default wiring.
++- `src/pages/network.js`
++  - Network tab route, account connect flow, network query UX.
++- `src/components/ModeTabs.js`
++  - Shared tab-mode switcher (added in prep branch).
++
++### Network processing utilities and APIs
++- `src/pages/api/network/analyze.js`
++  - Main network analysis API endpoint.
++- `src/utils/networkLLMUtils.js`
++  - LLM + heuristic fallback path for network analysis.
++- `src/pages/api/network/linkedin/index.js`
++  - LinkedIn network fetch endpoint.
++- `src/pages/api/network/linkedin/connections.js`
++  - LinkedIn connection graph extraction.
++- `src/pages/api/network/twitter/index.js`
++  - Twitter/X network fetch endpoint.
++- `src/pages/api/network/query.js`
++  - Alternate network query API path.
++- `src/pages/api/network/llm-search.js`
++  - Alternate LLM network search API path.
++
++### Auth routes tied to network tab
++- `src/pages/api/auth/linkedin/index.js`
++- `src/pages/api/auth/linkedin/callback.js`
++- `src/pages/api/auth/linkedin/token.js`
++- `src/pages/api/auth/linkedin/logout.js`
++- `src/pages/api/auth/twitter/index.js`
++- `src/pages/api/auth/twitter/callback.js`
++- `src/pages/api/auth/twitter/token.js`
++- `src/pages/api/auth/twitter/logout.js`
++
++## Coupling found and prep refactor
++
++### Coupling found
++- Tab header markup was duplicated across:
++  - `src/pages/index.js`
++  - `src/pages/network.js`
++- This duplication increases merge conflict risk when integrating tab UX into Sourcing101.
++
++### Refactor applied (no behavior change)
++- Added `src/components/ModeTabs.js`.
++- Replaced duplicated mode tab markup in both pages with:
++  - `<ModeTabs activeMode="open" />`
++  - `<ModeTabs activeMode="network" />`
++- No API contract or route behavior changes in this refactor.
+diff --git a/docs/merge-prep/tooling.md b/docs/merge-prep/tooling.md
+new file mode 100644
+index 0000000..5bc8e73
+--- /dev/null
++++ b/docs/merge-prep/tooling.md
+@@ -0,0 +1,57 @@
++# Tooling and Runtime
++
++## Runtime Versions
++- Node.js: `v22.22.0`
++- npm: `10.9.4`
++- Next.js CLI: `v14.1.0`
++
++## Package Manager / Lockfile
++- Package manager: `npm`
++- Lockfile: `package-lock.json`
++- Workspace type: single-package Next.js app
++
++## Core Scripts
++From `package.json`:
++- Dev: `npm run dev` / `npm run dev:3001`
++- Build: `npm run build`
++- Start: `npm run start`
++- Lint: `npm run lint`
++- Unit tests: `npm run test:unit`
++- API smoke: `npm run smoke:api`
++- Local API smoke (starts server if needed): `npm run smoke:api:local`
++
++## Expected Commands for Merge Validation
++- `npm ci`
++- `npm run build`
++- `npm run lint`
++- `npm run test:unit`
++- `npm run smoke:api:local`
++
++## Environment Variables
++
++### Core for search/LLM behavior
++- `TAVILY_API_KEY` (primary web search provider)
++- `SERPER_API_KEY` (secondary web search provider)
++- `OPENROUTER_API_KEY` (primary LLM provider)
++
++### Secondary/legacy LLM keys (optional but supported)
++- `TOGETHER_API_KEY`
++- `PERPLEXITY_API_KEY`
++- `OPENAI_API_KEY`
++
++### OAuth / network-tab integration
++- `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, `LINKEDIN_REDIRECT_URI`
++- `TWITTER_CLIENT_ID` (or `TWITTER_API_KEY`), `TWITTER_CLIENT_SECRET`, `TWITTER_REDIRECT_URI`
++- `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_REDIRECT_URI`
++
++### App URL and callback resolution
++- `NEXT_PUBLIC_BASE_URL`
++- `NEXT_PUBLIC_PRODUCTION_URL`
++- `NEXT_PUBLIC_USE_PRODUCTION_CALLBACKS`
++
++### Optional market-data paths
++- `FMP_API_KEY`, `FRED_API_KEY`
++
++## Notes
++- OAuth redirect env vars may use template form like `${NEXT_PUBLIC_BASE_URL}/api/auth/twitter/callback`; code now expands these safely.
++- `npm run smoke:api` reads `API_SMOKE_BASE` when provided.
+diff --git a/docs/merge-prep/validation-report.md b/docs/merge-prep/validation-report.md
+new file mode 100644
+index 0000000..21860d9
+--- /dev/null
++++ b/docs/merge-prep/validation-report.md
+@@ -0,0 +1,59 @@
++# Validation Report
++
++## Scope
++Validation executed on prep branch `prep/merge-ready-searchbar3` to confirm merge-prep changes are stable and to enumerate pre-existing repo-level failures.
++
++## Commands run
++
++1. `npm run lint`
++- Status: **blocked/fail**
++- Result summary:
++  - `next lint` enters interactive setup mode when no ESLint config exists.
++  - When forced with a temporary config during prep, it surfaced a large pre-existing lint backlog in archived and active modules (hook order violations, parse/export errors, undefined symbols, unescaped entities).
++- Root cause:
++  - Repository has broad existing lint debt and mixed archived code under lint scope.
++- Proposed fix:
++  - During integration, either:
++    - restrict lint scope to active paths first, or
++    - add `ignorePatterns` for archived backups, then fix active-path lint incrementally.
++
++2. `npm run test:unit`
++- Status: **fail** (pre-existing failures)
++- Result summary:
++  - 159 suites total; 128 passed, 31 failed.
++  - Common failure patterns:
++    - tests asserting old status codes (expecting hard 500 where fail-soft now returns 200)
++    - test fixtures expecting old request signatures
++    - provider/auth behavior assertions stale after fail-soft and callback utility updates
++- Prep-specific note:
++  - `ModeTabs` refactor initially surfaced `React is not defined` in `NetworkPage.test`; fixed by adding explicit React import.
++
++3. `npx jest --runInBand tests/unit/NetworkPage.test.js`
++- Status: **pass**
++- Result summary:
++  - 2/2 tests passed after `ModeTabs` React import fix.
++
++4. `npm run build`
++- Status: **pass**
++- Result summary:
++  - Next.js production build completed successfully.
++  - Route generation includes `/` and `/network` with expected bundle output.
++
++## Safe fixes applied in Phase D
++
++- `src/components/ModeTabs.js`
++  - Added `import React from 'react';` for compatibility with current Jest transform/runtime.
++
++## Determinism / reproducibility state
++
++- `package-lock.json` unchanged in prep work.
++- No dependency upgrades performed.
++- Build remains reproducible with current lockfile and scripts.
++- Lint command is non-deterministic without explicit repo lint policy due interactive setup + existing lint debt.
++
++## Known failures to carry into OpenClaw integration plan
++
++1. Lint cannot be considered green for full repo without scoped policy or broad cleanup.
++2. Unit tests contain many stale expectations relative to fail-soft behavior now present in API routes.
++3. Archived/backed-up code paths are currently included in lint surface and cause noise/conflicts.
++

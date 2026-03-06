@@ -1,0 +1,141 @@
+diff --git a/src/components/ModeTabs.js b/src/components/ModeTabs.js
+new file mode 100644
+index 0000000..fe426d9
+--- /dev/null
++++ b/src/components/ModeTabs.js
+@@ -0,0 +1,23 @@
++import React from 'react';
++import Link from 'next/link';
++import { FaProjectDiagram, FaSearch } from 'react-icons/fa';
++
++function tabClass(active) {
++  return [
++    'w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center',
++    active ? 'bg-white text-blue-700 shadow' : 'text-blue-500 hover:bg-white/[0.12] hover:text-blue-700'
++  ].join(' ');
++}
++
++export default function ModeTabs({ activeMode = 'open' }) {
++  return (
++    <div className="flex space-x-2 rounded-xl bg-blue-100 p-1 mb-6 max-w-md mx-auto">
++      <Link href="/" className={tabClass(activeMode === 'open')}>
++        <FaSearch className="mr-2" /> Open Research
++      </Link>
++      <Link href="/network" className={tabClass(activeMode === 'network')}>
++        <FaProjectDiagram className="mr-2" /> Network Map
++      </Link>
++    </div>
++  );
++}
+diff --git a/src/pages/index.js b/src/pages/index.js
+index 00297a7..a735d12 100644
+--- a/src/pages/index.js
++++ b/src/pages/index.js
+@@ -1,16 +1,9 @@
+ import React, { useState } from 'react';
+ import Head from 'next/head';
+-import Link from 'next/link';
+-import { Tab } from '@headlessui/react';
+ import OpenSearch from '../components/OpenSearch';
+-import { FaSearch, FaProjectDiagram } from 'react-icons/fa';
+-
+-function classNames(...classes) {
+-  return classes.filter(Boolean).join(' ');
+-}
++import ModeTabs from '../components/ModeTabs';
+ 
+ export default function Home() {
+-  const [selectedTab, setSelectedTab] = useState(0);
+   // Updated to use standardized model ID
+   const [selectedModel, setSelectedModel] = useState('or-openai');
+ 
+@@ -28,34 +21,11 @@ export default function Home() {
+           <p className="text-gray-600 mt-1">Search across web, academic sources, and more.</p>
+         </div>
+         
+-        <Tab.Group selectedIndex={selectedTab} onChange={setSelectedTab}>
+-          <Tab.List className="flex space-x-2 rounded-xl bg-blue-100 p-1 mb-6 max-w-md mx-auto">
+-            <Tab
+-              className={({ selected }) =>
+-                classNames(
+-                  'w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center',
+-                  'focus:outline-none focus:ring-2 ring-offset-2 ring-offset-blue-400 ring-white ring-opacity-60',
+-                  selected
+-                    ? 'bg-white text-blue-700 shadow'
+-                    : 'text-blue-500 hover:bg-white/[0.12] hover:text-blue-700'
+-                )
+-              }
+-            >
+-              <FaSearch className="mr-2" /> Open Research
+-            </Tab>
+-            <Link href="/network" className="w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center bg-blue-100 text-blue-500 hover:bg-white/[0.12] hover:text-blue-700">
+-              <FaProjectDiagram className="mr-2" /> Network Map
+-            </Link>
+-          </Tab.List>
+-          <Tab.Panels className="mt-2">
+-            <Tab.Panel>
+-              <OpenSearch 
+-                selectedModel={selectedModel}
+-                setSelectedModel={setSelectedModel}
+-              />
+-            </Tab.Panel>
+-          </Tab.Panels>
+-        </Tab.Group>
++        <ModeTabs activeMode="open" />
++        <OpenSearch 
++          selectedModel={selectedModel}
++          setSelectedModel={setSelectedModel}
++        />
+       </main>
+     </div>
+   );
+diff --git a/src/pages/network.js b/src/pages/network.js
+index c11e222..1b0c162 100644
+--- a/src/pages/network.js
++++ b/src/pages/network.js
+@@ -1,16 +1,11 @@
+ import React, { useState, useEffect } from 'react';
+-import Link from 'next/link';
+ import { useRouter } from 'next/router';
+ import Head from 'next/head';
+-import { Tab } from '@headlessui/react';
+ import axios from 'axios';
+ import { FaSearch, FaProjectDiagram, FaUsers, FaLink, FaCheckCircle, FaExclamationCircle, FaInfoCircle, FaLinkedin } from 'react-icons/fa';
+ import { FaXTwitter } from 'react-icons/fa6'; // X logo (formerly Twitter)
+ import NetworkDebug from '../components/NetworkDebug';
+-
+-function classNames(...classes) {
+-  return classes.filter(Boolean).join(' ');
+-}
++import ModeTabs from '../components/ModeTabs';
+ 
+ function runLocalNetworkAnalysis(query, connections = []) {
+   const terms = String(query || '')
+@@ -627,26 +622,7 @@ export default function NetworkPage() {
+           <p className="text-gray-600 mt-1">Search across web, academic sources, and more.</p>
+         </div>
+         
+-        <Tab.Group>
+-          <Tab.List className="flex space-x-2 rounded-xl bg-blue-100 p-1 mb-6 max-w-md mx-auto">
+-            <Link href="/" className="w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center bg-blue-100 text-blue-500 hover:bg-white/[0.12] hover:text-blue-700">
+-              <FaSearch className="mr-2" /> Open Research
+-            </Link>
+-            <Tab
+-              className={({ selected }) =>
+-                classNames(
+-                  'w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center',
+-                  'focus:outline-none focus:ring-2 ring-offset-2 ring-offset-blue-400 ring-white ring-opacity-60',
+-                  selected
+-                    ? 'bg-white text-blue-700 shadow'
+-                    : 'text-blue-500 hover:bg-white/[0.12] hover:text-blue-700'
+-                )
+-              }
+-            >
+-              <FaProjectDiagram className="mr-2" /> Network Map
+-            </Tab>
+-          </Tab.List>
+-        </Tab.Group>
++        <ModeTabs activeMode="network" />
+ 
+         {/* Enhanced searchbar and connection tabs in one row */}
+         <div className="mb-8 px-4 py-3 bg-white shadow-md rounded-xl mx-auto max-w-4xl flex items-center gap-4 border border-gray-100">
