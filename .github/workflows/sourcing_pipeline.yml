@@ -1,0 +1,18 @@
+name: Sourcing Pipeline
+on:
+ schedule:
+  - cron: '0 17 * * 1'
+ workflow_dispatch:
+jobs:
+ ingest:
+  runs-on: ubuntu-latest
+  env:
+   DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  steps:
+   - uses: actions/checkout@v4
+   - uses: actions/setup-python@v5
+     with:
+      python-version: '3.10'
+   - run: cd services/startup_watch && pip install -r requirements.txt
+   - run: cd services/startup_watch && python startup_watch/startup_watch.py --config startup_watch/config.github.yaml
+   - run: cd services/startup_watch && python -m pytest tests/ -x -q
