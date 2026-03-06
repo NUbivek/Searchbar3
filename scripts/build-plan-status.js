@@ -88,7 +88,7 @@ const phases = [
   ]),
   phase('Phase B - Product Gaps and Discipline', [
     check('Cross-platform smoke scripts', exists('scripts/api-smoke.js') && exists('scripts/api-smoke-local.js')),
-    check('Build pipeline script', fileContains('package.json', /"build":\s*"next build"/)),
+    check('Build pipeline script', fileContains('package.json', /"build":\s*"(?:next build|npm run web-build|cd apps\/web && npm run build)"/)),
     check('Upload and fetch-url route tests', exists('tests/unit/api/uploadRoute.coverage2.test.js') && exists('tests/unit/api/fetchUrlRoute.coverage2.test.js')),
     check('Degraded banner component', exists('src/components/search/DegradedBanner.js')),
     check('Working tree clean', workingTreeClean),

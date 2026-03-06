@@ -3,6 +3,7 @@
  "private": true,
  "workspaces": ["apps/web"],
  "scripts": {
+ "build": "npm run web-build",
  "web-dev": "cd apps/web && npm run dev",
  "web-build": "cd apps/web && npm run build",
  "db-up": "docker compose -f infra/db/docker-compose.yml up -d",
