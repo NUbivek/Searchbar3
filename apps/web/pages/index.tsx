@@ -1,10 +1,10 @@
-import React from 'react';
+import { useEffect, useState } from 'react';
 import { Tab } from '@headlessui/react';
 import { StartupWatchTab } from '../components/StartupWatch';
 
 export default function HomePage() {
-  const [totalCount, setTotalCount] = React.useState<number | null>(null);
-  React.useEffect(() => {
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  useEffect(() => {
     fetch('/api/startup-watch/stats').then((r) => r.json()).then((d) => setTotalCount(d.total)).catch(() => setTotalCount(null));
   }, []);
 

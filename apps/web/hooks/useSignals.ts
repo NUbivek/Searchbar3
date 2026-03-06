@@ -3,8 +3,7 @@ import { useMemo } from 'react';
 import type { FilterState } from '../types/startup-watch';
 
 const fetcher = async (url: string) => {
-  const controller = new AbortController();
-  const res = await fetch(url, { signal: controller.signal });
+  const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to fetch signals');
   return res.json();
 };
@@ -20,12 +19,15 @@ export function useSignals(filters: FilterState) {
     return `/api/startup-watch/signals?${params.toString()}`;
   }, [filters]);
 
-  const { data, error, isLoading } = useSWR(url, fetcher, { revalidateOnFocus: false });
+  const { data, error, isLoading, mutate } = useSWR(url, fetcher, { revalidateOnFocus: false });
   return {
     rows: data?.rows || [],
     total: data?.total || 0,
     meta: data?.meta || null,
+    page: data?.page || filters.page || 1,
+    page_size: data?.page_size || filters.page_size || 50,
     isLoading,
     isError: Boolean(error),
+    refresh: mutate,
   };
 }
