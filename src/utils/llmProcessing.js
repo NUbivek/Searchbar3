@@ -12,7 +12,7 @@ const { isLLMResult, createEmptyLLMResult } = require('./llm/resultDetector');
 export const MODEL_ENDPOINTS = {
   'or-mistral': {
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    modelId: 'mistralai/mistral-small-3.1-24b-instruct:free',
+    modelId: 'mistralai/mistral-small-3.1-24b-instruct',
     provider: 'openrouter',
     apiType: 'chat',
     temperature: 0.7,
@@ -28,7 +28,7 @@ export const MODEL_ENDPOINTS = {
   },
   'or-llama': {
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    modelId: 'meta-llama/llama-3.3-70b-instruct:free',
+    modelId: 'meta-llama/llama-3.3-70b-instruct',
     provider: 'openrouter',
     apiType: 'chat',
     temperature: 0.7,
@@ -36,7 +36,7 @@ export const MODEL_ENDPOINTS = {
   },
   'or-gemma': {
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    modelId: 'google/gemma-3-27b-it:free',
+    modelId: 'google/gemma-3-27b-it',
     provider: 'openrouter',
     apiType: 'chat',
     temperature: 0.7,
@@ -44,7 +44,7 @@ export const MODEL_ENDPOINTS = {
   },
   'or-openai': {
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    modelId: 'openai/gpt-oss-20b:free',
+    modelId: 'openai/gpt-5.3-chat',
     provider: 'openrouter',
     apiType: 'chat',
     temperature: 0.7,
@@ -72,10 +72,10 @@ const OPENROUTER_FREE_FALLBACK_MODEL = {
 
 const MODEL_FAMILY_FALLBACKS = {
   'or-mistral': ['mistralai/mistral-small-3.1-24b-instruct:free'],
-  'or-bytedance': ['bytedance-seed/seed-1.6-flash', 'bytedance-seed/seed-1.6', 'bytedance/ui-tars-1.5-7b'],
+  'or-bytedance': ['bytedance-seed/seed-1.6', 'bytedance/ui-tars-1.5-7b'],
   'or-llama': ['meta-llama/llama-3.3-70b-instruct:free', 'meta-llama/llama-3.2-3b-instruct:free'],
   'or-gemma': ['google/gemma-3-27b-it:free', 'google/gemma-3-12b-it:free', 'google/gemma-3-4b-it:free'],
-  'or-openai': ['openai/gpt-oss-20b:free', 'openai/gpt-oss-120b:free']
+  'or-openai': ['openai/gpt-5.2-chat', 'openai/gpt-5.1-chat', 'openai/gpt-oss-20b']
 };
 
 // Define aliases for backward compatibility
@@ -433,6 +433,23 @@ const callLLMAPI = async (prompt, modelConfig, apiKey) => {
     });
     
     if (apiType === 'chat') {
+      const choice = response.data?.choices?.[0] || {};
+      const message = choice?.message || {};
+      let extracted = '';
+      if (typeof message.content === 'string' && message.content.trim()) {
+        extracted = message.content;
+      } else if (Array.isArray(message.content)) {
+        extracted = message.content
+          .map((part) => (typeof part === 'string' ? part : part?.text || ''))
+          .join(' ')
+          .trim();
+      } else if (typeof message.reasoning === 'string' && message.reasoning.trim()) {
+        // Some OpenRouter/OpenAI-family responses may emit reasoning text before answer text.
+        extracted = message.reasoning;
+      } else if (typeof choice.text === 'string' && choice.text.trim()) {
+        extracted = choice.text;
+      }
+
       return {
         id: response.data?.id,
         created: response.data?.created,
@@ -440,7 +457,7 @@ const callLLMAPI = async (prompt, modelConfig, apiKey) => {
         usage: response.data?.usage,
         choices: [
           {
-            text: response.data?.choices?.[0]?.message?.content || ''
+            text: extracted
           }
         ]
       };
