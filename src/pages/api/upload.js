@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import formidable from 'formidable';
 import { processFile, cleanupFiles } from '../../utils/fileProcessing';
@@ -10,11 +11,7 @@ export const config = {
   },
 };
 
-const uploadDir = path.join(process.cwd(), 'temp-uploads');
-
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const uploadDir = path.join(os.tmpdir(), 'searchbar3-uploads');
 
 const ALLOWED_TYPES = [
   'application/pdf',
@@ -26,6 +23,12 @@ const ALLOWED_TYPES = [
 ];
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
+
+function ensureUploadDir() {
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+}
 
 function flattenFormidableFiles(fileMap) {
   return Object.values(fileMap || {})
@@ -74,6 +77,8 @@ export default async function handler(req, res) {
   }
 
   try {
+    ensureUploadDir();
+
     const form = formidable({
       uploadDir,
       keepExtensions: true,

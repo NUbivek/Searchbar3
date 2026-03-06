@@ -51,30 +51,6 @@ function resolveSearchEndpoints() {
   ];
 }
 
-function resolveHackerNewsFallbackEndpoints(query) {
-  const encodedQuery = encodeURIComponent(query || '');
-  if (typeof window === 'undefined') {
-    return [`/api/search/hackernews?q=${encodedQuery}`];
-  }
-
-  const host = window.location.hostname || '';
-  const isLocal = host === 'localhost' || host === '127.0.0.1';
-
-  if (isLocal) {
-    return [
-      `/api/search/hackernews?q=${encodedQuery}`,
-      `http://127.0.0.1:3001/api/search/hackernews?q=${encodedQuery}`
-    ];
-  }
-
-  return [
-    `https://searchbar3.vercel.app/api/search/hackernews?q=${encodedQuery}`,
-    `https://api.research.bivek.ai/api/search/hackernews?q=${encodedQuery}`,
-    `https://research.bivek.ai/api/search/hackernews?q=${encodedQuery}`,
-    `/api/search/hackernews?q=${encodedQuery}`
-  ];
-}
-
 async function fetchPublicFallbackResults(query) {
   const encodedQuery = encodeURIComponent(query || '');
   const timeoutMs = 10000;
@@ -104,44 +80,12 @@ async function fetchPublicFallbackResults(query) {
     }
   })();
 
-  const hnPromise = (async () => {
-    const controller = new AbortController();
-    const timeout = abortWithTimeout(controller);
-    try {
-      const resp = await fetch(`https://hn.algolia.com/api/v1/search?query=${encodedQuery}&hitsPerPage=8`, {
-        signal: controller.signal
-      });
-      if (!resp.ok) return [];
-      const data = await resp.json();
-      return (data?.hits || [])
-        .filter((item) => item?.url || item?.story_url)
-        .slice(0, 8)
-        .map((item) => ({
-          title: item.title || item.story_title || 'HackerNews Result',
-          url: item.url || item.story_url,
-          snippet: item.story_text || item.comment_text || '',
-          content: item.story_text || item.comment_text || '',
-          source: 'HackerNews'
-        }));
-    } catch {
-      return [];
-    } finally {
-      clearTimeout(timeout);
-    }
-  })();
-
-  const [wikiResults, hnResults] = await Promise.all([wikipediaPromise, hnPromise]);
-  return [...wikiResults, ...hnResults];
+  const wikiResults = await wikipediaPromise;
+  return wikiResults;
 }
 
 function normalizeText(value) {
   return String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function isHackerNewsSource(result) {
-  const src = String(result?.source || '').toLowerCase();
-  const url = String(result?.url || '').toLowerCase();
-  return src.includes('hackernews') || url.includes('news.ycombinator.com');
 }
 
 function cleanupLowSignalResults(results = []) {
@@ -251,51 +195,17 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         let fallbackResponse = null;
         let fallbackError = null;
 
-        for (const fallbackEndpoint of resolveHackerNewsFallbackEndpoints(searchQuery)) {
-          try {
-            fallbackResponse = await axios.get(fallbackEndpoint, { timeout: 20000 });
-            break;
-          } catch (endpointError) {
-            fallbackError = endpointError;
-            console.warn(`HN fallback endpoint failed: ${fallbackEndpoint}`, endpointError?.response?.status || endpointError?.message);
-          }
-        }
-
-        if (fallbackResponse?.data) {
-          const fallbackResults = Array.isArray(fallbackResponse.data?.results)
-            ? fallbackResponse.data.results
-            : [];
-          const publicFallbackResults = fallbackResults.length > 0
-            ? []
-            : await fetchPublicFallbackResults(searchQuery);
-          const mergedFallbackResults = fallbackResults.length > 0
-            ? fallbackResults
-            : publicFallbackResults;
+        const publicFallbackResults = await fetchPublicFallbackResults(searchQuery);
+        if (publicFallbackResults.length > 0) {
           response = {
             data: {
               status: 'degraded',
               query: searchQuery,
-              results: mergedFallbackResults,
+              results: publicFallbackResults,
               degradedSources: ['web'],
-              failSoftContent: mergedFallbackResults.length === 0 ? {
-                message: 'Primary search API is unavailable right now. Showing limited fallback results.',
-                suggestions: ['Try again in a minute', 'Try a different query', 'Check provider readiness at /api/debug/env-check']
-              } : null
+              failSoftContent: null
             }
           };
-        } else {
-          const publicFallbackResults = await fetchPublicFallbackResults(searchQuery);
-          if (publicFallbackResults.length > 0) {
-            response = {
-              data: {
-                status: 'degraded',
-                query: searchQuery,
-                results: publicFallbackResults,
-                degradedSources: ['web'],
-                failSoftContent: null
-              }
-            };
-          }
         }
 
         if (!response) {
@@ -318,27 +228,10 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         responseData?.llmResults?.errorType === 'auth_error' ||
         String(responseData?.error || '').toLowerCase().includes('authentication failed') ||
         String(responseData?.content || '').toLowerCase().includes('authentication failed');
-      const isHNHeavy =
-        responseResults.length > 0 &&
-        responseResults.every((result) => isHackerNewsSource(result));
 
       let cleanedResults = cleanupLowSignalResults(responseResults);
 
-      // If response is HN-heavy and low-signal, ask the dedicated HN route for a broader set
-      // and reuse only cleaned top entries.
-      if (isHNHeavy && cleanedResults.length <= 2) {
-        try {
-          for (const fallbackEndpoint of resolveHackerNewsFallbackEndpoints(searchQuery)) {
-            const hnExpanded = await axios.get(fallbackEndpoint, { timeout: 15000 });
-            if (Array.isArray(hnExpanded?.data?.results) && hnExpanded.data.results.length > 0) {
-              cleanedResults = cleanupLowSignalResults(hnExpanded.data.results).slice(0, 8);
-              break;
-            }
-          }
-        } catch (expandError) {
-          console.warn('Could not expand HackerNews result set:', expandError?.message || expandError);
-        }
-      }
+      // Do not auto-expand from HackerNews; keep web-only result quality predictable.
 
       // Log the response for debugging
       console.log('Search API response structure:', {

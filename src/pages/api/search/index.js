@@ -15,11 +15,22 @@ import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchRespon
 const HN_FALLBACK_TIMEOUT_MS = 6000;
 
 export default async function handler(req, res) {
-  const requestOrigin = req.headers.origin || '*';
-  res.setHeader('Access-Control-Allow-Origin', requestOrigin);
-  res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  const safeSetHeader = (name, value) => {
+    if (typeof res?.setHeader === 'function') {
+      res.setHeader(name, value);
+      return;
+    }
+    if (res && typeof res === 'object') {
+      res.headers = res.headers || {};
+      res.headers[name] = value;
+    }
+  };
+
+  const requestOrigin = req?.headers?.origin || '*';
+  safeSetHeader('Access-Control-Allow-Origin', requestOrigin);
+  safeSetHeader('Vary', 'Origin');
+  safeSetHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  safeSetHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -86,36 +97,7 @@ export default async function handler(req, res) {
       degradedSources.push('web');
     }
 
-    // Verify Serper API connectivity directly (only when configured)
-    if (serperConfigured) {
-      try {
-        console.log('DEBUG: Verifying Serper API connectivity...');
-        const axios = require('axios');
-        const testResponse = await axios.post('https://google.serper.dev/search', 
-          { 
-            q: 'test connectivity',
-            num: 1,
-            gl: 'us',
-            hl: 'en'
-          },
-          { 
-            headers: { 
-              'X-API-KEY': process.env.SERPER_API_KEY,
-              'Content-Type': 'application/json'
-            },
-            timeout: 5000
-          }
-        );
-
-        if (testResponse.status === 200) {
-          console.log('DEBUG: Serper API connectivity verified successfully');
-        } else {
-          console.warn('WARNING: Serper API returned non-200 status:', testResponse.status);
-        }
-      } catch (apiError) {
-        console.error('ERROR: Failed to verify Serper API connectivity:', apiError.message);
-      }
-    }
+    // Do not run extra per-request provider probes; rely on actual provider calls in unifiedSearch.
 
     logger.info('Search request', { query, mode, model, sources });
     console.log('DEBUG: Search request details:', { 

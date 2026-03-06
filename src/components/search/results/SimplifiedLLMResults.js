@@ -13,6 +13,17 @@ import { detectQueryContext } from '../utils/contextDetector';
 
 const stripHtml = (value = '') => String(value).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
+const maybeParseJson = (value) => {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!text || (text[0] !== '{' && text[0] !== '[')) return null;
+  try {
+    return JSON.parse(text);
+  } catch (_error) {
+    return null;
+  }
+};
+
 const formatReadableResult = (result) => {
   if (!result || typeof result !== 'object') return '';
   const title = stripHtml(result.title || 'Untitled');
@@ -20,6 +31,41 @@ const formatReadableResult = (result) => {
   const snippet = stripHtml(result.snippet || result.content || result.description || '');
   const safeUrl = url || '#';
   return `<div class="raw-result"><h3>${title}</h3>${url ? `<p><a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${safeUrl}</a></p>` : ''}<p>${snippet}</p></div>`;
+};
+
+const sanitizeDisplayContent = (value) => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  if (typeof value === 'string') {
+    const parsed = maybeParseJson(value);
+    if (!parsed) return value;
+    return sanitizeDisplayContent(parsed);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 8)
+      .map((item) => (typeof item === 'string' ? stripHtml(item) : formatReadableResult(item)))
+      .filter(Boolean)
+      .join('');
+  }
+
+  if (typeof value === 'object') {
+    if (typeof value.content === 'string' && value.content.trim()) {
+      return sanitizeDisplayContent(value.content);
+    }
+    if (Array.isArray(value.results) && value.results.length > 0) {
+      return sanitizeDisplayContent(value.results);
+    }
+    if (value.title || value.url || value.snippet || value.description) {
+      return formatReadableResult(value);
+    }
+    return '';
+  }
+
+  return String(value);
 };
 
 /**
@@ -57,7 +103,7 @@ const ExpandableContent = ({ content }) => {
     
     // If content is already a string, use it directly
     if (typeof content === 'string') {
-      return content;
+      return sanitizeDisplayContent(content);
     }
     
     // If content is an object with text or html property, use that
@@ -65,14 +111,7 @@ const ExpandableContent = ({ content }) => {
       if (content.text) return content.text;
       if (content.html) return content.html;
       if (content.content) return content.content;
-      
-      // Try to stringify the object
-      try {
-        return JSON.stringify(content, null, 2);
-      } catch (e) {
-        console.error('Failed to stringify content:', e);
-        return 'Unable to display content';
-      }
+      return sanitizeDisplayContent(content);
     }
     
     // For any other type, convert to string
