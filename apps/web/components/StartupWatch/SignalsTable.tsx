@@ -4,7 +4,6 @@ import EmptyState from './Cells/EmptyState';
 import StageBadge from './Cells/StageBadge';
 import SourceBadge from './Cells/SourceBadge';
 import ConfidenceBar from './Cells/ConfidenceBar';
-import CompanyCell from './Cells/CompanyCell';
 import FlagToggle from './Cells/FlagToggle';
 import StatusBadge from './Cells/StatusBadge';
 import { PaginationBar } from './PaginationBar';
@@ -71,8 +70,10 @@ export function SignalsTable({
                     <FlagToggle flagged={!!r.flagged} />
                   </td>
                   {columns.includes('company_name') && (
-                    <td className="cursor-pointer p-3 font-medium text-slate-800" onClick={() => onRowClick(r)}>
-                      <CompanyCell name={r.company_name} domain={r.company_domain} />
+                    <td className="cursor-pointer p-3" onClick={() => onRowClick(r)}>
+                      <div className="font-semibold text-slate-900">{r.company_name}</div>
+                      <div className="text-xs text-slate-500">{r.company_domain || '—'}</div>
+                      {r.summary && <div className="mt-1 line-clamp-1 text-xs text-slate-600">{r.summary}</div>}
                     </td>
                   )}
                   {columns.includes('stage_guess') && (
