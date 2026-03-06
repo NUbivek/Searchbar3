@@ -633,23 +633,7 @@ export async function unifiedSearch({
       providerStatuses = Array.isArray(openSearchResult.providers) ? openSearchResult.providers : [];
     }
     
-    // Process results with LLM if needed
-    if (results.length > 0 && model) {
-      debug(`[${searchId}] Processing results with LLM model: ${model}`);
-      try {
-        const summary = await processWithLLM(query, results, '', model);
-        return {
-          results,
-          summary,
-          providerStatuses
-        };
-      } catch (llmError) {
-        error(`[${searchId}] LLM processing error:`, llmError.message);
-        // Return raw results if LLM processing fails
-        return { results, providerStatuses };
-      }
-    }
-    
+    // Do not execute LLM in unified search; /api/search owns a single LLM pass.
     return { results, providerStatuses };
   } catch (err) {
     error(`[${searchId}] Unified search error:`, err.message);

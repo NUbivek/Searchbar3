@@ -636,43 +636,8 @@ export async function unifiedSearch({
       providerStatuses = Array.isArray(openSearchResult.providers) ? openSearchResult.providers : [];
     }
     
-    // Process results with LLM if needed
-    if (results.length > 0 && model) {
-      debug(`[${searchId}] Processing results with LLM model: ${model}`);
-      
-      // Map legacy model names to new ones if needed
-      let normalizedModel = model;
-      if (model === 'mixtral-8x7b') {
-        debug(`[${searchId}] Converting legacy model name 'mixtral-8x7b' to 'mistral-7b'`);
-        normalizedModel = 'mistral-7b';
-      }
-      try {
-        const summary = await processWithLLM(query, results, '', normalizedModel);
-        return {
-          results,
-          summary,
-          providerStatuses
-        };
-      } catch (llmError) {
-        error(`[${searchId}] LLM processing error:`, llmError.message);
-        // Create a fallback LLM error response with proper LLM flags
-        const errorSummary = {
-          content: `Unable to generate an AI response: ${llmError.message}. Here are the raw search results instead.`,
-          error: llmError.message,
-          query: query,
-          __isImmutableLLMResult: true,
-          isLLMResults: true,
-          llmProcessed: true,
-          type: 'llm_summary'
-        };
-        return { 
-          results,
-          summary: errorSummary,
-          providerStatuses
-        };
-      }
-    }
-    
+    // Do not run LLM synthesis here.
+    // LLM execution is centralized in /api/search to avoid duplicate calls and extra credit usage.
     return { results, providerStatuses };
   } catch (err) {
     error(`[${searchId}] Unified search error:`, err.message);

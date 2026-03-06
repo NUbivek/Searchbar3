@@ -83,17 +83,20 @@ export default async function handler(req, res) {
     const degradedSources = [];
     
     console.log('DEBUG: Environment variables check:', {
+      OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY ? 'Set (starts with: ' + process.env.OPENROUTER_API_KEY.substring(0, 5) + '...)' : 'Not set',
       TOGETHER_API_KEY: process.env.TOGETHER_API_KEY ? 'Set (starts with: ' + process.env.TOGETHER_API_KEY.substring(0, 5) + '...)' : 'Not set',
       PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY ? 'Set (starts with: ' + process.env.PERPLEXITY_API_KEY.substring(0, 5) + '...)' : 'Not set',
+      TAVILY_API_KEY: process.env.TAVILY_API_KEY ? 'Set (starts with: ' + process.env.TAVILY_API_KEY.substring(0, 5) + '...)' : 'Not set',
       SERPER_API_KEY: process.env.SERPER_API_KEY ? 'Set (starts with: ' + process.env.SERPER_API_KEY.substring(0, 5) + '...)' : 'Not set',
       NODE_ENV: process.env.NODE_ENV || 'Not set',
       BASE_URL: process.env.NEXT_PUBLIC_BASE_URL || 'Not set'
     });
 
-    // Verify that the SERPER_API_KEY is valid (has correct format)
-    const serperConfigured = !!process.env.SERPER_API_KEY && process.env.SERPER_API_KEY.length >= 20;
-    if (!serperConfigured) {
-      console.warn('WARNING: SERPER_API_KEY is missing or appears invalid. Continuing in degraded mode.');
+    // Web provider readiness: Tavily primary, Serper secondary.
+    const tavilyConfigured = !!process.env.TAVILY_API_KEY;
+    const serperConfigured = !!process.env.SERPER_API_KEY;
+    if (!tavilyConfigured && !serperConfigured) {
+      console.warn('WARNING: Neither TAVILY_API_KEY nor SERPER_API_KEY is configured. Continuing in degraded mode.');
       degradedSources.push('web');
     }
 

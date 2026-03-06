@@ -20,7 +20,7 @@ export const MODEL_ENDPOINTS = {
   },
   'or-bytedance': {
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    modelId: 'bytedance/ui-tars-1.5-7b',
+    modelId: 'bytedance-seed/seed-1.6-flash',
     provider: 'openrouter',
     apiType: 'chat',
     temperature: 0.7,
@@ -68,6 +68,14 @@ const OPENROUTER_FREE_FALLBACK_MODEL = {
   apiType: 'chat',
   temperature: 0.7,
   max_tokens: 2048
+};
+
+const MODEL_FAMILY_FALLBACKS = {
+  'or-mistral': ['mistralai/mistral-small-3.1-24b-instruct:free'],
+  'or-bytedance': ['bytedance-seed/seed-1.6-flash', 'bytedance-seed/seed-1.6', 'bytedance/ui-tars-1.5-7b'],
+  'or-llama': ['meta-llama/llama-3.3-70b-instruct:free', 'meta-llama/llama-3.2-3b-instruct:free'],
+  'or-gemma': ['google/gemma-3-27b-it:free', 'google/gemma-3-12b-it:free', 'google/gemma-3-4b-it:free'],
+  'or-openai': ['openai/gpt-oss-20b:free', 'openai/gpt-oss-120b:free']
 };
 
 // Define aliases for backward compatibility
@@ -203,9 +211,26 @@ export const processWithLLM = async (param1, param2, param3 = 'or-mistral', para
     } catch (apiError) {
       const isOpenRouterPrimaryFailure =
         modelConfig.provider === 'openrouter' &&
-        [401, 402, 429, 500, 502, 503, 504].includes(apiError?.status);
+        [400, 401, 402, 404, 429, 500, 502, 503, 504].includes(apiError?.status);
       if (isOpenRouterPrimaryFailure) {
-        // Try a known free OpenRouter model first to avoid paid-model billing failures.
+        // First try same-family OpenRouter model fallbacks.
+        const familyFallbacks = (MODEL_FAMILY_FALLBACKS[modelId] || [])
+          .filter((id) => id && id !== activeModelConfig.modelId);
+        for (const fallbackModelId of familyFallbacks) {
+          try {
+            console.warn(`OpenRouter primary failed (${apiError?.status || 'unknown'}); retrying with same-family model ${fallbackModelId}`);
+            llmResponse = await callLLMAPI(
+              prompt,
+              { ...activeModelConfig, modelId: fallbackModelId },
+              process.env.OPENROUTER_API_KEY || apiKey
+            );
+            return processLLMResponse(llmResponse, query, sourceMap);
+          } catch (_familyFallbackError) {
+            // Keep trying other family fallbacks.
+          }
+        }
+
+        // Then try a known free OpenRouter model to avoid paid-model billing failures.
         try {
           console.warn(`OpenRouter call failed (${apiError?.status || 'unknown'}); retrying with OpenRouter free fallback model ${OPENROUTER_FREE_FALLBACK_MODEL.modelId}`);
           llmResponse = await callLLMAPI(prompt, OPENROUTER_FREE_FALLBACK_MODEL, process.env.OPENROUTER_API_KEY || apiKey);
