@@ -1,0 +1,40 @@
+import requests
+from bs4 import BeautifulSoup
+
+from startup_watch.adapters.base import BaseAdapter
+from startup_watch.schema import StartupSignal
+
+
+class AgfunderAdapter(BaseAdapter):
+    """AgFunder portfolio adapter."""
+
+    source_name = "agfunder"
+
+    def fetch(self) -> list[StartupSignal]:
+        if not self.config.get("enabled", False):
+            return []
+        url = self.config.get("url", "")
+        if not url:
+            return []
+        try:
+            response = requests.get(url, timeout=20, headers={"User-Agent": "startup-watch/1.0"})
+            if response.status_code != 200:
+                return []
+            soup = BeautifulSoup(response.text, "lxml")
+            out: list[StartupSignal] = []
+            for node in soup.select("a, h2, h3"):
+                name = node.get_text(" ", strip=True)
+                if not name or len(name) > 80:
+                    continue
+                out.append(
+                    StartupSignal(
+                        company_name=name,
+                        stage="series-a",
+                        categories=["agtech", "supply chain"],
+                        source_name=self.source_name,
+                        source_url=url,
+                    ).normalize()
+                )
+            return out
+        except Exception:
+            return []

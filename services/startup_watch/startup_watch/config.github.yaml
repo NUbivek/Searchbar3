@@ -1,0 +1,1108 @@
+output_dir: "startup_watch/output"
+
+pipeline:
+  adapter_retries: 1
+  adapter_backoff_seconds: 0.5
+  adapter_delay_seconds: 0.0
+
+categories:
+  - supply chain
+  - logistics
+  - tms
+  - wms
+  - procurement
+  - warehousing
+  - manufacturing software
+  - distribution
+  - retail tech
+  - returns
+  - recommerce
+  - industrial software
+  - industrial hardware
+  - agtech
+  - farm tech
+
+stages:
+  - pre-seed
+  - seed
+  - series a
+
+linkedin:
+  enabled: false
+  search_urls: []
+  chrome_profile_dir: ""
+  chrome_profile_name: "Default"
+  max_posts_per_search: 0
+
+linkedin_manual:
+  enabled: false
+  html_files: []
+
+playwright_fallback:
+  enabled: true
+
+linkedin_enrichment:
+  enabled: false
+  max_company_pages: 0
+
+yc_directory:
+  enabled: true
+  batch: "W25"
+  categories:
+    - "Industrial"
+    - "AgTech"
+
+startupstream:
+  enabled: true
+  url: "https://startupstream.io"
+  max_items: 200
+
+vc_portfolios:
+  enabled: true
+  pages:
+    - name: "First Round"
+      url: "https://firstround.com/companies/"
+    - name: "Sequoia"
+      url: "https://www.sequoiacap.com/companies/"
+    - name: "a16z"
+      url: "https://a16z.com/portfolio/"
+
+incubators_and_accelerators:
+  enabled: true
+  pages:
+    - name: "MIT Delta V (2025 Cohort)"
+      url: "https://entrepreneurship.mit.edu/accelerator/2025-delta-v/"
+    - name: "MIT Delta V (Investor Days 2025)"
+      url: "https://entrepreneurship.mit.edu/accelerator/investor-days-2025/"
+    - name: "MIT Pozen Fellowship (2025 Host Companies)"
+      url: "https://entrepreneurship.mit.edu/resources/2025-pozen-fellowship-host-companies/"
+    - name: "Stanford StartX"
+      url: "https://startx.com/companies_med/"
+    - name: "UC Berkeley SkyDeck"
+      url: "https://skydeck.berkeley.edu/portfolio/"
+    - name: "Plug and Play Supply Chain"
+      url: "https://www.businesswire.com/news/home/20190826005090/en/Plug-and-Play-Supply-Chain-Batch-Four-Showcases-16-Startups-in-Silicon-Valley"
+    - name: "Alchemist Accelerator"
+      url: "https://www.alchemistaccelerator.com/portfolio"
+    - name: "SVG Thrive"
+      url: "https://thriveagrifood.com/svg-ventures-thrive-launches-sixth-academy-cohort/"
+    - name: "SVG Thrive Canada III"
+      url: "https://thriveagrifood.com/svg-ventures-thrive-unveils-canada-iii-accelerator-cohort/"
+    - name: "SVG Thrive VI (2020)"
+      url: "https://thriveagrifood.com/svg-ventures-unveils-sixth-cohort-companies-2020/"
+
+mit_delta_v:
+  enabled: true
+  cohorts:
+    - "https://entrepreneurship.mit.edu/accelerator/2025-delta-v/"
+    - "https://entrepreneurship.mit.edu/accelerator/investor-days-2025/"
+    - "https://entrepreneurship.mit.edu/resources/2025-pozen-fellowship-host-companies/"
+
+skydeck_fund:
+  enabled: true
+  url: "https://skydeck.vc/portfolio"
+
+skydeck_portfolio_js:
+  enabled: true
+  url: "https://skydeck.berkeley.edu/portfolio/"
+
+s2g_companies:
+  enabled: true
+  url: "https://www.s2ginvestments.com/companies"
+  min_founded_year: 2018
+
+svg_thrive_cohorts:
+  enabled: true
+  cohorts:
+    - "https://thriveagrifood.com/svg-ventures-thrive-launches-sixth-academy-cohort/"
+    - "https://thriveagrifood.com/svg-ventures-thrive-unveils-canada-iii-accelerator-cohort/"
+    - "https://thriveagrifood.com/svg-ventures-unveils-sixth-cohort-companies-2020/"
+
+impact_specialized_vcs:
+  enabled: true
+  pages:
+    - name: "Village Capital"
+      url: "https://vilcap.com/press/why-4-startups-are-solving-critical-problems-in-agtech-and-food-systems"
+    - name: "S2G Investments"
+      url: "https://www.s2ginvestments.com/companies"
+
+crunchbase_free:
+  enabled: false
+  pages: []
+
+filters:
+  require_category_match: true
+  require_stage_match: true
+  require_early_stage_signal: true
+  early_stage_keywords:
+    - "pre-seed"
+    - "preseed"
+    - "seed"
+    - "series a"
+    - "stealth"
+    - "just launched"
+    - "new"
+    - "cohort"
+    - "batch"
+    - "demo day"
+  early_stage_source_names:
+    - "MIT Delta V (2025 Cohort)"
+    - "MIT Delta V (Investor Days 2025)"
+    - "MIT Pozen Fellowship (2025 Host Companies)"
+    - "SVG Thrive"
+    - "SVG Thrive Canada III"
+    - "SVG Thrive VI (2020)"
+    - "SkyDeck Fund"
+    - "Stanford StartX"
+    - "UC Berkeley SkyDeck"
+    - "Plug and Play Supply Chain"
+    - "Alchemist Accelerator"
+    - "SVG Thrive"
+    - "Y Combinator"
+  exclude_companies:
+    - "Google"
+    - "Alphabet"
+    - "Amazon"
+    - "Apple"
+    - "Microsoft"
+    - "Meta"
+    - "Facebook"
+    - "Tesla"
+    - "Nvidia"
+    - "Oracle"
+    - "Salesforce"
+    - "IBM"
+    - "Intel"
+    - "SAP"
+
+mit_deltav_adapter:
+  enabled: true
+  urls:
+    - "https://entrepreneurship.mit.edu/accelerator/2025-delta-v/"
+    - "https://entrepreneurship.mit.edu/accelerator/investor-days-2025/"
+
+stanford_startx_adapter:
+  enabled: true
+  url: "https://startx.com/companies_med/"
+
+berkeley_skydeck_adapter:
+  enabled: true
+  url: "https://skydeck.berkeley.edu/portfolio/"
+
+alchemist_adapter:
+  enabled: true
+  url: "https://www.alchemistaccelerator.com/portfolio"
+
+masschallenge_adapter:
+  enabled: true
+  url: "https://masschallenge.org/our-community/startups/"
+
+plugandplay_food_adapter:
+  enabled: true
+  url: "https://www.plugandplaytechcenter.com/food/"
+
+startupland_adapter:
+  enabled: true
+  url: "https://www.startupland.news/feed"
+
+plugandplay_sc_adapter:
+  enabled: true
+  url: "https://www.businesswire.com/news/home/20190826005090/en/Plug-and-Play-Supply-Chain-Batch-Four-Showcases-16-Startups-in-Silicon-Valley"
+
+thrive_agtech_adapter:
+  enabled: true
+  urls:
+    - "https://thriveagrifood.com/svg-ventures-thrive-launches-sixth-academy-cohort/"
+    - "https://thriveagrifood.com/svg-ventures-thrive-unveils-canada-iii-accelerator-cohort/"
+
+a16z_adapter:
+  enabled: true
+  url: "https://a16z.com/portfolio/"
+
+sequoia_adapter:
+  enabled: true
+  url: "https://www.sequoiacap.com/companies/"
+
+bessemer_adapter:
+  enabled: true
+  url: "https://www.bvp.com/portfolio"
+
+firstround_adapter:
+  enabled: true
+  url: "https://firstround.com/companies/"
+
+skydeck_fund_adapter:
+  enabled: true
+  url: "https://skydeck.vc/portfolio"
+
+s2g_companies_adapter:
+  enabled: true
+  url: "https://www.s2ginvestments.com/companies"
+
+cornell_tech_adapter:
+  enabled: true
+  url: "https://tech.cornell.edu/startups/"
+
+harvard_ilab_adapter:
+  enabled: true
+  url: "https://i-lab.harvard.edu/venture-program/"
+
+oxford_foundry_adapter:
+  enabled: true
+  url: "https://www.oxfordfoundry.ox.ac.uk/ventures"
+
+eth_pioneer_adapter:
+  enabled: true
+  url: "https://pioneerfellowship.ch/ventures"
+
+uw_comotion_adapter:
+  enabled: true
+  url: "https://comotion.uw.edu/startups/"
+
+atdc_adapter:
+  enabled: true
+  url: "https://atdc.org/portfolio/"
+
+techstars_adapter:
+  enabled: true
+  url: "https://www.techstars.com/portfolio"
+
+fivehundred_global_adapter:
+  enabled: true
+  url: "https://500.co/companies"
+
+antler_adapter:
+  enabled: true
+  url: "https://www.antler.co/portfolio"
+
+dealroom_adapter:
+  enabled: true
+  url: "https://dealroom.co/"
+
+f6s_adapter:
+  enabled: true
+  url: "https://www.f6s.com/programs"
+
+openvc_adapter:
+  enabled: true
+  url: "https://www.openvc.app/startups"
+
+startup_genome_adapter:
+  enabled: true
+  url: "https://startupgenome.com/ecosystems"
+
+owler_adapter:
+  enabled: true
+  url: "https://www.owler.com/company"
+
+crunchbase_news_adapter:
+  enabled: true
+  url: "https://news.crunchbase.com/feed/"
+
+gust_adapter:
+  enabled: true
+  url: "https://gust.com/companies"
+
+enterprise_ireland_adapter:
+  enabled: true
+  url: "https://www.enterprise-ireland.com/en/Invest-in-Ireland/Client-Companies/"
+
+tech_eu_adapter:
+  enabled: true
+  url: "https://tech.eu/feed/"
+
+cleanenergywire_adapter:
+  enabled: true
+  url: "https://www.cleanenergywire.org/rss.xml"
+
+sustainability_mag_adapter:
+  enabled: true
+  url: "https://sustainabilitymag.com/rss"
+
+climateinsider_adapter:
+  enabled: true
+  url: "https://climateinsider.com/feed/"
+
+angellist_startups_adapter:
+  enabled: true
+  url: "https://wellfound.com/discover/startups"
+
+eu_startups_adapter:
+  enabled: true
+  url: "https://www.eu-startups.com/category/startups/"
+
+future_ag_adapter:
+  enabled: true
+  url: "https://www.futurefarming.com/rss"
+
+pitchbook_blog_adapter:
+  enabled: true
+  url: "https://pitchbook.com/news/articles/feed"
+
+sifted_adapter:
+  enabled: true
+  url: "https://sifted.eu/feed"
+
+agriinvestor_adapter:
+  enabled: true
+  url: "https://www.agriinvestor.com/feed/"
+
+seedtable_adapter:
+  enabled: true
+  url: "https://www.seedtable.com/startups"
+
+tractica_ai_adapter:
+  enabled: true
+  url: "https://www.automationworld.com/rss"
+
+iiot_world_adapter:
+  enabled: true
+  url: "https://iiot-world.com/feed/"
+
+hackernews_adapter:
+  enabled: true
+  url: "https://hnrss.org/newest"
+
+reddit_startups_adapter:
+  enabled: true
+  url: "https://www.reddit.com/r/startups/.rss"
+
+indiehackers_adapter:
+  enabled: true
+  url: "https://www.indiehackers.com/feed"
+
+techcrunch_funding_adapter:
+  enabled: true
+  url: "https://techcrunch.com/category/funding/feed/"
+
+agfunder_news_adapter:
+  enabled: true
+  url: "https://agfundernews.com/feed"
+
+agfunder_adapter:
+  enabled: true
+  url: "https://agfunder.com/portfolio/"
+
+eit_food_adapter:
+  enabled: true
+  url: "https://www.eitfood.eu/entrepreneurship/startups"
+
+foodbytes_adapter:
+  enabled: true
+  url: "https://foodbytesworld.com/"
+
+freightwaves_adapter:
+  enabled: true
+  url: "https://www.freightwaves.com/news/feed"
+
+wellfound_adapter:
+  enabled: true
+  url: "https://wellfound.com/discover"
+
+betalist_adapter:
+  enabled: true
+  url: "https://betalist.com/"
+
+producthunt_adapter:
+  enabled: true
+  url: "https://www.producthunt.com/feed"
+
+spendmatters_adapter:
+  enabled: true
+  url: "https://spendmatters.com/feed/"
+
+smart_industry_adapter:
+  enabled: true
+  url: "https://www.smartindustry.com/rss"
+
+iot_analytics_adapter:
+  enabled: true
+  url: "https://iot-analytics.com/feed/"
+
+supplychaindive_adapter:
+  enabled: true
+  url: "https://www.supplychaindive.com/feeds/news/"
+
+therobotreport_adapter:
+  enabled: true
+  url: "https://www.therobotreport.com/feed/"
+
+agdaily_adapter:
+  enabled: true
+  url: "https://www.agdaily.com/feed/"
+
+manufacturing_net_adapter:
+  enabled: true
+  url: "https://www.manufacturing.net/rss"
+
+venturebeat_ai_adapter:
+  enabled: true
+  url: "https://venturebeat.com/category/ai/feed/"
+
+agfunder_pod_adapter:
+  enabled: true
+  url: "https://agfundernews.com/feed"
+
+supplychainbrain_adapter:
+  enabled: true
+  url: "https://www.supplychainbrain.com/rss/topic/1200"
+
+logisticsmgmt_adapter:
+  enabled: true
+  url: "https://www.logisticsmgmt.com/rss"
+
+agweb_adapter:
+  enabled: true
+  url: "https://www.agweb.com/rss"
+
+mmh_adapter:
+  enabled: true
+  url: "https://www.mmh.com/rss"
+
+mfg_dive_adapter:
+  enabled: true
+  url: "https://www.manufacturingdive.com/feeds/news/"
+
+industryweek_adapter:
+  enabled: true
+  url: "https://www.industryweek.com/rss"
+
+techfundingnews_adapter:
+  enabled: true
+  url: "https://techfundingnews.com/feed/"
+
+greenqueen_adapter:
+  enabled: true
+  url: "https://www.greenqueen.com.hk/feed"
+
+finsmes_adapter:
+  enabled: true
+  url: "https://www.finsmes.com/feed"
+
+siliconcanals_adapter:
+  enabled: true
+  url: "https://siliconcanals.com/feed/"
+
+vestbee_adapter:
+  enabled: true
+  url: "https://www.vestbee.com/blog/rss"
+
+startupdaily_adapter:
+  enabled: true
+  url: "https://www.startupdaily.net/feed/"
+
+techinasia_adapter:
+  enabled: true
+  url: "https://www.techinasia.com/feed"
+
+yourstory_adapter:
+  enabled: true
+  url: "https://yourstory.com/feed"
+
+builtin_adapter:
+  enabled: true
+  url: "https://builtin.com/rss"
+
+euvc_adapter:
+  enabled: true
+  url: "https://www.euvc.co/feed"
+
+sifted_news_adapter:
+  enabled: true
+  url: "https://sifted.eu/feed"
+
+unicornnest_adapter:
+  enabled: true
+  url: "https://unicorn-nest.com/feed/"
+
+startupnewsfyi_adapter:
+  enabled: true
+  url: "https://startupnews.fyi/feed"
+
+latitud_adapter:
+  enabled: true
+  url: "https://www.latitud.com/blog/rss.xml"
+
+refreshmiami_adapter:
+  enabled: true
+  url: "https://refreshmiami.com/feed/"
+
+geekwire_adapter:
+  enabled: true
+  url: "https://www.geekwire.com/startups/feed/"
+
+thenextweb_adapter:
+  enabled: true
+  url: "https://thenextweb.com/feed"
+
+e27_adapter:
+  enabled: true
+  url: "https://e27.co/feed"
+
+startupbeat_adapter:
+  enabled: true
+  url: "https://startupbeat.com/feed/"
+
+entrepreneurshiplife_adapter:
+  enabled: true
+  url: "https://www.entrepreneurshiplife.com/feed/"
+
+innovationorigins_adapter:
+  enabled: true
+  url: "https://innovationorigins.com/en/feed/"
+
+startupsmagazine_adapter:
+  enabled: true
+  url: "https://startupsmagazine.co.uk/rss.xml"
+
+vccircle_adapter:
+  enabled: true
+  url: "https://www.vccircle.com/feed"
+
+techpoint_africa_adapter:
+  enabled: true
+  url: "https://techpoint.africa/feed/"
+
+disruptafrica_adapter:
+  enabled: true
+  url: "https://disruptafrica.com/feed/"
+
+vested_adapter:
+  enabled: true
+  url: "https://vested.co.in/feed/"
+
+therecursive_adapter:
+  enabled: true
+  url: "https://therecursive.com/feed/"
+
+siliconrepublic_adapter:
+  enabled: true
+  url: "https://www.siliconrepublic.com/feed"
+
+itweb_africa_adapter:
+  enabled: true
+  url: "https://www.itweb.co.za/rss/itnews/africa"
+
+startupill_adapter:
+  enabled: true
+  url: "https://startupill.com/feed/"
+
+devdiscourse_adapter:
+  enabled: true
+  url: "https://www.devdiscourse.com/rss/technology"
+
+techbuild_africa_adapter:
+  enabled: true
+  url: "https://techbuild.africa/feed/"
+
+futurescot_adapter:
+  enabled: true
+  url: "https://futurescot.com/feed/"
+
+techcabal_adapter:
+  enabled: true
+  url: "https://techcabal.com/feed/"
+
+benjamindada_adapter:
+  enabled: true
+  url: "https://www.benjamindada.com/feed/"
+
+technext_ng_adapter:
+  enabled: true
+  url: "https://technext24.com/feed/"
+
+techafricanews_adapter:
+  enabled: true
+  url: "https://techafricanews.com/feed/"
+
+techtrendske_adapter:
+  enabled: true
+  url: "https://techtrendske.co.ke/feed/"
+
+tech_ish_adapter:
+  enabled: true
+  url: "https://tech-ish.com/feed/"
+
+techmoran_adapter:
+  enabled: true
+  url: "https://techmoran.com/feed/"
+
+memeburn_adapter:
+  enabled: true
+  url: "https://memeburn.com/feed/"
+
+weetracker_adapter:
+  enabled: true
+  url: "https://weetracker.com/feed/"
+
+techweez_adapter:
+  enabled: true
+  url: "https://techweez.com/feed/"
+
+ventureburn_adapter:
+  enabled: true
+  url: "https://ventureburn.com/feed/"
+
+venturesafrica_adapter:
+  enabled: true
+  url: "https://venturesafrica.com/feed/"
+
+inc42_adapter:
+  enabled: true
+  url: "https://inc42.com/feed/"
+
+entrackr_adapter:
+  enabled: true
+  url: "https://entrackr.com/feed/"
+
+dealstreetasia_adapter:
+  enabled: true
+  url: "https://www.dealstreetasia.com/feed/"
+
+techloy_adapter:
+  enabled: true
+  url: "https://techloy.com/feed/"
+
+kr_asia_adapter:
+  enabled: true
+  url: "https://kr-asia.com/feed/"
+
+technode_adapter:
+  enabled: true
+  url: "https://technode.com/feed/"
+
+techsauce_adapter:
+  enabled: true
+  url: "https://techsauce.co/en/feed"
+
+echelonasia_adapter:
+  enabled: true
+  url: "https://e27.co/feed"
+
+technin_asia_adapter:
+  enabled: true
+  url: "https://techninasia.com/feed/"
+
+vulcanpost_adapter:
+  enabled: true
+  url: "https://vulcanpost.com/feed/"
+
+pandaily_adapter:
+  enabled: true
+  url: "https://pandaily.com/feed"
+
+wamda_adapter:
+  enabled: true
+  url: "https://www.wamda.com/feed"
+
+maddyness_adapter:
+  enabled: true
+  url: "https://www.maddyness.com/en/feed/"
+
+techfundingasia_adapter:
+  enabled: true
+  url: "https://techfundingasia.com/feed/"
+
+startupnewsasia_adapter:
+  enabled: true
+  url: "https://www.startupnews.asia/feed/"
+
+vietcetera_adapter:
+  enabled: true
+  url: "https://vietcetera.com/en/feed"
+
+bloomingstartup_adapter:
+  enabled: true
+  url: "https://www.bloomingstartups.com/feed"
+
+africanbusiness_tech_adapter:
+  enabled: true
+  url: "https://african.business/category/technology/feed/"
+
+menabytes_adapter:
+  enabled: true
+  url: "https://www.menabytes.com/feed/"
+
+magnitt_adapter:
+  enabled: true
+  url: "https://magnitt.com/news/rss"
+
+wadi_mena_adapter:
+  enabled: true
+  url: "https://www.wamda.com/feed"
+
+startupbahrain_adapter:
+  enabled: true
+  url: "https://startupbahrain.com/feed/"
+
+techjuice_adapter:
+  enabled: true
+  url: "https://www.techjuice.pk/feed/"
+
+pakwired_adapter:
+  enabled: true
+  url: "https://www.pakwired.com/feed/"
+
+dailysocial_adapter:
+  enabled: true
+  url: "https://dailysocial.id/feed/"
+
+techstartups_adapter:
+  enabled: true
+  url: "https://techstartups.com/feed/"
+
+startupnewsme_adapter:
+  enabled: true
+  url: "https://www.startupnewsme.com/feed/"
+
+middleeastventures_adapter:
+  enabled: true
+  url: "https://www.mevca.org/feed/"
+
+europeanstartups_adapter:
+  enabled: true
+  url: "https://europeanstartups.co.uk/feed/"
+
+startupobserver_adapter:
+  enabled: true
+  url: "https://startupobserver.com/feed/"
+
+startupsavant_adapter:
+  enabled: true
+  url: "https://startupsavant.com/feed"
+
+techrasa_adapter:
+  enabled: true
+  url: "https://www.techrasa.com/feed/"
+
+techgistafrica_adapter:
+  enabled: true
+  url: "https://techgistafrica.com/feed/"
+
+itnewsafrica_adapter:
+  enabled: true
+  url: "https://www.itnewsafrica.com/feed/"
+
+disfold_blog_adapter:
+  enabled: true
+  url: "https://blog.disfold.com/feed/"
+
+startupradius_adapter:
+  enabled: true
+  url: "https://startupradius.com/feed/"
+
+nextbigwhat_adapter:
+  enabled: true
+  url: "https://nextbigwhat.com/feed/"
+
+techcircle_adapter:
+  enabled: true
+  url: "https://www.techcircle.in/feed"
+
+siliconangle_startups_adapter:
+  enabled: true
+  url: "https://siliconangle.com/tag/startup/feed/"
+
+readwrite_startups_adapter:
+  enabled: true
+  url: "https://readwrite.com/category/startups/feed/"
+
+techinformed_adapter:
+  enabled: true
+  url: "https://techinformed.com/feed/"
+
+startupdaily_africa_adapter:
+  enabled: true
+  url: "https://www.startupdaily.africa/feed/"
+
+techlabari_adapter:
+  enabled: true
+  url: "https://techlabari.com/feed/"
+
+innov8tiv_adapter:
+  enabled: true
+  url: "https://innov8tiv.com/feed/"
+
+smesouthafrica_adapter:
+  enabled: true
+  url: "https://smesouthafrica.co.za/feed/"
+
+techawkng_adapter:
+  enabled: true
+  url: "https://techawkng.com/feed/"
+
+technovagh_adapter:
+  enabled: true
+  url: "https://technovagh.com/feed/"
+
+afritechie_adapter:
+  enabled: true
+  url: "https://afritechie.net/feed/"
+
+frenchweb_adapter:
+  enabled: true
+  url: "https://www.frenchweb.fr/feed/"
+
+maddyness_fr_adapter:
+  enabled: true
+  url: "https://www.maddyness.com/feed/"
+
+gruenderszene_adapter:
+  enabled: true
+  url: "https://www.businessinsider.de/gruenderszene/feed/"
+
+siliconallee_adapter:
+  enabled: true
+  url: "https://siliconallee.com/feed/"
+
+siftedeu_news_adapter:
+  enabled: true
+  url: "https://sifted.eu/feed"
+
+arcticstartup_adapter:
+  enabled: true
+  url: "https://arcticstartup.com/feed/"
+
+eu_startups_news_adapter:
+  enabled: true
+  url: "https://www.eu-startups.com/feed/"
+
+uktechnews_adapter:
+  enabled: true
+  url: "https://www.uktechnews.info/feed/"
+
+irishtechnews_adapter:
+  enabled: true
+  url: "https://irishtechnews.ie/feed/"
+
+techpluto_adapter:
+  enabled: true
+  url: "https://www.techpluto.com/feed/"
+
+siliconrepublic_startups_adapter:
+  enabled: true
+  url: "https://www.siliconrepublic.com/start-ups/feed"
+
+techforge_media_adapter:
+  enabled: true
+  url: "https://techforgemedia.co.uk/feed/"
+
+sifted_pro_adapter:
+  enabled: true
+  url: "https://sifted.eu/feed/"
+
+foundersguide_adapter:
+  enabled: true
+  url: "https://foundersguide.com/feed/"
+
+startupvalley_news_adapter:
+  enabled: true
+  url: "https://startupvalley.news/feed/"
+
+techbehemoths_blog_adapter:
+  enabled: true
+  url: "https://techbehemoths.com/blog/feed"
+
+startupscoot_adapter:
+  enabled: true
+  url: "https://startupscoot.com/feed/"
+
+seedrs_insights_adapter:
+  enabled: true
+  url: "https://www.seedrs.com/learn/feed"
+
+euvc_insights_adapter:
+  enabled: true
+  url: "https://www.euvc.co/feed/"
+
+startupmag_europe_adapter:
+  enabled: true
+  url: "https://startupmag.eu/feed/"
+
+vator_startups_adapter:
+  enabled: true
+  url: "https://vator.tv/news/feed"
+
+startus_insights_adapter:
+  enabled: true
+  url: "https://www.startus-insights.com/innovators-guide/feed/"
+
+tracxn_blog_adapter:
+  enabled: true
+  url: "https://tracxn.com/d/blog/feed/"
+
+f6s_news_adapter:
+  enabled: true
+  url: "https://www.f6s.com/feed"
+
+euvc_deals_adapter:
+  enabled: true
+  url: "https://www.euvc.co/feed"
+
+venturecapitaljournal_adapter:
+  enabled: true
+  url: "https://www.venturecapitaljournal.com/feed/"
+
+privateequitywire_vc_adapter:
+  enabled: true
+  url: "https://www.privateequitywire.co.uk/feed/"
+
+globalventuring_adapter:
+  enabled: true
+  url: "https://globalventuring.com/feed/"
+
+thehumancapital_adapter:
+  enabled: true
+  url: "https://thehumancapitalhub.com/feed/"
+
+startupsatellite_adapter:
+  enabled: true
+  url: "https://startupsatellite.com/feed/"
+
+startupgenius_adapter:
+  enabled: true
+  url: "https://www.startupgenius.co/feed/"
+
+founderjar_adapter:
+  enabled: true
+  url: "https://www.founderjar.com/feed/"
+
+smallbiztrends_startups_adapter:
+  enabled: true
+  url: "https://smallbiztrends.com/category/startups/feed"
+
+startupgrind_blog_adapter:
+  enabled: true
+  url: "https://www.startupgrind.com/blog/rss/"
+
+forentrepreneurs_adapter:
+  enabled: true
+  url: "https://www.forentrepreneurs.com/feed/"
+
+bothsidesofthetable_adapter:
+  enabled: true
+  url: "https://bothsidesofthetable.com/feed"
+
+avc_blog_adapter:
+  enabled: true
+  url: "https://avc.com/feed/"
+
+feldthoughts_adapter:
+  enabled: true
+  url: "https://feld.com/feed/"
+
+saastr_blog_adapter:
+  enabled: true
+  url: "https://www.saastr.com/feed/"
+
+tomtunguz_adapter:
+  enabled: true
+  url: "https://tomtunguz.com/feed/"
+
+openhubstartup_adapter:
+  enabled: true
+  url: "https://openhubstartup.com/feed/"
+
+startuptalky_adapter:
+  enabled: true
+  url: "https://startuptalky.com/feed/"
+
+yourtechtoday_adapter:
+  enabled: true
+  url: "https://yourtechtoday.com/feed/"
+
+techsafariz_adapter:
+  enabled: true
+  url: "https://techsafariz.com/feed/"
+
+africatechdaily_adapter:
+  enabled: true
+  url: "https://africatechdaily.com/feed/"
+
+startupnewszone_adapter:
+  enabled: true
+  url: "https://startupnewszone.com/feed/"
+
+venturefounders_adapter:
+  enabled: true
+  url: "https://venturefounders.com/feed/"
+
+newstartupmedia_adapter:
+  enabled: true
+  url: "https://newstartupmedia.com/feed/"
+
+seedfundnews_adapter:
+  enabled: true
+  url: "https://seedfundnews.com/feed/"
+
+techpulsefounders_adapter:
+  enabled: true
+  url: "https://techpulsefounders.com/feed/"
+
+startupreporter_adapter:
+  enabled: true
+  url: "https://startupreporter.net/feed/"
+
+foundersradar_adapter:
+  enabled: true
+  url: "https://foundersradar.com/feed/"
+
+deeptechdigest_adapter:
+  enabled: true
+  url: "https://deeptechdigest.com/feed/"
+
+futurefoundersnews_adapter:
+  enabled: true
+  url: "https://futurefoundersnews.com/feed/"
+
+nextventuredaily_adapter:
+  enabled: true
+  url: "https://nextventuredaily.com/feed/"
+
+startupwireglobal_adapter:
+  enabled: true
+  url: "https://startupwireglobal.com/feed/"
+
+frontierstartups_adapter:
+  enabled: true
+  url: "https://frontierstartups.com/feed/"
+
+climatestartupsnews_adapter:
+  enabled: true
+  url: "https://climatestartupsnews.com/feed/"
+
+industriousventures_adapter:
+  enabled: true
+  url: "https://industriousventures.com/feed/"
+
+logisticstechnews_adapter:
+  enabled: true
+  url: "https://logisticstechnews.com/feed/"
+
+agxstartupnews_adapter:
+  enabled: true
+  url: "https://agxstartupnews.com/feed/"
+
+enterprisefoundry_adapter:
+  enabled: true
+  url: "https://enterprisefoundry.com/feed/"
+
+seedstageinsider_adapter:
+  enabled: true
+  url: "https://seedstageinsider.com/feed/"
+
+vcsignalsdaily_adapter:
+  enabled: true
+  url: "https://vcsignalsdaily.com/feed/"
+
+startupcurrents_adapter:
+  enabled: true
+  url: "https://startupcurrents.com/feed/"
+
+venturechronicle_adapter:
+  enabled: true
+  url: "https://venturechronicle.com/feed/"
+
+foundersbriefing_adapter:
+  enabled: true
+  url: "https://foundersbriefing.com/feed/"

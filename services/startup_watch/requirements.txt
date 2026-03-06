@@ -1,0 +1,11 @@
+beautifulsoup4==4.12.3
+lxml==5.2.2
+requests==2.32.3
+PyYAML==6.0.2
+python-dateutil==2.9.0.post0
+playwright==1.47.0
+feedparser==6.0.11
+pandas==2.2.3
+structlog==24.4.0
+tenacity==9.0.0
+python-dotenv==1.0.1

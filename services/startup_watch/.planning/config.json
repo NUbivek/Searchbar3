@@ -1,0 +1,18 @@
+{
+  "project": "sourcing101-startup-intelligence",
+  "workflow": "balanced",
+  "autoAdvance": true,
+  "stack": [
+    "python3.10",
+    "requests",
+    "beautifulsoup4",
+    "playwright",
+    "feedparser",
+    "pandas",
+    "structlog",
+    "tenacity",
+    "pytest",
+    "yaml",
+    "github-actions"
+  ]
+}
