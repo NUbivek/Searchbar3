@@ -1,16 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import { Tab } from '@headlessui/react';
 import axios from 'axios';
 import { FaSearch, FaProjectDiagram, FaUsers, FaLink, FaCheckCircle, FaExclamationCircle, FaInfoCircle, FaLinkedin } from 'react-icons/fa';
 import { FaXTwitter } from 'react-icons/fa6'; // X logo (formerly Twitter)
 import NetworkDebug from '../components/NetworkDebug';
-
-function classNames(...classes) {
-  return classes.filter(Boolean).join(' ');
-}
+import ModeTabs from '../components/ModeTabs';
 
 function runLocalNetworkAnalysis(query, connections = []) {
   const terms = String(query || '')
@@ -627,26 +622,7 @@ export default function NetworkPage() {
           <p className="text-gray-600 mt-1">Search across web, academic sources, and more.</p>
         </div>
         
-        <Tab.Group>
-          <Tab.List className="flex space-x-2 rounded-xl bg-blue-100 p-1 mb-6 max-w-md mx-auto">
-            <Link href="/" className="w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center bg-blue-100 text-blue-500 hover:bg-white/[0.12] hover:text-blue-700">
-              <FaSearch className="mr-2" /> Open Research
-            </Link>
-            <Tab
-              className={({ selected }) =>
-                classNames(
-                  'w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center',
-                  'focus:outline-none focus:ring-2 ring-offset-2 ring-offset-blue-400 ring-white ring-opacity-60',
-                  selected
-                    ? 'bg-white text-blue-700 shadow'
-                    : 'text-blue-500 hover:bg-white/[0.12] hover:text-blue-700'
-                )
-              }
-            >
-              <FaProjectDiagram className="mr-2" /> Network Map
-            </Tab>
-          </Tab.List>
-        </Tab.Group>
+        <ModeTabs activeMode="network" />
 
         {/* Enhanced searchbar and connection tabs in one row */}
         <div className="mb-8 px-4 py-3 bg-white shadow-md rounded-xl mx-auto max-w-4xl flex items-center gap-4 border border-gray-100">
