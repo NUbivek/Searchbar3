@@ -5,11 +5,17 @@ export const SearchModes = {
 
 export const MODEL_OPTIONS = [
   {
+    id: 'or-openai',
+    name: 'OpenAI',
+    icon: '🤖',
+    description: 'OpenRouter: OpenAI family.',
+    default: true
+  },
+  {
     id: 'or-mistral',
     name: 'Mistral',
     icon: '🚀',
-    description: 'OpenRouter: Mistral family.',
-    default: true
+    description: 'OpenRouter: Mistral family.'
   },
   {
     id: 'or-bytedance',
@@ -28,12 +34,6 @@ export const MODEL_OPTIONS = [
     name: 'Google Gemma',
     icon: '⚡',
     description: 'OpenRouter: Gemma family.'
-  },
-  {
-    id: 'or-openai',
-    name: 'OpenAI',
-    icon: '🤖',
-    description: 'OpenRouter: OpenAI family.'
   }
 ];
 

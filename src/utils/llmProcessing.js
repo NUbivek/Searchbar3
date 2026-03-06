@@ -108,7 +108,7 @@ const MODEL_ALIASES = {
  * @param {Object|string} param4 Additional options OR API key
  * @returns {Promise<Object>} Processed results
  */
-export const processWithLLM = async (param1, param2, param3 = 'or-mistral', param4 = {}) => {
+export const processWithLLM = async (param1, param2, param3 = 'or-openai', param4 = {}) => {
   // Check which parameter format is used
   let searchResults, query, modelId, options;
   
@@ -116,13 +116,13 @@ export const processWithLLM = async (param1, param2, param3 = 'or-mistral', para
     // Old format: (query, searchResults, modelId, apiKey)
     query = param1;
     searchResults = param2;
-    modelId = param3 || 'or-mistral';
+    modelId = param3 || 'or-openai';
     options = typeof param4 === 'string' ? { apiKey: param4 } : (param4 || {});
   } else {
     // New format: (searchResults, query, modelId, options)
     searchResults = param1;
     query = param2;
-    modelId = param3 || 'or-mistral';
+    modelId = param3 || 'or-openai';
     options = param4 || {};
   }
   
@@ -163,7 +163,7 @@ export const processWithLLM = async (param1, param2, param3 = 'or-mistral', para
     }
     
     // Get model configuration
-    const modelConfig = MODEL_ENDPOINTS[modelId] || MODEL_ENDPOINTS['or-mistral'];
+    const modelConfig = MODEL_ENDPOINTS[modelId] || MODEL_ENDPOINTS['or-openai'];
     let activeModelConfig = modelConfig;
     const usesOpenRouter = modelConfig.provider === 'openrouter';
 
@@ -588,30 +588,35 @@ const processLLMResponse = (response, query, sourceMap) => {
 export const formatContentForDisplay = (content) => {
   if (!content) return '';
   
-  // Add hyperlinks
-  let formatted = addHyperlinks(content);
-  
-  // Advanced formatting for better reading experience
+  // Normalize and remove markdown artifacts that leak into UI text.
+  let formatted = String(content)
+    .replace(/\r\n/g, '\n')
+    .replace(/\t/g, ' ')
+    // Remove fenced code markers while keeping content.
+    .replace(/```[\w-]*\n?/g, '')
+    // Clean heading markers, but keep heading text.
+    .replace(/^\s*#{1,6}\s+/gm, '')
+    // Strip emphasis markers to avoid random bold/italic rendering.
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?]|$)/g, '$1$2')
+    .replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,!?]|$)/g, '$1$2')
+    // Convert common bullet syntaxes to a single clean bullet style.
+    .replace(/^\s*[-*]\s+/gm, '• ')
+    .replace(/^\s*\d+\.\s+/gm, '• ')
+    // Remove standalone markdown separators.
+    .replace(/^\s*[-*_]{3,}\s*$/gm, '')
+    // Compress excessive blank lines.
+    .replace(/\n{3,}/g, '\n\n');
+
+  // Add hyperlinks after markdown cleanup.
+  formatted = addHyperlinks(formatted);
+
+  // Convert line breaks for HTML rendering.
   formatted = formatted
-    // Format consecutive newlines for paragraph breaks
     .replace(/\n\n/g, '<br/><br/>')
     .replace(/\n/g, '<br/>')
-    // Format markdown-style headers
-    .replace(/^#{1,6}\s+(.+)$/gm, (match, title) => `<strong>${title}</strong><br/>`)
-    // Format markdown-style bullet points
-    .replace(/^\s*[\*\-]\s+(.+)$/gm, (match, point) => `• ${point}<br/>`)
-    // Format markdown-style numbered lists
-    .replace(/^\s*\d+\.\s+(.+)$/gm, (match, point) => `• ${point}<br/>`)
-    // Bold important terms enclosed in ** or __ (markdown style)
-    .replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/__([^_]+)__/g, '<strong>$1</strong>')
-    // Italicize text enclosed in * or _ (markdown style)
-    .replace(/\*([^\*]+)\*/g, '<em>$1</em>')
-    .replace(/_([^_]+)_/g, '<em>$1</em>')
-    // Clean up any empty paragraphs
-    .replace(/<br\/>\s*<br\/>\s*<br\/>/g, '<br/><br/>')
-    // Format code blocks
-    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+    .replace(/<br\/>\s*<br\/>\s*<br\/>/g, '<br/><br/>');
   
   return formatted;
 };

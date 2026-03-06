@@ -12,7 +12,7 @@ function classNames(...classes) {
 export default function Home() {
   const [selectedTab, setSelectedTab] = useState(0);
   // Updated to use standardized model ID
-  const [selectedModel, setSelectedModel] = useState('or-mistral');
+  const [selectedModel, setSelectedModel] = useState('or-openai');
 
   return (
     <div className="min-h-screen bg-gray-50">

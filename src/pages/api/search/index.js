@@ -42,7 +42,7 @@ export default async function handler(req, res) {
 
   try {
     const body = req.body || {};
-    let { query, mode = 'verified', model = 'or-mistral', sources = ['Web'], customUrls = [], files = [], useLLM = true, options = {} } = body;
+    let { query, mode = 'verified', model = 'or-openai', sources = ['Web'], customUrls = [], files = [], useLLM = true, options = {} } = body;
     
     // Normalize model ID in case older format is passed
     const modelMap = {
@@ -284,8 +284,8 @@ export default async function handler(req, res) {
     let useFallbackSynthesizer = false;
     let skipFallbackSynthesizer = false;
     
-    // Use the model from the request or default to OpenRouter Mistral.
-    const llmModel = model || 'or-mistral';
+    // Use the model from the request or default to OpenRouter OpenAI family.
+    const llmModel = model || 'or-openai';
     
     if (results.length > 0 && shouldUseLLM) {
       
@@ -671,7 +671,7 @@ export default async function handler(req, res) {
         __isImmutableLLMResult: true,
         llmProcessed: true,
         isLLMResult: true, // Additional flag for consistency
-        model: model || 'or-mistral',
+        model: model || 'or-openai',
         timestamp: new Date().toISOString(),
         
         // Include raw results for display as needed

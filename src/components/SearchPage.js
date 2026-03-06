@@ -36,7 +36,7 @@ function normalizeClientError(error) {
 export default function SearchPage() {
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState(SearchModes.VERIFIED);
-  const [selectedModel, setSelectedModel] = useState('mistral');
+  const [selectedModel, setSelectedModel] = useState('or-openai');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [searchResults, setSearchResults] = useState(null);
