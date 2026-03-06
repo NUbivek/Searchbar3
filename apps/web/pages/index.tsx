@@ -42,7 +42,7 @@ export default function HomePage() {
                   }`
                 }
               >
-                {label}
+                {label}{' '}
                 {idx === 2 && totalCount != null && (
                   <span className="ml-2 rounded-full bg-blue-500/15 px-2 py-0.5 text-xs font-semibold text-blue-700">
                     {totalCount.toLocaleString()}

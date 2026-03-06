@@ -10,8 +10,7 @@ import StatusFilter from './Filters/StatusFilter';
 
 const stages = ['stealth', 'pre-seed', 'seed', 'series-a', 'series-b', 'series-c', 'unknown'];
 
-const sectionButton =
-  'w-full rounded-lg px-2 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-100';
+const sectionButton = 'w-full rounded-lg px-2 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-100';
 const inputCls = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-blue-500/50 focus:ring';
 
 export function FiltersPanel({ filters = {}, onFilterChange }: any) {
@@ -25,7 +24,7 @@ export function FiltersPanel({ filters = {}, onFilterChange }: any) {
           <StageFilter title="Stage">
             <div className="grid grid-cols-2 gap-2">
               {stages.map((s) => (
-                <label key={s} className="flex items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-slate-50">
+                <label key={s} className="flex items-center gap-2 rounded-lg border border-slate-100 px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50">
                   <input
                     type="checkbox"
                     checked={(filters.stage || []).includes(s)}
@@ -35,7 +34,7 @@ export function FiltersPanel({ filters = {}, onFilterChange }: any) {
                       onFilterChange('stage', Array.from(curr));
                     }}
                   />
-                  {s}
+                  <span>{s}</span>
                 </label>
               ))}
             </div>
