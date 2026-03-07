@@ -21,7 +21,16 @@ export function SignalsTable({
   onPageChange = () => {},
   onPageSizeChange = () => {},
 }: any) {
-  const [columns, setColumns] = React.useState(['company_name', 'stage_guess', 'source_key', 'funding_total', 'confidence', 'detected_at', 'status']);
+  const [columns, setColumns] = React.useState([
+    'company_name',
+    'company_domain',
+    'summary',
+    'stage_guess',
+    'source_key',
+    'funding_total',
+    'confidence',
+    'status',
+  ]);
 
   const toggleRow = (id: string) => {
     const next = new Set(selectedIds || []);
@@ -42,17 +51,18 @@ export function SignalsTable({
             <tr className="text-xs uppercase tracking-wide text-slate-500">
               <th className="w-10 p-3 text-left">✓</th>
               <th className="w-10 p-3 text-left">★</th>
-              {columns.includes('company_name') && <th className="p-3 text-left">Company</th>}
+              {columns.includes('company_name') && <th className="min-w-[180px] p-3 text-left">Startup</th>}
+              {columns.includes('company_domain') && <th className="min-w-[180px] p-3 text-left">URL</th>}
+              {columns.includes('summary') && <th className="min-w-[280px] p-3 text-left">Description</th>}
               {columns.includes('stage_guess') && <th className="p-3 text-left">Stage</th>}
               {columns.includes('source_key') && <th className="p-3 text-left">Source</th>}
               {columns.includes('funding_total') && <th className="p-3 text-left">Funding</th>}
               {columns.includes('confidence') && <th className="p-3 text-left">Confidence</th>}
-              {columns.includes('detected_at') && <th className="p-3 text-left">Detected</th>}
               {columns.includes('status') && <th className="p-3 text-left">Status</th>}
             </tr>
           </thead>
           <tbody>
-            {isLoading && Array.from({ length: 10 }).map((_, i) => <SkeletonRow key={i} columnCount={8} />)}
+            {isLoading && Array.from({ length: 10 }).map((_, i) => <SkeletonRow key={i} columnCount={10} />)}
             {!isLoading && !rows.length && (
               <tr>
                 <td colSpan={12}>
@@ -69,13 +79,27 @@ export function SignalsTable({
                   <td className="p-3">
                     <FlagToggle flagged={!!r.flagged} />
                   </td>
+
                   {columns.includes('company_name') && (
-                    <td className="cursor-pointer p-3" onClick={() => onRowClick(r)}>
-                      <div className="font-semibold text-slate-900">{r.company_name}</div>
-                      <div className="text-xs text-slate-500">{r.company_domain || '—'}</div>
-                      {r.summary && <div className="mt-1 line-clamp-1 text-xs text-slate-600">{r.summary}</div>}
+                    <td className="cursor-pointer p-3 font-semibold text-slate-900" onClick={() => onRowClick(r)}>
+                      {r.company_name || '—'}
                     </td>
                   )}
+
+                  {columns.includes('company_domain') && (
+                    <td className="p-3 text-blue-700">
+                      {r.company_domain ? (
+                        <a href={`https://${r.company_domain}`} target="_blank" rel="noreferrer" className="hover:underline">
+                          {r.company_domain}
+                        </a>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                  )}
+
+                  {columns.includes('summary') && <td className="p-3 text-slate-700">{r.summary || '—'}</td>}
+
                   {columns.includes('stage_guess') && (
                     <td className="p-3">
                       <StageBadge stage={r.stage_guess || 'unknown'} />
@@ -92,7 +116,6 @@ export function SignalsTable({
                       <ConfidenceBar confidence={Number(r.confidence || 0)} />
                     </td>
                   )}
-                  {columns.includes('detected_at') && <td className="p-3 text-slate-600">{r.detected_at ? new Date(r.detected_at).toLocaleDateString() : '—'}</td>}
                   {columns.includes('status') && (
                     <td className="p-3">
                       <StatusBadge status={r.status || 'new'} />
