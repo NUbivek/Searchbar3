@@ -238,6 +238,236 @@ describe('sourcing adapters', () => {
     expect(results[0].url).toBe('https://signalfire.com/portfolio/acme');
   });
 
+  test('HtmlListAdapter parses embedded company JSON payloads before DOM fallback', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <div
+            data-companies='[
+              {&quot;name&quot;:&quot;ZeroMark&quot;,&quot;permalink&quot;:&quot;https://a16z.com/companies/zeromark/&quot;,&quot;external_url&quot;:&quot;https://zeromark.com&quot;,&quot;website_description&quot;:&quot;Defense technology company using AI and robotics.&quot;,&quot;tags&quot;:[&quot;cat_american dynamism&quot;]}
+            ]'
+          ></div>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      category: 'venture_portfolio',
+      method: {
+        url: 'https://a16z.com/portfolio/?category=american-dynamism',
+      },
+      adapter: 'html_list',
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('ZeroMark');
+    expect(results[0].company_website).toBe('https://zeromark.com/');
+    expect(results[0].content).toContain('Defense technology company');
+  });
+
+  test('HtmlListAdapter extracts company arrays from __NEXT_DATA__ before DOM fallback', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <script id="__NEXT_DATA__" type="application/json">
+            ${JSON.stringify({
+              props: {
+                pageProps: {
+                  companies: [
+                    {
+                      name: 'Acme Robotics',
+                      external_link: 'https://acmerobotics.com',
+                      description: 'Warehouse robotics platform',
+                    },
+                    {
+                      name: 'FreightFlow',
+                      external_link: 'https://getfreightflow.io',
+                      description: 'Freight orchestration software',
+                    },
+                    {
+                      name: 'FactoryOS',
+                      external_link: 'https://factoryos.com',
+                    },
+                    {
+                      name: 'RoutePilot',
+                      external_link: 'https://routepilot.ai',
+                    },
+                    {
+                      name: 'StackForge',
+                      external_link: 'https://stackforge.co',
+                    },
+                  ],
+                  footerLinks: [
+                    { text: 'About', url: 'https://portfolio.example.com/about' },
+                  ],
+                },
+              },
+            })}
+          </script>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      category: 'venture_portfolio',
+      method: {
+        url: 'https://portfolio.example.com',
+      },
+      adapter: 'html_list',
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(5);
+    expect(results.slice(0, 2).map((row) => row.company_name)).toEqual(['Acme Robotics', 'FreightFlow']);
+    expect(results.slice(0, 2).map((row) => row.company_website)).toEqual(['https://acmerobotics.com/', 'https://getfreightflow.io/']);
+  });
+
+  test('HtmlListAdapter prefers detail-page slug over teaser copy for structured portfolio data', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <div
+            data-companies='[
+              {&quot;name&quot;:&quot;Transforming the future of freight Read story&quot;,&quot;permalink&quot;:&quot;https://notion.vc/portfolio/avrios&quot;,&quot;website_description&quot;:&quot;Fleet management software.&quot;}
+            ]'
+          ></div>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      category: 'venture_portfolio',
+      method: {
+        url: 'https://notion.vc/portfolio',
+      },
+      adapter: 'html_list',
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('avrios');
+    expect(results[0].company_name).toBe('avrios');
+  });
+
+  test('HtmlListAdapter does not treat investor subdomains or portal links as company websites', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article>
+            <a href="https://plus.squarepeg.vc/">Square Peg Plus Login</a>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      category: 'venture_portfolio',
+      method: {
+        url: 'https://squarepeg.vc/portfolio',
+      },
+      adapter: 'html_list',
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(0);
+  });
+
+  test('HtmlListAdapter writes normalized company_name for explicit extract configs', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <article class="portfolio-item">
+            <a href="/portfolio/avrios">The future of fleet management Read story</a>
+          </article>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      category: 'venture_portfolio',
+      method: {
+        url: 'https://notion.vc/portfolio',
+        extract: {
+          itemSelector: ['.portfolio-item'],
+          linkSelector: ['a[href*="/portfolio/"]'],
+          titleSelector: ['a[href*="/portfolio/"]'],
+        },
+      },
+      adapter: 'html_list',
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('avrios');
+    expect(results[0].company_name).toBe('avrios');
+  });
+
+  test('HtmlListAdapter parses API-backed startup list pages', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => `
+          <html><body>
+            <script>
+              const pageSize = 24;
+              const gridBaseURL = 'https://vault.alchemistaccelerator.com/api/v1/alchemist_companies?page[size]=' + pageSize;
+            </script>
+          </body></html>
+        `,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              attributes: { name: 'Rigetti' },
+              meta: {
+                slug: 'rigetti-quantum-computing',
+                oneliner: 'Quantum computing company',
+                location_formatted_address: 'Berkeley, CA, USA',
+                aclass_id: '12',
+              },
+            },
+          ],
+          included: [
+            {
+              type: 'alchemist_classes',
+              id: '12',
+              attributes: { number: '25' },
+            },
+          ],
+        }),
+      });
+
+    const adapter = new HtmlListAdapter({
+      category: 'accelerator_portfolio',
+      method: {
+        url: 'https://www.alchemistaccelerator.com/portfolio',
+      },
+      adapter: 'html_list',
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Rigetti');
+    expect(results[0].url).toBe('https://vault.alchemistaccelerator.com/companies/public/rigetti-quantum-computing');
+    expect(results[0].content).toContain('Quantum computing company');
+    expect(results[0].content).toContain('Class 25');
+  });
+
   test('HtmlListAdapter supports data-company-card portfolio extraction patterns', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
@@ -6460,4 +6690,134 @@ test('ApiSearchAdapter respects configured field paths', async () => {
     expect(results[0].company_name).toBe('Acme AI');
     expect(results[0].company_website).toBe('https://acme.ai');
   });
+
+  test('HtmlListAdapter fallback extracts company-like external portfolio links without explicit selectors', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <nav>
+            <a href="/about">About</a>
+            <a href="/team">Team</a>
+          </nav>
+          <section>
+            <a href="https://acmeai.com">Acme AI</a>
+            <a href="https://freightflow.io">FreightFlow</a>
+            <a href="https://linkedin.com/company/acme-ai">Follow Acme on LinkedIn</a>
+          </section>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      workbook_adapter: 'html_list',
+      method: {
+        url: 'https://fund.example/portfolio',
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(2);
+    expect(results.map((row) => row.company_name)).toEqual(['Acme AI', 'FreightFlow']);
+    expect(results.map((row) => row.company_website)).toEqual(['https://acmeai.com/', 'https://freightflow.io/']);
+  });
+
+  test('HtmlListAdapter inventory fallback derives company name from external website slug when label is junk', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <section>
+            <a href="https://getfreightflow.io">Read more</a>
+          </section>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      category: 'venture_portfolio',
+      workbook_adapter: 'html_list',
+      method: {
+        url: 'https://fund.example/portfolio',
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].company_name).toBe('getfreightflow');
+    expect(results[0].company_website).toBe('https://getfreightflow.io/');
+  });
+
+  test('HtmlListAdapter fallback resolves company detail pages to external websites and suppresses CTA labels', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => `
+          <html><body>
+            <a href="/portfolio">Portfolio</a>
+            <a href="/companies/acme-robotics">Acme Robotics</a>
+            <a href="/blog/industrial-ai-trends">Industrial AI Trends</a>
+            <a href="/companies/submit-a-business-plan">Submit a Business Plan</a>
+          </body></html>
+        `,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => `
+          <html><body>
+            <a href="https://acmerobotics.com">Visit company site</a>
+          </body></html>
+        `,
+      });
+
+    const adapter = new HtmlListAdapter({
+      workbook_adapter: 'html_list',
+      method: {
+        url: 'https://fund.example/portfolio',
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].company_name).toBe('Acme Robotics');
+    expect(results[0].url).toBe('https://fund.example/companies/acme-robotics');
+    expect(results[0].company_website).toBe('https://acmerobotics.com/');
+  });
+
+  test('HtmlListAdapter uses workbook exhibitor profiles without explicit selectors', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `
+        <html><body>
+          <section class="exhibitor-card">
+            <a href="/exhibitors/acme-robotics">Acme Robotics</a>
+            <p class="description">Warehouse robotics startup</p>
+            <a href="https://acmerobotics.com">Website</a>
+          </section>
+          <footer>
+            <a href="/privacy">Privacy</a>
+          </footer>
+        </body></html>
+      `,
+    });
+
+    const adapter = new HtmlListAdapter({
+      workbook_adapter: 'exhibitor_list',
+      signal_type: 'html_scrape',
+      method: {
+        url: 'https://expo.example.com/exhibitors',
+      },
+    });
+
+    const results = await adapter.run({ query: '' });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].title).toBe('Acme Robotics');
+    expect(results[0].company_website).toBe('https://acmerobotics.com/');
+  });
+
 });

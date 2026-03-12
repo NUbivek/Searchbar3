@@ -1,6 +1,6 @@
-const { HtmlListAdapter } = require('./htmlListAdapter');
+const { PlaywrightAdapter } = require('./playwrightAdapter');
 
-class JsRenderedAdapter extends HtmlListAdapter {}
+class JsRenderedAdapter extends PlaywrightAdapter {}
 
 module.exports = {
   JsRenderedAdapter,

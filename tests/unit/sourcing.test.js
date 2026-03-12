@@ -113,8 +113,8 @@ describe('sourcing foundation', () => {
     expect(signalA.item_url).toBe('https://example.com/post');
     expect(signalA.stage_guess).toBe('series_a');
     expect(signalA.thesis_tags).toEqual(expect.arrayContaining(['ai']));
-    expect(signalA.confidence).toBeGreaterThan(0.7);
-    expect(signalA.score_components.website_present).toBe(true);
+    expect(signalA.confidence).toBe(0.55);
+    expect(signalA.score_components.confidence_mode).toBe('generic_dom_fallback');
     expect(signalA.enrichment.company_root_domain).toBe('acme.ai');
     expect(signalA.enrichment.has_distinct_company_website).toBe(true);
     expect(signalA.enrichment.funding_signal).toBe('present');
@@ -247,6 +247,18 @@ describe('sourcing foundation', () => {
     expect(shouldRunSource({
       cadence: { tier: 'C', frequency: 'monthly' },
     }, state, { executionMode: 'weekly' })).toBe(false);
+  });
+
+  test('shouldRunSource skips disabled sources unless forced', () => {
+    const source = {
+      id: 'A-DISABLED',
+      disabled: true,
+      cadence: { tier: 'A', frequency: 'daily' },
+      requires_auth: false,
+    };
+
+    expect(shouldRunSource(source, { sources: {} }, {})).toBe(false);
+    expect(shouldRunSource(source, { sources: {} }, { force: true })).toBe(false);
   });
 
   test('shouldRunSource enforces degraded cooldown when configured', () => {
@@ -492,6 +504,43 @@ describe('sourcing foundation', () => {
     expect(plan.dueCount).toBe(0);
     expect(plan.deferredCount).toBe(1);
     expect(deferred.reason).toBe('auth_disabled');
+  });
+
+  test('buildPlan marks disabled sources as deferred', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'searchbar3-sourcing-plan-disabled-'));
+    const registryPath = path.join(tempDir, 'registry.json');
+    const statePath = path.join(tempDir, 'source_state.json');
+
+    fs.writeFileSync(
+      registryPath,
+      JSON.stringify([
+        {
+          id: 'A-DISABLED',
+          name: 'Disabled Source',
+          region: 'Global',
+          category: 'startup_news',
+          thesis_tags: ['software'],
+          stage_bias: ['seed'],
+          method: { type: 'rss', url: 'https://example.com/rss.xml' },
+          cadence: { tier: 'A', frequency: 'daily' },
+          query_strategy: { type: 'feed' },
+          requires_auth: false,
+          adapter: 'rss',
+          disabled: true,
+          notes: 'Disabled source',
+        },
+      ], null, 2),
+      'utf-8'
+    );
+
+    fs.writeFileSync(statePath, JSON.stringify({ sources: {}, seen_signal_ids: {} }, null, 2), 'utf-8');
+
+    const plan = buildPlan({ registryPath, statePath });
+    const deferred = plan.deferredSources.find((entry) => entry.id === 'A-DISABLED');
+
+    expect(plan.dueCount).toBe(0);
+    expect(plan.deferredCount).toBe(1);
+    expect(deferred.reason).toBe('disabled');
   });
 
   test('coverage stats enforce source count and RSS/HTML mix targets', () => {

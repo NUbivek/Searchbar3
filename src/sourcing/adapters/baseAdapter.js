@@ -1,6 +1,7 @@
 class BaseAdapter {
   constructor(source, options = {}) {
     this.source = source;
+    this.options = options;
     this.timeoutMs = options.timeoutMs || 10000;
     this.userAgent = options.userAgent || 'Searchbar3-Sourcing/1.0';
   }
@@ -12,13 +13,7 @@ class BaseAdapter {
 
   async fetchText(url) {
     await this.ensureRobotsAllowed(url);
-
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(this.timeoutMs),
-      headers: {
-        'User-Agent': this.userAgent,
-      },
-    });
+    const response = await this.fetchWithTimeout(url, this.timeoutMs);
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
@@ -29,13 +24,7 @@ class BaseAdapter {
 
   async fetchJson(url) {
     await this.ensureRobotsAllowed(url);
-
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(this.timeoutMs),
-      headers: {
-        'User-Agent': this.userAgent,
-      },
-    });
+    const response = await this.fetchWithTimeout(url, this.timeoutMs);
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
@@ -52,6 +41,27 @@ class BaseAdapter {
     return Boolean(this.source?.runtime?.respectRobots);
   }
 
+  async fetchWithTimeout(url, timeoutMs) {
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      return await Promise.race([
+        fetch(url, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': this.userAgent,
+          },
+        }),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs + 50);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+  }
+
   async ensureRobotsAllowed(url) {
     if (!this.shouldRespectRobots()) {
       return;
@@ -60,12 +70,7 @@ class BaseAdapter {
     let robotsText = '';
     try {
       const robotsUrl = new URL('/robots.txt', url).toString();
-      const response = await fetch(robotsUrl, {
-        signal: AbortSignal.timeout(Math.min(this.timeoutMs, 5000)),
-        headers: {
-          'User-Agent': this.userAgent,
-        },
-      });
+      const response = await this.fetchWithTimeout(robotsUrl, Math.min(this.timeoutMs, 5000));
 
       if (!response.ok) {
         return;

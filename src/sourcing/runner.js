@@ -6,7 +6,7 @@ const { loadRegistry } = require('./registry');
 const { createAdapter } = require('./adapters');
 const { RunReportWriter } = require('./runReport');
 const { DailyRollupWriter } = require('./rollup');
-const { validateStartupSignal } = require('./signalSchema');
+const { isValidCompanyName, validateStartupSignal } = require('./signalSchema');
 const { SourceHealthExportWriter } = require('./sourceHealthExport');
 const { loadState, normalizeSourceState, saveState } = require('./state');
 const { SignalWriter } = require('./writer');
@@ -123,7 +123,15 @@ function isRateLimited(source, sourceState, now = Date.now()) {
   return recentRuns.length >= maxRuns;
 }
 
+function isSourceDisabled(source) {
+  return source?.disabled === true;
+}
+
 function shouldRunSource(source, state, options = {}) {
+  if (isSourceDisabled(source)) {
+    return false;
+  }
+
   if (options.force) {
     return true;
   }
@@ -270,6 +278,7 @@ async function runSource(source, context) {
   const newSignals = [];
   let dedupedCount = 0;
   let filteredCount = 0;
+  let droppedInvalidCompanyNameCount = 0;
 
   for (const item of items) {
     const signal = normalizeSignal({
@@ -277,6 +286,11 @@ async function runSource(source, context) {
       item,
       query: context.query || '',
     });
+
+    if (!isValidCompanyName(signal.company_name)) {
+      droppedInvalidCompanyNameCount += 1;
+      continue;
+    }
 
     if (seenBySource[signal.signal_id]) {
       continue;
@@ -312,6 +326,7 @@ async function runSource(source, context) {
     last_emitted_count: newSignals.length,
     last_deduped_count: dedupedCount,
     last_filtered_count: filteredCount,
+    last_dropped_invalid_company_name_count: droppedInvalidCompanyNameCount,
     consecutive_degraded_count: 0,
     recent_run_timestamps: recentRunTimestamps,
     last_error: null,
@@ -324,6 +339,7 @@ async function runSource(source, context) {
       ...buildSourceSummary(source, null, newSignals.length),
       dedupedCount,
       filteredCount,
+      droppedInvalidCompanyNameCount,
     },
   };
 }
@@ -400,6 +416,7 @@ async function runPipeline(options = {}) {
     degradedCount: summaries.filter((summary) => summary.status === 'degraded').length,
     dedupedCount: summaries.reduce((sum, summary) => sum + (summary.dedupedCount || 0), 0),
     filteredCount: summaries.reduce((sum, summary) => sum + (summary.filteredCount || 0), 0),
+    droppedInvalidCompanyNameCount: summaries.reduce((sum, summary) => sum + (summary.droppedInvalidCompanyNameCount || 0), 0),
     tierHealth: buildTierHealth(summaries, registry),
     breakdowns: buildSignalBreakdowns(emittedSignals, registry),
     sourceSummaries: summaries,
@@ -427,6 +444,7 @@ module.exports = {
   getRateLimitMaxRuns,
   getRateLimitWindowMs,
   isRateLimited,
+  isSourceDisabled,
   matchesExecutionMode,
   pruneRecentRunTimestamps,
   runPipeline,
