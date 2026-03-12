@@ -14,8 +14,8 @@ export default async function handler(req, res) {
 
   const q = req.query || {};
   const filters = {
-    likelyOnly: q.likely_only !== 'false',
-    minScore: q.min_score ? Number(q.min_score) : 60,
+    likelyOnly: q.likely_only === 'true',
+    minScore: q.min_score ? Number(q.min_score) : 0,
     stage: q.stage || undefined,
     country: q.country || undefined,
     region: q.region || undefined,
@@ -32,7 +32,7 @@ export default async function handler(req, res) {
     page: q.page ? Number(q.page) : 1,
     pageSize: q.page_size ? Math.min(Number(q.page_size), 200) : 50,
     maxPerSource: q.max_per_source ? Number(q.max_per_source) : 120,
-    qualityScore: q.quality_score ? Number(q.quality_score) : 30,
+    qualityScore: q.quality_score ? Number(q.quality_score) : 0,
   };
 
   try {

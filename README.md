@@ -1,292 +1,426 @@
-# Research Hub Search Application
+# Searchbar3
 
-> **IMPORTANT**: For a comprehensive guide to the search and UI flow in all circumstances, please refer to the [USER FLOW DOCUMENTATION](./USER_FLOW.md) first.
+`Searchbar3` is the active Next.js application for startup sourcing, candidate ranking, research/search workflows, and related network/integration surfaces.
 
-A sophisticated search application that integrates multiple data sources, including verified platforms, market data, and open research sources, to provide comprehensive research capabilities.
+This README is the current handoff document for the codebase as of `2026-03-12`.
 
-## Features
+## What This App Is
 
-### Open Research
-- **Web Search**: General web results using Serper API
-- **Verified Sources**: Access to LinkedIn, Twitter, and Reddit data
-- **Custom URLs**: Add and search specific websites
-- **File Upload**: Process and search through uploaded documents
-- **LLM Processing**: AI-powered insights from search results
+This repo is no longer just a generic “research hub” search UI.
 
-### Network Map
-- **Professional Network Visualization**: View your connections across platforms
-- **LinkedIn Integration**: Professional network data
-- **Twitter Integration**: Social media connections
-- **Reddit Integration**: Community participation
+Today it contains four meaningful product layers:
 
-### Verified Sources
-- **LinkedIn**: Professional network search with OAuth 2.0 authentication
-- **Twitter/X**: Social media insights with Bearer token authentication
-- **Reddit**: Community discussions with OAuth 2.0 authentication
-- **Carta**: Equity management and cap table information
+1. `Sourcing / startup candidate workflow`
+   - Curated source registry
+   - Source adapters and sourcing runner
+   - Signal normalization and local artifacts
+   - Raise-candidate API and UI
 
-### Market Data Sources
-- **Financial Modeling Prep (FMP)**:
-  - Real-time stock quotes and market data
-  - Visual indicators for price changes (↑/↓)
-  - Exchange information and market cap
-  - Volume and price change percentages
-- **FRED**: Economic data and indicators
-- **Bloomberg**: Financial news and market analysis
-- **Reuters**: Global financial news and data
-- **WSJ**: Market insights and financial reporting
+2. `Research / search product shell`
+   - Open research and verified-source search surfaces
+   - LLM-assisted research workflows
+   - Multi-source search and result presentation
 
-### Open Research Sources
-- **Substack**: Newsletter and blog content
-- **Medium**: Article and publication search
-- **Crunchbase**: Company and startup information
-- **Pitchbook**: Investment and market data
+3. `Network / auth / integration surfaces`
+   - LinkedIn / Twitter / Reddit / network routes
+   - Integration routes and local glue code
 
-### LLM Processing
-- **Multi-Model Support**: Integrated with multiple LLM providers and models:
-  - Together API: mixtral-8x7b, mistral-7b, gemma-7b
-  - Perplexity API: sonar-small-chat
-- **Smart Fallback System**: Automatic fallbacks between models and providers
-- **Comprehensive Error Handling**: Ensures consistent user experience even when APIs fail
-- **Source Preservation**: Maintains source attribution throughout the processing pipeline
-- **Dynamic Content Generation**: Creates summaries, insights, and follow-up questions
+4. `Local enrichment + ranking layer`
+   - Funding enrichment cache
+   - Description enrichment cache
+   - Candidate scoring and explanation generation
 
-### Core Functionality
-- Multi-source parallel search processing
-- Real-time results aggregation
-- Source-specific rate limiting
-- Intelligent error handling and fallbacks
-- Modern, responsive UI with Tailwind CSS
-- Smart stock symbol extraction
-- Market data visualization
-- Advanced search result scoring system
+## Current Status
 
-### LLM Integration
-- **Mixtral-8x7b**: Primary LLM model for processing search results
-- **Llama-2-70b**: Alternative high-performance model
-- **Gemma-2-9b**: Lightweight model option
-- **Automatic Fallback**: Graceful degradation to Mixtral if other models fail
+The codebase has gone through a large stabilization pass focused on the startup-sourcing surface.
 
-## Architecture
+What is materially improved:
 
-### Frontend
-- **Framework**: Next.js with React
-- **Components**:
-  - `OpenSearch.js`: Open research interface
-  - `VerifiedSearch.js`: Verified sources interface
-  - `SourceSelector.js`: Source selection management
-  - `SearchResults.js`: Results display
-  - `FileUpload.js`: File processing
-  - `UrlInput.js`: Custom URL handling
-  - `MarketData.js`: Stock and financial data display
-  - `MetricsCalculator.js`: Search result scoring system
+- startup candidate page exists at [`src/pages/sourcing.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/pages/sourcing.js)
+- raise-candidates API exists at [`src/pages/api/startups/raise-candidates.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/pages/api/startups/raise-candidates.js)
+- funding cache and free description cache are wired into candidate generation
+- junk-name filtering is much stronger than before
+- `Visit ...` prefix contamination has been removed
+- stage and funding-round mismatches in top results are reconciled
+- bare `SaaS` tags are removed from the user-facing sector taxonomy
+- tier labels are normalized and displayed consistently
 
-### Backend
-- **API Routes** (`/src/pages/api/`):
-  - `/search/*`: Source-specific search handlers
-  - `/llm/*`: Language model processing
-  - `/middleware/*`: Request processing
-  - `/market/*`: Financial data endpoints
+What is still not finished:
 
-### Utilities
-- `rateLimiter.js`: API request throttling
-- `logger.js`: Structured logging
-- `combinedSearch.js`: Multi-source search orchestration
-- `calculatorUtils.js`: Metrics calculation utilities
-- `contextDetector.js`: Query context detection
+- live candidate totals are still below the aspirational target
+- early-stage / pre-seed coverage is still underrepresented
+- some registry sources still produce low or zero yield
+- a few mature / non-target companies can still rank too highly
+- some descriptions still rely on heuristic fallbacks
 
-## Search Components
+This commit should be treated as a strong checkpoint, not a “done” state.
 
-The application uses a sophisticated multi-component search architecture:
+## Source Of Truth
 
-### Core Components
-- **SearchResults**: Central component for displaying all search results
-- **LLMResults**: Displays AI-synthesized answers with sources
-- **TraditionalResults**: Displays web search results in a traditional format
-- **SearchResultsWrapper**: Adapter component that handles format conversion between different data structures
+Within the broader `source-and-search` workspace, this repo is the active app codebase.
 
-### Recent Improvements (v0.5.0)
-- Fixed critical issues with Verified Sources search results display
-- Enhanced format conversion between chat history and search results
-- Improved error handling and content processing
-- Added comprehensive debug logging throughout search components
+For practical work, treat this repo as the source of truth for:
 
-For detailed documentation on search components, see [SEARCH_COMPONENTS.md](./docs/SEARCH_COMPONENTS.md).
+- frontend
+- startup sourcing UI
+- candidate API
+- local enrichment scripts
+- sourcing pipeline logic
+- deployment config
 
-## Search Metrics System
+## Product Surfaces
 
-The application uses a sophisticated metrics system to evaluate search results:
+### 1. Startup sourcing
 
-### Metrics Components
-- **MetricsCalculator**: Central component for calculating all metrics
-- **RelevanceCalculator**: Calculates how well results match the query
-- **AccuracyCalculator**: Evaluates factual correctness and reliability
-- **CredibilityCalculator**: Assesses source trustworthiness
+Main page:
+- [`src/pages/sourcing.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/pages/sourcing.js)
 
-### Key Features
-- Context-aware scoring based on query type (financial, medical, etc.)
-- User preference integration for personalized results
-- Threshold-based filtering to ensure quality
-- Visual indicators for result quality (colors and labels)
+Primary behavior:
+- reads from local candidate API
+- supports filters for search, stage, country, sector, tier, and source
+- displays funding, descriptions, source, country, score, and rationale
+- uses local artifacts instead of the old stale `sourcing101/startup_watch` fallback
 
-For detailed documentation on the metrics system, see [METRICS_SYSTEM.md](./docs/METRICS_SYSTEM.md).
+### 2. Raise candidates API
 
-## Setup
+API route:
+- [`src/pages/api/startups/raise-candidates.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/pages/api/startups/raise-candidates.js)
 
-1. **Clone and Install**:
+Responsibilities:
+- loads local candidate store
+- applies filters
+- returns rows, totals, facets, and debug stats
+- supports refresh action for local ingestion
+
+### 3. Research/search shell
+
+The legacy research app still exists and is documented in:
+- [`ARCHITECTURE.md`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/ARCHITECTURE.md)
+- [`USER_FLOW.md`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/USER_FLOW.md)
+- [`TEST_PLAN.md`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/TEST_PLAN.md)
+
+Those docs are still useful for the broader app shell, but they do not fully describe the new sourcing stack below.
+
+## Architecture Map
+
+### High-level flow
+
+```text
+sources/registry.json
+  -> src/sourcing/registry.js
+  -> src/sourcing/planner.js
+  -> src/sourcing/runner.js
+  -> src/sourcing/adapters/*
+  -> src/sourcing/normalizer.js
+  -> data/signals.jsonl + data/*.csv summaries
+  -> scripts/enrich-funding.js
+  -> scripts/enrich-descriptions.js
+  -> src/lib/raiseCandidatesStore.js
+  -> src/lib/raiseScoring.js
+  -> src/pages/api/startups/raise-candidates.js
+  -> src/pages/sourcing.js
+```
+
+### Core modules
+
+#### Source registry
+
+- [`sources/registry.json`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/sources/registry.json)
+
+This is the master list of portfolio pages, accelerators, startup databases, conferences, and other sourcing inputs.
+
+Important notes:
+- registry quality is one of the main determinants of output quality
+- many historical sources were quarantined or disabled
+- tiers are now partially populated for newer VC additions, but much of the older registry still has `unset`
+
+#### Runner and planner
+
+- [`src/sourcing/planner.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/planner.js)
+- [`src/sourcing/runner.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/runner.js)
+
+Responsibilities:
+- choose which sources should run
+- respect disabled sources and auth constraints
+- execute adapters
+- normalize and validate signals
+- export run artifacts and source-health summaries
+
+#### Adapters
+
+Most sourcing volume comes through:
+- [`src/sourcing/adapters/htmlListAdapter.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/adapters/htmlListAdapter.js)
+
+This adapter now handles:
+- generic HTML list extraction
+- `__NEXT_DATA__` parsing for some portfolio pages
+- link filtering
+- junk label rejection
+- `Visit ...` prefix stripping
+
+#### Signal normalization
+
+- [`src/sourcing/normalizer.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/normalizer.js)
+
+Responsibilities:
+- canonical company names
+- region normalization
+- thesis tag normalization
+- funding/hiring/investor/website enrichment attachment
+- junk-name rejection
+- final signal shaping for `signals.jsonl`
+
+#### Candidate store
+
+- [`src/lib/raiseCandidatesStore.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/lib/raiseCandidatesStore.js)
+
+This is the effective heart of the startup lead product.
+
+Responsibilities:
+- load `signals.jsonl` and CSV fallbacks
+- merge funding and description caches
+- normalize names, funding, countries, tiers, sectors
+- reject placeholders and stealth junk
+- build API rows, facets, rationale, and debug stats
+- score results and paginate them
+
+#### Scoring
+
+- [`src/lib/raiseScoring.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/lib/raiseScoring.js)
+
+Current scoring signals include:
+- months since last round
+- funding confidence
+- round stage
+- momentum
+- accelerator recency
+- source tier
+- signal confidence
+
+This is still heuristic. It is useful, but not yet a rigorously calibrated model.
+
+## Data Artifacts
+
+### Runtime data directory
+
+Current local runtime artifacts live in `data/`:
+
+- `signals.jsonl`
+- `funding_cache.json`
+- `description_cache.json`
+- `latest_run_summary.json`
+- `source_health.csv`
+- `source_state.json`
+- `crm_export.csv`
+- `daily_rollup.csv`
+- `category_rollup.csv`
+
+Important:
+- most `data/*.csv` and `signals.jsonl` are intentionally ignored in git
+- the two cache files are useful to keep because the UI/runtime benefits from them immediately
+
+### What the app actually reads
+
+Primary candidate input:
+- `data/signals.jsonl`
+
+Primary enrichment caches:
+- `data/funding_cache.json`
+- `data/description_cache.json`
+
+Fallbacks:
+- `data/crm_export.csv`
+- historical report snapshots if present
+
+## Free Enrichment Architecture
+
+No paid API dependency is required for the current enrichment path.
+
+### Funding enrichment
+
+- [`scripts/enrich-funding.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/scripts/enrich-funding.js)
+
+Current working approach:
+- Google News RSS
+- TechCrunch RSS fallback
+- company site / news pages in limited cases
+- no paid Anthropic or OpenAI API dependency
+
+Current weakness:
+- ambiguity and large-company contamination still need additional work
+
+### Description enrichment
+
+- [`scripts/enrich-descriptions.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/scripts/enrich-descriptions.js)
+
+Current approach:
+- website `og:description`
+- website `meta description`
+- website `twitter:description`
+- Google News RSS fallback
+- heuristic fallback from source/tags
+
+This is intentionally free-only.
+
+## Commands That Matter
+
+### Local app
+
+```bash
+npm install
+npm run dev:3001
+```
+
+Use `3001` for this workspace if `3000` is occupied by older processes.
+
+### Validation
+
+```bash
+npm run sourcing:validate
+npx jest --runInBand tests/unit/sourcing.test.js
+```
+
+### Targeted maintenance scripts
+
+```bash
+npm run validate:names:rules
+npm run enrich:funding:test
+npm run enrich:funding
+npm run enrich:descriptions:dry
+npm run enrich:descriptions:high
+```
+
+### Sourcing pipeline
+
+```bash
+npm run sourcing:plan
+npm run sourcing:run
+```
+
+Do not assume a full sourcing run is lightweight. It is the heaviest operation in the project.
+
+## Current Product Features
+
+### Candidate table
+
+Each row can expose:
+- startup name
+- description summary
+- stage
+- funding amount
+- last round type
+- last round date
+- country / inferred geography
+- source tier
+- source name
+- raise likelihood score
+- forecast label
+- rationale points
+
+### Filters
+
+Current main filter row is intentionally compact:
+- Search
+- Stage
+- Country
+- Sector
+- Tier
+- Source
+
+There is no longer a separate Round filter in the UI.
+
+### Ranking behavior
+
+The `/sourcing` experience is meant to answer:
+- Which startups look likely to raise in the next 6 months?
+- Which ones are aligned to the sourcing thesis?
+- Which are backed by credible sources or investors?
+
+## Known Gaps
+
+These are the main unresolved issues worth preserving in writing.
+
+### 1. Coverage still under target
+
+The biggest remaining problem is source yield.
+
+Symptoms:
+- many enabled sources produce zero signals
+- some added early-stage funds are blocked, moved, or low-yield
+- live candidate totals are still below the target previously being chased
+
+### 2. Pre-seed coverage is thin in live results
+
+Raw pre-seed signals exist, but live candidate output underweights or filters many of them.
+
+### 3. Funding coverage is good in top-ranked rows, but not broad enough overall
+
+Funding cache helps top candidates a lot, but full coverage remains partial.
+
+### 4. Mature-company leakage still happens
+
+Some large incumbents or late-stage non-target entities can still enter the candidate pool if sourced from portfolio or news pages.
+
+### 5. Registry remains a long-term maintenance problem
+
+The registry is much better than before, but still contains:
+- stale URLs
+- low-yield pages
+- uneven tier metadata
+- mixed source quality
+
+## Recommended Resume Plan
+
+If this project is picked up later, the safest restart order is:
+
+1. Start the local app and verify `/sourcing`
+2. Run:
    ```bash
-   git clone https://github.com/yourusername/searchbar.git
-   cd searchbar
-   npm install
+   npm run sourcing:validate
+   npx jest --runInBand tests/unit/sourcing.test.js
    ```
-
-2. **Environment Configuration**:
-   Copy `.env.local.example` (or `.env.local.sample`) to `.env.local` and fill in your API keys:
-   ```env
-   # LLM API Keys
-   TOGETHER_API_KEY=your_together_api_key
-   PERPLEXITY_API_KEY=your_perplexity_api_key
-
-   # Search API Keys
-   SERPER_API_KEY=your_serper_api_key
-
-   # Social Media APIs
-   TWITTER_API_KEY=your_twitter_api_key
-   LINKEDIN_CLIENT_ID=your_linkedin_client_id
-   LINKEDIN_CLIENT_SECRET=your_linkedin_client_secret
-   REDDIT_CLIENT_ID=your_reddit_client_id
-   REDDIT_CLIENT_SECRET=your_reddit_client_secret
-
-   # Market Data APIs
-   FMP_API_KEY=your_fmp_api_key
-   FRED_API_KEY=your_fred_api_key
-   ```
-
-3. **Development Server**:
+3. Check live API totals:
    ```bash
-   npm run dev
+   curl -s "http://127.0.0.1:3001/api/startups/raise-candidates?page_size=25"
    ```
+4. Audit the current top 25 manually
+5. Improve only one of these at a time:
+   - source coverage
+   - junk filtering
+   - description quality
+   - funding coverage
+   - stage / geography calibration
 
-## API Integration Details
+Do not combine a full sourcing rerun, a large registry rewrite, and candidate-scoring changes in the same pass unless there is time to re-validate everything.
 
-### Financial Modeling Prep (FMP)
-- API key authentication
-- Rate limit: 300 requests/minute
-- Real-time stock quotes and market data
-- Features:
-  - Stock price and market data with visual indicators
-  - Price change percentages and volume
-  - Market cap and exchange information
-  - Company financials and ratios
-  - Smart symbol extraction from queries
-  - Fallback to web search for unknown symbols
+## Files Worth Starting With
 
-### LinkedIn
-- OAuth 2.0 with client credentials
-- Rate limit: 100 requests/minute
-- Fallback: Serper API for search results
+If someone needs to understand the current stack quickly, start here:
 
-### Twitter/X
-- Bearer token authentication
-- Rate limit: 500 requests/15-minutes
-- Fallback: Serper API for search results
+1. [`src/pages/sourcing.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/pages/sourcing.js)
+2. [`src/pages/api/startups/raise-candidates.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/pages/api/startups/raise-candidates.js)
+3. [`src/lib/raiseCandidatesStore.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/lib/raiseCandidatesStore.js)
+4. [`src/lib/raiseScoring.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/lib/raiseScoring.js)
+5. [`src/sourcing/adapters/htmlListAdapter.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/adapters/htmlListAdapter.js)
+6. [`src/sourcing/normalizer.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/normalizer.js)
+7. [`src/sourcing/runner.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/runner.js)
+8. [`scripts/enrich-funding.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/scripts/enrich-funding.js)
+9. [`scripts/enrich-descriptions.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/scripts/enrich-descriptions.js)
+10. [`sources/registry.json`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/sources/registry.json)
 
-### Reddit
-- OAuth 2.0 with client credentials
-- Rate limit: 60 requests/minute
-- Fallback: Serper API for search results
+## Hibernation Notes
 
-### Web Search (Serper)
-- API key authentication
-- Rate limit: 100 requests/minute
-- Used for general web search and fallback
+This repo is now in a reasonable checkpoint state for pausing work.
 
-## Error Handling
+What is safe to assume on return:
+- the startup sourcing surface is real and usable
+- the code now has a coherent candidate pipeline
+- cleanup and enrichment systems exist and are wired in
 
-1. **API Failures**:
-   - Automatic fallback to Serper API
-   - Retry mechanism with exponential backoff
-   - Detailed error logging
+What is not safe to assume on return:
+- totals are “done”
+- registry coverage is complete
+- funding enrichment is complete
+- ranking is calibrated for production-quality lead quality
 
-2. **Rate Limiting**:
-   - Per-source rate limiting
-   - Queue system for concurrent requests
-   - Clear user feedback on limits
-
-3. **Data Validation**:
-   - Input sanitization
-   - Response format verification
-   - Error recovery strategies
-
-4. **LLM Processing**:
-   - Automatic model fallback system
-   - Graceful handling of empty results
-   - Detailed error logging with response inspection
-   - Fallback to Mixtral-8x7b when other models fail
-
-## Security
-
-1. **API Key Management**:
-   - Environment variables
-   - Server-side only access
-   - Key rotation support
-
-2. **Request Validation**:
-   - Input sanitization
-   - Rate limiting
-   - CORS configuration
-
-## Testing
-
-- **Unit Tests**: Component and utility testing
-- **Integration Tests**: API endpoint testing
-- **End-to-End Tests**: Full search flow testing
-
-## Performance Optimization
-
-1. **Search Optimization**:
-   - Parallel API requests
-   - Response caching
-   - Result deduplication
-
-2. **UI Performance**:
-   - Code splitting
-   - Lazy loading
-   - Debounced search
-
-## Environment Diagnostics
-
-Use this endpoint to validate configuration safely (no secret values returned):
-
-- `GET /api/debug/env-check`
-
-For provider readiness reference, see:
-
-- `PROVIDER_CAPABILITY_MATRIX.md`
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## License
-
-MIT License - See LICENSE file for details
-
-## UI Layout
-
-The application now consists of two main tabs:
-
-1. **Open Research** (Default tab)
-   - Comprehensive search across multiple sources
-   - Includes Web, Verified Sources, Academic, and News
-   - Custom URL and file upload capabilities
-   - LLM-powered insights and summaries
-
-2. **Network Map** 
-   - Visual representation of professional connections
-   - LinkedIn, Twitter, and Reddit network visualization
-   - Connection exploration and insights
-   - No search functionality - purely for network visualization
+If resuming later, treat this as a maintained prototype with real pipeline value, not as a finished sourcing platform.

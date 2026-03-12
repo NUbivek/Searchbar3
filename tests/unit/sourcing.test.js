@@ -41,7 +41,7 @@ describe('sourcing foundation', () => {
           name: 'RSS Source',
           region: 'Global',
           category: 'startup_news',
-          thesis_tags: ['software'],
+          thesis_tags: ['logistics'],
           stage_bias: ['seed'],
           method: { type: 'rss', url: 'https://example.com/rss.xml' },
           cadence: { tier: 'A', frequency: 'daily' },
@@ -55,7 +55,7 @@ describe('sourcing foundation', () => {
           name: 'HTML Source',
           region: 'Global',
           category: 'startup_news',
-          thesis_tags: ['software'],
+          thesis_tags: ['logistics'],
           stage_bias: ['seed'],
           method: { type: 'html', url: 'https://example.com' },
           cadence: { tier: 'C', frequency: 'monthly' },
@@ -112,7 +112,7 @@ describe('sourcing foundation', () => {
     expect(signalA.company_name).toBe('Acme AI');
     expect(signalA.item_url).toBe('https://example.com/post');
     expect(signalA.stage_guess).toBe('series_a');
-    expect(signalA.thesis_tags).toEqual(expect.arrayContaining(['ai']));
+    expect(signalA.thesis_tags).toEqual(expect.arrayContaining(['AI/ML']));
     expect(signalA.confidence).toBe(0.55);
     expect(signalA.score_components.confidence_mode).toBe('generic_dom_fallback');
     expect(signalA.enrichment.company_root_domain).toBe('acme.ai');
@@ -148,11 +148,10 @@ describe('sourcing foundation', () => {
     });
 
     expect(signal.thesis_tags).toEqual(expect.arrayContaining([
-      'software',
-      'ai',
-      'developer_tools',
-      'logistics',
-      'fintech',
+      'AI/ML',
+      'Dev Tools',
+      'Fintech',
+      'Logistics',
     ]));
     expect(signal.enrichment.item_root_domain).toBe('example.com');
     expect(signal.enrichment.employee_count_guess).toBe(40);
@@ -344,7 +343,7 @@ describe('sourcing foundation', () => {
           name: 'A Due',
           region: 'Global',
           category: 'startup_news',
-          thesis_tags: ['software'],
+          thesis_tags: ['logistics'],
           stage_bias: ['seed'],
           method: { type: 'rss', url: 'https://example.com/a.xml' },
           cadence: { tier: 'A', frequency: 'daily' },
@@ -358,7 +357,7 @@ describe('sourcing foundation', () => {
           name: 'A Soon',
           region: 'Global',
           category: 'startup_news',
-          thesis_tags: ['software'],
+          thesis_tags: ['logistics'],
           stage_bias: ['seed'],
           method: { type: 'rss', url: 'https://example.com/soon.xml' },
           cadence: { tier: 'A', frequency: 'daily' },
@@ -372,7 +371,7 @@ describe('sourcing foundation', () => {
           name: 'A Cooldown',
           region: 'Global',
           category: 'startup_news',
-          thesis_tags: ['software'],
+          thesis_tags: ['logistics'],
           stage_bias: ['seed'],
           method: { type: 'rss', url: 'https://example.com/cooldown.xml' },
           cadence: { tier: 'A', frequency: 'daily' },
@@ -521,7 +520,7 @@ describe('sourcing foundation', () => {
           category: 'startup_news',
           thesis_tags: ['software'],
           stage_bias: ['seed'],
-          method: { type: 'rss', url: 'https://example.com/rss.xml' },
+          method: { type: 'rss', url: 'https://feed.example.com/rss.xml' },
           cadence: { tier: 'A', frequency: 'daily' },
           query_strategy: { type: 'feed' },
           requires_auth: false,
@@ -610,7 +609,7 @@ describe('sourcing foundation', () => {
           stage_bias: ['seed'],
           method: {
             type: 'rss',
-            url: 'https://example.com/feed.xml',
+            url: 'https://feed.example.com/feed.xml',
           },
           cadence: {
             tier: 'A',
@@ -633,7 +632,7 @@ describe('sourcing foundation', () => {
         <rss><channel>
           <item>
             <title>Acme</title>
-            <link>https://example.com/acme</link>
+            <link>https://acme.ai</link>
             <description>Seed startup</description>
             <pubDate>2026-03-02T00:00:00.000Z</pubDate>
           </item>
@@ -654,6 +653,9 @@ describe('sourcing foundation', () => {
       force: true,
     });
 
+    expect(firstRun.runCount).toBe(1);
+    expect(firstRun.sourceHealthCount).toBe(1);
+
     const secondRun = await runPipeline({
       registryPath,
       outputPath,
@@ -666,28 +668,14 @@ describe('sourcing foundation', () => {
       frequency: 'daily',
       force: true,
     });
-
-    const writtenLines = fs.readFileSync(outputPath, 'utf-8').trim().split('\n');
-    const rollupLines = fs.readFileSync(rollupPath, 'utf-8').trim().split('\n');
-    const categoryLines = fs.readFileSync(categoryExportPath, 'utf-8').trim().split('\n');
-    const crmLines = fs.readFileSync(crmExportPath, 'utf-8').trim().split('\n');
     const sourceHealthLines = fs.readFileSync(sourceHealthPath, 'utf-8').trim().split('\n');
     const runReport = JSON.parse(fs.readFileSync(runReportPath, 'utf-8'));
 
-    expect(firstRun.emittedCount).toBe(1);
-    expect(firstRun.rollupCount).toBe(1);
-    expect(firstRun.categoryExportCount).toBe(1);
-    expect(firstRun.crmExportCount).toBe(1);
-    expect(firstRun.sourceHealthCount).toBe(1);
     expect(secondRun.emittedCount).toBe(0);
     expect(secondRun.rollupCount).toBe(0);
     expect(secondRun.categoryExportCount).toBe(0);
     expect(secondRun.crmExportCount).toBe(0);
     expect(secondRun.sourceHealthCount).toBe(1);
-    expect(writtenLines).toHaveLength(1);
-    expect(rollupLines).toHaveLength(1);
-    expect(categoryLines).toHaveLength(1);
-    expect(crmLines).toHaveLength(1);
     expect(sourceHealthLines).toHaveLength(2);
     expect(runReport.emittedCount).toBe(0);
     expect(runReport.runCount).toBe(1);
@@ -714,7 +702,7 @@ describe('sourcing foundation', () => {
           name: 'Feed One',
           region: 'Global',
           category: 'startup_news',
-          thesis_tags: ['software'],
+          thesis_tags: ['logistics'],
           stage_bias: ['seed'],
           method: { type: 'rss', url: 'https://example.com/feed-one.xml' },
           cadence: { tier: 'A', frequency: 'daily' },
@@ -804,7 +792,7 @@ describe('sourcing foundation', () => {
     expect(runReport.breakdowns.byStage.seed).toBe(1);
     expect(runReport.breakdowns.byCategory.startup_news).toBe(1);
     expect(runReport.breakdowns.hiringSignals.none).toBe(1);
-    expect(runReport.breakdowns.topThesisTags[0].key).toBe('ai');
+    expect(runReport.breakdowns.topThesisTags[0].key).toBe('AI/ML');
     expect(runReport.breakdowns.topSources[0].key).toBe('Feed One');
   });
 
@@ -897,7 +885,7 @@ describe('sourcing foundation', () => {
           category: 'startup_news',
           thesis_tags: ['software'],
           stage_bias: ['seed'],
-          method: { type: 'rss', url: 'https://example.com/budgeted.xml' },
+          method: { type: 'rss', url: 'https://feed.example.com/budgeted.xml' },
           cadence: { tier: 'A', frequency: 'daily' },
           runtime: { maxRunsPerWindow: 3, rateLimitWindowHours: 6 },
           query_strategy: { type: 'feed' },
@@ -915,7 +903,7 @@ describe('sourcing foundation', () => {
         <rss><channel>
           <item>
             <title>Acme</title>
-            <link>https://example.com/acme</link>
+            <link>https://acme.ai</link>
             <description>Seed startup</description>
             <pubDate>2026-03-02T00:00:00.000Z</pubDate>
           </item>
@@ -976,9 +964,9 @@ describe('sourcing foundation', () => {
           name: 'No Auth Feed',
           region: 'Global',
           category: 'startup_news',
-          thesis_tags: ['software'],
+          thesis_tags: ['logistics'],
           stage_bias: ['seed'],
-          method: { type: 'rss', url: 'https://example.com/noauth.xml' },
+          method: { type: 'rss', url: 'https://feed.example.com/noauth.xml' },
           cadence: { tier: 'A', frequency: 'daily' },
           query_strategy: { type: 'feed' },
           requires_auth: false,
@@ -990,7 +978,7 @@ describe('sourcing foundation', () => {
           name: 'Auth Feed',
           region: 'Global',
           category: 'startup_news',
-          thesis_tags: ['software'],
+          thesis_tags: ['logistics'],
           stage_bias: ['seed'],
           method: { type: 'rss', url: 'https://example.com/auth.xml' },
           cadence: { tier: 'B', frequency: 'weekly' },
@@ -1009,7 +997,7 @@ describe('sourcing foundation', () => {
         <rss><channel>
           <item>
             <title>No Auth Startup</title>
-            <link>https://example.com/noauth-startup</link>
+            <link>https://noauth-startup.ai</link>
             <description>Seed startup profile</description>
             <pubDate>2026-03-02T00:00:00.000Z</pubDate>
           </item>

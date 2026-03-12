@@ -20,6 +20,14 @@ const TEASER_LABEL_PATTERNS = [
   /\b(the future of|everything you need to|easy [a-z]+|foundational technology)\b/i,
 ];
 
+const NON_STARTUP_NAME_PATTERN = /^(etsy|amazon|google|apple|microsoft|meta|netflix|uber|airbnb|shopify|stripe|paypal|ebay|walmart|target|costco|indeed|glassdoor|linkedin|twitter|facebook|instagram|tiktok|youtube|huffington post|huffpost|forbes|techcrunch|reuters|bloomberg|uluru statement|etsy registry|our accelerators|view all companies|meet our portfolio|our portfolio|our companies|our investments|featured companies|all companies|all startups)$/i;
+const HEADLINE_VERB_PATTERN = /\b(launches|launch|raises|raise|acquires|acquire|announces|announce|partners with|joins|join|wins|win|selected|named|awarded|brings|readies|sets stage)\b/i;
+const UI_PATTERNS = /^(load more|see more|view all|show more|read more|learn more|find out more|explore|discover|apply now|get started|sign up|log in|login|sign in|register|subscribe|contact us|about us|our team|meet the team|news insights|job board|careers|open roles|newsletter|follow us|share|privacy policy|terms|cookie|copyright|all rights reserved|back to top|scroll|menu|navigation|footer|header|sidebar)$/i;
+const GENERIC_PHRASES = /^(general funding|impact|growth|innovation|solutions|technologies|ventures|capital|partners|insights|report|update|announcement|press release|blog post|case study|white paper|webinar|event|conference|summit|demo day|pitch deck|filters here|supply chain integrations|world positive report|open lp|substack)$/i;
+const SOCIAL_PLATFORM_PATTERN = /^(twitter|x\.com|linkedin|facebook|instagram|youtube|tiktok|reddit|github|substack|medium|notion|slack|zoom|discord|telegram|whatsapp)(\s+(icon|logo|link|page|profile|handle))?$/i;
+const EMAIL_FRAGMENT_PATTERN = /^(info|admin|contact|hello|team|support|noreply|careers)([._-]?[a-z0-9_-]{3,})?$/i;
+const DOMAIN_FRAGMENT_PATTERN = /^(info|admin|contact|hello|newsletter|careers|jobs|blog|news|press|about|team|investor|media)[a-z]*$/i;
+
 const DETAIL_PATH_PATTERNS = [
   /\/(companies|company|portfolio|startups|residents|founders|alumni|ventures|exhibitors|speakers)\//i,
   /\/(companies|company|portfolio|startups|residents|founders|alumni|ventures|exhibitors|speakers)$/i,
@@ -400,11 +408,84 @@ function looksLikeTeaserLabel(value) {
   return false;
 }
 
+function stripVisitPrefix(value) {
+  return String(value || '').replace(/^Visit\s+/i, '').trim();
+}
+
 function looksLikeCompanyLabel(value) {
-  const text = normalizeCompanyLabel(value);
+  const text = normalizeCompanyLabel(stripVisitPrefix(value));
   if (isBlockedLabel(text)) {
     return false;
   }
+
+  if (!text || text.length < 2 || text.length > 80) {
+    return false;
+  }
+
+  if (text === text.toUpperCase() && text.length > 4) {
+    return false;
+  }
+
+  if (/[—:\-–]\s*$/.test(text)) {
+    return false;
+  }
+
+  if (NON_STARTUP_NAME_PATTERN.test(text.trim())) {
+    return false;
+  }
+
+  if (!/[a-zA-Z]{3,}/.test(text)) {
+    return false;
+  }
+
+  if (HEADLINE_VERB_PATTERN.test(text)) {
+    return false;
+  }
+
+  if (/^\+?[\d\s\-().]{7,}$/.test(text)) {
+    return false;
+  }
+
+  if (/^[a-z0-9._%+-]+@/i.test(text) || EMAIL_FRAGMENT_PATTERN.test(text.toLowerCase())) {
+    return false;
+  }
+
+  if (/\b(icon|logo|image|img|svg|png|jpg|gif|banner|thumbnail|avatar|badge)\b/i.test(text)) {
+    return false;
+  }
+
+  if (UI_PATTERNS.test(text.trim())) {
+    return false;
+  }
+
+  if (GENERIC_PHRASES.test(text.trim())) {
+    return false;
+  }
+
+  if (SOCIAL_PLATFORM_PATTERN.test(text.trim())) {
+    return false;
+  }
+
+  if (/^[A-Z][A-Z\s]{4,}$/.test(text.trim()) && !/\b(AI|ML|B2B|IoT|API|SaaS|ERP|WMS|TMS)\b/.test(text)) {
+    return false;
+  }
+
+  if (/^[a-z][a-z0-9]{2,}[a-z]$/.test(text) && text.length < 20 && !text.includes(' ') && DOMAIN_FRAGMENT_PATTERN.test(text)) {
+    return false;
+  }
+
+  if (/^(campus|recent investments|university (library|news))$/i.test(text.trim())) {
+    return false;
+  }
+
+  if (/\b(health center|medical center|student center|care center)\b/i.test(text)) {
+    return false;
+  }
+
+  if (/\(acquired by|acquired by\s|merger with|merged with/i.test(text)) {
+    return false;
+  }
+
 
   if (/^[a-z0-9][a-z0-9 .&+-]*$/i.test(text) && text.length >= 3) {
     return true;
@@ -465,8 +546,8 @@ function inferCompanyWebsiteFromLink(absoluteUrl, sourceHost) {
 function inferFallbackCompanyName($, node, fallbackText) {
   const candidates = [];
   const pushCandidate = (value) => {
-    const text = normalizeCompanyLabel(value);
-    if (!text || text === normalizeCompanyLabel(fallbackText)) {
+    const text = normalizeCompanyLabel(stripVisitPrefix(value));
+    if (!text || text === normalizeCompanyLabel(stripVisitPrefix(fallbackText))) {
       return;
     }
 
@@ -548,8 +629,8 @@ function titleFromCompanyWebsite(url = '') {
 }
 
 function preferredCompanyName(rawName, fallbackName, absoluteUrl) {
-  const cleanedRaw = cleanCandidateLabel(rawName);
-  const cleanedFallback = cleanCandidateLabel(fallbackName);
+  const cleanedRaw = cleanCandidateLabel(stripVisitPrefix(rawName));
+  const cleanedFallback = cleanCandidateLabel(stripVisitPrefix(fallbackName));
   const slugName = cleanCandidateLabel(titleFromUrlSlug(absoluteUrl));
 
   if (cleanedRaw && !looksLikeTeaserLabel(cleanedRaw) && looksLikeCompanyLabel(cleanedRaw)) {
@@ -682,11 +763,11 @@ function normalizeStructuredCompany(item, sourceUrl, sourceHost) {
   const startupUrl = cleanText(item.external_url || item.company_url || item.url || item.permalink || '');
   const detailUrl = cleanText(item.permalink || item.url || startupUrl || '');
   const absoluteDetailUrl = detailUrl ? new URL(detailUrl, sourceUrl).toString() : '';
-  const title = preferredCompanyName(
+  const title = stripVisitPrefix(preferredCompanyName(
     item.name || item.post_title || item.display_name || '',
     item.title || '',
     absoluteDetailUrl || startupUrl || sourceUrl
-  );
+  ));
   if (!looksLikeCompanyLabel(title)) return null;
   const description = cleanText(item.website_description || item.oneliner || item.overview || item.description || '');
   const resolvedUrl = startupUrl || detailUrl;
@@ -814,11 +895,11 @@ function normalizeNextDataCompany(item, source, sourceUrl, sourceHost) {
     return null;
   }
 
-  const title = preferredCompanyName(
+  const title = stripVisitPrefix(preferredCompanyName(
     item?.name || item?.company_name || item?.detail?.name || '',
     item?.title || item?.detail?.title || '',
     absoluteUrl
-  );
+  ));
   if (!title || !looksLikeCompanyLabel(title)) {
     return null;
   }
@@ -914,7 +995,7 @@ async function fetchApiBackedCompanies(adapter, html, sourceUrl, sourceHost, lim
     const results = [];
     const seen = new Set();
     for (const company of companies) {
-      const title = normalizeCompanyLabel(company?.attributes?.name || '');
+      const title = normalizeCompanyLabel(stripVisitPrefix(company?.attributes?.name || ''));
       if (!looksLikeCompanyLabel(title)) continue;
       const slug = cleanText(company?.meta?.slug || '');
       const startupUrl = slug ? `https://vault.alchemistaccelerator.com/companies/public/${slug}` : '';
@@ -997,7 +1078,7 @@ async function fetchYCCompanies(adapter, sourceUrl, limit) {
         break;
       }
 
-      const name = cleanText(company?.name || '');
+      const name = stripVisitPrefix(cleanText(company?.name || ''));
       if (!name || name.length < 2) {
         continue;
       }
@@ -1162,13 +1243,13 @@ class HtmlListAdapter extends BaseAdapter {
           (linkNode && linkNode.attr(urlAttribute)) ||
           (itemUrlAttribute ? node.attr(itemUrlAttribute) : '') ||
           '';
-        const title = readNodeValue(titleNode, titleAttribute);
+        const title = stripVisitPrefix(readNodeValue(titleNode, titleAttribute));
         const content = (
           mergeContentSelectors
             ? readMergedValues($, node, contentSelectors, contentAttribute, contentJoinWith)
             : readNodeValue(contentNode, contentAttribute)
         ) || title;
-        const companyName = readNodeValue(companyNameNode, companyNameAttribute);
+        const companyName = stripVisitPrefix(readNodeValue(companyNameNode, companyNameAttribute));
         const companyWebsite = companyWebsiteNode
           ? new URL(companyWebsiteNode.attr(companyWebsiteUrlAttribute), this.source.method.url).toString()
           : '';

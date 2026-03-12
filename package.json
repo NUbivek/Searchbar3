@@ -18,9 +18,19 @@
     "sourcing:validate": "node scripts/sourcing-validate.js",
     "sourcing:run": "node scripts/sourcing-run.js",
     "sourcing:stats": "node scripts/sourcing-stats.js",
-    "buildplan:status": "node scripts/build-plan-status.js"
+    "buildplan:status": "node scripts/build-plan-status.js",
+    "enrich:funding": "node scripts/enrich-funding.js --high-only",
+    "enrich:funding:all": "node scripts/enrich-funding.js",
+    "enrich:funding:test": "node scripts/enrich-funding.js --dry-run --limit 20",
+    "enrich:descriptions": "node scripts/enrich-descriptions.js",
+    "enrich:descriptions:high": "node scripts/enrich-descriptions.js --high-only",
+    "enrich:descriptions:dry": "node scripts/enrich-descriptions.js --dry-run",
+    "validate:names": "node scripts/validate-company-names.js",
+    "validate:names:dry": "node scripts/validate-company-names.js --dry-run",
+    "validate:names:rules": "node scripts/validate-company-names.js --rules-only"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
     "@headlessui/react": "^1.7.18",
     "@heroicons/react": "^2.1.1",
     "@tailwindcss/forms": "^0.5.7",

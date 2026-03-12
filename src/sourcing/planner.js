@@ -4,6 +4,7 @@ const {
   EXECUTION_MODES,
   getEffectiveDegradedCooldownMs,
   isRateLimited,
+  isSourceDisabled,
   matchesExecutionMode,
   shouldRunSource,
 } = require('./runner');
@@ -66,6 +67,10 @@ function buildNextDueSummary(items, keyName) {
 }
 
 function getDeferredReason(source, state, options) {
+  if (isSourceDisabled(source)) {
+    return 'disabled';
+  }
+
   if (source.requires_auth && !options.includeAuthSources) {
     return 'auth_disabled';
   }

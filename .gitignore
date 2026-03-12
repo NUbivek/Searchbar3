@@ -52,4 +52,9 @@ research-hub-api/
 /data/crm_export.csv
 /data/source_health.csv
 /data/latest_run_summary.json
+/.data/
 .env*.local
+/reports/
+/handover-2026-03-10/
+/registered_sources_935.csv
+/registered_sources_935.txt

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { parse } from 'csv-parse/sync';
 import { scoreRaiseLikelihood } from './raiseScoring';
+import { cleanThesisTags } from '../sourcing/normalizer';
 
 const SOURCING_ROOT = path.resolve(process.cwd(), '..', 'sourcing101');
 const STARTUP_WATCH_ROOT = path.join(SOURCING_ROOT, 'startup_watch');
@@ -18,12 +19,183 @@ const LOCAL_SIGNAL_FALLBACKS = [
   path.join(process.cwd(), 'reports', 'post_patch_fresh_run_2026-03-10', 'crm_export.csv'),
   path.join(process.cwd(), 'reports', 'rerun-baseline-2026-03-10', 'crm_export.csv'),
 ];
+const FUNDING_CACHE_PATH = path.join(process.cwd(), 'data', 'funding_cache.json');
+const DESCRIPTION_CACHE_PATH = path.join(process.cwd(), 'data', 'description_cache.json');
+const ROUND_TO_STAGE = {
+  'Pre-Seed': 'Pre-Seed',
+  Seed: 'Seed',
+  'Series A': 'Series A',
+  'Series B': 'Series B',
+  'Series C': 'Series C',
+  'Series D+': 'Series D+',
+  Grant: 'Pre-Seed',
+  Unknown: null,
+};
+
+let fundingCache = {};
+try {
+  if (fs.existsSync(FUNDING_CACHE_PATH)) {
+    fundingCache = JSON.parse(fs.readFileSync(FUNDING_CACHE_PATH, 'utf8'));
+    console.log(`[funding] loaded cache: ${Object.keys(fundingCache).length} entries`);
+  }
+} catch (e) {
+  console.warn('[funding] cache not found, using enrichment fallbacks');
+}
+
+let descriptionCache = {};
+try {
+  if (fs.existsSync(DESCRIPTION_CACHE_PATH)) {
+    descriptionCache = JSON.parse(fs.readFileSync(DESCRIPTION_CACHE_PATH, 'utf8'));
+    console.log(`[descriptions] loaded cache: ${Object.keys(descriptionCache).length} entries`);
+  }
+} catch (e) {
+  console.warn('[descriptions] cache not found, using signal descriptions');
+}
 
 function parseMoney(value) {
   if (!value) return 0;
   const cleaned = String(value).replace(/[$,\s]/g, '');
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : 0;
+}
+
+function parseFundingUsd(value) {
+  if (value == null || value === '') return null;
+  const cleaned = String(value).replace(/[$,\s]/g, '');
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+function fixNameCasing(name = '') {
+  if (!name || /^[A-Z0-9]/.test(name)) return name;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+function stripVisitPrefix(value = '') {
+  return String(value || '').replace(/^Visit\s+/i, '').trim();
+}
+
+function parseSafeRoundDate(val) {
+  if (!val) return null;
+  const raw = String(val).trim();
+  const roundNames = /^(pre-seed|seed|series [abcd]|stealth|unknown|grant)/i;
+  if (roundNames.test(raw)) return null;
+  if (!/\d/.test(raw)) return null;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return null;
+  if (d.getFullYear() < 2010) return null;
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  if (d > thirtyDaysAgo) return null;
+  return raw;
+}
+
+function normalizeInvestorList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => cleanText(entry)).filter(Boolean).slice(0, 5);
+}
+
+function sanitizeFundingAmount(value) {
+  const amount = parseFundingUsd(value);
+  if (!Number.isFinite(amount) || amount < 10_000) return null;
+  return amount;
+}
+
+function reconcileStage(signalStage, fundingRound) {
+  const STAGE_ORDER = {
+    'Pre-Seed': 1,
+    Seed: 2,
+    'Series A': 3,
+    'Series B': 4,
+    'Series C': 5,
+    'Series D+': 6,
+  };
+  const cleanedSignalStage = cleanText(signalStage) || 'Unknown';
+  const fromFunding = ROUND_TO_STAGE[cleanText(fundingRound)] || null;
+  if (!fromFunding) return cleanedSignalStage;
+  const signalOrder = STAGE_ORDER[cleanedSignalStage] || 0;
+  const fundingOrder = STAGE_ORDER[fromFunding] || 0;
+  if (fundingOrder > signalOrder) return fromFunding;
+  return cleanedSignalStage === 'Unknown' ? fromFunding : cleanedSignalStage;
+}
+
+function mergeFundingData(row) {
+  const cached = fundingCache[row.company_domain] || {};
+  const cachedFunding = sanitizeFundingAmount(cached.last_funding_amount_usd);
+  const cachedTotal = sanitizeFundingAmount(cached.total_funding_usd);
+  const rowFunding = sanitizeFundingAmount(row.funding_usd);
+  const fundingUsd = cachedFunding ?? rowFunding ?? null;
+  const totalFundingUsd = cachedTotal ?? rowFunding ?? fundingUsd ?? null;
+  const lastRoundType = cleanText(cached.last_funding_round) || row.stage || 'Unknown';
+  const lastRoundDate = parseSafeRoundDate(cleanText(cached.last_funding_date))
+    || parseSafeRoundDate(row.last_round_date)
+    || null;
+  const investors = normalizeInvestorList(cached.investors);
+  const fundingConfidence = cleanText(cached.confidence) || (row.funding_usd ? 'low' : 'not_found');
+  const reconciledStage = reconcileStage(row.stage, lastRoundType);
+
+  return {
+    ...row,
+    startup_name: fixNameCasing(stripVisitPrefix(row.startup_name || '')),
+    description: isJunkDescription(row.description)
+      ? cleanText(descriptionCache[row.company_domain]) || row.description
+      : row.description,
+    funding_usd: fundingUsd,
+    last_funding_amount_usd: fundingUsd,
+    total_funding_usd: totalFundingUsd,
+    last_round_type: lastRoundType,
+    last_round_date: lastRoundDate,
+    investors,
+    funding_confidence: fundingConfidence,
+    stage: reconciledStage,
+  };
+}
+
+function formatFundingAmount(value) {
+  const amount = Number(value || 0);
+  if (!amount || amount < 10_000) return '';
+  if (amount >= 1_000_000_000) return `$${Math.round(amount / 1_000_000_000)}B`;
+  if (amount >= 1_000_000) return `$${Math.round(amount / 1_000_000)}M`;
+  return `$${(amount / 1_000).toFixed(0)}K`;
+}
+
+function formatFundingMonth(value) {
+  if (!value) return null;
+  try {
+    return new Date(`${value}-01`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  } catch {
+    return null;
+  }
+}
+
+function buildFundingRationalePoints(row, baseReasons = []) {
+  const rationalePoints = [...baseReasons];
+  if (row.last_funding_amount_usd || row.funding_usd) {
+    const amt = row.last_funding_amount_usd || row.funding_usd;
+    const formatted = formatFundingAmount(amt);
+    const round = row.last_round_type || row.stage || '';
+    const date = formatFundingMonth(row.last_round_date);
+    const investorStr = (row.investors || []).slice(0, 2).join(', ');
+
+    let point = `Last raised ${formatted}`;
+    if (round && round !== 'Unknown') point += ` ${round}`;
+    if (date) point += ` (${date})`;
+    if (investorStr) point += ` - backed by ${investorStr}`;
+    if (row.funding_confidence !== 'high') point += ' (estimated)';
+    rationalePoints.push(point);
+  } else {
+    rationalePoints.push('No public funding data - may be stealth or pre-announcement stage');
+  }
+
+  if (
+    row.total_funding_usd
+    && row.total_funding_usd !== row.funding_usd
+    && row.total_funding_usd > 0
+  ) {
+    rationalePoints.push(`Total known funding: ${formatFundingAmount(row.total_funding_usd)}`);
+  }
+
+  return rationalePoints;
 }
 
 const COUNTRY_HINTS = [
@@ -183,13 +355,23 @@ function cleanText(v) {
 }
 
 function formatSectorLabel(sector = '') {
-  const raw = String(sector || '').trim();
-  if (!raw) return '';
-  return raw
-    .split('|')
-    .map((part) => cleanText(part).replace(/_/g, ' ').trim())
-    .filter(Boolean)
-    .join(', ');
+  const parts = Array.isArray(sector)
+    ? sector
+    : cleanThesisTags(sector);
+  if (!parts.length) return '';
+  return parts.join(', ');
+}
+
+function isJunkDescription(raw = '') {
+  const text = cleanText(raw);
+  if (!text || text.length < 40) return true;
+  if (/added by add-top-vcs\.js|top us vc expansion|top-tier us vc expansion/i.test(text)) return true;
+  if (/^listed in .+ portfolio/i.test(text)) return true;
+  if (/sector tags:/i.test(text)) return true;
+  if (/portfolio company\. focus:/i.test(text)) return true;
+  if (/^[\w\s&().,'/-]+ portfolio company/i.test(text)) return true;
+  if (/scrape|crawl|html|css selector/i.test(text)) return true;
+  return false;
 }
 
 function sourceCategoryLabel(sourceCategory = '') {
@@ -225,15 +407,20 @@ function summarizeDescription(raw = '', startupName = '', sector = '', sourceNam
 
   let best = chunks[0] || '';
   if (!best || noisy || thin) {
+    const sectorTags = cleanThesisTags(sector);
+    const primaryTags = sectorTags.slice(0, 2);
     const parts = [];
-    if (signalType === 'directory_listing' && sourceName) {
-      parts.push(`Listed in ${sourceName} ${sourceCategoryLabel(sourceCategory)}.`);
-    } else if (sourceName) {
-      parts.push(`Mentioned by ${sourceName}.`);
+    if (primaryTags.length >= 2) {
+      parts.push(`Builds ${primaryTags[0].toLowerCase()} and ${primaryTags[1].toLowerCase()} software.`);
+    } else if (primaryTags.length === 1) {
+      parts.push(`Builds ${primaryTags[0].toLowerCase()} software.`);
+    } else if (signalType === 'directory_listing' && sourceCategory) {
+      parts.push(`Early-stage company from a ${sourceCategoryLabel(sourceCategory)}.`);
+    } else {
+      parts.push('Early-stage technology company.');
     }
-    const sectorLabel = formatSectorLabel(sector);
-    if (sectorLabel) {
-      parts.push(`Sector tags: ${sectorLabel}.`);
+    if (sourceName) {
+      parts.push(`Backed by ${sourceName}.`);
     }
     if (parts.length) return parts.join(' ');
     return cleanText(raw) || startupName || 'No summary available.';
@@ -244,6 +431,11 @@ function summarizeDescription(raw = '', startupName = '', sector = '', sourceNam
 }
 
 function summarizeSource(sourceKey = '', sourceUrl = '') {
+  const source = cleanText(sourceKey);
+  if (source) {
+    return `Source: ${source}`;
+  }
+
   try {
     if (sourceUrl) {
       const u = new URL(sourceUrl.startsWith('http') ? sourceUrl : `https://${sourceUrl}`);
@@ -251,8 +443,8 @@ function summarizeSource(sourceKey = '', sourceUrl = '') {
       return `Source: ${host}`;
     }
   } catch {}
-  const source = cleanText(sourceKey) || 'unknown';
-  return `Source: ${source}`;
+
+  return 'Source: unknown';
 }
 
 function summarizeStage(stage = '') {
@@ -319,7 +511,23 @@ function looksLikeUiLabel(name = '') {
     'investors', 'advisors', 'students', 'media', 'virtual intern fair', 'berkeley skydeck', 'give to skydeck', 'team & ambassadors', 'begin berkeley',
     'skip to content', 'asia pacific', 'corporate solutions', 'adventures in claude', 'side business to startup',
     'vibe marketplace by greta', 'i’ve moved onchain', "i've moved onchain", 'directories', 'calendar', 'crypto',
-    'massachusetts institute of technology'
+    'massachusetts institute of technology',
+    'energy transition',
+    'giving at illinois',
+    'security advisor',
+    'new creative tech activate',
+    'new scale up wellington',
+    'visit campus',
+    'campus',
+    'flagship program',
+    'faculty advisors',
+    'our accelerators',
+    'sell on etsy',
+    'etsy registry',
+    'the uluru statement',
+    'uluru statement',
+    'medtech superconnector',
+    'ai superconnector'
   ]);
   if (exact.has(n)) return true;
 
@@ -331,6 +539,8 @@ function looksLikeUiLabel(name = '') {
 
   if (/^(home|team|blog|news|press|careers|events|programs|community|resources|europe|americas|asia|africa)$/.test(n)) return true;
   if (/^(our|the)\s+(team|network|community|partners)$/.test(n)) return true;
+  if (/\b(for founders|program for founders|flagship accelerator|accelerator by 500|superconnector)\b/.test(n)) return true;
+  if (/usglobal.*for founders/i.test(n)) return true;
   if (/\b(skip to|view rationale|read more|learn more|subscribe|discussion|watch now|overview|challenge(s)?|corporate|solutions?|marketplace)\b/.test(n)) return true;
   if (/\b(on facebook|research park)\b/.test(n)) return true;
   if (/^(myuw|home|about us|our story|our work)$/.test(n)) return true;
@@ -431,9 +641,11 @@ function looksLikeAddressOrGeoLabel(name = '') {
 function isHardBlockedDirectoryLabel(name = '') {
   const n = cleanText(name);
   return (
-    /^(user agreement|photos|medium|foundation|our perspective|investment focus|meet our speakers|meet the companies|alumni association|partner portal|locations|copyright|about s?p global|accessibility statement|faqs|ca notice of collection|general partner login|portfolio companies|visitcaladan|data explorer|accessibility at the sdcc|start payment plan|retailer expert network)$/i.test(n)
+    /^(user agreement|photos|medium|foundation|our perspective|investment focus|meet our speakers|meet the companies|alumni association|partner portal|locations|copyright|about s?p global|accessibility statement|faqs|ca notice of collection|general partner login|portfolio companies|visitcaladan|data explorer|accessibility at the sdcc|start payment plan|retailer expert network|energy transition|giving at illinois|security advisor|new creative tech activate|new scale up wellington|sell on etsy|etsy registry|the uluru statement|uluru statement|medtech superconnector|ai superconnector)$/i.test(n)
     || /^(https|http)/i.test(n)
     || /https/i.test(n)
+    || /\b(for founders|program for founders|flagship accelerator|accelerator by 500)\b/i.test(n)
+    || /usglobal.*for founders/i.test(n)
     || /\b(linkedin-in|ga verder naar de inhoud|404)\b/i.test(n)
     || /^built in (san francisco|seattle|austin|chicago|new york|los angeles)$/i.test(n)
     || looksLikeAddressOrGeoLabel(n)
@@ -606,10 +818,50 @@ function passesCoreQuality(row) {
   return true;
 }
 
+function isGenericInstitutionPlaceholder(row) {
+  const name = cleanText(row.startup_name || '');
+  const sourceCategory = String(row.source_category || '');
+  const inventoryProgramSource = sourceCategory === 'university_accelerator'
+    || sourceCategory === 'accelerator_portfolio'
+    || sourceCategory === 'accelerator_directory';
+
+  if (!inventoryProgramSource) return false;
+  if (row.has_distinct_company_website) {
+    return false;
+  }
+  if (looksLikeUiLabel(name) || isHardBlockedDirectoryLabel(name)) {
+    return true;
+  }
+  if (String(row.entity_class || '') === 'company_unverified') {
+    return true;
+  }
+  if (!name) return false;
+  return /^(campus|visit campus|recent investments|flagship program|faculty advisors|our accelerators|sell on etsy|university (library|news))$/i.test(name)
+    || /\b(health center|medical center|student center|care center|program|advisors?)\b/i.test(name);
+}
+
+function isUniversitySourcePlaceholder(row) {
+  const category = String(row.source_category || '').toLowerCase();
+  const sourceName = String(row.source_name || row.source_key || '');
+  if (!/university_accelerator|accelerator_directory|accelerator_portfolio/.test(category)
+    && !/university|college|mit|cmu|stanford|berkeley|comotion|skydeck|startx|swartz|delta\s*v/i.test(sourceName)) {
+    return false;
+  }
+  return true;
+}
+
+function rejectStealthPlaceholder(row) {
+  const stealthLike = row.stage === 'Stealth' || !row.stage || row.stage === 'Unknown';
+  if (!stealthLike) return false;
+  if (!row.company_domain && !row.startup_url && !row.company_website) return true;
+  if (isUniversitySourcePlaceholder(row) && row.stage === 'Stealth') return true;
+  return false;
+}
+
 function monthsSince(dateLike) {
-  if (!dateLike) return 18;
+  if (!dateLike) return null;
   const d = new Date(dateLike);
-  if (Number.isNaN(d.getTime())) return 18;
+  if (Number.isNaN(d.getTime())) return null;
   return Math.max(1, Math.round((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24 * 30)));
 }
 
@@ -697,13 +949,63 @@ function getRegistryIndex() {
   return out;
 }
 
+const TIER_LABELS = {
+  A: 'Tier A — Top-Tier VCs & Accelerators',
+  B: 'Tier B — Mid-Market VCs & Specialist Funds',
+  C: 'Tier C — Regional & Emerging Funds',
+  1: 'Tier 1 — Top-Tier VCs & Accelerators',
+  2: 'Tier 2 — Mid-Market VCs & Specialist Funds',
+  3: 'Tier 3 — Regional & Emerging Funds',
+};
+
+const TIER_FILTER_LABELS = {
+  A: 'Tier A — Top-Tier VCs',
+  B: 'Tier B — Mid-Market',
+  C: 'Tier C — Regional',
+  1: 'Tier 1 — Top-Tier VCs',
+  2: 'Tier 2 — Mid-Market',
+  3: 'Tier 3 — Regional',
+};
+
 function normalizeTier(value = '') {
   const v = cleanText(value).toUpperCase();
-  if (v === 'A' || v === 'B' || v === 'C') return v;
-  if (v === 'TIER-1' || v === 'TIER 1') return 'A';
-  if (v === 'TIER-2' || v === 'TIER 2') return 'B';
-  if (v === 'TIER-3' || v === 'TIER 3') return 'C';
+  if (['A', 'B', 'C', '1', '2', '3'].includes(v)) return v;
+  if (v === 'TIER-1' || v === 'TIER 1') return '1';
+  if (v === 'TIER-2' || v === 'TIER 2') return '2';
+  if (v === 'TIER-3' || v === 'TIER 3') return '3';
   return null;
+}
+
+function getTierDisplayLabel(tier) {
+  return TIER_LABELS[String(tier).toUpperCase()] || `Tier ${tier}`;
+}
+
+function getTierFilterLabel(tier) {
+  return TIER_FILTER_LABELS[String(tier).toUpperCase()] || `Tier ${tier}`;
+}
+
+function fundingSortBonus(row) {
+  const amount = Number(row.funding_usd || 0);
+  const confidence = String(row.funding_confidence || '').toLowerCase();
+  let bonus = 0;
+  if (confidence === 'high') bonus += 8;
+  else if (confidence === 'medium') bonus += 5;
+  else if (confidence === 'low') bonus += 2;
+  if (amount >= 10_000_000) bonus += 2;
+  else if (amount >= 10_000) bonus += 1;
+  return bonus;
+}
+
+function compareCandidateRows(a, b) {
+  const rankA = Number(a.raise_likelihood_score || 0) + fundingSortBonus(a);
+  const rankB = Number(b.raise_likelihood_score || 0) + fundingSortBonus(b);
+  if (rankB !== rankA) return rankB - rankA;
+  if (b.raise_likelihood_score !== a.raise_likelihood_score) return b.raise_likelihood_score - a.raise_likelihood_score;
+  const fundingA = Number(a.funding_usd || 0) >= 10_000 ? 1 : 0;
+  const fundingB = Number(b.funding_usd || 0) >= 10_000 ? 1 : 0;
+  if (fundingB !== fundingA) return fundingB - fundingA;
+  if (Number(b.funding_usd || 0) !== Number(a.funding_usd || 0)) return Number(b.funding_usd || 0) - Number(a.funding_usd || 0);
+  return new Date(b.last_signal_at).getTime() - new Date(a.last_signal_at).getTime();
 }
 
 const OUTPUT_SOURCE_ALIASES = {
@@ -902,6 +1204,7 @@ function loadRealSourceRows() {
           .filter(Boolean)
           .map((line) => {
             const obj = JSON.parse(line);
+            const thesisTags = cleanThesisTags(obj.thesis_tags);
             return {
               company_name: obj.company_name,
               company_website: obj.company_website,
@@ -920,7 +1223,8 @@ function loadRealSourceRows() {
               item_url: obj.item_url,
               published_at: obj.published_at,
               confidence: obj.confidence,
-              thesis_tags: Array.isArray(obj.thesis_tags) ? obj.thesis_tags.join('|') : obj.thesis_tags,
+              thesis_tags: thesisTags,
+              sector: thesisTags[0] || 'General',
               funding_amount_guess: obj.enrichment?.funding_amount_guess || null,
               funding_signal: obj.enrichment?.funding_signal || '',
               investor_signal: obj.enrichment?.investor_signal || '',
@@ -929,7 +1233,7 @@ function loadRealSourceRows() {
               company_root_domain: obj.enrichment?.company_root_domain || rootDomain(obj.company_website || ''),
               item_root_domain: obj.enrichment?.item_root_domain || rootDomain(obj.item_url || ''),
               signal_type: obj.signal_type || '',
-              last_round_date: obj.published_at || null,
+              last_round_date: parseSafeRoundDate(obj.published_at) || null,
             };
           });
       } else {
@@ -1005,10 +1309,11 @@ function loadRealSourceRows() {
         }
       }
       const funding = parseMoney(pick(r, ['funding_amount', 'funding_usd', 'funding_amount_guess', 'amount_raised', 'last_round_amount']));
-      const lastRound = pick(r, ['last_round_date', 'round_date']) || null;
+      const lastRound = parseSafeRoundDate(pick(r, ['last_round_date', 'round_date'])) || null;
       const headcount = pick(r, ['headcount', 'employees', 'team_size']) || null;
       const sectorRaw = pick(r, ['categories', 'category_tags', 'sector', 'category', 'industry', 'thesis_tags']);
-      const sector = String(sectorRaw || '').replace(/[\[\]"]+/g, '').split(',')[0]?.trim() || 'General';
+      const thesisTags = cleanThesisTags(Array.isArray(sectorRaw) ? sectorRaw : String(sectorRaw || '').replace(/[\[\]"]+/g, ''));
+      const sector = thesisTags[0] || 'General';
       const sourceMeta = resolveRegistrySource(source, sourceUrl, sourceIdRaw, pick(r, ['investor_tier', 'investorTier', 'tier']));
       const hq = inferCountry({
         hq: hqRaw,
@@ -1037,6 +1342,7 @@ function loadRealSourceRows() {
         last_round_date: lastRound,
         headcount,
         sector,
+        thesis_tags: thesisTags,
         confidence: 0.6,
         evidence_role: cleanText(pick(r, ['evidence_role'])) || '',
         signal_weight: cleanText(pick(r, ['signal_weight'])).toLowerCase() || 'low',
@@ -1072,10 +1378,14 @@ function loadRealSourceRows() {
 }
 
 function toCandidate(row, idx) {
-  const monthsSinceLastRound = monthsSince(row.last_round_date);
-  const acceleratorRecent = hasAcceleratorSignal(row.raw_signal_text) || hasAcceleratorSignal(row.description);
-  const momentumScore = Math.min(18, Math.max(4, row.description ? 12 : 7));
-  const sourceMeta = resolveRegistrySource(row.source_key, row.source_url, row.source_id_raw, row.investor_tier_raw);
+  const mergedRow = mergeFundingData(row);
+  if (rejectStealthPlaceholder(mergedRow)) {
+    return null;
+  }
+  const monthsSinceLastRound = monthsSince(mergedRow.last_round_date);
+  const acceleratorRecent = hasAcceleratorSignal(mergedRow.raw_signal_text) || hasAcceleratorSignal(mergedRow.description);
+  const momentumScore = Math.min(18, Math.max(4, mergedRow.description ? 12 : 7));
+  const sourceMeta = resolveRegistrySource(mergedRow.source_key, mergedRow.source_url, mergedRow.source_id_raw, mergedRow.investor_tier_raw);
 
   const scored = scoreRaiseLikelihood({
     monthsSinceLastRound,
@@ -1083,63 +1393,77 @@ function toCandidate(row, idx) {
     acceleratorRecent,
     sourceTier: sourceMeta.source_tier,
     negativeSignal: false,
-    confidence: row.confidence,
+    confidence: mergedRow.confidence,
+    fundingConfidence: mergedRow.funding_confidence,
+    lastRoundType: mergedRow.last_round_type,
   });
   const forecast = forecastFromScore(scored.raise_likelihood_score);
 
   const dataQualityScore = Math.max(0, Math.min(100,
-    (row.startup_url ? 30 : 0)
-    + (row.description ? 20 : 0)
-    + (row.hq_country && row.hq_country !== 'Unknown' ? 15 : 0)
-    + (row.sector && row.sector !== 'General' ? 15 : 0)
-    + (row.stage && row.stage !== 'Unknown' ? 10 : 0)
-    + (row.source_url ? 10 : 0)
+    (mergedRow.startup_url ? 30 : 0)
+    + (mergedRow.description ? 20 : 0)
+    + (mergedRow.hq_country && mergedRow.hq_country !== 'Unknown' ? 15 : 0)
+    + (mergedRow.sector && mergedRow.sector !== 'General' ? 15 : 0)
+    + (mergedRow.stage && mergedRow.stage !== 'Unknown' ? 10 : 0)
+    + (mergedRow.source_url ? 10 : 0)
   ));
+
+  const rationalePoints = buildFundingRationalePoints(mergedRow, scored.reasons);
 
   const candidate = {
     id: idx + 1,
-    startup_name: row.startup_name,
-    startup_url: row.startup_url,
-    description: row.description,
+    startup_name: fixNameCasing(stripVisitPrefix(mergedRow.startup_name)),
+    startup_url: mergedRow.startup_url,
+    description: mergedRow.description,
     description_summary: summarizeDescription(
-      row.description,
-      row.startup_name,
-      row.sector,
-      sourceMeta.source_name || row.source_key,
-      row.signal_type || '',
-      sourceMeta.source_category || row.source_category || ''
+      mergedRow.description,
+      mergedRow.startup_name,
+      mergedRow.sector,
+      sourceMeta.source_name || mergedRow.source_key,
+      mergedRow.signal_type || '',
+      sourceMeta.source_category || mergedRow.source_category || ''
     ),
-    source_summary: summarizeSource(sourceMeta.source_name || row.source_key, row.source_url),
-    stage_summary: summarizeStage(row.stage),
-    sector: row.sector,
-    stage: row.stage,
-    hq_country: row.hq_country,
-    region: row.region || row.source_region || '',
-    source_key: row.source_key,
+    source_summary: summarizeSource(sourceMeta.source_name || mergedRow.source_key, mergedRow.source_url),
+    stage_summary: summarizeStage(mergedRow.stage),
+    sector: mergedRow.sector,
+    thesis_tags: Array.isArray(mergedRow.thesis_tags) ? mergedRow.thesis_tags : cleanThesisTags(mergedRow.sector),
+    stage: mergedRow.stage,
+    hq_country: mergedRow.hq_country,
+    region: mergedRow.region || mergedRow.source_region || '',
+    source_key: mergedRow.source_key,
     source_id: sourceMeta.source_id,
     source_name: sourceMeta.source_name,
     source_tier: sourceMeta.source_tier,
+    tier_display_label: sourceMeta.source_tier && sourceMeta.source_tier !== 'Unknown'
+      ? getTierDisplayLabel(sourceMeta.source_tier)
+      : '',
     source_category: sourceMeta.source_category,
     source_region: sourceMeta.source_region,
     source_registry_match: sourceMeta.source_registry_match,
-    source_url: row.source_url,
-    source_host: getHost(row.source_url || row.startup_url || ''),
-    item_url: row.item_url || null,
-    signal_type: row.signal_type || '',
-    has_distinct_company_website: Boolean(row.has_distinct_company_website),
-    funding_usd: row.funding_usd,
-    last_round_date: row.last_round_date,
+    source_url: mergedRow.source_url,
+    source_host: getHost(mergedRow.source_url || mergedRow.startup_url || ''),
+    item_url: mergedRow.item_url || null,
+    signal_type: mergedRow.signal_type || '',
+    has_distinct_company_website: Boolean(mergedRow.has_distinct_company_website),
+    funding_usd: mergedRow.funding_usd,
+    last_funding_amount_usd: mergedRow.last_funding_amount_usd,
+    total_funding_usd: mergedRow.total_funding_usd,
+    last_round_type: mergedRow.last_round_type,
+    last_round_date: mergedRow.last_round_date,
+    investors: mergedRow.investors,
+    funding_confidence: mergedRow.funding_confidence,
     months_since_last_round: monthsSinceLastRound,
-    confidence: row.confidence,
-    evidence_role: row.evidence_role || '',
-    signal_weight: row.signal_weight || 'low',
+    confidence: mergedRow.confidence,
+    evidence_role: mergedRow.evidence_role || '',
+    signal_weight: mergedRow.signal_weight || 'low',
     data_quality_score: dataQualityScore,
-    last_signal_at: row.date_captured || new Date().toISOString(),
+    last_signal_at: mergedRow.date_captured || new Date().toISOString(),
     accelerator_status: acceleratorRecent ? 'signal-detected' : null,
     accelerator_program: acceleratorRecent ? 'inferred-from-source' : null,
     forecast_6m_label: forecast.label,
     forecast_6m_probability: forecast.probability,
     ...scored,
+    reasons: rationalePoints,
   };
 
   const validation = validateCandidateRow(candidate);
@@ -1306,7 +1630,7 @@ export async function getRaiseCandidates(filters = {}) {
   } = filters;
 
   const { rows: sourceRows, csvPath, mtime, filesCount } = loadRealSourceRows();
-  let rows = sourceRows.map((r, i) => toCandidate(r, i));
+  let rows = sourceRows.map((r, i) => toCandidate(r, i)).filter(Boolean);
   const debugCounts = {
     initial: rows.length,
   };
@@ -1337,6 +1661,7 @@ export async function getRaiseCandidates(filters = {}) {
 
   // Always enforce structural validity (company-class rows only).
   rows = rows.filter((r) => r.validation_ok);
+  rows = rows.filter((r) => !isGenericInstitutionPlaceholder(r));
   debugCounts.afterValidation = rows.length;
 
   // Broad-recall views should retain structurally valid directory companies even when only
@@ -1389,6 +1714,7 @@ export async function getRaiseCandidates(filters = {}) {
   if (stage) rows = rows.filter((r) => r.stage === stage);
   debugCounts.afterStage = rows.length;
   if (country) rows = rows.filter((r) => r.hq_country === country);
+  debugCounts.afterRoundType = rows.length;
   debugCounts.afterCountry = rows.length;
   if (region) rows = rows.filter((r) => (r.region || r.source_region || '') === region);
   debugCounts.afterRegion = rows.length;
@@ -1396,7 +1722,7 @@ export async function getRaiseCandidates(filters = {}) {
   debugCounts.afterSector = rows.length;
   if (thesisTag) {
     const tag = String(thesisTag).toLowerCase();
-    rows = rows.filter((r) => String(r.sector || '').toLowerCase().split('|').some((part) => part.trim() === tag));
+    rows = rows.filter((r) => (Array.isArray(r.thesis_tags) ? r.thesis_tags : cleanThesisTags(r.sector)).some((part) => String(part).toLowerCase() === tag));
   }
   debugCounts.afterThesisTag = rows.length;
   if (sourceTier) rows = rows.filter((r) => r.source_tier === sourceTier);
@@ -1415,7 +1741,7 @@ export async function getRaiseCandidates(filters = {}) {
   debugCounts.afterMaxFunding = rows.length;
   if (q) {
     const term = String(q).toLowerCase();
-    rows = rows.filter((r) => [r.startup_name, r.startup_url, r.description, r.sector, r.source_key, r.source_name, r.source_id].join(' ').toLowerCase().includes(term));
+    rows = rows.filter((r) => [r.startup_name, r.startup_url, r.description, Array.isArray(r.thesis_tags) ? r.thesis_tags.join(' ') : r.sector, r.source_key, r.source_name, r.source_id].join(' ').toLowerCase().includes(term));
   }
   debugCounts.afterQuery = rows.length;
 
@@ -1435,15 +1761,13 @@ export async function getRaiseCandidates(filters = {}) {
   rows = Array.from(deduped.values());
   debugCounts.afterDedupe = rows.length;
 
-  rows.sort((a, b) => {
-    if (b.raise_likelihood_score !== a.raise_likelihood_score) return b.raise_likelihood_score - a.raise_likelihood_score;
-    return new Date(b.last_signal_at).getTime() - new Date(a.last_signal_at).getTime();
-  });
+  rows.sort(compareCandidateRows);
 
   const facets = {
     stages: Array.from(new Set(facetRows.map((r) => r.stage).filter(Boolean))).sort(),
+    roundTypes: Array.from(new Set(facetRows.map((r) => r.last_round_type).filter(Boolean))).sort(),
     countries: Array.from(new Set(facetRows.map((r) => r.hq_country).filter(Boolean))).sort(),
-    sectors: Array.from(new Set(facetRows.map((r) => r.sector).filter(Boolean))).sort(),
+    sectors: Array.from(new Set(facetRows.flatMap((r) => Array.isArray(r.thesis_tags) ? r.thesis_tags : cleanThesisTags(r.sector)).filter(Boolean))).sort(),
     sourceTiers: Array.from(new Set(facetRows.map((r) => r.source_tier).filter(Boolean))).sort(),
     sources: Array.from(new Set(facetRows.map((r) => r.source_name).filter(Boolean))).sort(),
   };
@@ -1461,6 +1785,7 @@ export async function getRaiseCandidates(filters = {}) {
           : Math.max(30, Math.min(baseMaxPerSource, 90));
 
   rows = diversifyBySourceHost(rows, adaptiveCap);
+  rows.sort(compareCandidateRows);
   debugCounts.afterDiversify = rows.length;
 
   const total = rows.length;

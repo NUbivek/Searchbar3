@@ -9781,7 +9781,8 @@
     "fetch_notes": "disabled 2026-03-12 - HTTP 404 on https://constructcap.com/portfolio",
     "source_file": "gpt_master",
     "workbook_adapter": "html_list",
-    "workbook_method": "html"
+    "workbook_method": "html",
+    "tier": "B"
   },
   {
     "id": "DB-US-001",
@@ -11590,7 +11591,8 @@
     "fetch_notes": "NYC enterprise focus; clean portfolio page.",
     "source_file": "gpt_master",
     "workbook_adapter": "html_list",
-    "workbook_method": "html"
+    "workbook_method": "html",
+    "tier": "B"
   },
   {
     "id": "GEN-NYC-014",
@@ -13007,7 +13009,8 @@
     "fetch_notes": "disabled 2026-03-12 - HTTP 404 on https://congruentvc.com/companies",
     "source_file": "gpt_master",
     "workbook_adapter": "html_list",
-    "workbook_method": "html"
+    "workbook_method": "html",
+    "tier": "B"
   },
   {
     "id": "ADJ-RISK-002",
@@ -13026,7 +13029,7 @@
     ],
     "method": {
       "type": "html",
-      "url": "https://www.costanoavc.com/portfolio"
+      "url": "https://www.costanoa.vc/portfolio"
     },
     "cadence": {
       "tier": "B",
@@ -13046,16 +13049,17 @@
     "dedup_key": "company_domain",
     "signal_type": "portfolio_page_scrape",
     "staleness_threshold_days": 7,
-    "url": "https://www.costanoavc.com/portfolio",
+    "url": "https://www.costanoa.vc/portfolio",
     "linkedin_page_url": "https://www.linkedin.com/company/costanoa-ventures/",
     "twitter_handle": "@CostanoaVC",
     "evidence_role": "primary",
     "signal_weight": "medium",
     "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
-    "fetch_notes": "Clean card grid.",
+    "fetch_notes": "Clean card grid.; repaired URL 2026-03-12",
     "source_file": "gpt_master",
     "workbook_adapter": "html_list",
-    "workbook_method": "html"
+    "workbook_method": "html",
+    "primary_url": "https://www.costanoa.vc/portfolio"
   },
   {
     "id": "GEN-SF-005",
@@ -13199,7 +13203,8 @@
     "fetch_notes": "Table-style list; easy scrape",
     "source_file": "gpt_master",
     "workbook_adapter": "html_list",
-    "workbook_method": "html"
+    "workbook_method": "html",
+    "tier": "C"
   },
   {
     "id": "N-SC-002",
@@ -13873,7 +13878,8 @@
     "fetch_notes": "Card grid; B2B SaaS focus.",
     "source_file": "gpt_master",
     "workbook_adapter": "html_list",
-    "workbook_method": "html"
+    "workbook_method": "html",
+    "tier": "B"
   },
   {
     "id": "GEN-SF-012",
@@ -14772,7 +14778,8 @@
     "fetch_notes": "disabled 2026-03-12 - HTTP 404 on https://www.hustlefund.vc/portfolio",
     "source_file": "gpt_master",
     "workbook_adapter": "html_list",
-    "workbook_method": "html"
+    "workbook_method": "html",
+    "tier": "C"
   },
   {
     "id": "VP-US-068",
@@ -16131,7 +16138,8 @@
     "fetch_notes": "Card layout; JS-rendered—may need playwright",
     "source_file": "gpt_master",
     "workbook_adapter": "html_list",
-    "workbook_method": "html"
+    "workbook_method": "html",
+    "tier": "B"
   },
   {
     "id": "VP-SC-US-019",
@@ -16369,7 +16377,8 @@
     "fetch_notes": "Charles Hudson fund; flat portfolio page.",
     "source_file": "gpt_master",
     "workbook_adapter": "html_list",
-    "workbook_method": "html"
+    "workbook_method": "html",
+    "tier": "C"
   },
   {
     "id": "VP-SC-US-018",
@@ -16417,7 +16426,8 @@
     "fetch_notes": "Scrollable company list",
     "source_file": "gpt_master",
     "workbook_adapter": "html_list",
-    "workbook_method": "html"
+    "workbook_method": "html",
+    "tier": "B"
   },
   {
     "id": "ADJ-MED-007",
@@ -28563,5 +28573,4464 @@
     "source_file": "my_registry",
     "workbook_adapter": "html_list",
     "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_001_SEQUOIA_CAPITAL",
+    "name": "Sequoia Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.sequoiacap.com/companies/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.sequoiacap.com/companies/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_002_BESSEMER_VENTURE_",
+    "name": "Bessemer Venture Partners",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.bvp.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.bvp.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_003_KHOSLA_VENTURES",
+    "name": "Khosla Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.khoslaventures.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.khoslaventures.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_004_LIGHTSPEED_VENTUR",
+    "name": "Lightspeed Venture Partners",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://lsvp.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://lsvp.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_005_BENCHMARK",
+    "name": "Benchmark",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://benchmark.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://benchmark.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_006_IVP",
+    "name": "IVP",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.ivp.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.ivp.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_007_NEA",
+    "name": "NEA",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.nea.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.nea.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_008_BATTERY_VENTURES",
+    "name": "Battery Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.battery.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.battery.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_009_INDEX_VENTURES",
+    "name": "Index Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.indexventures.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.indexventures.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_010_KLEINER_PERKINS",
+    "name": "Kleiner Perkins",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.kleinerperkins.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.kleinerperkins.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_011_CRAFT_VENTURES",
+    "name": "Craft Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.craftventures.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.craftventures.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_012_EMERGENCE_CAPITAL",
+    "name": "Emergence Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.emcap.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.emcap.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_013_LUX_CAPITAL",
+    "name": "Lux Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://luxcapital.com/companies/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://luxcapital.com/companies/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_014_SCALE_VENTURE_PAR",
+    "name": "Scale Venture Partners",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.scalevp.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.scalevp.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_015_TCV",
+    "name": "TCV",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.tcv.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.tcv.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_016_NORWEST_VENTURE_P",
+    "name": "Norwest Venture Partners",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.nvp.com/companies/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.nvp.com/companies/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_017_MADRONA_VENTURE_G",
+    "name": "Madrona Venture Group",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://madrona.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://madrona.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_018_WIREFRAME_VENTURE",
+    "name": "Wireframe Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.wireframevc.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.wireframevc.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html",
+    "tier": "B"
+  },
+  {
+    "id": "VP_ADD_019_WARBURG_PINCUS",
+    "name": "Warburg Pincus",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.warburgpincus.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.warburgpincus.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_020_VISTA_EQUITY_PART",
+    "name": "Vista Equity Partners",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.vistaequitypartners.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.vistaequitypartners.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_021_FRANCISCO_PARTNER",
+    "name": "Francisco Partners",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.franciscopartners.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.franciscopartners.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_022_APAX_PARTNERS",
+    "name": "Apax Partners",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.apax.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.apax.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_023_KKR_GROWTH",
+    "name": "KKR Growth",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.kkr.com/businesses/growth-equity/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.kkr.com/businesses/growth-equity/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_024_BLACKSTONE_GROWTH",
+    "name": "Blackstone Growth",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.blackstone.com/our-businesses/growth-equity/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.blackstone.com/our-businesses/growth-equity/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_025_MCJ_COLLECTIVE",
+    "name": "MCJ Collective",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.mcj.vc/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.mcj.vc/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html",
+    "tier": "B"
+  },
+  {
+    "id": "VP_ADD_001_GENERAL_CATALYST",
+    "name": "General Catalyst",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.generalcatalyst.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.generalcatalyst.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_002_GREYLOCK",
+    "name": "Greylock",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://greylock.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://greylock.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_003_INSIGHT_PARTNERS",
+    "name": "Insight Partners",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.insightpartners.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.insightpartners.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_004_FOUNDERS_FUND",
+    "name": "Founders Fund",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://foundersfund.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://foundersfund.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_005_ACCEL",
+    "name": "Accel",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.accel.com/companies/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.accel.com/companies/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_006_GV_GOOGLE_VENTURE",
+    "name": "GV (Google Ventures)",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.gv.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.gv.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_007_ENERGY_IMPACT_PAR",
+    "name": "Energy Impact Partners",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.energyimpactpartners.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.energyimpactpartners.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_008_TRUCKS_VC",
+    "name": "Trucks VC",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.trucksvc.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.trucksvc.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html",
+    "tier": "B"
+  },
+  {
+    "id": "VP_ADD_001_TOUGH_TECH",
+    "name": "Tough Tech",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.toughtech.vc/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.toughtech.vc/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_002_MHS_CAPITAL",
+    "name": "MHS Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.mhscapital.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.mhscapital.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_003_QUIET_CAPITAL",
+    "name": "Quiet Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://quiet.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://quiet.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_004_INITIALIZED_CAPIT",
+    "name": "Initialized Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://initialized.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://initialized.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_005_UNCORK_CAPITAL",
+    "name": "Uncork Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.uncork.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.uncork.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_006_FELICIS_VENTURES",
+    "name": "Felicis Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.felicis.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.felicis.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_008_MODERNE_VENTURES",
+    "name": "Moderne Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.moderneventures.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.moderneventures.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_009_FIFTH_WALL",
+    "name": "Fifth Wall",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://fifthwall.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://fifthwall.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_010_AGILITY_CAPITAL",
+    "name": "Agility Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.agilitycapital.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.agilitycapital.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_011_COATUE_MANAGEMENT",
+    "name": "Coatue Management",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.coatue.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.coatue.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_012_GREENOAKS_CAPITAL",
+    "name": "Greenoaks Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.greenoaks.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.greenoaks.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_013_SOCIAL_CAPITAL",
+    "name": "Social Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.socialcapital.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.socialcapital.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_001_MENLO_VENTURES",
+    "name": "Menlo Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://menlovc.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://menlovc.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion; repaired URL 2026-03-12",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html",
+    "primary_url": "https://menlovc.com/portfolio/"
+  },
+  {
+    "id": "VP_ADD_002_REDPOINT_VENTURES",
+    "name": "Redpoint Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.redpoint.com/companies/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.redpoint.com/companies/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion; repaired URL 2026-03-12",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html",
+    "primary_url": "https://www.redpoint.com/companies/"
+  },
+  {
+    "id": "VP_ADD_003_CANAAN_PARTNERS",
+    "name": "Canaan Partners",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.canaan.com/companies/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.canaan.com/companies/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion; repaired URL 2026-03-12",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html",
+    "primary_url": "https://www.canaan.com/companies/"
+  },
+  {
+    "id": "VP_ADD_004_MAYFIELD",
+    "name": "Mayfield",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.mayfield.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.mayfield.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion; repaired URL 2026-03-12",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html",
+    "primary_url": "https://www.mayfield.com/portfolio/"
+  },
+  {
+    "id": "VP_ADD_005_BLING_CAPITAL",
+    "name": "Bling Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.blingcapital.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.blingcapital.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_006_SIGNALFIRE",
+    "name": "SignalFire",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://signalfire.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://signalfire.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_007_AMPLIFY_PARTNERS",
+    "name": "Amplify Partners",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.amplifypartners.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.amplifypartners.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_008_FIRST_ROUND_CAPIT",
+    "name": "First Round Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://firstround.com/review/companies/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://firstround.com/review/companies/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_009_RIBBIT_CAPITAL",
+    "name": "Ribbit Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.ribbit.com/investments/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.ribbit.com/investments/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion; repaired URL 2026-03-12",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html",
+    "primary_url": "https://www.ribbit.com/investments/"
+  },
+  {
+    "id": "VP_ADD_010_PILLAR_VC",
+    "name": "Pillar VC",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://pillar.vc/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://pillar.vc/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_011_PRIMARY_VENTURE_P",
+    "name": "Primary Venture Partners",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://primary.vc/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://primary.vc/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html",
+    "tier": "B"
+  },
+  {
+    "id": "VP_ADD_012_ALLEYCORP",
+    "name": "AlleyCorp",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.alleycorp.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.alleycorp.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_013_HUMAN_CAPITAL",
+    "name": "Human Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://humancapital.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://humancapital.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_014_AFORE_CAPITAL",
+    "name": "Afore Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.afore.vc/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.afore.vc/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_015_NFX",
+    "name": "NFX",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.nfx.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.nfx.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html",
+    "tier": "B"
+  },
+  {
+    "id": "VP_ADD_016_WING_VENTURE_CAPI",
+    "name": "Wing Venture Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://wing.vc/companies/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://wing.vc/companies/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion; repaired URL 2026-03-12",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html",
+    "primary_url": "https://wing.vc/companies/"
+  },
+  {
+    "id": "VP_ADD_017_PEAR_VC",
+    "name": "Pear VC",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://pear.vc/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://pear.vc/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html",
+    "tier": "B"
+  },
+  {
+    "id": "VP_ADD_018_BASIS_SET_VENTURE",
+    "name": "Basis Set Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.basisset.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.basisset.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html",
+    "tier": "B"
+  },
+  {
+    "id": "VP_ADD_019_FLOODGATE",
+    "name": "Floodgate",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://floodgate.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://floodgate.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_020_GINGERBREAD_CAPIT",
+    "name": "GingerBread Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.gingerbreadcap.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.gingerbreadcap.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_001_BLACKHORN_VENTURE",
+    "name": "Blackhorn Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.blackhorn.vc/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.blackhorn.vc/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_002_COUNTERPART_VENTU",
+    "name": "Counterpart Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://counterpartventures.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://counterpartventures.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_003_SWAY_VENTURES",
+    "name": "Sway Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.swayvc.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.swayvc.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_004_SLOW_VENTURES",
+    "name": "Slow Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://slow.co/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://slow.co/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_005_ZETTA_VENTURE_PAR",
+    "name": "Zetta Venture Partners",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.zettavp.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.zettavp.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_006_MOTIVE_VENTURES",
+    "name": "Motive Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.motiveventures.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.motiveventures.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_007_E14_FUND",
+    "name": "E14 Fund",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.e14fund.com/companies"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.e14fund.com/companies",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_008_SOMA_CAPITAL",
+    "name": "Soma Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.somacap.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.somacap.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_009_OMERS_VENTURES",
+    "name": "OMERS Ventures",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.omersventures.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.omersventures.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_010_MOURO_CAPITAL",
+    "name": "Mouro Capital",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.mourocapital.com/portfolio"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.mourocapital.com/portfolio",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_001_FOUNDRY_GROUP",
+    "name": "Foundry Group",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://foundry.vc/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://foundry.vc/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_002_DCVC",
+    "name": "DCVC",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://www.dcvc.com/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://www.dcvc.com/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_ADD_003_M12",
+    "name": "M12",
+    "region": "US",
+    "category": "venture_portfolio",
+    "thesis_tags": [
+      "supply_chain",
+      "manufacturing",
+      "industrial_ai",
+      "agtech",
+      "procurement"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "series_b",
+      "series_c"
+    ],
+    "method": {
+      "type": "html",
+      "url": "https://m12.vc/portfolio/"
+    },
+    "cadence": {
+      "tier": "A",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "adapter": "html_list",
+    "notes": "Added by add-top-vcs.js for thesis-aligned US VC expansion.",
+    "disabled": false,
+    "update_cadence": "weekly",
+    "cron_expression": "0 6 * * 1",
+    "schedule_type": "rolling_cadence",
+    "incremental_strategy": "delta_by_domain",
+    "dedup_key": "company_domain",
+    "signal_type": "portfolio_page_scrape",
+    "staleness_threshold_days": 7,
+    "url": "https://m12.vc/portfolio/",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "review_rule": "dedupe on company name+domain; require thesis fit for adjacent/generalist",
+    "fetch_notes": "Added by add-top-vcs.js — top US VC expansion",
+    "source_file": "codex_top_vc_expansion",
+    "workbook_adapter": "html_list",
+    "workbook_method": "html"
+  },
+  {
+    "id": "VP_US_UNSHACKLED_VENTURES",
+    "name": "Unshackled Ventures",
+    "type": "vc_fund",
+    "category": "venture_portfolio",
+    "tier": "C",
+    "region": "US",
+    "thesis_tags": [
+      "Supply Chain",
+      "Logistics",
+      "Manufacturing",
+      "Agtech",
+      "Fintech",
+      "AI/ML",
+      "Deep Tech",
+      "Climate Tech",
+      "Procurement",
+      "B2B Software",
+      "Industrial SaaS"
+    ],
+    "primary_url": "https://www.unshackledvc.com/portfolio",
+    "method": {
+      "type": "html",
+      "url": "https://www.unshackledvc.com/portfolio"
+    },
+    "adapter": "html_list",
+    "enabled": true,
+    "disabled": false,
+    "signal_type": "portfolio_page_scrape",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "fetch_notes": "early-stage-expansion batch 2026",
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "cadence": {
+      "tier": "C",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "notes": "Added for early-stage thesis-aligned VC expansion.",
+    "url": "https://www.unshackledvc.com/portfolio"
+  },
+  {
+    "id": "VP_US_BOOST_VC",
+    "name": "Boost VC",
+    "type": "vc_fund",
+    "category": "venture_portfolio",
+    "tier": "C",
+    "region": "US",
+    "thesis_tags": [
+      "Supply Chain",
+      "Logistics",
+      "Manufacturing",
+      "Agtech",
+      "Fintech",
+      "AI/ML",
+      "Deep Tech",
+      "Climate Tech",
+      "Procurement",
+      "B2B Software",
+      "Industrial SaaS"
+    ],
+    "primary_url": "https://www.boost.vc/portfolio",
+    "method": {
+      "type": "html",
+      "url": "https://www.boost.vc/portfolio"
+    },
+    "adapter": "html_list",
+    "enabled": true,
+    "disabled": false,
+    "signal_type": "portfolio_page_scrape",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "fetch_notes": "early-stage-expansion batch 2026",
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "cadence": {
+      "tier": "C",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "notes": "Added for early-stage thesis-aligned VC expansion.",
+    "url": "https://www.boost.vc/portfolio"
+  },
+  {
+    "id": "VP_US_FOUNDATION_CAPITAL",
+    "name": "Foundation Capital",
+    "type": "vc_fund",
+    "category": "venture_portfolio",
+    "tier": "B",
+    "region": "US",
+    "thesis_tags": [
+      "Supply Chain",
+      "Logistics",
+      "Manufacturing",
+      "Agtech",
+      "Fintech",
+      "AI/ML",
+      "Deep Tech",
+      "Climate Tech",
+      "Procurement",
+      "B2B Software",
+      "Industrial SaaS"
+    ],
+    "primary_url": "https://foundationcapital.com/companies",
+    "method": {
+      "type": "html",
+      "url": "https://foundationcapital.com/companies"
+    },
+    "adapter": "html_list",
+    "enabled": true,
+    "disabled": false,
+    "signal_type": "portfolio_page_scrape",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "fetch_notes": "early-stage-expansion batch 2026",
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "notes": "Added for early-stage thesis-aligned VC expansion.",
+    "url": "https://foundationcapital.com/companies"
+  },
+  {
+    "id": "VP_US_ISELECT_FUND",
+    "name": "iSelect Fund",
+    "type": "vc_fund",
+    "category": "venture_portfolio",
+    "tier": "C",
+    "region": "US",
+    "thesis_tags": [
+      "Supply Chain",
+      "Logistics",
+      "Manufacturing",
+      "Agtech",
+      "Fintech",
+      "AI/ML",
+      "Deep Tech",
+      "Climate Tech",
+      "Procurement",
+      "B2B Software",
+      "Industrial SaaS"
+    ],
+    "primary_url": "https://www.iselectfund.com/portfolio",
+    "method": {
+      "type": "html",
+      "url": "https://www.iselectfund.com/portfolio"
+    },
+    "adapter": "html_list",
+    "enabled": true,
+    "disabled": false,
+    "signal_type": "portfolio_page_scrape",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "fetch_notes": "early-stage-expansion batch 2026",
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "cadence": {
+      "tier": "C",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "notes": "Added for early-stage thesis-aligned VC expansion.",
+    "url": "https://www.iselectfund.com/portfolio"
+  },
+  {
+    "id": "VP_US_SPRINGTIME_VENTURES",
+    "name": "SpringTime Ventures",
+    "type": "vc_fund",
+    "category": "venture_portfolio",
+    "tier": "C",
+    "region": "US",
+    "thesis_tags": [
+      "Supply Chain",
+      "Logistics",
+      "Manufacturing",
+      "Agtech",
+      "Fintech",
+      "AI/ML",
+      "Deep Tech",
+      "Climate Tech",
+      "Procurement",
+      "B2B Software",
+      "Industrial SaaS"
+    ],
+    "primary_url": "https://springtimeventures.com/portfolio",
+    "method": {
+      "type": "html",
+      "url": "https://springtimeventures.com/portfolio"
+    },
+    "adapter": "html_list",
+    "enabled": true,
+    "disabled": false,
+    "signal_type": "portfolio_page_scrape",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "fetch_notes": "early-stage-expansion batch 2026",
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "cadence": {
+      "tier": "C",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "notes": "Added for early-stage thesis-aligned VC expansion.",
+    "url": "https://springtimeventures.com/portfolio"
+  },
+  {
+    "id": "VP_US_1SHARPE_VENTURES",
+    "name": "1Sharpe Ventures",
+    "type": "vc_fund",
+    "category": "venture_portfolio",
+    "tier": "C",
+    "region": "US",
+    "thesis_tags": [
+      "Supply Chain",
+      "Logistics",
+      "Manufacturing",
+      "Agtech",
+      "Fintech",
+      "AI/ML",
+      "Deep Tech",
+      "Climate Tech",
+      "Procurement",
+      "B2B Software",
+      "Industrial SaaS"
+    ],
+    "primary_url": "https://1sharpe.com/portfolio",
+    "method": {
+      "type": "html",
+      "url": "https://1sharpe.com/portfolio"
+    },
+    "adapter": "html_list",
+    "enabled": true,
+    "disabled": false,
+    "signal_type": "portfolio_page_scrape",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "fetch_notes": "early-stage-expansion batch 2026",
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "cadence": {
+      "tier": "C",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "notes": "Added for early-stage thesis-aligned VC expansion.",
+    "url": "https://1sharpe.com/portfolio"
+  },
+  {
+    "id": "VP_US_LACONIA_CAPITAL",
+    "name": "Laconia Capital",
+    "type": "vc_fund",
+    "category": "venture_portfolio",
+    "tier": "C",
+    "region": "US",
+    "thesis_tags": [
+      "Supply Chain",
+      "Logistics",
+      "Manufacturing",
+      "Agtech",
+      "Fintech",
+      "AI/ML",
+      "Deep Tech",
+      "Climate Tech",
+      "Procurement",
+      "B2B Software",
+      "Industrial SaaS"
+    ],
+    "primary_url": "https://laconiacapital.com/portfolio",
+    "method": {
+      "type": "html",
+      "url": "https://laconiacapital.com/portfolio"
+    },
+    "adapter": "html_list",
+    "enabled": true,
+    "disabled": false,
+    "signal_type": "portfolio_page_scrape",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "fetch_notes": "early-stage-expansion batch 2026",
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "cadence": {
+      "tier": "C",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "notes": "Added for early-stage thesis-aligned VC expansion.",
+    "url": "https://laconiacapital.com/portfolio"
+  },
+  {
+    "id": "VP_US_FIKA_VENTURES",
+    "name": "Fika Ventures",
+    "type": "vc_fund",
+    "category": "venture_portfolio",
+    "tier": "B",
+    "region": "US",
+    "thesis_tags": [
+      "Supply Chain",
+      "Logistics",
+      "Manufacturing",
+      "Agtech",
+      "Fintech",
+      "AI/ML",
+      "Deep Tech",
+      "Climate Tech",
+      "Procurement",
+      "B2B Software",
+      "Industrial SaaS"
+    ],
+    "primary_url": "https://fika.vc/portfolio",
+    "method": {
+      "type": "html",
+      "url": "https://fika.vc/portfolio"
+    },
+    "adapter": "html_list",
+    "enabled": true,
+    "disabled": false,
+    "signal_type": "portfolio_page_scrape",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "fetch_notes": "early-stage-expansion batch 2026",
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "notes": "Added for early-stage thesis-aligned VC expansion.",
+    "url": "https://fika.vc/portfolio"
+  },
+  {
+    "id": "VP_US_OSAGE_VENTURE_PARTN",
+    "name": "Osage Venture Partners",
+    "type": "vc_fund",
+    "category": "venture_portfolio",
+    "tier": "B",
+    "region": "US",
+    "thesis_tags": [
+      "Supply Chain",
+      "Logistics",
+      "Manufacturing",
+      "Agtech",
+      "Fintech",
+      "AI/ML",
+      "Deep Tech",
+      "Climate Tech",
+      "Procurement",
+      "B2B Software",
+      "Industrial SaaS"
+    ],
+    "primary_url": "https://osageventurepartners.com/portfolio",
+    "method": {
+      "type": "html",
+      "url": "https://osageventurepartners.com/portfolio"
+    },
+    "adapter": "html_list",
+    "enabled": true,
+    "disabled": false,
+    "signal_type": "portfolio_page_scrape",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "fetch_notes": "early-stage-expansion batch 2026",
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "cadence": {
+      "tier": "B",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "notes": "Added for early-stage thesis-aligned VC expansion.",
+    "url": "https://osageventurepartners.com/portfolio"
+  },
+  {
+    "id": "VP_US_SINWAVE_VENTURES",
+    "name": "SinWave Ventures",
+    "type": "vc_fund",
+    "category": "venture_portfolio",
+    "tier": "C",
+    "region": "US",
+    "thesis_tags": [
+      "Supply Chain",
+      "Logistics",
+      "Manufacturing",
+      "Agtech",
+      "Fintech",
+      "AI/ML",
+      "Deep Tech",
+      "Climate Tech",
+      "Procurement",
+      "B2B Software",
+      "Industrial SaaS"
+    ],
+    "primary_url": "https://sinwaveventures.com/portfolio",
+    "method": {
+      "type": "html",
+      "url": "https://sinwaveventures.com/portfolio"
+    },
+    "adapter": "html_list",
+    "enabled": true,
+    "disabled": false,
+    "signal_type": "portfolio_page_scrape",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "fetch_notes": "early-stage-expansion batch 2026",
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "cadence": {
+      "tier": "C",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "notes": "Added for early-stage thesis-aligned VC expansion.",
+    "url": "https://sinwaveventures.com/portfolio"
+  },
+  {
+    "id": "VP_US_FACTOR_E_VENTURES",
+    "name": "Factor[e] Ventures",
+    "type": "vc_fund",
+    "category": "venture_portfolio",
+    "tier": "C",
+    "region": "US",
+    "thesis_tags": [
+      "Supply Chain",
+      "Logistics",
+      "Manufacturing",
+      "Agtech",
+      "Fintech",
+      "AI/ML",
+      "Deep Tech",
+      "Climate Tech",
+      "Procurement",
+      "B2B Software",
+      "Industrial SaaS"
+    ],
+    "primary_url": "https://factore.vc/portfolio",
+    "method": {
+      "type": "html",
+      "url": "https://factore.vc/portfolio"
+    },
+    "adapter": "html_list",
+    "enabled": true,
+    "disabled": false,
+    "signal_type": "portfolio_page_scrape",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "fetch_notes": "early-stage-expansion batch 2026",
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "cadence": {
+      "tier": "C",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "notes": "Added for early-stage thesis-aligned VC expansion.",
+    "url": "https://factore.vc/portfolio"
+  },
+  {
+    "id": "VP_US_OVNI_CAPITAL",
+    "name": "Ovni Capital",
+    "type": "vc_fund",
+    "category": "venture_portfolio",
+    "tier": "C",
+    "region": "US",
+    "thesis_tags": [
+      "Supply Chain",
+      "Logistics",
+      "Manufacturing",
+      "Agtech",
+      "Fintech",
+      "AI/ML",
+      "Deep Tech",
+      "Climate Tech",
+      "Procurement",
+      "B2B Software",
+      "Industrial SaaS"
+    ],
+    "primary_url": "https://ovnicap.com/portfolio",
+    "method": {
+      "type": "html",
+      "url": "https://ovnicap.com/portfolio"
+    },
+    "adapter": "html_list",
+    "enabled": true,
+    "disabled": false,
+    "signal_type": "portfolio_page_scrape",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "fetch_notes": "early-stage-expansion batch 2026",
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "cadence": {
+      "tier": "C",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "notes": "Added for early-stage thesis-aligned VC expansion.",
+    "url": "https://ovnicap.com/portfolio"
+  },
+  {
+    "id": "VP_US_BETA_BOOM",
+    "name": "Beta Boom",
+    "type": "vc_fund",
+    "category": "venture_portfolio",
+    "tier": "C",
+    "region": "US",
+    "thesis_tags": [
+      "Supply Chain",
+      "Logistics",
+      "Manufacturing",
+      "Agtech",
+      "Fintech",
+      "AI/ML",
+      "Deep Tech",
+      "Climate Tech",
+      "Procurement",
+      "B2B Software",
+      "Industrial SaaS"
+    ],
+    "primary_url": "https://betaboom.com/portfolio",
+    "method": {
+      "type": "html",
+      "url": "https://betaboom.com/portfolio"
+    },
+    "adapter": "html_list",
+    "enabled": true,
+    "disabled": false,
+    "signal_type": "portfolio_page_scrape",
+    "evidence_role": "primary",
+    "signal_weight": "high",
+    "fetch_notes": "early-stage-expansion batch 2026",
+    "stage_bias": [
+      "pre_seed",
+      "seed",
+      "series_a"
+    ],
+    "cadence": {
+      "tier": "C",
+      "frequency": "weekly"
+    },
+    "query_strategy": {
+      "type": "list_page"
+    },
+    "requires_auth": false,
+    "notes": "Added for early-stage thesis-aligned VC expansion.",
+    "url": "https://betaboom.com/portfolio"
   }
 ]

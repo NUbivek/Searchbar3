@@ -281,11 +281,19 @@ async function runSource(source, context) {
   let droppedInvalidCompanyNameCount = 0;
 
   for (const item of items) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+
     const signal = normalizeSignal({
       source,
       item,
       query: context.query || '',
     });
+
+    if (!signal || typeof signal !== 'object') {
+      continue;
+    }
 
     if (!isValidCompanyName(signal.company_name)) {
       droppedInvalidCompanyNameCount += 1;
@@ -447,6 +455,7 @@ module.exports = {
   isSourceDisabled,
   matchesExecutionMode,
   pruneRecentRunTimestamps,
+  runSource,
   runPipeline,
   shouldRunSource,
 };
