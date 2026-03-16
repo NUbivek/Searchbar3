@@ -68,8 +68,13 @@ function cleanSectorOptions(rows = [], facetSectors = []) {
     'Applied AI': 'AI/ML',
     Automation: 'Robotics',
   };
+  const facetSectorValues = Array.isArray(facetSectors)
+    ? facetSectors
+    : (facetSectors && typeof facetSectors === 'object')
+      ? Object.keys(facetSectors)
+      : [];
   const values = [
-    ...facetSectors,
+    ...facetSectorValues,
     ...rows.flatMap((row) => Array.isArray(row.thesis_tags) ? row.thesis_tags : []),
   ];
   return ['all', ...Array.from(new Set(

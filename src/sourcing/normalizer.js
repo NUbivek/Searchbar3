@@ -1,6 +1,8 @@
 const crypto = require('crypto');
 const { buildFundingEnrichment, buildHiringEnrichment, buildInvestorEnrichment, buildWebsiteEnrichment } = require('./enrichment');
 const { isValidCompanyName } = require('./signalSchema');
+const FilterLog = require('./filterLog');
+const sectorExpansion = require('../../sources/sector_expansion.json');
 
 const STAGE_PATTERNS = [
   { stage: 'pre-seed', pattern: /\bpre[\s-]?seed\b/i },
@@ -258,6 +260,56 @@ const SECTOR_MAP = {
   Retail_tech: 'Retail Tech',
   Marketplace: 'Retail Tech',
 };
+
+function normalizeSectorText(value) {
+  return String(value || '').toLowerCase().trim();
+}
+
+function classifySector(row = {}) {
+  const thesisSectors = Array.isArray(sectorExpansion.thesis_sectors)
+    ? sectorExpansion.thesis_sectors
+    : [];
+  const expandedSectors = Array.isArray(sectorExpansion.expanded_sectors)
+    ? sectorExpansion.expanded_sectors
+    : [];
+  const textParts = [
+    row.description,
+    row.company_name,
+    row.source_name,
+    row.industry,
+    row.category,
+    ...(Array.isArray(row.thesis_tags) ? row.thesis_tags : []),
+  ].filter(Boolean);
+  const rowText = textParts.join(' ').toLowerCase();
+
+  for (const tag of thesisSectors) {
+    const normalizedTag = normalizeSectorText(tag);
+    if (!normalizedTag) continue;
+    if (rowText.includes(normalizedTag) || rowText.includes(normalizedTag.replace(/-/g, ' '))) {
+      return {
+        sector: 'thesis',
+        sector_name: 'Thesis-aligned',
+        thesis_match: tag,
+      };
+    }
+  }
+
+  const industry = normalizeSectorText(row.industry || row.category);
+  for (const sector of expandedSectors) {
+    const matchKeywords = Array.isArray(sector.match_keywords) ? sector.match_keywords : [];
+    const matchIndustries = Array.isArray(sector.match_industries) ? sector.match_industries : [];
+    if (matchKeywords.some((kw) => rowText.includes(normalizeSectorText(kw)))) {
+      return { sector: sector.id, sector_name: sector.name };
+    }
+    if (industry && matchIndustries.some((value) => normalizeSectorText(value) === industry)) {
+      return { sector: sector.id, sector_name: sector.name };
+    }
+  }
+
+  const fallbackSector = sectorExpansion.classification_rules?.fallback_sector || 'EXP-TIC';
+  const fallbackName = expandedSectors.find((sector) => sector.id === fallbackSector)?.name || 'Consumer, Media & Other';
+  return { sector: fallbackSector, sector_name: fallbackName };
+}
 
 const CANONICAL_TAG_VALUES = new Set(Object.values(CANONICAL_TAGS));
 const UI_JUNK_PATTERN = /^(load more|see more|view all|show more|read more|learn more|find out more|explore|apply now|get started|sign up|log in|login|sign in|register|subscribe|contact us|about us|our team|meet the team|news insights|job board|careers|open roles|newsletter|follow us|privacy policy|terms|cookie|back to top|scroll|menu|navigation|footer|header|general funding|impact|growth|innovation|solutions|insights|report|update|announcement|press release|blog post|case study|webinar|event|demo day|pitch deck|filters here|supply chain integrations|world positive report|open lp|substack|linkedin icon|twitter x icon|facebook icon|instagram icon|youtube icon|campus|recent investments|university (library|news))$/i;
@@ -719,7 +771,7 @@ function normalizeSignalWeight(value) {
   return 'low';
 }
 
-function normalizeSignal({ source, item, query }) {
+function buildNormalizedSignal({ source, item, query }) {
   const companyName = stripNamePrefixes(inferCompanyName(item));
   const itemUrl = canonicalizeUrl(item.url || item.link || '');
   const publishedAt = item.publishedAt || item.pubDate || new Date().toISOString();
@@ -734,7 +786,11 @@ function normalizeSignal({ source, item, query }) {
     || deriveWebsiteFromItemUrl({ itemUrl, sourceUrl });
   const companyDomain = companyDomainFromWebsite(companyWebsite) || extractDomain(companyWebsite);
   if (isNonStartupDomain(companyDomain)) {
-    return null;
+    return {
+      signal: null,
+      dropReason: 'host_allowlist',
+      droppedName: companyName || item.title || item.name || '',
+    };
   }
   const stageGuess = inferStageGuess({ source, item });
   const enrichment = buildWebsiteEnrichment({
@@ -751,42 +807,85 @@ function normalizeSignal({ source, item, query }) {
   const description = sourceGroundedDescription({ source, thesisTags });
   thesisTags = refineSaasTag(thesisTags, description, source.name || '');
   const stage = toDisplayStage(stageGuess);
-  const normalizedCompanyName = isValidCompanyName(companyName) && !isJunkName(companyName) ? companyName : '';
+  const normalizedCompanyName = companyName;
+  if (!isValidCompanyName(companyName) || isJunkName(companyName)) {
+    return {
+      signal: null,
+      dropReason: 'blocked_names',
+      droppedName: companyName || item.title || item.name || '',
+    };
+  }
+  const classification = classifySector({
+    company_name: normalizedCompanyName,
+    description,
+    source_name: source.name,
+    thesis_tags: thesisTags,
+    industry: item.industry,
+    category: item.category,
+  });
 
   return {
-    signal_id: createSignalId([source.id, normalizedCompanyName, itemUrl, publishedAt]),
-    company_name: normalizedCompanyName,
-    company_website: companyWebsite,
-    company_domain: companyDomain,
-    description,
-    stage,
-    stage_guess: stageGuess,
-    thesis_tags: thesisTags,
-    region: normalizeRegion(source.region || ''),
-    region_guess: normalizeRegion(source.region || 'GLOBAL'),
-    signal_type: item.signal_type || 'mention',
-    source_id: source.id,
-    source_name: source.name,
-    evidence_role: source.evidence_role || '',
-    signal_weight: normalizeSignalWeight(source.signal_weight),
-    source_url: sourceUrl,
-    item_url: itemUrl,
-    published_at: publishedAt,
-    discovered_at: new Date().toISOString(),
-    evidence: {
-      title: item.title || '',
-      excerpt: String(item.content || item.snippet || '').slice(0, 500),
-      raw_query: query || '',
+    signal: {
+      signal_id: createSignalId([source.id, normalizedCompanyName, itemUrl, publishedAt]),
+      company_name: normalizedCompanyName,
+      company_website: companyWebsite,
+      company_domain: companyDomain,
+      description,
+      sector_class: classification.sector,
+      sector_name: classification.sector_name || 'Thesis-aligned',
+      stage,
+      stage_guess: stageGuess,
+      thesis_tags: thesisTags,
+      region: normalizeRegion(source.region || ''),
+      region_guess: normalizeRegion(source.region || 'GLOBAL'),
+      signal_type: item.signal_type || 'mention',
+      source_id: source.id,
+      source_name: source.name,
+      evidence_role: source.evidence_role || '',
+      signal_weight: normalizeSignalWeight(source.signal_weight),
+      source_url: sourceUrl,
+      item_url: itemUrl,
+      published_at: publishedAt,
+      discovered_at: new Date().toISOString(),
+      evidence: {
+        title: item.title || '',
+        excerpt: String(item.content || item.snippet || '').slice(0, 500),
+        raw_query: query || '',
+      },
+      confidence: scoring.confidence,
+      score_components: scoring.components,
+      enrichment: {
+        ...enrichment,
+        ...fundingEnrichment,
+        ...hiringEnrichment,
+        ...investorEnrichment,
+      },
     },
-    confidence: scoring.confidence,
-    score_components: scoring.components,
-    enrichment: {
-      ...enrichment,
-      ...fundingEnrichment,
-      ...hiringEnrichment,
-      ...investorEnrichment,
-    },
+    dropReason: null,
   };
+}
+
+function normalizeSignal({ source, item, query }) {
+  return buildNormalizedSignal({ source, item, query }).signal;
+}
+
+function normalizeSignals({ source, items, query }) {
+  const log = new FilterLog();
+  const validItems = Array.isArray(items) ? items.filter((item) => item && typeof item === 'object') : [];
+  const results = validItems.map((item) => buildNormalizedSignal({ source, item, query }));
+
+  const hostDropped = results.filter((entry) => entry.dropReason === 'host_allowlist');
+  log.stage('host_allowlist', results.length, results.length - hostDropped.length, hostDropped.map((entry) => entry.droppedName).filter(Boolean));
+
+  const afterHost = results.filter((entry) => entry.dropReason !== 'host_allowlist');
+  const blockedNames = afterHost.filter((entry) => entry.dropReason === 'blocked_names');
+  log.stage('blocked_names', afterHost.length, afterHost.length - blockedNames.length, blockedNames.map((entry) => entry.droppedName).filter(Boolean));
+
+  const survivors = afterHost.filter((entry) => !entry.dropReason).map((entry) => entry.signal).filter(Boolean);
+  log.stage('sector_classification', survivors.length, survivors.length, []);
+  log.report();
+
+  return survivors;
 }
 
 module.exports = {
@@ -802,5 +901,7 @@ module.exports = {
   normalizeCompanyName,
   cleanThesisTags,
   normalizeRegion,
+  normalizeSignals,
+  classifySector,
   normalizeSignal,
 };

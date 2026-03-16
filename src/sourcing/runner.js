@@ -1,7 +1,7 @@
 const { CategoryExportWriter } = require('./categoryExport');
 const { CrmExportWriter } = require('./crmExport');
 const { ensureDedupeState, shouldEmitSignal } = require('./dedupe');
-const { normalizeSignal } = require('./normalizer');
+const { normalizeSignals } = require('./normalizer');
 const { loadRegistry } = require('./registry');
 const { createAdapter } = require('./adapters');
 const { RunReportWriter } = require('./runReport');
@@ -275,30 +275,18 @@ async function runSource(source, context) {
   const adapter = createAdapter(source, { timeoutMs: context.timeoutMs });
   const items = await adapter.run({ query: context.query || '' });
   const seenBySource = context.state.seen_signal_ids[source.id] || {};
+  const normalizedSignals = normalizeSignals({
+    source,
+    items,
+    query: context.query || '',
+  });
   const newSignals = [];
   let dedupedCount = 0;
   let filteredCount = 0;
   let droppedInvalidCompanyNameCount = 0;
 
-  for (const item of items) {
-    if (!item || typeof item !== 'object') {
-      continue;
-    }
-
-    const signal = normalizeSignal({
-      source,
-      item,
-      query: context.query || '',
-    });
-
-    if (!signal || typeof signal !== 'object') {
-      continue;
-    }
-
-    if (!isValidCompanyName(signal.company_name)) {
-      droppedInvalidCompanyNameCount += 1;
-      continue;
-    }
+  for (const signal of normalizedSignals) {
+    if (!signal || typeof signal !== 'object') continue;
 
     if (seenBySource[signal.signal_id]) {
       continue;

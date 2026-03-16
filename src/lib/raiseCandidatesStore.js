@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { parse } from 'csv-parse/sync';
-import { scoreRaiseLikelihood } from './raiseScoring';
-import { cleanThesisTags } from '../sourcing/normalizer';
+import { scoreRaiseLikelihood } from './raiseScoring.js';
+import { cleanThesisTags, classifySector } from '../sourcing/normalizer.js';
 
 const SOURCING_ROOT = path.resolve(process.cwd(), '..', 'sourcing101');
 const STARTUP_WATCH_ROOT = path.join(SOURCING_ROOT, 'startup_watch');
@@ -215,6 +215,27 @@ function sectorFilterValues(sector = '') {
   return SECTOR_FILTER_ALIASES[raw] || [raw];
 }
 
+function resolveSectorMetadata(row = {}) {
+  if (row.sector_class || row.sector_name) {
+    return {
+      sector_class: row.sector_class || 'thesis',
+      sector_name: row.sector_name || 'Thesis-aligned',
+    };
+  }
+  const classification = classifySector({
+    company_name: row.company_name || row.startup_name,
+    description: row.description,
+    source_name: row.source_name || row.source_key,
+    thesis_tags: normalizeSignalTags(row.thesis_tags),
+    industry: row.industry || row.sector || row.category,
+    category: row.category,
+  });
+  return {
+    sector_class: classification.sector || 'thesis',
+    sector_name: classification.sector_name || 'Thesis-aligned',
+  };
+}
+
 function normalizeSignalTags(tags) {
   if (Array.isArray(tags)) return tags.map((tag) => String(tag || '').trim()).filter(Boolean);
   if (typeof tags === 'string') return tags.split(/[,|;]/).map((tag) => tag.trim()).filter(Boolean);
@@ -234,6 +255,9 @@ function isJunkSignal(sig = {}) {
 function shouldAdmit(sig = {}) {
   if (isJunkSignal(sig)) return false;
   const tags = normalizeSignalTags(sig.thesis_tags);
+  const sectorClass = String(sig.sector_class || '').trim();
+  const isFilteredPitchbook = String(sig.source_name || '') === 'Filtered Pitchbook' || String(sig.source_id || '') === 'UPL-FPB-001';
+  const isUploadedDataset = String(sig.signal_type || '') === 'uploaded_dataset';
   if (tags.length > 0) {
     if (sig.company_domain || sig.company_website || sig.startup_url || sig.company_name || sig.startup_name) {
       return true;
@@ -241,6 +265,8 @@ function shouldAdmit(sig = {}) {
   }
   const name = cleanText(sig.company_name || sig.startup_name || '');
   if (!name || name.length < 2) return false;
+  if ((isFilteredPitchbook || isUploadedDataset) && (sectorClass || name)) return true;
+  if (sectorClass) return true;
   if (!sig.company_domain && !sig.company_website && !sig.startup_url) return false;
   return true;
 }
@@ -1391,6 +1417,8 @@ function loadRealSourceRows() {
               confidence: obj.confidence,
               thesis_tags: normalizeSignalTags(obj.thesis_tags || thesisTags),
               sector: thesisTags[0] || 'General',
+              sector_class: obj.sector_class || '',
+              sector_name: obj.sector_name || '',
               funding_amount_guess: obj.enrichment?.funding_amount_guess || null,
               funding_signal: obj.enrichment?.funding_signal || '',
               investor_signal: obj.enrichment?.investor_signal || '',
@@ -1510,6 +1538,8 @@ function loadRealSourceRows() {
         last_round_date: lastRound,
         headcount,
         sector,
+        sector_class: cleanText(pick(r, ['sector_class'])) || '',
+        sector_name: cleanText(pick(r, ['sector_name'])) || '',
         thesis_tags: thesisTags,
         confidence: 0.6,
         evidence_role: cleanText(pick(r, ['evidence_role'])) || '',
@@ -1529,7 +1559,9 @@ function loadRealSourceRows() {
 
       if (csvPath.toLowerCase().endsWith('.jsonl')) {
         const strongMention = distinctWebsite || fundingSignal === 'present' || investorSignal === 'present' || (hiringSignal && hiringSignal !== 'none');
-        if (signalType !== 'directory_listing' && !strongMention && thesisTags.length === 0) continue;
+        const hasSectorClassification = Boolean(normalized.sector_class || normalized.sector_name);
+        const isSparseUpload = signalType === 'uploaded_dataset' || source === 'Filtered Pitchbook' || sourceIdRaw === 'UPL-FPB-001';
+        if (signalType !== 'directory_listing' && !isSparseUpload && !strongMention && thesisTags.length === 0 && !hasSectorClassification) continue;
       }
       if (!shouldAdmit({
         company_name: normalized.startup_name,
@@ -1537,6 +1569,10 @@ function loadRealSourceRows() {
         company_website: normalized.startup_url,
         startup_url: normalized.startup_url,
         thesis_tags: normalized.thesis_tags,
+        sector_class: normalized.sector_class,
+        source_name: source,
+        source_id: sourceIdRaw,
+        signal_type: normalized.signal_type,
       }) && normalized.signal_type !== 'directory_listing') continue;
       out.push(normalized);
     }
@@ -1555,6 +1591,7 @@ function toCandidate(row, idx) {
   if (rejectStealthPlaceholder(mergedRow)) {
     return null;
   }
+  const sectorMeta = resolveSectorMetadata(mergedRow);
   const monthsSinceLastRound = monthsSince(mergedRow.last_round_date);
   const acceleratorRecent = hasAcceleratorSignal(mergedRow.raw_signal_text) || hasAcceleratorSignal(mergedRow.description);
   const momentumScore = Math.min(18, Math.max(4, mergedRow.description ? 12 : 7));
@@ -1599,6 +1636,8 @@ function toCandidate(row, idx) {
     source_summary: summarizeSource(sourceMeta.source_name || mergedRow.source_key, mergedRow.source_url),
     stage_summary: summarizeStage(mergedRow.stage),
     sector: mergedRow.sector,
+    sector_class: sectorMeta.sector_class,
+    sector_name: sectorMeta.sector_name,
     thesis_tags: Array.isArray(mergedRow.thesis_tags) ? mergedRow.thesis_tags : cleanThesisTags(mergedRow.sector),
     stage: mergedRow.stage,
     hq_country: mergedRow.hq_country,
@@ -1660,6 +1699,11 @@ export async function refreshLocalIngestion() {
     filesCount,
     mode: 'real_source_file',
   };
+}
+
+export async function load() {
+  const { rows } = loadRealSourceRows();
+  return rows.map((row, idx) => toCandidate(row, idx)).filter(Boolean);
 }
 
 function classifyCandidateRow(row) {
@@ -1751,21 +1795,34 @@ function validateCandidateRow(row) {
     company_website: row.startup_url,
     startup_url: row.startup_url,
     thesis_tags: row.thesis_tags,
+    sector_class: row.sector_class,
+    source_name: row.source_name,
+    source_id: row.source_id,
+    signal_type: row.signal_type,
   });
+  const isFilteredPitchbook = row.source_name === 'Filtered Pitchbook' || row.source_id === 'UPL-FPB-001';
   const highValueLaterStage = ['Series A', 'Series B', 'Series C', 'Series D+'].includes(String(row.stage || ''))
     && hasHighValueThesisTag(row)
     && Boolean(row.company_domain || row.startup_url || row.company_website)
     && !isGenericInstitutionPlaceholder(row)
     && !looksLikeUiLabel(row.startup_name || '')
     && !isExactJunkName(row.startup_name || '');
+  const uploadedDatasetOverride = isFilteredPitchbook
+    && admitted
+    && clean
+    && !isGenericInstitutionPlaceholder(row)
+    && !looksLikeUiLabel(row.startup_name || '')
+    && !isExactJunkName(row.startup_name || '');
   return {
-    ok: admitted && (cls.type.startsWith('company_') || highValueLaterStage || hasHighValueThesisTag(row)) && clean,
+    ok: (admitted && (cls.type.startsWith('company_') || highValueLaterStage || hasHighValueThesisTag(row)) && clean) || uploadedDatasetOverride,
     classType: cls.type,
     classConfidence: cls.confidence,
     clean,
-    reasons: highValueLaterStage && !cls.type.startsWith('company_')
-      ? [...cls.reasons, 'later_stage_thesis_override']
-      : cls.reasons,
+    reasons: uploadedDatasetOverride
+      ? [...cls.reasons, 'filtered_pitchbook_sparse_override']
+      : highValueLaterStage && !cls.type.startsWith('company_')
+        ? [...cls.reasons, 'later_stage_thesis_override']
+        : cls.reasons,
   };
 }
 
@@ -1796,8 +1853,8 @@ function diversifyBySourceHost(rows, maxPerHost = 25) {
 
 export async function getRaiseCandidates(filters = {}) {
   const {
-    likelyOnly = true,
-    minScore = 60,
+    likelyOnly = false,
+    minScore = 0,
     stage,
     country,
     region,
@@ -1814,7 +1871,7 @@ export async function getRaiseCandidates(filters = {}) {
     page = 1,
     pageSize = 50,
     maxPerSource = 120,
-    qualityScore = 30,
+    qualityScore = 0,
   } = filters;
 
   const { rows: sourceRows, csvPath, mtime, filesCount } = loadRealSourceRows();
@@ -1909,6 +1966,11 @@ export async function getRaiseCandidates(filters = {}) {
   if (sector) {
     const wantedValues = sectorFilterValues(sector).map((value) => String(value).toLowerCase());
     rows = rows.filter((r) => {
+      const rowSectorName = String(r.sector_name || '').toLowerCase();
+      const rowSectorClass = String(r.sector_class || '').toLowerCase();
+      if (wantedValues.some((wanted) => wanted === rowSectorName || wanted === rowSectorClass)) {
+        return true;
+      }
       const tags = Array.isArray(r.thesis_tags) ? r.thesis_tags : cleanThesisTags(r.sector);
       return tags.some((tag) => {
         const value = String(tag || '').toLowerCase();
@@ -1964,7 +2026,17 @@ export async function getRaiseCandidates(filters = {}) {
     stages: Array.from(new Set(facetRows.map((r) => r.stage).filter(Boolean))).sort(),
     roundTypes: Array.from(new Set(facetRows.map((r) => r.last_round_type).filter(Boolean))).sort(),
     countries: Array.from(new Set(facetRows.map((r) => r.hq_country).filter(Boolean))).sort(),
-    sectors: Array.from(new Set(facetRows.flatMap((r) => Array.isArray(r.thesis_tags) ? r.thesis_tags : cleanThesisTags(r.sector)).filter(Boolean))).sort(),
+    sectors: facetRows.reduce((acc, r) => {
+      const labels = new Set();
+      if (r.sector_name) labels.add(r.sector_name);
+      (Array.isArray(r.thesis_tags) ? r.thesis_tags : cleanThesisTags(r.sector))
+        .filter(Boolean)
+        .forEach((tag) => labels.add(tag));
+      labels.forEach((label) => {
+        acc[label] = (acc[label] || 0) + 1;
+      });
+      return acc;
+    }, {}),
     sourceTiers: Array.from(new Set(facetRows.map((r) => r.source_tier).filter(Boolean))).sort(),
     sources: Array.from(new Set(facetRows.map((r) => r.source_name).filter(Boolean))).sort(),
   };

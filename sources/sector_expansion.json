@@ -1,0 +1,51 @@
+{
+  "version": "1.0",
+  "description": "Non-thesis sectors for startups that fail thesis alignment but come from legitimate sources. These keep rows in the output instead of dropping them.",
+  "thesis_sectors": [
+    "supply-chain", "tms", "wms", "3pl", "manufacturing", "agtech",
+    "industrial-ai", "procurement", "inventory-planning", "iiot",
+    "traceability", "warehouse-robotics", "d2c-fulfillment"
+  ],
+  "expanded_sectors": [
+    {
+      "id": "EXP-AI-SW",
+      "name": "AI & Enterprise Software",
+      "description": "General AI/ML, cloud infrastructure, developer tools, workflow automation, SaaS platforms not specific to supply chain or manufacturing",
+      "match_keywords": ["artificial intelligence", "machine learning", "AI", "cloud", "SaaS", "enterprise software", "workflow automation", "data analytics", "AI infrastructure", "developer tools", "data platform", "automation platform", "NLP", "computer vision", "generative AI", "LLM"],
+      "match_industries": ["AI", "Cloud", "AI Infrastructure", "Enabling Software Platform", "Data & Intelligence Layer", "Workflow Automation (AI/ML)", "B2B Software"]
+    },
+    {
+      "id": "EXP-FINTECH",
+      "name": "FinTech & Payments",
+      "description": "Financial technology, payment processing, lending, insurance tech, accounting, and compliance — excluding trade finance and supply chain finance which belong to the thesis",
+      "match_keywords": ["fintech", "payments", "banking", "lending", "insurance", "neobank", "credit", "billing", "accounting", "regtech", "compliance", "wealth management", "payroll"],
+      "match_industries": ["FinTech", "FinTech / Accounting", "Financial Services", "Insurance", "Payments"]
+    },
+    {
+      "id": "EXP-CLIMATE",
+      "name": "Climate & Energy",
+      "description": "Clean energy, carbon tracking, sustainability, ESG, mining, materials, batteries, EV infrastructure — excluding agtech which belongs to the thesis",
+      "match_keywords": ["climate", "energy", "solar", "wind", "battery", "EV", "carbon", "sustainability", "ESG", "cleantech", "renewable", "hydrogen", "nuclear", "grid", "mining", "materials"],
+      "match_industries": ["Climate & Energy", "CLIMATE & ENERGY", "Energy", "Mining", "Aerospace"]
+    },
+    {
+      "id": "EXP-HEALTH",
+      "name": "Health & Life Sciences",
+      "description": "Healthcare, biotech, medtech, pharma, digital health, mental health, wellness",
+      "match_keywords": ["health", "healthcare", "biotech", "medtech", "pharma", "medical", "clinical", "diagnostics", "telemedicine", "mental health", "wellness", "life sciences", "drug discovery"],
+      "match_industries": ["HEALTH", "Health Tech", "Healthcare", "Biotech", "Medical Devices"]
+    },
+    {
+      "id": "EXP-TIC",
+      "name": "Consumer, Media & Other",
+      "description": "Consumer products, marketing tech, edtech, legal tech, HR tech, real estate, gaming, media, and anything else that doesn't fit the above four expanded sectors or the thesis sectors",
+      "match_keywords": ["consumer", "marketing", "edtech", "education", "legal", "HR", "real estate", "proptech", "gaming", "media", "entertainment", "food delivery", "e-commerce", "social", "travel", "mobility", "defense"],
+      "match_industries": ["Consumer", "CONSUMER", "Marketing Tech", "Marketing, Revenue ops, etc.", "Legal Tech", "Education", "Sales Tech", "Defense", "Mobility", "Random", "Other", "OTHER"]
+    }
+  ],
+  "classification_rules": {
+    "priority": "thesis_first",
+    "description": "Always attempt thesis sector match first. Only fall back to expanded sectors if no thesis keyword/tag matches. If no expanded sector matches either, assign EXP-TIC (catch-all).",
+    "fallback_sector": "EXP-TIC"
+  }
+}

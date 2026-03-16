@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "uploads": [
+    {
+      "id": "UPL-FPB-001",
+      "source_name": "Filtered Pitchbook",
+      "source_file": "data/uploads/Startups_to_upload.xlsx",
+      "upload_date": "2026-03-16",
+      "sheets_ingested": [
+        "Pitchbook SCM Clean Raw",
+        "Pitchbook SCM Raw",
+        "Brett's Format",
+        "V_0",
+        "Venture5 SCM Deals",
+        "Venture5 Raw",
+        "Raw Extracts",
+        "Manifest2026"
+      ],
+      "raw_row_count": 4836,
+      "unique_after_internal_dedup": 4267,
+      "net_new_after_repo_dedup": 4029,
+      "enriched_count": 87,
+      "notes": "Multi-tab Pitchbook export + curated lists. Priority merge: Clean Raw > SCM Raw > Brett > V_0 > V5 Deals > V5 Raw > Raw Extracts > Manifest"
+    }
+  ]
+}
