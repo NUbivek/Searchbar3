@@ -321,6 +321,26 @@ function isJunkRow(row = {}) {
   return false;
 }
 
+function getPitchbookSheetBonus(row = {}) {
+  const evidence = String(row.evidence || '');
+  if (evidence.includes("Brett's Format")) return 45;
+  if (evidence.includes('Venture5 SCM Deals')) return 30;
+  if (evidence.includes('Pitchbook SCM Clean Raw')) return 30;
+  if (evidence.includes('Pitchbook SCM Raw')) return 30;
+  if (evidence.includes('V_0')) return 30;
+  if (evidence.includes('Venture5 Raw')) return 20;
+  if (evidence.includes('Raw Extracts')) return 20;
+  if (evidence.includes('Manifest2026')) {
+    let bonus = 15;
+    const hasTags = Array.isArray(row.thesis_tags) && row.thesis_tags.length > 0;
+    const stage = String(row.stage || '').trim().toLowerCase();
+    if (hasTags && stage && stage != 'unknown' && stage != 'unknown_series') bonus += 15;
+    return bonus;
+  }
+  if (String(row.source_name || '') === 'Filtered Pitchbook' || String(row.source_id || '') === 'UPL-FPB-001') return 15;
+  return 0;
+}
+
 function shouldAdmit(sig = {}) {
   if (isJunkSignal(sig)) return false;
   const tags = normalizeSignalTags(sig.thesis_tags);
@@ -1471,6 +1491,7 @@ function loadRealSourceRows() {
               company_website: obj.company_website,
               company_domain: obj.company_domain || '',
               description: obj.description || obj.evidence?.excerpt || obj.evidence?.title || '',
+              evidence: typeof obj.evidence === 'string' ? obj.evidence : JSON.stringify(obj.evidence || ''),
               evidence_title: obj.evidence?.title || '',
               stage: obj.stage,
               stage_guess: obj.stage_guess,
@@ -1611,6 +1632,7 @@ function loadRealSourceRows() {
         sector_name: cleanText(pick(r, ['sector_name'])) || '',
         thesis_tags: thesisTags,
         confidence: 0.6,
+        evidence: cleanText(pick(r, ['evidence'])) || '',
         evidence_role: cleanText(pick(r, ['evidence_role'])) || '',
         signal_weight: cleanText(pick(r, ['signal_weight'])).toLowerCase() || 'low',
         investor_tier_raw: pick(r, ['investor_tier', 'investorTier', 'tier']),
@@ -1722,6 +1744,7 @@ function toCandidate(row, idx) {
     founded: mergedRow.founded,
     leadInvestor: mergedRow.lead_investor,
     growth1yr: mergedRow.growth_1yr,
+    evidence: mergedRow.evidence || '',
   });
   const forecast = forecastFromScore(scored.raise_likelihood_score);
 
@@ -1732,7 +1755,13 @@ function toCandidate(row, idx) {
     + (mergedRow.sector && mergedRow.sector !== 'General' ? 15 : 0)
     + (mergedRow.stage && mergedRow.stage !== 'Unknown' ? 10 : 0)
     + (mergedRow.source_url ? 10 : 0)
-    + ((sourceMeta.source_name === 'Filtered Pitchbook' || sourceMeta.source_id === 'UPL-FPB-001') ? 15 : 0)
+    + getPitchbookSheetBonus({
+      source_name: sourceMeta.source_name || mergedRow.source_name,
+      source_id: sourceMeta.source_id || mergedRow.source_id_raw,
+      evidence: mergedRow.evidence || '',
+      thesis_tags: mergedRow.thesis_tags,
+      stage: mergedRow.stage,
+    })
     + (mergedRow.company_domain ? 5 : 0)
     + (mergedRow.funding_usd ? 10 : 0)
     + (Array.isArray(mergedRow.investors) && mergedRow.investors.length ? 5 : 0)
@@ -1787,6 +1816,7 @@ function toCandidate(row, idx) {
     funding_confidence: mergedRow.funding_confidence,
     months_since_last_round: monthsSinceLastRound,
     confidence: mergedRow.confidence,
+    evidence: mergedRow.evidence || '',
     evidence_role: mergedRow.evidence_role || '',
     signal_weight: mergedRow.signal_weight || 'low',
     data_quality_score: dataQualityScore,

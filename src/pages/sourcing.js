@@ -292,12 +292,12 @@ export default function SourcingPage() {
           </div>
 
           <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
-            <div className="overflow-x-auto pb-1 scrollbar-hide">
-              <div className="flex flex-nowrap gap-2 items-center min-w-max">
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" className="h-10 flex-shrink-0 min-w-[11rem] rounded-lg border border-slate-200 bg-white px-3 text-sm" />
-                <select value={stage} onChange={(e) => setStage(e.target.value)} className="h-10 flex-shrink-0 min-w-[8rem] rounded-lg border border-slate-200 bg-white px-3 text-sm">{stages.map((s) => <option key={s} value={s}>{s === 'all' ? 'Stage (All)' : s}</option>)}</select>
-                <select value={country} onChange={(e) => setCountry(e.target.value)} className="h-10 flex-shrink-0 min-w-[8rem] rounded-lg border border-slate-200 bg-white px-3 text-sm">{countries.map((s) => <option key={s} value={s}>{s === 'all' ? 'Country (All)' : s}</option>)}</select>
-                <label className="h-10 flex-shrink-0 min-w-fit rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 inline-flex items-center gap-2 whitespace-nowrap select-none cursor-pointer">
+            <div className="w-full overflow-x-auto pb-1 scrollbar-hide">
+              <div className="flex w-full min-w-[1100px] flex-nowrap items-center gap-2">
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" className="h-10 min-w-[12rem] flex-[2.2_1_0%] rounded-lg border border-slate-200 bg-white px-3 text-sm" />
+                <select value={stage} onChange={(e) => setStage(e.target.value)} className="h-10 min-w-[8rem] flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm">{stages.map((s) => <option key={s} value={s}>{s === 'all' ? 'Stage (All)' : s}</option>)}</select>
+                <select value={country} onChange={(e) => setCountry(e.target.value)} className="h-10 min-w-[8rem] flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm">{countries.map((s) => <option key={s} value={s}>{s === 'all' ? 'Country (All)' : s}</option>)}</select>
+                <label className="inline-flex h-10 flex-shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 select-none cursor-pointer">
                   <span>Thesis</span>
                   <span className={`relative inline-block h-5 w-9 rounded-full transition-colors ${thesisAligned ? 'bg-blue-500' : 'bg-slate-300'}`}>
                     <input
@@ -309,9 +309,9 @@ export default function SourcingPage() {
                     <span className={`pointer-events-none absolute top-[2px] h-4 w-4 rounded-full bg-white shadow transition-all ${thesisAligned ? 'left-[18px]' : 'left-[2px]'}`} />
                   </span>
                 </label>
-                <select value={sector} onChange={(e) => setSector(e.target.value)} className="h-10 flex-shrink-0 min-w-[10rem] rounded-lg border border-slate-200 bg-white px-3 text-sm">{sectors.map((s) => <option key={s} value={s}>{s === 'all' ? 'Sector (All)' : s}</option>)}</select>
-                <select value={sourceTier} onChange={(e) => setSourceTier(e.target.value)} className="h-10 flex-shrink-0 min-w-[8rem] rounded-lg border border-slate-200 bg-white px-3 text-sm">{sourceTiers.map((option) => <option key={option.value || 'all'} value={option.value || 'all'}>{option.label}</option>)}</select>
-                <select value={sourceName} onChange={(e) => setSourceName(e.target.value)} className="h-10 flex-shrink-0 min-w-[10rem] rounded-lg border border-slate-200 bg-white px-3 text-sm">{sourceNames.map((s) => <option key={s} value={s}>{s === 'all' ? 'Source (All)' : s}</option>)}</select>
+                <select value={sector} onChange={(e) => setSector(e.target.value)} className="h-10 min-w-[10rem] flex-[1.15_1_0%] rounded-lg border border-slate-200 bg-white px-3 text-sm">{sectors.map((s) => <option key={s} value={s}>{s === 'all' ? 'Sector (All)' : s}</option>)}</select>
+                <select value={sourceTier} onChange={(e) => setSourceTier(e.target.value)} className="h-10 min-w-[8rem] flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm">{sourceTiers.map((option) => <option key={option.value || 'all'} value={option.value || 'all'}>{option.label}</option>)}</select>
+                <select value={sourceName} onChange={(e) => setSourceName(e.target.value)} className="h-10 min-w-[10rem] flex-[1.2_1_0%] rounded-lg border border-slate-200 bg-white px-3 text-sm">{sourceNames.map((s) => <option key={s} value={s}>{s === 'all' ? 'Source (All)' : s}</option>)}</select>
               </div>
             </div>
 

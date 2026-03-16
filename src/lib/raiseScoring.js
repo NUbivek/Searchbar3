@@ -1,3 +1,27 @@
+function hasMeaningfulStage(stageValue) {
+  const stage = String(stageValue || '').trim().toLowerCase();
+  return Boolean(stage && stage !== 'unknown' && stage !== 'unknown_series');
+}
+
+function getSheetBonus(signal = {}) {
+  const evidence = String(signal.evidence || '');
+  if (evidence.includes("Brett's Format")) return 45;
+  if (evidence.includes('Venture5 SCM Deals')) return 30;
+  if (evidence.includes('Pitchbook SCM Clean Raw')) return 30;
+  if (evidence.includes('Pitchbook SCM Raw')) return 30;
+  if (evidence.includes('V_0')) return 30;
+  if (evidence.includes('Venture5 Raw')) return 20;
+  if (evidence.includes('Raw Extracts')) return 20;
+  if (evidence.includes('Manifest2026')) {
+    let bonus = 15;
+    const hasThesisTags = Array.isArray(signal.thesisTags) && signal.thesisTags.length > 0;
+    if (hasThesisTags && hasMeaningfulStage(signal.stage || signal.lastRoundType)) bonus += 15;
+    return bonus;
+  }
+  if (String(signal.sourceName || '') === 'Filtered Pitchbook') return 15;
+  return 0;
+}
+
 export function computeScore(signal = {}) {
   let score = 0;
   const reasons = [];
@@ -61,10 +85,12 @@ export function computeScore(signal = {}) {
   score += Math.round(confidence * 15);
   if (confidence >= 0.75) reasons.push('High confidence based on source quality + enrichment');
 
-  if (String(signal.sourceName || '') === 'Filtered Pitchbook') {
-    score += 15;
-    reasons.push('Curated Filtered Pitchbook source bonus');
-  }
+  const sheetBonus = getSheetBonus(signal);
+  score += sheetBonus;
+  if (sheetBonus >= 45) reasons.push('Owner-curated upload source bonus');
+  else if (sheetBonus >= 30) reasons.push('Structured curated upload source bonus');
+  else if (sheetBonus >= 20) reasons.push('Enriched upload source bonus');
+  else if (sheetBonus >= 15) reasons.push('Sparse upload source bonus');
 
   if (signal.description && String(signal.description).trim().length > 20) score += 10;
   if (signal.companyDomain || signal.startupUrl || signal.companyWebsite) score += 5;
