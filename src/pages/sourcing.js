@@ -3,6 +3,8 @@ import Head from 'next/head';
 import ModeTabs from '../components/ModeTabs';
 
 const PAGE_SIZE = 25;
+const THESIS_ADJACENT_CLASSES = ['thesis', 'EXP-AI-SW', 'EXP-FINTECH', 'EXP-CLIMATE'];
+const EXCLUDED_THESIS_TOGGLE_SECTORS = new Set(['Health & Life Sciences', 'Consumer, Media & Other']);
 
 const TIER_LABELS = {
   A: 'Tier A — Top-Tier VCs & Accelerators',
@@ -47,7 +49,7 @@ function formatSourceName(name) {
     .trim();
 }
 
-function cleanSectorOptions(rows = [], facetSectors = []) {
+function cleanSectorOptions(rows = [], facetSectors = [], thesisAligned = false) {
   const DISPLAY_SECTOR_MAP = {
     SaaS: 'B2B Software',
     'Enterprise SaaS': 'B2B Software',
@@ -77,10 +79,14 @@ function cleanSectorOptions(rows = [], facetSectors = []) {
     ...facetSectorValues,
     ...rows.flatMap((row) => Array.isArray(row.thesis_tags) ? row.thesis_tags : []),
   ];
+  const blockedLabels = new Set(['Thesis-aligned', 'General']);
+  if (thesisAligned) {
+    EXCLUDED_THESIS_TOGGLE_SECTORS.forEach((label) => blockedLabels.add(label));
+  }
   return ['all', ...Array.from(new Set(
     values
       .map((value) => DISPLAY_SECTOR_MAP[String(value || '').trim()] || String(value || '').trim())
-      .filter((value) => value && !/[|_]/.test(value) && value.length <= 25)
+      .filter((value) => value && !/[|_]/.test(value) && value.length <= 25 && !blockedLabels.has(value))
   )).sort()];
 }
 
@@ -148,6 +154,7 @@ export default function SourcingPage() {
   const [q, setQ] = React.useState('');
   const [stage, setStage] = React.useState('all');
   const [country, setCountry] = React.useState('all');
+  const [thesisAligned, setThesisAligned] = React.useState(true);
   const [sector, setSector] = React.useState('all');
   const [sourceTier, setSourceTier] = React.useState('all');
   const [sourceName, setSourceName] = React.useState('all');
@@ -168,6 +175,7 @@ export default function SourcingPage() {
       params.set('likely_only', String(likelyOnly));
       params.set('min_score', String(likelyOnly ? (minScore || 0) : 0));
       params.set('quality_score', String(qualityScore || 0));
+      if (thesisAligned) params.set('sector_class', THESIS_ADJACENT_CLASSES.join(','));
       if (q) params.set('q', q);
       if (stage !== 'all') params.set('stage', stage);
       if (country !== 'all') params.set('country', country);
@@ -186,7 +194,7 @@ export default function SourcingPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, likelyOnly, minScore, qualityScore, q, stage, country, sector, sourceTier, sourceName, minFunding, maxFunding]);
+  }, [page, likelyOnly, minScore, qualityScore, thesisAligned, q, stage, country, sector, sourceTier, sourceName, minFunding, maxFunding]);
 
   React.useEffect(() => { runQuery(); }, [runQuery]);
 
@@ -218,11 +226,23 @@ export default function SourcingPage() {
     .filter((value) => value === 'all' || stageValues.includes(value));
   const countryBase = ((result?.facets?.countries) || Array.from(new Set(rows.map((r) => r.hq_country).filter(Boolean))));
   const countries = ['all', ...Array.from(new Set(['United States', ...countryBase].filter(Boolean)))];
-  const sectors = cleanSectorOptions(rows, result?.facets?.sectors || []);
+  const sectors = cleanSectorOptions(rows, result?.facets?.sectors || [], thesisAligned);
   const sourceTierValues = new Set(((result?.facets?.sourceTiers) || Array.from(new Set(rows.map((r) => r.source_tier).filter(Boolean))))
     .filter((value) => value && value !== 'Unknown'));
   const sourceTiers = TIER_OPTIONS.filter((option) => !option.value || sourceTierValues.has(option.value));
   const sourceNames = ['all', ...((result?.facets?.sources) || Array.from(new Set(rows.map((r) => r.source_name).filter(Boolean))))];
+
+  React.useEffect(() => {
+    if (sector !== 'all' && !sectors.includes(sector)) {
+      setSector('all');
+    }
+  }, [sector, sectors]);
+
+  const sectorDebugLabel = sector !== 'all'
+    ? sector
+    : thesisAligned
+      ? 'Thesis+Adjacent'
+      : 'all';
 
   const downloadRawTable = () => {
     const csv = toCsv(rows);
@@ -274,11 +294,23 @@ export default function SourcingPage() {
           <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
             <div className="overflow-x-auto pb-1 scrollbar-hide">
               <div className="flex flex-nowrap gap-2 items-center min-w-max">
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" className="h-10 flex-shrink-0 min-w-[13rem] rounded-lg border border-slate-200 bg-white px-3 text-sm" />
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" className="h-10 flex-shrink-0 min-w-[11rem] rounded-lg border border-slate-200 bg-white px-3 text-sm" />
                 <select value={stage} onChange={(e) => setStage(e.target.value)} className="h-10 flex-shrink-0 min-w-[8rem] rounded-lg border border-slate-200 bg-white px-3 text-sm">{stages.map((s) => <option key={s} value={s}>{s === 'all' ? 'Stage (All)' : s}</option>)}</select>
-                <select value={country} onChange={(e) => setCountry(e.target.value)} className="h-10 flex-shrink-0 min-w-[9rem] rounded-lg border border-slate-200 bg-white px-3 text-sm">{countries.map((s) => <option key={s} value={s}>{s === 'all' ? 'Country (All)' : s}</option>)}</select>
-                <select value={sector} onChange={(e) => setSector(e.target.value)} className="h-10 flex-shrink-0 min-w-[9rem] rounded-lg border border-slate-200 bg-white px-3 text-sm">{sectors.map((s) => <option key={s} value={s}>{s === 'all' ? 'Sector (All)' : s}</option>)}</select>
-                <select value={sourceTier} onChange={(e) => setSourceTier(e.target.value)} className="h-10 flex-shrink-0 min-w-[9rem] rounded-lg border border-slate-200 bg-white px-3 text-sm">{sourceTiers.map((option) => <option key={option.value || 'all'} value={option.value || 'all'}>{option.label}</option>)}</select>
+                <select value={country} onChange={(e) => setCountry(e.target.value)} className="h-10 flex-shrink-0 min-w-[8rem] rounded-lg border border-slate-200 bg-white px-3 text-sm">{countries.map((s) => <option key={s} value={s}>{s === 'all' ? 'Country (All)' : s}</option>)}</select>
+                <label className="h-10 flex-shrink-0 min-w-fit rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 inline-flex items-center gap-2 whitespace-nowrap select-none cursor-pointer">
+                  <span>Thesis</span>
+                  <span className={`relative inline-block h-5 w-9 rounded-full transition-colors ${thesisAligned ? 'bg-blue-500' : 'bg-slate-300'}`}>
+                    <input
+                      type="checkbox"
+                      checked={thesisAligned}
+                      onChange={(e) => setThesisAligned(e.target.checked)}
+                      className="absolute inset-0 m-0 h-full w-full cursor-pointer opacity-0"
+                    />
+                    <span className={`pointer-events-none absolute top-[2px] h-4 w-4 rounded-full bg-white shadow transition-all ${thesisAligned ? 'left-[18px]' : 'left-[2px]'}`} />
+                  </span>
+                </label>
+                <select value={sector} onChange={(e) => setSector(e.target.value)} className="h-10 flex-shrink-0 min-w-[10rem] rounded-lg border border-slate-200 bg-white px-3 text-sm">{sectors.map((s) => <option key={s} value={s}>{s === 'all' ? 'Sector (All)' : s}</option>)}</select>
+                <select value={sourceTier} onChange={(e) => setSourceTier(e.target.value)} className="h-10 flex-shrink-0 min-w-[8rem] rounded-lg border border-slate-200 bg-white px-3 text-sm">{sourceTiers.map((option) => <option key={option.value || 'all'} value={option.value || 'all'}>{option.label}</option>)}</select>
                 <select value={sourceName} onChange={(e) => setSourceName(e.target.value)} className="h-10 flex-shrink-0 min-w-[10rem] rounded-lg border border-slate-200 bg-white px-3 text-sm">{sourceNames.map((s) => <option key={s} value={s}>{s === 'all' ? 'Source (All)' : s}</option>)}</select>
               </div>
             </div>
@@ -287,7 +319,7 @@ export default function SourcingPage() {
               <input value={minFunding} onChange={(e) => setMinFunding(e.target.value)} placeholder="Min funding $" type="number" className="h-10 md:col-span-2 rounded-lg border border-slate-200 bg-white px-3 text-sm" />
               <input value={maxFunding} onChange={(e) => setMaxFunding(e.target.value)} placeholder="Max funding $" type="number" className="h-10 md:col-span-2 rounded-lg border border-slate-200 bg-white px-3 text-sm" />
               <label className="h-10 md:col-span-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm"><input type="checkbox" checked={likelyOnly} onChange={(e) => { const v=e.target.checked; setLikelyOnly(v); if (!v) setMinScore('0'); if (v && Number(minScore) < 30) setMinScore('30'); }} /> {'Raising <6months'}</label>
-              <button onClick={() => { setQ(''); setStage('all'); setCountry('all'); setSector('all'); setSourceTier('all'); setSourceName('all'); setMinFunding(''); setMaxFunding(''); setMinScore('0'); setQualityScore('30'); setLikelyOnly(false); setPage(1); }} className="h-10 md:col-span-2 rounded-lg border border-slate-200 bg-white px-3 text-sm hover:bg-slate-50">Reset filters</button>
+              <button onClick={() => { setQ(''); setStage('all'); setCountry('all'); setThesisAligned(true); setSector('all'); setSourceTier('all'); setSourceName('all'); setMinFunding(''); setMaxFunding(''); setMinScore('0'); setQualityScore('30'); setLikelyOnly(false); setPage(1); }} className="h-10 md:col-span-2 rounded-lg border border-slate-200 bg-white px-3 text-sm hover:bg-slate-50">Reset filters</button>
               <div className="h-10 md:col-span-2 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 flex items-center justify-between gap-2">
                 <span>Total: <span className="font-semibold">{total}</span></span>
                 <span>Page: <span className="font-semibold">{page}/{pageCount}</span></span>
@@ -302,7 +334,7 @@ export default function SourcingPage() {
 
             <div className="grid gap-3 md:grid-cols-12">
               <div className="md:col-span-10 rounded-xl border border-slate-200 bg-white p-2 text-xs text-slate-700">
-                <div className="leading-5 break-words">Query: <span className="font-medium">{q || 'none'}</span> · Stage: <span className="font-medium">{stage}</span> · Country: <span className="font-medium">{country}</span> · Sector: <span className="font-medium">{sector}</span> · Source Tier: <span className="font-medium">{sourceTier === 'all' ? 'all' : getTierLabel(sourceTier)}</span> · Source: <span className="font-medium">{sourceName}</span> · Funding: <span className="font-medium">{minFunding || 0} - {maxFunding || 'max'}</span> · Min Score: <span className="font-medium">{effectiveMinScore}</span> · Quality: <span className="font-medium">{qualityScore}</span> · Likely Only: <span className="font-medium">{likelyOnly ? 'yes' : 'no'}</span></div>
+                <div className="leading-5 break-words">Query: <span className="font-medium">{q || 'none'}</span> · Stage: <span className="font-medium">{stage}</span> · Country: <span className="font-medium">{country}</span> · Sector: <span className="font-medium">{sectorDebugLabel}</span> · Source Tier: <span className="font-medium">{sourceTier === 'all' ? 'all' : getTierLabel(sourceTier)}</span> · Source: <span className="font-medium">{sourceName}</span> · Funding: <span className="font-medium">{minFunding || 0} - {maxFunding || 'max'}</span> · Min Score: <span className="font-medium">{effectiveMinScore}</span> · Quality: <span className="font-medium">{qualityScore}</span> · Likely Only: <span className="font-medium">{likelyOnly ? 'yes' : 'no'}</span></div>
                 <div className="mt-1 text-[10px] text-slate-500">Sorting: raise_likelihood_score desc, then last_signal_at desc.</div>
               </div>
               <div className="md:col-span-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm md:justify-self-end md:w-full">

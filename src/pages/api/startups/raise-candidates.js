@@ -20,6 +20,7 @@ export default async function handler(req, res) {
     country: q.country || undefined,
     region: q.region || undefined,
     sector: q.sector || undefined,
+    sectorClass: q.sector_class || undefined,
     thesisTag: q.thesis_tag || q.thesis_tags || undefined,
     sourceTier: q.source_tier || q.investor_tier || undefined,
     sourceId: q.source_id || undefined,

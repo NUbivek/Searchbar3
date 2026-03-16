@@ -1859,6 +1859,7 @@ export async function getRaiseCandidates(filters = {}) {
     country,
     region,
     sector,
+    sectorClass,
     thesisTag,
     minFunding,
     maxFunding,
@@ -1953,6 +1954,17 @@ export async function getRaiseCandidates(filters = {}) {
     rows = rows.filter((r) => (r.data_quality_score || 0) >= qScore);
   }
   debugCounts.afterQualityScore = rows.length;
+
+  if (sectorClass) {
+    const allowedClasses = String(sectorClass)
+      .split(',')
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+    if (allowedClasses.length) {
+      rows = rows.filter((r) => allowedClasses.includes(String(r.sector_class || '').trim()));
+    }
+  }
+  debugCounts.afterSectorClass = rows.length;
 
   const facetRows = rows.slice();
 
