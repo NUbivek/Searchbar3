@@ -58,3 +58,5 @@ research-hub-api/
 /handover-2026-03-10/
 /registered_sources_935.csv
 /registered_sources_935.txt
+.DS_Store
+infra/
