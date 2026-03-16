@@ -36,8 +36,8 @@ The codebase has gone through a large stabilization pass focused on the startup-
 
 What is materially improved:
 
-- startup candidate page exists at [`src/pages/sourcing.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/pages/sourcing.js)
-- raise-candidates API exists at [`src/pages/api/startups/raise-candidates.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/pages/api/startups/raise-candidates.js)
+- startup candidate page exists at [`src/pages/sourcing.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/pages/sourcing.js)
+- raise-candidates API exists at [`src/pages/api/startups/raise-candidates.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/pages/api/startups/raise-candidates.js)
 - funding cache and free description cache are wired into candidate generation
 - junk-name filtering is much stronger than before
 - `Visit ...` prefix contamination has been removed
@@ -73,7 +73,7 @@ For practical work, treat this repo as the source of truth for:
 ### 1. Startup sourcing
 
 Main page:
-- [`src/pages/sourcing.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/pages/sourcing.js)
+- [`src/pages/sourcing.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/pages/sourcing.js)
 
 Primary behavior:
 - reads from local candidate API
@@ -84,7 +84,7 @@ Primary behavior:
 ### 2. Raise candidates API
 
 API route:
-- [`src/pages/api/startups/raise-candidates.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/pages/api/startups/raise-candidates.js)
+- [`src/pages/api/startups/raise-candidates.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/pages/api/startups/raise-candidates.js)
 
 Responsibilities:
 - loads local candidate store
@@ -95,9 +95,9 @@ Responsibilities:
 ### 3. Research/search shell
 
 The legacy research app still exists and is documented in:
-- [`ARCHITECTURE.md`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/ARCHITECTURE.md)
-- [`USER_FLOW.md`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/USER_FLOW.md)
-- [`TEST_PLAN.md`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/TEST_PLAN.md)
+- [`ARCHITECTURE.md`](/Users/bivekadhikari/Desktop/Searchbar3/ARCHITECTURE.md)
+- [`USER_FLOW.md`](/Users/bivekadhikari/Desktop/Searchbar3/USER_FLOW.md)
+- [`TEST_PLAN.md`](/Users/bivekadhikari/Desktop/Searchbar3/TEST_PLAN.md)
 
 Those docs are still useful for the broader app shell, but they do not fully describe the new sourcing stack below.
 
@@ -125,7 +125,7 @@ sources/registry.json
 
 #### Source registry
 
-- [`sources/registry.json`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/sources/registry.json)
+- [`sources/registry.json`](/Users/bivekadhikari/Desktop/Searchbar3/sources/registry.json)
 
 This is the master list of portfolio pages, accelerators, startup databases, conferences, and other sourcing inputs.
 
@@ -136,8 +136,8 @@ Important notes:
 
 #### Runner and planner
 
-- [`src/sourcing/planner.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/planner.js)
-- [`src/sourcing/runner.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/runner.js)
+- [`src/sourcing/planner.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/sourcing/planner.js)
+- [`src/sourcing/runner.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/sourcing/runner.js)
 
 Responsibilities:
 - choose which sources should run
@@ -149,7 +149,7 @@ Responsibilities:
 #### Adapters
 
 Most sourcing volume comes through:
-- [`src/sourcing/adapters/htmlListAdapter.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/adapters/htmlListAdapter.js)
+- [`src/sourcing/adapters/htmlListAdapter.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/sourcing/adapters/htmlListAdapter.js)
 
 This adapter now handles:
 - generic HTML list extraction
@@ -160,7 +160,7 @@ This adapter now handles:
 
 #### Signal normalization
 
-- [`src/sourcing/normalizer.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/normalizer.js)
+- [`src/sourcing/normalizer.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/sourcing/normalizer.js)
 
 Responsibilities:
 - canonical company names
@@ -172,7 +172,7 @@ Responsibilities:
 
 #### Candidate store
 
-- [`src/lib/raiseCandidatesStore.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/lib/raiseCandidatesStore.js)
+- [`src/lib/raiseCandidatesStore.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/lib/raiseCandidatesStore.js)
 
 This is the effective heart of the startup lead product.
 
@@ -186,7 +186,7 @@ Responsibilities:
 
 #### Scoring
 
-- [`src/lib/raiseScoring.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/lib/raiseScoring.js)
+- [`src/lib/raiseScoring.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/lib/raiseScoring.js)
 
 Current scoring signals include:
 - months since last round
@@ -238,7 +238,7 @@ No paid API dependency is required for the current enrichment path.
 
 ### Funding enrichment
 
-- [`scripts/enrich-funding.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/scripts/enrich-funding.js)
+- [`scripts/enrich-funding.js`](/Users/bivekadhikari/Desktop/Searchbar3/scripts/enrich-funding.js)
 
 Current working approach:
 - Google News RSS
@@ -251,7 +251,7 @@ Current weakness:
 
 ### Description enrichment
 
-- [`scripts/enrich-descriptions.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/scripts/enrich-descriptions.js)
+- [`scripts/enrich-descriptions.js`](/Users/bivekadhikari/Desktop/Searchbar3/scripts/enrich-descriptions.js)
 
 Current approach:
 - website `og:description`
@@ -397,16 +397,16 @@ Do not combine a full sourcing rerun, a large registry rewrite, and candidate-sc
 
 If someone needs to understand the current stack quickly, start here:
 
-1. [`src/pages/sourcing.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/pages/sourcing.js)
-2. [`src/pages/api/startups/raise-candidates.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/pages/api/startups/raise-candidates.js)
-3. [`src/lib/raiseCandidatesStore.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/lib/raiseCandidatesStore.js)
-4. [`src/lib/raiseScoring.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/lib/raiseScoring.js)
-5. [`src/sourcing/adapters/htmlListAdapter.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/adapters/htmlListAdapter.js)
-6. [`src/sourcing/normalizer.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/normalizer.js)
-7. [`src/sourcing/runner.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/src/sourcing/runner.js)
-8. [`scripts/enrich-funding.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/scripts/enrich-funding.js)
-9. [`scripts/enrich-descriptions.js`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/scripts/enrich-descriptions.js)
-10. [`sources/registry.json`](/Users/bivekadhikari/Library/CloudStorage/GoogleDrive-bivek@berkeley.edu/My%20Drive/MBA/VC/Resume%20%26%20Applications/Startups%20to%20recommend/Bulk%20Data/Searchbar3/sources/registry.json)
+1. [`src/pages/sourcing.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/pages/sourcing.js)
+2. [`src/pages/api/startups/raise-candidates.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/pages/api/startups/raise-candidates.js)
+3. [`src/lib/raiseCandidatesStore.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/lib/raiseCandidatesStore.js)
+4. [`src/lib/raiseScoring.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/lib/raiseScoring.js)
+5. [`src/sourcing/adapters/htmlListAdapter.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/sourcing/adapters/htmlListAdapter.js)
+6. [`src/sourcing/normalizer.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/sourcing/normalizer.js)
+7. [`src/sourcing/runner.js`](/Users/bivekadhikari/Desktop/Searchbar3/src/sourcing/runner.js)
+8. [`scripts/enrich-funding.js`](/Users/bivekadhikari/Desktop/Searchbar3/scripts/enrich-funding.js)
+9. [`scripts/enrich-descriptions.js`](/Users/bivekadhikari/Desktop/Searchbar3/scripts/enrich-descriptions.js)
+10. [`sources/registry.json`](/Users/bivekadhikari/Desktop/Searchbar3/sources/registry.json)
 
 ## Hibernation Notes
 

@@ -9,19 +9,108 @@ const STARTUP_WATCH_ROOT = path.join(SOURCING_ROOT, 'startup_watch');
 const OUTPUT_DIR = path.join(STARTUP_WATCH_ROOT, 'output');
 const DEFAULT_CSV_PATH = path.join(OUTPUT_DIR, 'latest.csv');
 const THESIS_ALLOWLIST_PATH = path.join(process.cwd(), 'sources', 'thesis_v2_allowlist.json');
-const LOCAL_SIGNAL_JSONL_FALLBACKS = [
-  path.join(process.cwd(), 'data', 'signals.jsonl'),
-  path.join(process.cwd(), 'reports', 'post_patch_fresh_run_2026-03-10', 'signals.jsonl'),
-  path.join(process.cwd(), 'reports', 'rerun-baseline-2026-03-10', 'signals.jsonl'),
-];
-const LOCAL_SIGNAL_FALLBACKS = [
-  path.join(process.cwd(), 'data', 'crm_export.csv'),
-  path.join(process.cwd(), 'reports', 'post_patch_fresh_run_2026-03-10', 'crm_export.csv'),
-  path.join(process.cwd(), 'reports', 'rerun-baseline-2026-03-10', 'crm_export.csv'),
-];
+const CURRENT_SIGNAL_JSONL_PATH = path.join(process.cwd(), 'data', 'signals.jsonl');
 const FUNDING_CACHE_PATH = path.join(process.cwd(), 'data', 'funding_cache.json');
 const DESCRIPTION_CACHE_PATH = path.join(process.cwd(), 'data', 'description_cache.json');
+const STORE_EXACT_JUNK = new Set([
+  'American Dynamism',
+  'Bio Health',
+  'Consumer',
+  'Enterprise',
+  'Infrastructure',
+  'Cultural Leadership Fund',
+  'Perennial',
+  'Speedrun',
+  'News Content',
+  'Bridge the Gap to Space',
+  'Decarbonise the Planet',
+  'Enable the Next Technology Leap',
+  'Feed 10b People',
+  'Reach Humanity Scale Healthcare',
+  'Supercharge Industrial Productivity',
+  'For Researchers',
+  'Spin-out Series',
+  'Researcher Office Hour',
+  'Our Advantage',
+  'Venture Science',
+  'Atmosphere',
+  'Pitch',
+  'NeurIPS',
+  'Supercomputing',
+  'Your Data Agents Need Context',
+  'Top 100 Gen AI Consumer Apps 6th Edition',
+  'KubeCon',
+  'Microsoft Ignite',
+  'AWS Re Invent',
+  'Venture Capital NVentures',
+  'Department of Defense',
+  'NIST',
+  'Department of Energy',
+  'Department of Commerce',
+  'National Science Foundation',
+  'DARPA',
+  'NASA',
+  'Lawrence Berkeley National Laboratory',
+  'Newsletters',
+  'Program',
+  'Invest',
+  'HAX 2023',
+  'Sustainable Manufacturing',
+  'Good news AI Will Eat Application Software',
+  'Join us at HAXs Deep Tech Showcase during NYC Deep Tech Week',
+  'Unibocconi',
+  'Polimi',
+  'Esmt',
+]);
+const INSTITUTIONAL_HOST_PATTERNS = [
+  /(^|\.)gov$/i,
+  /(^|\.)mil$/i,
+  /(^|\.)edu$/i,
+  /(^|\.)linuxfoundation\.org$/i,
+  /(^|\.)supercomputing\.org$/i,
+  /(^|\.)microsoft\.com$/i,
+  /(^|\.)awsevents\.com$/i,
+  /(^|\.)utoronto\.ca$/i,
+  /(^|\.)ubc\.ca$/i,
+  /(^|\.)ucalgary\.ca$/i,
+  /(^|\.)hec\.ca$/i,
+  /(^|\.)dal\.ca$/i,
+  /(^|\.)wisc\.edu$/i,
+  /(^|\.)berkeley\.edu$/i,
+  /(^|\.)nvidia\.com$/i,
+  /(^|\.)nventures\.ai$/i,
+];
+const HIGH_VALUE_THESIS_TAGS = new Set([
+  'Manufacturing',
+  'Industrial Tech',
+  'Robotics',
+  'Deep Tech',
+  'Hardware',
+  'Industrial IoT',
+  'Supply Chain',
+  'Logistics',
+  'Procurement',
+  'Freight',
+]);
+const SECTOR_FILTER_ALIASES = {
+  Manufacturing: ['Manufacturing', 'Industrial Tech', 'Robotics', 'Deep Tech', 'Hardware', 'Industrial IoT'],
+  'Industrial Tech': ['Industrial Tech', 'Manufacturing', 'Robotics', 'Deep Tech', 'Hardware', 'Industrial IoT'],
+  'Supply Chain': ['Supply Chain', 'Logistics', 'Procurement', 'Freight'],
+  Logistics: ['Logistics', 'Supply Chain', 'Freight', 'Procurement'],
+  Robotics: ['Robotics', 'Manufacturing', 'Industrial IoT'],
+  'Deep Tech': ['Deep Tech', 'Hardware', 'Manufacturing'],
+  Hardware: ['Hardware', 'Deep Tech', 'Manufacturing', 'Industrial IoT'],
+  'Industrial IoT': ['Industrial IoT', 'Manufacturing', 'Industrial Tech'],
+};
+const JUNK_NAME_PATTERNS = [
+  /^(visit|view|explore|meet|see|go to|open|launch|discover|check out|learn|read|find|get|apply|join|contact|sign up|subscribe|download|register)\s/i,
+  /\b(edition|season|volume|episode|part \d)\b/i,
+  /^(reach|enable|build|power|drive|fuel|accelerate|transform|revolutionize|reimagine)\s+/i,
+  /^[A-Z][a-z]+\s+(the|a|an|our)\s+.{10,}/i,
+  /\b(raises?|secures?|closes?|lands?|announces?|launches?)\b/i,
+];
 const ROUND_TO_STAGE = {
+  Stealth: 'Stealth',
   'Pre-Seed': 'Pre-Seed',
   Seed: 'Seed',
   'Series A': 'Series A',
@@ -71,8 +160,102 @@ function fixNameCasing(name = '') {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-function stripVisitPrefix(value = '') {
-  return String(value || '').replace(/^Visit\s+/i, '').trim();
+function stripNamePrefixes(name = '') {
+  if (!name) return name;
+  const PREFIX_PATTERNS = [
+    /^visit\s+/i,
+    /^view\s+/i,
+    /^explore\s+/i,
+    /^meet\s+/i,
+    /^see\s+/i,
+    /^go\s+to\s+/i,
+    /^open\s+/i,
+    /^launch\s+/i,
+    /^discover\s+/i,
+    /^check\s+out\s+/i,
+    /^learn\s+(more\s+)?about\s+/i,
+    /^read\s+(more\s+)?about\s+/i,
+    /^more\s+about\s+/i,
+    /^find\s+out\s+(more\s+)?about\s+/i,
+    /^investing\s+in\s+/i,
+    /^backed\s+by\s+/i,
+    /^portfolio[:\s]+/i,
+    /^company[:\s]+/i,
+    /^startup[:\s]+/i,
+    /^founded\s+by\s+/i,
+    /^created\s+by\s+/i,
+    /^built\s+by\s+/i,
+    /^from\s+/i,
+    /^introducing\s+/i,
+    /^announcing\s+/i,
+    /^meet\s+our\s+(portfolio\s+)?company\s+/i,
+  ];
+  let result = String(name).trim();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const pattern of PREFIX_PATTERNS) {
+      const next = result.replace(pattern, '').trim();
+      if (next !== result && next.length >= 2) {
+        result = next;
+        changed = true;
+        break;
+      }
+    }
+  }
+  return result;
+}
+
+function isExactJunkName(name = '') {
+  return STORE_EXACT_JUNK.has(String(name || '').trim());
+}
+
+function sectorFilterValues(sector = '') {
+  const raw = String(sector || '').trim();
+  return SECTOR_FILTER_ALIASES[raw] || [raw];
+}
+
+function normalizeSignalTags(tags) {
+  if (Array.isArray(tags)) return tags.map((tag) => String(tag || '').trim()).filter(Boolean);
+  if (typeof tags === 'string') return tags.split(/[,|;]/).map((tag) => tag.trim()).filter(Boolean);
+  return [];
+}
+
+function isJunkSignal(sig = {}) {
+  const name = cleanText(sig.company_name || sig.startup_name || '');
+  if (!name || name.length < 2 || name.length > 80) return true;
+  if (STORE_EXACT_JUNK.has(name)) return true;
+  if (JUNK_NAME_PATTERNS.some((pattern) => pattern.test(name))) return true;
+  const host = getHost(sig.company_website || sig.startup_url || '');
+  if (host && INSTITUTIONAL_HOST_PATTERNS.some((pattern) => pattern.test(host))) return true;
+  return false;
+}
+
+function shouldAdmit(sig = {}) {
+  if (isJunkSignal(sig)) return false;
+  const tags = normalizeSignalTags(sig.thesis_tags);
+  if (tags.length > 0) {
+    if (sig.company_domain || sig.company_website || sig.startup_url || sig.company_name || sig.startup_name) {
+      return true;
+    }
+  }
+  const name = cleanText(sig.company_name || sig.startup_name || '');
+  if (!name || name.length < 2) return false;
+  if (!sig.company_domain && !sig.company_website && !sig.startup_url) return false;
+  return true;
+}
+
+function looksInstitutionalHost(host = '') {
+  const normalized = String(host || '').toLowerCase();
+  if (!normalized) return false;
+  if (INSTITUTIONAL_HOST_PATTERNS.some((pattern) => pattern.test(normalized))) return true;
+  if (/\.(edu|ac\.uk|ac\.ca|ac\.au)$/.test(normalized)) return true;
+  return false;
+}
+
+function hasHighValueThesisTag(row) {
+  const tags = Array.isArray(row.thesis_tags) ? row.thesis_tags : cleanThesisTags(row.sector);
+  return tags.some((tag) => HIGH_VALUE_THESIS_TAGS.has(String(tag || '').trim()));
 }
 
 function parseSafeRoundDate(val) {
@@ -103,12 +286,13 @@ function sanitizeFundingAmount(value) {
 
 function reconcileStage(signalStage, fundingRound) {
   const STAGE_ORDER = {
-    'Pre-Seed': 1,
-    Seed: 2,
-    'Series A': 3,
-    'Series B': 4,
-    'Series C': 5,
-    'Series D+': 6,
+    Stealth: 1,
+    'Pre-Seed': 2,
+    Seed: 3,
+    'Series A': 4,
+    'Series B': 5,
+    'Series C': 6,
+    'Series D+': 7,
   };
   const cleanedSignalStage = cleanText(signalStage) || 'Unknown';
   const fromFunding = ROUND_TO_STAGE[cleanText(fundingRound)] || null;
@@ -136,7 +320,7 @@ function mergeFundingData(row) {
 
   return {
     ...row,
-    startup_name: fixNameCasing(stripVisitPrefix(row.startup_name || '')),
+    startup_name: fixNameCasing(stripNamePrefixes(row.startup_name || '')),
     description: isJunkDescription(row.description)
       ? cleanText(descriptionCache[row.company_domain]) || row.description
       : row.description,
@@ -820,11 +1004,22 @@ function passesCoreQuality(row) {
 
 function isGenericInstitutionPlaceholder(row) {
   const name = cleanText(row.startup_name || '');
+  const startupHost = getHost(row.startup_url || row.company_website || '');
+  const sourceHost = getHost(row.source_url || '');
   const sourceCategory = String(row.source_category || '');
   const inventoryProgramSource = sourceCategory === 'university_accelerator'
     || sourceCategory === 'accelerator_portfolio'
     || sourceCategory === 'accelerator_directory';
 
+  if (isExactJunkName(name)) {
+    return true;
+  }
+  if (looksInstitutionalHost(startupHost) || looksInstitutionalHost(sourceHost)) {
+    return true;
+  }
+  if (/^(newsletters?|program|members?|fellows?|conference|summit|event|events)$/i.test(name)) {
+    return true;
+  }
   if (!inventoryProgramSource) return false;
   if (row.has_distinct_company_website) {
     return false;
@@ -851,10 +1046,11 @@ function isUniversitySourcePlaceholder(row) {
 }
 
 function rejectStealthPlaceholder(row) {
-  const stealthLike = row.stage === 'Stealth' || !row.stage || row.stage === 'Unknown';
-  if (!stealthLike) return false;
-  if (!row.company_domain && !row.startup_url && !row.company_website) return true;
-  if (isUniversitySourcePlaceholder(row) && row.stage === 'Stealth') return true;
+  if (row.stage !== 'Stealth') return false;
+  if (isExactJunkName(row.startup_name)) return true;
+  if (isGenericInstitutionPlaceholder(row)) return true;
+  if (looksInstitutionalHost(getHost(row.startup_url || row.company_website || ''))) return true;
+  if (isUniversitySourcePlaceholder(row) && !row.company_domain && !row.startup_url && !row.company_website) return true;
   return false;
 }
 
@@ -1082,37 +1278,7 @@ function listSourceCsvFiles() {
   if (explicit) {
     return explicit.split(',').map((s) => s.trim()).filter(Boolean);
   }
-
-  const outputDir = path.join(STARTUP_WATCH_ROOT, 'output');
-  const files = fs.existsSync(outputDir)
-    ? fs.readdirSync(outputDir)
-      .filter((name) => name.toLowerCase().endsWith('.csv'))
-      .map((name) => path.join(outputDir, name))
-      .filter((p) => fs.existsSync(p))
-    : [];
-
-  if (!files.length) {
-    const jsonlFallbacks = LOCAL_SIGNAL_JSONL_FALLBACKS.filter((p) => fs.existsSync(p));
-    if (jsonlFallbacks.length) return jsonlFallbacks;
-    if (fs.existsSync(DEFAULT_CSV_PATH)) return [DEFAULT_CSV_PATH];
-    return LOCAL_SIGNAL_FALLBACKS.filter((p) => fs.existsSync(p));
-  }
-
-  const mode = String(process.env.SOURCE_SIGNALS_MODE || 'all').toLowerCase();
-  if (mode === 'latest') {
-    let newest = files[0];
-    let newestMtime = fs.statSync(newest).mtimeMs;
-    for (const file of files.slice(1)) {
-      const mtime = fs.statSync(file).mtimeMs;
-      if (mtime > newestMtime) {
-        newest = file;
-        newestMtime = mtime;
-      }
-    }
-    return [newest];
-  }
-
-  return files.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+  return fs.existsSync(CURRENT_SIGNAL_JSONL_PATH) ? [CURRENT_SIGNAL_JSONL_PATH] : [];
 }
 
 function pick(r, keys) {
@@ -1223,7 +1389,7 @@ function loadRealSourceRows() {
               item_url: obj.item_url,
               published_at: obj.published_at,
               confidence: obj.confidence,
-              thesis_tags: thesisTags,
+              thesis_tags: normalizeSignalTags(obj.thesis_tags || thesisTags),
               sector: thesisTags[0] || 'General',
               funding_amount_guess: obj.enrichment?.funding_amount_guess || null,
               funding_signal: obj.enrichment?.funding_signal || '',
@@ -1312,7 +1478,9 @@ function loadRealSourceRows() {
       const lastRound = parseSafeRoundDate(pick(r, ['last_round_date', 'round_date'])) || null;
       const headcount = pick(r, ['headcount', 'employees', 'team_size']) || null;
       const sectorRaw = pick(r, ['categories', 'category_tags', 'sector', 'category', 'industry', 'thesis_tags']);
-      const thesisTags = cleanThesisTags(Array.isArray(sectorRaw) ? sectorRaw : String(sectorRaw || '').replace(/[\[\]"]+/g, ''));
+      const thesisTags = normalizeSignalTags(
+        Array.isArray(sectorRaw) ? sectorRaw : String(sectorRaw || '').replace(/[\[\]"]+/g, '')
+      );
       const sector = thesisTags[0] || 'General';
       const sourceMeta = resolveRegistrySource(source, sourceUrl, sourceIdRaw, pick(r, ['investor_tier', 'investorTier', 'tier']));
       const hq = inferCountry({
@@ -1361,10 +1529,15 @@ function loadRealSourceRows() {
 
       if (csvPath.toLowerCase().endsWith('.jsonl')) {
         const strongMention = distinctWebsite || fundingSignal === 'present' || investorSignal === 'present' || (hiringSignal && hiringSignal !== 'none');
-        if (signalType !== 'directory_listing' && !strongMention) continue;
+        if (signalType !== 'directory_listing' && !strongMention && thesisTags.length === 0) continue;
       }
-
-      if (!passesCoreQuality(normalized) && normalized.signal_type !== 'directory_listing') continue;
+      if (!shouldAdmit({
+        company_name: normalized.startup_name,
+        company_domain: normalized.company_domain,
+        company_website: normalized.startup_url,
+        startup_url: normalized.startup_url,
+        thesis_tags: normalized.thesis_tags,
+      }) && normalized.signal_type !== 'directory_listing') continue;
       out.push(normalized);
     }
   }
@@ -1412,7 +1585,7 @@ function toCandidate(row, idx) {
 
   const candidate = {
     id: idx + 1,
-    startup_name: fixNameCasing(stripVisitPrefix(mergedRow.startup_name)),
+    startup_name: fixNameCasing(stripNamePrefixes(mergedRow.startup_name)),
     startup_url: mergedRow.startup_url,
     description: mergedRow.description,
     description_summary: summarizeDescription(
@@ -1572,12 +1745,27 @@ function classifyCandidateRow(row) {
 function validateCandidateRow(row) {
   const cls = classifyCandidateRow(row);
   const clean = !hasWeirdTextArtifacts(row.startup_name || '') && !hasWeirdTextArtifacts(row.description_summary || row.description || '');
+  const admitted = shouldAdmit({
+    company_name: row.startup_name,
+    company_domain: row.company_domain,
+    company_website: row.startup_url,
+    startup_url: row.startup_url,
+    thesis_tags: row.thesis_tags,
+  });
+  const highValueLaterStage = ['Series A', 'Series B', 'Series C', 'Series D+'].includes(String(row.stage || ''))
+    && hasHighValueThesisTag(row)
+    && Boolean(row.company_domain || row.startup_url || row.company_website)
+    && !isGenericInstitutionPlaceholder(row)
+    && !looksLikeUiLabel(row.startup_name || '')
+    && !isExactJunkName(row.startup_name || '');
   return {
-    ok: cls.type.startsWith('company_') && clean,
+    ok: admitted && (cls.type.startsWith('company_') || highValueLaterStage || hasHighValueThesisTag(row)) && clean,
     classType: cls.type,
     classConfidence: cls.confidence,
     clean,
-    reasons: cls.reasons,
+    reasons: highValueLaterStage && !cls.type.startsWith('company_')
+      ? [...cls.reasons, 'later_stage_thesis_override']
+      : cls.reasons,
   };
 }
 
@@ -1718,7 +1906,16 @@ export async function getRaiseCandidates(filters = {}) {
   debugCounts.afterCountry = rows.length;
   if (region) rows = rows.filter((r) => (r.region || r.source_region || '') === region);
   debugCounts.afterRegion = rows.length;
-  if (sector) rows = rows.filter((r) => r.sector === sector);
+  if (sector) {
+    const wantedValues = sectorFilterValues(sector).map((value) => String(value).toLowerCase());
+    rows = rows.filter((r) => {
+      const tags = Array.isArray(r.thesis_tags) ? r.thesis_tags : cleanThesisTags(r.sector);
+      return tags.some((tag) => {
+        const value = String(tag || '').toLowerCase();
+        return wantedValues.some((wanted) => value === wanted || value.includes(wanted) || wanted.includes(value));
+      });
+    });
+  }
   debugCounts.afterSector = rows.length;
   if (thesisTag) {
     const tag = String(thesisTag).toLowerCase();

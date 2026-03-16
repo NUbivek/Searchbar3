@@ -11,11 +11,13 @@ export function scoreRaiseLikelihood(signal) {
 
   function roundStageBonus(row) {
     const stage = String(row.lastRoundType || row.stage || '').toLowerCase();
-    if (stage.includes('pre-seed') || stage.includes('pre seed')) return 10;
+    if (stage.includes('pre-seed') || stage.includes('pre seed')) return 5;
     if (stage === 'seed') return 8;
-    if (stage.includes('series a')) return 5;
-    if (stage.includes('series b')) return 3;
-    if (stage.includes('series c')) return 1;
+    if (stage.includes('series a')) return 18;
+    if (stage.includes('series b')) return 22;
+    if (stage.includes('series c')) return 15;
+    if (stage.includes('series d')) return 8;
+    if (stage.includes('growth')) return 18;
     return 0;
   }
 
@@ -66,8 +68,9 @@ export function scoreRaiseLikelihood(signal) {
 
   const roundBonus = roundStageBonus(signal);
   score += roundBonus;
-  if (roundBonus >= 8) reasons.push('Early-stage company likely to raise again soon');
-  else if (roundBonus >= 3) reasons.push('Growth stage still within plausible follow-on fundraising window');
+  if (roundBonus >= 18) reasons.push('Series A/B funding stage strongly suggests an active follow-on fundraising window');
+  else if (roundBonus >= 8) reasons.push('Funding stage supports a plausible near-term raise');
+  else if (roundBonus >= 3) reasons.push('Stage signal contributes modestly to fundraising likelihood');
 
   if (signal.negativeSignal) {
     score -= 20;

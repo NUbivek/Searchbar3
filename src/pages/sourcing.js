@@ -48,10 +48,25 @@ function formatSourceName(name) {
 }
 
 function cleanSectorOptions(rows = [], facetSectors = []) {
-  const SAAS_MAP = {
+  const DISPLAY_SECTOR_MAP = {
     SaaS: 'B2B Software',
     'Enterprise SaaS': 'B2B Software',
     'B2B SaaS': 'B2B Software',
+    'Industrial AI': 'Industrial Tech',
+    'Industrial SaaS': 'Industrial Tech',
+    'Industrial IoT': 'Industrial Tech',
+    'Supply Chain AI': 'Supply Chain',
+    'Supply Chain Tech': 'Supply Chain',
+    'Supply Chain Software': 'Supply Chain',
+    'Logistics Tech': 'Logistics',
+    'Logistics Software': 'Logistics',
+    'Last Mile': 'Logistics',
+    Freight: 'Logistics',
+    Warehousing: 'Logistics',
+    Commerce: 'Retail Tech',
+    Marketplace: 'Retail Tech',
+    'Applied AI': 'AI/ML',
+    Automation: 'Robotics',
   };
   const values = [
     ...facetSectors,
@@ -59,8 +74,8 @@ function cleanSectorOptions(rows = [], facetSectors = []) {
   ];
   return ['all', ...Array.from(new Set(
     values
-      .map((value) => SAAS_MAP[String(value || '').trim()] || String(value || '').trim())
-      .filter((value) => value && !/[|_]/.test(value) && value.length <= 20)
+      .map((value) => DISPLAY_SECTOR_MAP[String(value || '').trim()] || String(value || '').trim())
+      .filter((value) => value && !/[|_]/.test(value) && value.length <= 25)
   )).sort()];
 }
 

@@ -63,6 +63,19 @@ const NON_STARTUP_DOMAINS = new Set([
   'eventbrite.com', 'meetup.com', 'zoom.us', 'calendly.com',
 ]);
 
+const NORMALIZER_HOST_BLOCKLIST = [
+  /\.gov$/i,
+  /\.edu$/i,
+  /\.mil$/i,
+  /linuxfoundation\.org$/i,
+  /supercomputing\.org$/i,
+  /defense\.gov$/i,
+  /energy\.gov$/i,
+  /utoronto\.ca$/i,
+  /ubc\.ca$/i,
+  /ucalgary\.ca$/i,
+];
+
 const REGION_MAP = {
   AU: 'AU',
   Australia: 'AU',
@@ -164,9 +177,121 @@ const CANONICAL_TAGS = {
   climate: 'Climate Tech',
 };
 
+const SECTOR_MAP = {
+  'Industrial AI': 'Industrial Tech',
+  'Industrial SaaS': 'Industrial Tech',
+  'Industrial IoT': 'Industrial Tech',
+  'Industrial Software': 'Industrial Tech',
+  Industrials: 'Industrial Tech',
+  'Industry 4.0': 'Industrial Tech',
+  'Manufacturing Tech': 'Industrial Tech',
+  'Manufacturing Software': 'Industrial Tech',
+  'Smart Manufacturing': 'Industrial Tech',
+  'Factory Automation': 'Industrial Tech',
+  'Applied AI': 'AI/ML',
+  'Artificial Intelligence': 'AI/ML',
+  'Machine Learning': 'AI/ML',
+  'Deep Learning': 'AI/ML',
+  'Generative AI': 'AI/ML',
+  GenAI: 'AI/ML',
+  'AI Infrastructure': 'AI/ML',
+  'Supply Chain Tech': 'Supply Chain',
+  'Supply Chain Software': 'Supply Chain',
+  'Supply Chain AI': 'Supply Chain',
+  'Supply Chain Finance': 'Supply Chain',
+  'Supply Chain Management': 'Supply Chain',
+  'Logistics Tech': 'Logistics',
+  'Logistics Software': 'Logistics',
+  'Logistics AI': 'Logistics',
+  'Last Mile': 'Logistics',
+  'Last Mile Delivery': 'Logistics',
+  'Fleet Management': 'Logistics',
+  'Freight Tech': 'Logistics',
+  Freight: 'Logistics',
+  'Cold Chain': 'Logistics',
+  Warehousing: 'Logistics',
+  'Warehouse Tech': 'Logistics',
+  'Warehouse Management': 'Logistics',
+  Sourcing: 'Procurement',
+  'Strategic Sourcing': 'Procurement',
+  'Spend Management': 'Procurement',
+  'Vendor Management': 'Procurement',
+  Purchasing: 'Procurement',
+  Agriculture: 'Agtech',
+  'Agri Tech': 'Agtech',
+  'Food Tech': 'Agtech',
+  Foodtech: 'Agtech',
+  'Food & Agriculture': 'Agtech',
+  Climate: 'Climate Tech',
+  GreenTech: 'Climate Tech',
+  'Green Tech': 'Climate Tech',
+  'Clean Tech': 'Climate Tech',
+  Cleantech: 'Climate Tech',
+  'Energy Tech': 'Climate Tech',
+  'Renewable Energy': 'Climate Tech',
+  'Sustainability Tech': 'Climate Tech',
+  SaaS: 'B2B Software',
+  'Enterprise SaaS': 'B2B Software',
+  'B2B SaaS': 'B2B Software',
+  'Enterprise Software': 'B2B Software',
+  Software: 'B2B Software',
+  Platform: 'B2B Software',
+  'Financial Technology': 'Fintech',
+  'Trade Finance': 'Fintech',
+  Payments: 'Fintech',
+  'Banking Tech': 'Fintech',
+  InsurTech: 'Fintech',
+  Automation: 'Robotics',
+  'Industrial Robotics': 'Robotics',
+  'Digital Health': 'Healthcare IT',
+  'Health Tech': 'Healthcare IT',
+  MedTech: 'Healthcare IT',
+  'Med Tech': 'Healthcare IT',
+  'Construction Tech': 'Construction Tech',
+  ConTech: 'Construction Tech',
+  PropTech: 'Construction Tech',
+  Commerce: 'Retail Tech',
+  'E-Commerce': 'Retail Tech',
+  eCommerce: 'Retail Tech',
+  D2C: 'Retail Tech',
+  DTC: 'Retail Tech',
+  Retail_tech: 'Retail Tech',
+  Marketplace: 'Retail Tech',
+};
+
 const CANONICAL_TAG_VALUES = new Set(Object.values(CANONICAL_TAGS));
 const UI_JUNK_PATTERN = /^(load more|see more|view all|show more|read more|learn more|find out more|explore|apply now|get started|sign up|log in|login|sign in|register|subscribe|contact us|about us|our team|meet the team|news insights|job board|careers|open roles|newsletter|follow us|privacy policy|terms|cookie|back to top|scroll|menu|navigation|footer|header|general funding|impact|growth|innovation|solutions|insights|report|update|announcement|press release|blog post|case study|webinar|event|demo day|pitch deck|filters here|supply chain integrations|world positive report|open lp|substack|linkedin icon|twitter x icon|facebook icon|instagram icon|youtube icon|campus|recent investments|university (library|news))$/i;
 const SOCIAL_JUNK_PATTERN = /^(twitter|x\.com|linkedin|facebook|instagram|youtube|tiktok|reddit|github|substack|medium|notion|slack|zoom|discord|telegram|whatsapp)(\s+(icon|logo|link|page|profile|handle))?$/i;
+const NORMALIZER_EXACT_JUNK = new Set([
+  'American Dynamism',
+  'Bio Health',
+  'Consumer',
+  'Enterprise',
+  'Infrastructure',
+  'Cultural Leadership Fund',
+  'Perennial',
+  'Speedrun',
+  'News Content',
+  'Bridge the Gap to Space',
+  'Decarbonise the Planet',
+  'Enable the Next Technology Leap',
+  'Feed 10b People',
+  'Reach Humanity Scale Healthcare',
+  'Supercharge Industrial Productivity',
+  'For Researchers',
+  'Spin-out Series',
+  'Researcher Office Hour',
+  'Our Advantage',
+  'Venture Science',
+  'Atmosphere',
+  'Pitch',
+  'KubeCon',
+  'NeurIPS',
+  'Supercomputing',
+  'Microsoft Ignite',
+  'AWS Re Invent',
+  'Venture Capital NVentures',
+]);
 
 function clamp(value, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
@@ -228,8 +353,50 @@ function normalizeCompanyName(value) {
     .trim();
 }
 
-function stripVisitPrefix(value) {
-  return String(value || '').replace(/^Visit\s+/i, '').trim();
+function stripNamePrefixes(name) {
+  if (!name) return name;
+  const PREFIX_PATTERNS = [
+    /^visit\s+/i,
+    /^view\s+/i,
+    /^explore\s+/i,
+    /^meet\s+/i,
+    /^see\s+/i,
+    /^go\s+to\s+/i,
+    /^open\s+/i,
+    /^launch\s+/i,
+    /^discover\s+/i,
+    /^check\s+out\s+/i,
+    /^learn\s+(more\s+)?about\s+/i,
+    /^read\s+(more\s+)?about\s+/i,
+    /^more\s+about\s+/i,
+    /^find\s+out\s+(more\s+)?about\s+/i,
+    /^investing\s+in\s+/i,
+    /^backed\s+by\s+/i,
+    /^portfolio[:\s]+/i,
+    /^company[:\s]+/i,
+    /^startup[:\s]+/i,
+    /^founded\s+by\s+/i,
+    /^created\s+by\s+/i,
+    /^built\s+by\s+/i,
+    /^from\s+/i,
+    /^introducing\s+/i,
+    /^announcing\s+/i,
+    /^meet\s+our\s+(portfolio\s+)?company\s+/i,
+  ];
+  let result = String(name).trim();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const pattern of PREFIX_PATTERNS) {
+      const next = result.replace(pattern, '').trim();
+      if (next !== result && next.length >= 2) {
+        result = next;
+        changed = true;
+        break;
+      }
+    }
+  }
+  return result;
 }
 
 function createSignalId(parts) {
@@ -239,17 +406,31 @@ function createSignalId(parts) {
 }
 
 function inferCompanyName(item) {
-  return normalizeCompanyName(stripVisitPrefix(item.company_name || item.title || item.name || 'Unknown Company'));
+  return normalizeCompanyName(stripNamePrefixes(item.company_name || item.title || item.name || 'Unknown Company'));
 }
 
 function toDisplayStage(value) {
   switch (String(value || '').toLowerCase()) {
+    case 'unknown': return 'Unknown';
     case 'stealth': return 'Stealth';
+    case 'preseed':
     case 'pre-seed': return 'Pre-Seed';
     case 'seed': return 'Seed';
+    case 'series a':
+    case 'series-a':
     case 'series_a': return 'Series A';
+    case 'series b':
+    case 'series-b':
     case 'series_b': return 'Series B';
+    case 'series c':
+    case 'series-c':
     case 'series_c': return 'Series C';
+    case 'series d':
+    case 'series-d':
+    case 'series_d':
+    case 'series d+':
+    case 'series-d+':
+    case 'series_d+': return 'Series D+';
     default: return 'Unknown';
   }
 }
@@ -372,7 +553,11 @@ function cleanThesisTags(raw) {
   }
 
   const refined = refineSaasTag(result);
-  return refined.slice(0, 4);
+  return refined
+    .map((tag) => SECTOR_MAP[tag] || tag)
+    .filter(Boolean)
+    .filter((tag, index, arr) => arr.indexOf(tag) === index)
+    .slice(0, 4);
 }
 
 function refineSaasTag(tags, description = '', sourceName = '') {
@@ -399,7 +584,8 @@ function refineSaasTag(tags, description = '', sourceName = '') {
 }
 
 function isJunkName(name) {
-  name = stripVisitPrefix(name);
+  name = stripNamePrefixes(name);
+  if (NORMALIZER_EXACT_JUNK.has(String(name).trim())) return true;
   if (!name || name.length < 2 || name.length > 80) return true;
   if (/^\+?[\d\s\-().]{7,}$/.test(name)) return true;
   if (/^[a-z0-9._%+-]+@/i.test(name)) return true;
@@ -413,6 +599,9 @@ function isJunkName(name) {
   if (/\(acquired by|acquired by\s|merger with/i.test(name)) return true;
   if (/\b(health center|medical center|student center|care center)\b/i.test(name)) return true;
   if (/^(visit campus|click here|see details|see domain|energy transition|security advisor|faculty advisors|flagship program|our accelerators|sell on etsy)$/i.test(String(name).trim())) return true;
+  if (/^(reach|enable|build|power|drive|fuel|accelerate)\s+/i.test(name)) return true;
+  if (/\b(edition|season|volume|episode|part \d)\b/i.test(name)) return true;
+  if (/^[A-Z][a-z]+\s+(the|a|an|our)\s+.{10,}/i.test(name)) return true;
   if (UI_JUNK_PATTERN.test(name.trim())) return true;
   if (SOCIAL_JUNK_PATTERN.test(name.trim())) return true;
   return false;
@@ -424,6 +613,9 @@ function isNonStartupDomain(domain) {
   }
 
   const clean = String(domain).toLowerCase().replace(/^www\./, '');
+  if (NORMALIZER_HOST_BLOCKLIST.some((pattern) => pattern.test(clean))) {
+    return true;
+  }
   if (NON_STARTUP_DOMAINS.has(clean)) {
     return true;
   }
@@ -528,10 +720,15 @@ function normalizeSignalWeight(value) {
 }
 
 function normalizeSignal({ source, item, query }) {
-  const companyName = stripVisitPrefix(inferCompanyName(item));
+  const companyName = stripNamePrefixes(inferCompanyName(item));
   const itemUrl = canonicalizeUrl(item.url || item.link || '');
   const publishedAt = item.publishedAt || item.pubDate || new Date().toISOString();
   let thesisTags = cleanThesisTags(inferThesisTags({ source, item, query }));
+  if (typeof item.thesis_tags === 'string') {
+    thesisTags = cleanThesisTags([...(thesisTags || []), ...item.thesis_tags.split(/[,|;]/).map((tag) => tag.trim()).filter(Boolean)]);
+  } else if (Array.isArray(item.thesis_tags) && item.thesis_tags.length > 0) {
+    thesisTags = cleanThesisTags([...(thesisTags || []), ...item.thesis_tags]);
+  }
   const sourceUrl = source.method?.url || '';
   const companyWebsite = pickExternalCompanyWebsite({ item, itemUrl, sourceUrl })
     || deriveWebsiteFromItemUrl({ itemUrl, sourceUrl });

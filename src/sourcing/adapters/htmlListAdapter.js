@@ -408,12 +408,144 @@ function looksLikeTeaserLabel(value) {
   return false;
 }
 
-function stripVisitPrefix(value) {
-  return String(value || '').replace(/^Visit\s+/i, '').trim();
+function stripNamePrefixes(name) {
+  if (!name) return name;
+  const PREFIX_PATTERNS = [
+    /^visit\s+/i,
+    /^view\s+/i,
+    /^explore\s+/i,
+    /^meet\s+/i,
+    /^see\s+/i,
+    /^go\s+to\s+/i,
+    /^open\s+/i,
+    /^launch\s+/i,
+    /^discover\s+/i,
+    /^check\s+out\s+/i,
+    /^learn\s+(more\s+)?about\s+/i,
+    /^read\s+(more\s+)?about\s+/i,
+    /^more\s+about\s+/i,
+    /^find\s+out\s+(more\s+)?about\s+/i,
+    /^investing\s+in\s+/i,
+    /^backed\s+by\s+/i,
+    /^portfolio[:\s]+/i,
+    /^company[:\s]+/i,
+    /^startup[:\s]+/i,
+    /^founded\s+by\s+/i,
+    /^created\s+by\s+/i,
+    /^built\s+by\s+/i,
+    /^from\s+/i,
+    /^introducing\s+/i,
+    /^announcing\s+/i,
+    /^meet\s+our\s+(portfolio\s+)?company\s+/i,
+  ];
+  let result = String(name).trim();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const pattern of PREFIX_PATTERNS) {
+      const next = result.replace(pattern, '').trim();
+      if (next !== result && next.length >= 2) {
+        result = next;
+        changed = true;
+        break;
+      }
+    }
+  }
+  return result;
 }
 
-function looksLikeCompanyLabel(value) {
-  const text = normalizeCompanyLabel(stripVisitPrefix(value));
+const ADAPTER_EXACT_JUNK = new Set([
+  'American Dynamism',
+  'Bio Health',
+  'Consumer',
+  'Enterprise',
+  'Infrastructure',
+  'Cultural Leadership Fund',
+  'Perennial',
+  'Speedrun',
+  'News Content',
+  'Bridge the Gap to Space',
+  'Decarbonise the Planet',
+  'Enable the Next Technology Leap',
+  'Feed 10b People',
+  'Reach Humanity Scale Healthcare',
+  'Supercharge Industrial Productivity',
+  'For Researchers',
+  'Spin-out Series',
+  'Researcher Office Hour',
+  'Our Advantage',
+  'Venture Science',
+  'Atmosphere',
+  'Pitch',
+  'KubeCon',
+  'NeurIPS',
+  'Supercomputing',
+  'Microsoft Ignite',
+  'AWS Re Invent',
+  'Venture Capital NVentures',
+  'Department of Defense',
+  'NIST',
+  'Department of Energy',
+  'DARPA',
+  'NASA',
+]);
+
+const ADAPTER_HOST_BLOCKLIST = [
+  /\.gov$/i,
+  /\.edu$/i,
+  /\.mil$/i,
+  /linuxfoundation\.org$/i,
+  /supercomputing\.org$/i,
+  /defense\.gov$/i,
+  /energy\.gov$/i,
+  /utoronto\.ca$/i,
+  /ubc\.ca$/i,
+  /ucalgary\.ca$/i,
+];
+
+function isAdapterJunk(name, url = '') {
+  const text = normalizeCompanyLabel(stripNamePrefixes(name));
+  if (!text || text.length < 2 || text.length > 80) {
+    return true;
+  }
+
+  if (ADAPTER_EXACT_JUNK.has(text.trim())) {
+    return true;
+  }
+
+  if (/^(visit|view|explore|meet|see|go to|open|launch|discover|check out|learn|read|find|get|apply|join|contact|sign up)\s/i.test(text)) {
+    return true;
+  }
+
+  if (/^(reach|enable|build|power|drive|fuel|accelerate|transform|revolutionize|reimagine)\s+/i.test(text)) {
+    return true;
+  }
+
+  if (/\b(edition|season|volume|episode|part \d)\b/i.test(text)) {
+    return true;
+  }
+
+  if (/^[A-Z][a-z]+\s+(the|a|an|our)\s+.{10,}/i.test(text)) {
+    return true;
+  }
+
+  if (url) {
+    try {
+      const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+      if (ADAPTER_HOST_BLOCKLIST.some((pattern) => pattern.test(host))) {
+        return true;
+      }
+    } catch {}
+  }
+
+  return false;
+}
+
+function looksLikeCompanyLabel(value, url = '') {
+  const text = normalizeCompanyLabel(stripNamePrefixes(value));
+  if (isAdapterJunk(text, url)) {
+    return false;
+  }
   if (isBlockedLabel(text)) {
     return false;
   }
@@ -459,6 +591,18 @@ function looksLikeCompanyLabel(value) {
   }
 
   if (GENERIC_PHRASES.test(text.trim())) {
+    return false;
+  }
+
+  if (/^(reach|enable|build|power|drive|fuel|accelerate)\s+/i.test(text.trim())) {
+    return false;
+  }
+
+  if (/\b(edition|season|volume|episode|part \d)\b/i.test(text.trim())) {
+    return false;
+  }
+
+  if (/^[A-Z][a-z]+\s+(the|a|an|our)\s+.{10,}/i.test(text.trim())) {
     return false;
   }
 
@@ -546,8 +690,8 @@ function inferCompanyWebsiteFromLink(absoluteUrl, sourceHost) {
 function inferFallbackCompanyName($, node, fallbackText) {
   const candidates = [];
   const pushCandidate = (value) => {
-    const text = normalizeCompanyLabel(stripVisitPrefix(value));
-    if (!text || text === normalizeCompanyLabel(stripVisitPrefix(fallbackText))) {
+    const text = normalizeCompanyLabel(stripNamePrefixes(value));
+    if (!text || text === normalizeCompanyLabel(stripNamePrefixes(fallbackText))) {
       return;
     }
 
@@ -629,8 +773,8 @@ function titleFromCompanyWebsite(url = '') {
 }
 
 function preferredCompanyName(rawName, fallbackName, absoluteUrl) {
-  const cleanedRaw = cleanCandidateLabel(stripVisitPrefix(rawName));
-  const cleanedFallback = cleanCandidateLabel(stripVisitPrefix(fallbackName));
+  const cleanedRaw = cleanCandidateLabel(stripNamePrefixes(rawName));
+  const cleanedFallback = cleanCandidateLabel(stripNamePrefixes(fallbackName));
   const slugName = cleanCandidateLabel(titleFromUrlSlug(absoluteUrl));
 
   if (cleanedRaw && !looksLikeTeaserLabel(cleanedRaw) && looksLikeCompanyLabel(cleanedRaw)) {
@@ -763,7 +907,7 @@ function normalizeStructuredCompany(item, sourceUrl, sourceHost) {
   const startupUrl = cleanText(item.external_url || item.company_url || item.url || item.permalink || '');
   const detailUrl = cleanText(item.permalink || item.url || startupUrl || '');
   const absoluteDetailUrl = detailUrl ? new URL(detailUrl, sourceUrl).toString() : '';
-  const title = stripVisitPrefix(preferredCompanyName(
+  const title = stripNamePrefixes(preferredCompanyName(
     item.name || item.post_title || item.display_name || '',
     item.title || '',
     absoluteDetailUrl || startupUrl || sourceUrl
@@ -895,7 +1039,7 @@ function normalizeNextDataCompany(item, source, sourceUrl, sourceHost) {
     return null;
   }
 
-  const title = stripVisitPrefix(preferredCompanyName(
+  const title = stripNamePrefixes(preferredCompanyName(
     item?.name || item?.company_name || item?.detail?.name || '',
     item?.title || item?.detail?.title || '',
     absoluteUrl
@@ -995,7 +1139,7 @@ async function fetchApiBackedCompanies(adapter, html, sourceUrl, sourceHost, lim
     const results = [];
     const seen = new Set();
     for (const company of companies) {
-      const title = normalizeCompanyLabel(stripVisitPrefix(company?.attributes?.name || ''));
+      const title = normalizeCompanyLabel(stripNamePrefixes(company?.attributes?.name || ''));
       if (!looksLikeCompanyLabel(title)) continue;
       const slug = cleanText(company?.meta?.slug || '');
       const startupUrl = slug ? `https://vault.alchemistaccelerator.com/companies/public/${slug}` : '';
@@ -1078,7 +1222,7 @@ async function fetchYCCompanies(adapter, sourceUrl, limit) {
         break;
       }
 
-      const name = stripVisitPrefix(cleanText(company?.name || ''));
+      const name = stripNamePrefixes(cleanText(company?.name || ''));
       if (!name || name.length < 2) {
         continue;
       }
@@ -1243,13 +1387,13 @@ class HtmlListAdapter extends BaseAdapter {
           (linkNode && linkNode.attr(urlAttribute)) ||
           (itemUrlAttribute ? node.attr(itemUrlAttribute) : '') ||
           '';
-        const title = stripVisitPrefix(readNodeValue(titleNode, titleAttribute));
+        const title = stripNamePrefixes(readNodeValue(titleNode, titleAttribute));
         const content = (
           mergeContentSelectors
             ? readMergedValues($, node, contentSelectors, contentAttribute, contentJoinWith)
             : readNodeValue(contentNode, contentAttribute)
         ) || title;
-        const companyName = stripVisitPrefix(readNodeValue(companyNameNode, companyNameAttribute));
+        const companyName = stripNamePrefixes(readNodeValue(companyNameNode, companyNameAttribute));
         const companyWebsite = companyWebsiteNode
           ? new URL(companyWebsiteNode.attr(companyWebsiteUrlAttribute), this.source.method.url).toString()
           : '';
