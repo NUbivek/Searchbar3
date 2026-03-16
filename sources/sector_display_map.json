@@ -1,39 +1,97 @@
 {
-  "version": "1.0",
-  "description": "Maps raw sector_name and thesis tag values to consolidated display names for the Sector dropdown. Applied at query/display time only.",
+  "version": "1.1",
+  "description": "Maps raw sector_name and thesis tag values to consolidated display names. Applied at query/display time only.",
   "consolidation": {
     "Manufacturing": [
-      "Manufacturing"
+      "Manufacturing",
+      "manufacturing",
+      "Advanced Manufacturing",
+      "Manufacturing Tech",
+      "Manufacturing Execution",
+      "Digital Manufacturing",
+      "Manufacturing Operations",
+      "Industrial",
+      "Industrial Tech",
+      "Industry 4.0",
+      "Smart Factory",
+      "Factory Automation",
+      "Industrial Automation"
     ],
     "Supply Chain & Logistics": [
       "Supply Chain",
-      "Logistics"
-    ],
-    "Industrial Tech": [
-      "Industrial",
-      "Industrial Tech"
-    ],
-    "Procurement & Spend": [
-      "Procurement"
+      "supply-chain",
+      "Supply Chain & Logistics",
+      "Logistics",
+      "logistics",
+      "Freight",
+      "freight",
+      "Transportation",
+      "Transport",
+      "Distribution",
+      "Last Mile",
+      "Last-Mile Delivery",
+      "Shipping",
+      "TMS",
+      "tms",
+      "d2c-fulfillment",
+      "traceability"
     ],
     "Warehouse & Fulfillment": [
       "Warehouse",
       "Warehouse Automation",
       "Warehouse Robotics",
+      "warehouse-robotics",
       "Fulfillment",
       "3PL",
+      "3pl",
       "WMS",
+      "wms",
+      "Order Management",
       "Inventory",
+      "inventory-planning",
       "Inventory Management",
       "Inventory Optimization"
     ],
+    "Procurement & Spend": [
+      "Procurement",
+      "procurement",
+      "Procurement & Spend Management",
+      "Spend Management",
+      "Sourcing",
+      "Supplier Management"
+    ],
     "Robotics & Automation": [
-      "Robotics"
+      "Robotics",
+      "robotics",
+      "Automation",
+      "automation",
+      "AMR",
+      "AGV",
+      "Cobot",
+      "Robot"
     ],
     "AgTech & Food": [
+      "AgTech",
       "Agtech",
+      "agtech",
       "Agbio",
-      "Food Supply"
+      "Agriculture",
+      "Food Tech",
+      "Food Supply",
+      "Food Safety",
+      "Precision Agriculture",
+      "Farm Tech"
+    ],
+    "Industrial IoT & Deep Tech": [
+      "Deep Tech",
+      "Hardware",
+      "Defense Tech",
+      "IIoT",
+      "iiot",
+      "Industrial IoT",
+      "industrial-ai",
+      "Sensors",
+      "Embedded Systems"
     ],
     "Trade Finance & Payments": [
       "Trade Finance",
@@ -46,35 +104,67 @@
       "AI & Enterprise Software",
       "AI/ML",
       "B2B",
+      "B2B Software",
       "Dev Tools",
-      "Security"
+      "Security",
+      "SaaS",
+      "Enterprise Software",
+      "Data Analytics",
+      "Data Platform",
+      "NLP",
+      "Computer Vision",
+      "Generative AI",
+      "LLM"
     ],
     "FinTech & Payments": [
       "FinTech & Payments",
-      "Fintech"
+      "Fintech",
+      "FinTech",
+      "Financial Services",
+      "Insurance",
+      "Payments",
+      "Banking",
+      "Lending"
     ],
     "Climate & Energy": [
       "Climate & Energy",
       "Energy",
       "Climate Tech",
-      "Sustainability"
-    ],
-    "Deep Tech & Hardware": [
-      "Deep Tech",
-      "Hardware",
-      "Defense Tech"
+      "Sustainability",
+      "ESG",
+      "Cleantech",
+      "Renewable",
+      "Solar",
+      "Battery",
+      "EV",
+      "Carbon"
     ],
     "Health & Life Sciences": [
       "Health & Life Sciences",
       "Healthcare",
-      "Biotech"
+      "Biotech",
+      "Medical Devices",
+      "Pharma",
+      "Digital Health"
     ],
-    "Consumer, Media & Other": [
+    "Consumer & Other": [
       "Consumer, Media & Other",
+      "Consumer & Other",
       "Retail Tech",
       "Mobility",
       "General",
-      "Other"
+      "Other",
+      "Consumer",
+      "Marketing",
+      "EdTech",
+      "Legal Tech",
+      "HR Tech",
+      "Real Estate",
+      "Gaming",
+      "Media",
+      "Entertainment",
+      "E-commerce",
+      "Travel"
     ]
   }
 }

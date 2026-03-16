@@ -25,19 +25,19 @@ const SECTOR_DISPLAY_LOOKUP = Object.entries(sectorDisplayMap.consolidation || {
 const SECTOR_DISPLAY_PRIORITY = [
   'Manufacturing',
   'Supply Chain & Logistics',
-  'Industrial Tech',
-  'Procurement & Spend',
   'Warehouse & Fulfillment',
+  'Procurement & Spend',
   'Robotics & Automation',
   'AgTech & Food',
+  'Industrial IoT & Deep Tech',
   'Trade Finance & Payments',
   'AI & Enterprise Software',
   'FinTech & Payments',
   'Climate & Energy',
-  'Deep Tech & Hardware',
   'Health & Life Sciences',
-  'Consumer, Media & Other'
+  'Consumer & Other'
 ];
+const CONSUMER_CATCHALL_NAME = 'Consumer & Other';
 const STORE_EXACT_JUNK = new Set([
   'American Dynamism',
   'Bio Health',
@@ -303,16 +303,21 @@ function getMappedDisplaySector(label = '') {
 
 function getDisplaySector(row = {}) {
   const sectorName = String(row.sector_name || '').trim();
+  const mappedSectorName = getMappedDisplaySector(sectorName);
   const tags = Array.isArray(row.thesis_tags) ? row.thesis_tags : cleanThesisTags(row.sector);
   const mappedTags = Array.from(new Set(tags.map((tag) => getMappedDisplaySector(tag)).filter(Boolean)));
-  const prioritizedTag = SECTOR_DISPLAY_PRIORITY.find((name) => mappedTags.includes(name));
-  if (sectorName && sectorName !== 'Thesis-aligned' && sectorName !== 'General') {
-    return getMappedDisplaySector(sectorName);
-  }
+  const nonCatchallTags = mappedTags.filter((name) => name && name !== CONSUMER_CATCHALL_NAME);
+  const prioritizedTag = SECTOR_DISPLAY_PRIORITY.find((name) => nonCatchallTags.includes(name));
+
   if (prioritizedTag) return prioritizedTag;
+  if (nonCatchallTags.length) return nonCatchallTags[0];
+
+  if (sectorName && !['Thesis-aligned', 'General', 'Consumer, Media & Other', 'Consumer & Other'].includes(sectorName)) {
+    return mappedSectorName;
+  }
   if (mappedTags.length) return mappedTags[0];
-  if (sectorName) return getMappedDisplaySector(sectorName);
-  return 'Consumer, Media & Other';
+  if (mappedSectorName) return mappedSectorName;
+  return CONSUMER_CATCHALL_NAME;
 }
 
 function sectorFilterValues(sector = '') {
