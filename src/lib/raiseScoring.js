@@ -1,4 +1,4 @@
-export function scoreRaiseLikelihood(signal) {
+export function computeScore(signal = {}) {
   let score = 0;
   const reasons = [];
 
@@ -61,6 +61,23 @@ export function scoreRaiseLikelihood(signal) {
   score += Math.round(confidence * 15);
   if (confidence >= 0.75) reasons.push('High confidence based on source quality + enrichment');
 
+  if (String(signal.sourceName || '') === 'Filtered Pitchbook') {
+    score += 15;
+    reasons.push('Curated Filtered Pitchbook source bonus');
+  }
+
+  if (signal.description && String(signal.description).trim().length > 20) score += 10;
+  if (signal.companyDomain || signal.startupUrl || signal.companyWebsite) score += 5;
+  if (signal.stage && String(signal.stage).toLowerCase() !== 'unknown') score += 5;
+  if (signal.fundingUsd) score += 10;
+  if (signal.investors && ((Array.isArray(signal.investors) && signal.investors.length > 0) || (!Array.isArray(signal.investors) && String(signal.investors).trim()))) score += 5;
+  if (signal.headcount) score += 5;
+  if (signal.founded) score += 3;
+  if (signal.leadInvestor) score += 3;
+  if (signal.growth1yr) score += 4;
+  if (signal.region && String(signal.region) !== 'Unknown') score += 3;
+  if (signal.thesisTags && Array.isArray(signal.thesisTags) && signal.thesisTags.length > 0) score += 5;
+
   const fundingConfidence = fundingConfidenceBonus(signal);
   score += fundingConfidence;
   if (fundingConfidence >= 8) reasons.push('Verified funding data available');
@@ -78,10 +95,39 @@ export function scoreRaiseLikelihood(signal) {
   }
 
   const bounded = Math.max(0, Math.min(100, score));
+  return bounded;
+}
+
+export function scoreRaiseLikelihood(signal) {
+  const score = computeScore(signal);
+  const reasons = [];
+  const monthsSinceRound = Number.isFinite(signal.monthsSinceLastRound)
+    ? signal.monthsSinceLastRound
+    : null;
+  const momentum = signal.momentumScore ?? 0;
+  const confidence = Number(signal.confidence || 0);
+  const fundingConfidence = (() => {
+    if (signal.fundingConfidence === 'high') return 8;
+    if (signal.fundingConfidence === 'medium') return 4;
+    if (signal.fundingConfidence === 'low') return 1;
+    return 0;
+  })();
+  const stage = String(signal.lastRoundType || signal.stage || '').toLowerCase();
+  if (monthsSinceRound != null && monthsSinceRound >= 16 && monthsSinceRound <= 30) reasons.push('Time since last round is in an active re-raise window');
+  if (momentum >= 12) reasons.push('High recent momentum (hiring/product/news activity)');
+  if (signal.acceleratorRecent) reasons.push('Recent accelerator/cohort/demo-day signal');
+  if (String(signal.sourceTier || signal.investorTier || '').toUpperCase() === 'A') reasons.push('Tier A source signal');
+  else if (String(signal.sourceTier || signal.investorTier || '').toUpperCase() === 'B') reasons.push('Tier B source signal');
+  if (confidence >= 0.75) reasons.push('High confidence based on source quality + enrichment');
+  if (fundingConfidence >= 8) reasons.push('Verified funding data available');
+  else if (fundingConfidence >= 4) reasons.push('Funding data available with medium confidence');
+  if (stage.includes('series a') || stage.includes('series b')) reasons.push('Series A/B funding stage strongly suggests an active follow-on fundraising window');
+  else if (stage.includes('seed') || stage.includes('series c') || stage.includes('growth')) reasons.push('Funding stage supports a plausible near-term raise');
+
   return {
-    raise_likelihood_score: bounded,
+    raise_likelihood_score: score,
     // Calibrated for current signal density so likely filter returns actionable rows.
-    likely_raising_6m: bounded >= 45,
+    likely_raising_6m: score >= 45,
     reasons: reasons.slice(0, 3),
   };
 }

@@ -3,6 +3,7 @@ import path from 'path';
 import { parse } from 'csv-parse/sync';
 import { scoreRaiseLikelihood } from './raiseScoring.js';
 import { cleanThesisTags, classifySector } from '../sourcing/normalizer.js';
+import FilterLog from '../sourcing/filterLog.js';
 
 const SOURCING_ROOT = path.resolve(process.cwd(), '..', 'sourcing101');
 const STARTUP_WATCH_ROOT = path.join(SOURCING_ROOT, 'startup_watch');
@@ -108,6 +109,65 @@ const JUNK_NAME_PATTERNS = [
   /^(reach|enable|build|power|drive|fuel|accelerate|transform|revolutionize|reimagine)\s+/i,
   /^[A-Z][a-z]+\s+(the|a|an|our)\s+.{10,}/i,
   /\b(raises?|secures?|closes?|lands?|announces?|launches?)\b/i,
+];
+const HARD_EXCLUSION_NAME_PATTERNS = [
+  /^sign\s*in$/i,
+  /^log\s*in$/i,
+  /^sign\s*up$/i,
+  /^subscribe$/i,
+  /^support$/i,
+  /^advertise$/i,
+  /^privacy\s*(policy)?$/i,
+  /^terms(\s*(of|&)\s*(use|service))?$/i,
+  /^disclaimer$/i,
+  /^contact(\s*us)?$/i,
+  /^about(\s*us)?$/i,
+  /^our\s*team$/i,
+  /^careers?$/i,
+  /^jobs?$/i,
+  /^ai\s*jobs$/i,
+  /^web3\s*jobs$/i,
+  /^portfolio$/i,
+  /^companies$/i,
+  /^topics$/i,
+  /^home$/i,
+  /^menu$/i,
+  /^search$/i,
+  /^newsletter$/i,
+  /^blog$/i,
+  /^press$/i,
+  /^faq$/i,
+  /^events?$/i,
+  /^resources?$/i,
+  /^partners?$/i,
+  /^investors?$/i,
+  /^pricing$/i,
+  /^features?$/i,
+  /^solutions?$/i,
+  /^products?$/i,
+  /^services?$/i,
+  /^downloads?$/i,
+  /^documentation$/i,
+  /^api$/i,
+  /^undefined$/i,
+  /^null$/i,
+  /^none$/i,
+  /^n\/?a$/i,
+  /^test$/i,
+  /^example$/i,
+  /^sample$/i,
+  /^loading\.{0,3}$/i,
+  /^page\s*\d+$/i,
+  /^see\s*(all|more)$/i,
+  /^read\s*more$/i,
+  /^learn\s*more$/i,
+  /^view\s*(all|more)$/i,
+  /^show\s*(all|more)$/i,
+  /^back\s*to/i,
+  /^go\s*to/i,
+  /^click\s*here$/i,
+  /^\d+$/,
+  /^[^a-zA-Z]*$/,
 ];
 const ROUND_TO_STAGE = {
   Stealth: 'Stealth',
@@ -249,6 +309,15 @@ function isJunkSignal(sig = {}) {
   if (JUNK_NAME_PATTERNS.some((pattern) => pattern.test(name))) return true;
   const host = getHost(sig.company_website || sig.startup_url || '');
   if (host && INSTITUTIONAL_HOST_PATTERNS.some((pattern) => pattern.test(host))) return true;
+  return false;
+}
+
+function isJunkRow(row = {}) {
+  const name = cleanText(row.company_name || row.startup_name || '');
+  if (!name || name.length < 2) return true;
+  if (name.length === 1) return true;
+  if (HARD_EXCLUSION_NAME_PATTERNS.some((pattern) => pattern.test(name))) return true;
+  if (name.length <= 3 && name === name.toUpperCase() && !/^[A-Z]{2,3}$/.test(name)) return true;
   return false;
 }
 
@@ -1578,8 +1647,42 @@ function loadRealSourceRows() {
     }
   }
 
+  const log = new FilterLog();
+  const beforeJunkCount = out.length;
+  const afterJunkRows = out.filter((row) => !isJunkRow(row));
+  const junkDropped = out
+    .filter((row) => isJunkRow(row))
+    .map((row) => row.startup_name || row.company_name || '')
+    .filter(Boolean);
+  log.stage('junk_name_exclusion', beforeJunkCount, afterJunkRows.length, junkDropped);
+
+  const beforeDedupCount = afterJunkRows.length;
+  const dedupMap = new Map();
+  for (const row of afterJunkRows) {
+    const key = `${String(row.startup_name || row.company_name || '').toLowerCase().replace(/[^a-z0-9]/g, '')}|${String(row.company_domain || '').toLowerCase()}`;
+    const existing = dedupMap.get(key);
+    if (!existing) {
+      dedupMap.set(key, row);
+      continue;
+    }
+    const existingConf = Number(existing.confidence || 0);
+    const nextConf = Number(row.confidence || 0);
+    const existingData = [existing.description, existing.startup_url, existing.company_domain, existing.stage].filter(Boolean).length;
+    const nextData = [row.description, row.startup_url, row.company_domain, row.stage].filter(Boolean).length;
+    if (nextConf > existingConf || (nextConf === existingConf && nextData > existingData)) {
+      dedupMap.set(key, row);
+    }
+  }
+  const dedupedRows = Array.from(dedupMap.values());
+  const dedupDropped = afterJunkRows
+    .filter((row) => !dedupedRows.includes(row))
+    .map((row) => row.startup_name || row.company_name || '')
+    .filter(Boolean);
+  log.stage('hard_dedup', beforeDedupCount, dedupedRows.length, dedupDropped);
+  log.report();
+
   return {
-    rows: out,
+    rows: dedupedRows,
     csvPath: usedFiles.join(','),
     mtime: new Date(Math.max(...usedFiles.map((p) => fs.statSync(p).mtimeMs))).toISOString(),
     filesCount: usedFiles.length,
@@ -1602,10 +1705,23 @@ function toCandidate(row, idx) {
     momentumScore,
     acceleratorRecent,
     sourceTier: sourceMeta.source_tier,
+    sourceName: sourceMeta.source_name,
     negativeSignal: false,
     confidence: mergedRow.confidence,
     fundingConfidence: mergedRow.funding_confidence,
     lastRoundType: mergedRow.last_round_type,
+    description: mergedRow.description,
+    companyDomain: mergedRow.company_domain,
+    startupUrl: mergedRow.startup_url,
+    stage: mergedRow.stage,
+    region: mergedRow.region,
+    thesisTags: mergedRow.thesis_tags,
+    fundingUsd: mergedRow.funding_usd,
+    investors: mergedRow.investors,
+    headcount: mergedRow.headcount,
+    founded: mergedRow.founded,
+    leadInvestor: mergedRow.lead_investor,
+    growth1yr: mergedRow.growth_1yr,
   });
   const forecast = forecastFromScore(scored.raise_likelihood_score);
 
@@ -1616,6 +1732,11 @@ function toCandidate(row, idx) {
     + (mergedRow.sector && mergedRow.sector !== 'General' ? 15 : 0)
     + (mergedRow.stage && mergedRow.stage !== 'Unknown' ? 10 : 0)
     + (mergedRow.source_url ? 10 : 0)
+    + ((sourceMeta.source_name === 'Filtered Pitchbook' || sourceMeta.source_id === 'UPL-FPB-001') ? 15 : 0)
+    + (mergedRow.company_domain ? 5 : 0)
+    + (mergedRow.funding_usd ? 10 : 0)
+    + (Array.isArray(mergedRow.investors) && mergedRow.investors.length ? 5 : 0)
+    + (mergedRow.headcount ? 5 : 0)
   ));
 
   const rationalePoints = buildFundingRationalePoints(mergedRow, scored.reasons);
@@ -1917,7 +2038,7 @@ export async function getRaiseCandidates(filters = {}) {
   // Tie output to canonical mapped sources for normal/high quality views.
   if (qScore >= 30) {
     rows = rows
-      .filter((r) => r.source_registry_match);
+      .filter((r) => r.source_registry_match || r.source_name === 'Filtered Pitchbook' || r.source_id === 'UPL-FPB-001' || r.signal_type === 'uploaded_dataset');
   }
   debugCounts.afterRegistryMatch = rows.length;
 
