@@ -161,7 +161,7 @@ export default function SourcingPage() {
   const [minFunding, setMinFunding] = React.useState('');
   const [maxFunding, setMaxFunding] = React.useState('');
   const [minScore, setMinScore] = React.useState('0');
-  const [qualityScore, setQualityScore] = React.useState('30');
+  const [qualityScore, setQualityScore] = React.useState('0');
   const [likelyOnly, setLikelyOnly] = React.useState(false);
   const [page, setPage] = React.useState(1);
 
@@ -319,7 +319,7 @@ export default function SourcingPage() {
               <input value={minFunding} onChange={(e) => setMinFunding(e.target.value)} placeholder="Min funding $" type="number" className="h-10 md:col-span-2 rounded-lg border border-slate-200 bg-white px-3 text-sm" />
               <input value={maxFunding} onChange={(e) => setMaxFunding(e.target.value)} placeholder="Max funding $" type="number" className="h-10 md:col-span-2 rounded-lg border border-slate-200 bg-white px-3 text-sm" />
               <label className="h-10 md:col-span-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm"><input type="checkbox" checked={likelyOnly} onChange={(e) => { const v=e.target.checked; setLikelyOnly(v); if (!v) setMinScore('0'); if (v && Number(minScore) < 30) setMinScore('30'); }} /> {'Raising <6months'}</label>
-              <button onClick={() => { setQ(''); setStage('all'); setCountry('all'); setThesisAligned(true); setSector('all'); setSourceTier('all'); setSourceName('all'); setMinFunding(''); setMaxFunding(''); setMinScore('0'); setQualityScore('30'); setLikelyOnly(false); setPage(1); }} className="h-10 md:col-span-2 rounded-lg border border-slate-200 bg-white px-3 text-sm hover:bg-slate-50">Reset filters</button>
+              <button onClick={() => { setQ(''); setStage('all'); setCountry('all'); setThesisAligned(true); setSector('all'); setSourceTier('all'); setSourceName('all'); setMinFunding(''); setMaxFunding(''); setMinScore('0'); setQualityScore('0'); setLikelyOnly(false); setPage(1); }} className="h-10 md:col-span-2 rounded-lg border border-slate-200 bg-white px-3 text-sm hover:bg-slate-50">Reset filters</button>
               <div className="h-10 md:col-span-2 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 flex items-center justify-between gap-2">
                 <span>Total: <span className="font-semibold">{total}</span></span>
                 <span>Page: <span className="font-semibold">{page}/{pageCount}</span></span>
