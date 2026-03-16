@@ -13,6 +13,31 @@ const THESIS_ALLOWLIST_PATH = path.join(process.cwd(), 'sources', 'thesis_v2_all
 const CURRENT_SIGNAL_JSONL_PATH = path.join(process.cwd(), 'data', 'signals.jsonl');
 const FUNDING_CACHE_PATH = path.join(process.cwd(), 'data', 'funding_cache.json');
 const DESCRIPTION_CACHE_PATH = path.join(process.cwd(), 'data', 'description_cache.json');
+const SECTOR_DISPLAY_MAP_PATH = path.join(process.cwd(), 'sources', 'sector_display_map.json');
+const sectorDisplayMap = JSON.parse(fs.readFileSync(SECTOR_DISPLAY_MAP_PATH, 'utf8'));
+const SECTOR_DISPLAY_LOOKUP = Object.entries(sectorDisplayMap.consolidation || {}).reduce((acc, [displayName, rawNames]) => {
+  for (const rawName of rawNames || []) {
+    const key = String(rawName || '').trim().toLowerCase();
+    if (key) acc[key] = displayName;
+  }
+  return acc;
+}, {});
+const SECTOR_DISPLAY_PRIORITY = [
+  'Manufacturing',
+  'Supply Chain & Logistics',
+  'Industrial Tech',
+  'Procurement & Spend',
+  'Warehouse & Fulfillment',
+  'Robotics & Automation',
+  'AgTech & Food',
+  'Trade Finance & Payments',
+  'AI & Enterprise Software',
+  'FinTech & Payments',
+  'Climate & Energy',
+  'Deep Tech & Hardware',
+  'Health & Life Sciences',
+  'Consumer, Media & Other'
+];
 const STORE_EXACT_JUNK = new Set([
   'American Dynamism',
   'Bio Health',
@@ -270,9 +295,31 @@ function isExactJunkName(name = '') {
   return STORE_EXACT_JUNK.has(String(name || '').trim());
 }
 
+function getMappedDisplaySector(label = '') {
+  const raw = String(label || '').trim();
+  if (!raw) return '';
+  return SECTOR_DISPLAY_LOOKUP[raw.toLowerCase()] || raw;
+}
+
+function getDisplaySector(row = {}) {
+  const sectorName = String(row.sector_name || '').trim();
+  const tags = Array.isArray(row.thesis_tags) ? row.thesis_tags : cleanThesisTags(row.sector);
+  const mappedTags = Array.from(new Set(tags.map((tag) => getMappedDisplaySector(tag)).filter(Boolean)));
+  const prioritizedTag = SECTOR_DISPLAY_PRIORITY.find((name) => mappedTags.includes(name));
+  if (sectorName && sectorName !== 'Thesis-aligned' && sectorName !== 'General') {
+    return getMappedDisplaySector(sectorName);
+  }
+  if (prioritizedTag) return prioritizedTag;
+  if (mappedTags.length) return mappedTags[0];
+  if (sectorName) return getMappedDisplaySector(sectorName);
+  return 'Consumer, Media & Other';
+}
+
 function sectorFilterValues(sector = '') {
   const raw = String(sector || '').trim();
-  return SECTOR_FILTER_ALIASES[raw] || [raw];
+  const aliasValues = SECTOR_FILTER_ALIASES[raw] || [raw];
+  const displayValues = aliasValues.map((value) => getMappedDisplaySector(value));
+  return Array.from(new Set([...aliasValues, ...displayValues]));
 }
 
 function resolveSectorMetadata(row = {}) {
@@ -2129,15 +2176,17 @@ export async function getRaiseCandidates(filters = {}) {
   if (sector) {
     const wantedValues = sectorFilterValues(sector).map((value) => String(value).toLowerCase());
     rows = rows.filter((r) => {
+      const displaySector = String(getDisplaySector(r) || '').toLowerCase();
       const rowSectorName = String(r.sector_name || '').toLowerCase();
       const rowSectorClass = String(r.sector_class || '').toLowerCase();
-      if (wantedValues.some((wanted) => wanted === rowSectorName || wanted === rowSectorClass)) {
+      if (wantedValues.some((wanted) => wanted === displaySector || wanted === rowSectorName || wanted === rowSectorClass)) {
         return true;
       }
       const tags = Array.isArray(r.thesis_tags) ? r.thesis_tags : cleanThesisTags(r.sector);
       return tags.some((tag) => {
         const value = String(tag || '').toLowerCase();
-        return wantedValues.some((wanted) => value === wanted || value.includes(wanted) || wanted.includes(value));
+        const mapped = String(getMappedDisplaySector(tag) || '').toLowerCase();
+        return wantedValues.some((wanted) => value === wanted || mapped === wanted || value.includes(wanted) || wanted.includes(value));
       });
     });
   }
@@ -2190,14 +2239,8 @@ export async function getRaiseCandidates(filters = {}) {
     roundTypes: Array.from(new Set(facetRows.map((r) => r.last_round_type).filter(Boolean))).sort(),
     countries: Array.from(new Set(facetRows.map((r) => r.hq_country).filter(Boolean))).sort(),
     sectors: facetRows.reduce((acc, r) => {
-      const labels = new Set();
-      if (r.sector_name) labels.add(r.sector_name);
-      (Array.isArray(r.thesis_tags) ? r.thesis_tags : cleanThesisTags(r.sector))
-        .filter(Boolean)
-        .forEach((tag) => labels.add(tag));
-      labels.forEach((label) => {
-        acc[label] = (acc[label] || 0) + 1;
-      });
+      const displaySector = getDisplaySector(r);
+      if (displaySector) acc[displaySector] = (acc[displaySector] || 0) + 1;
       return acc;
     }, {}),
     sourceTiers: Array.from(new Set(facetRows.map((r) => r.source_tier).filter(Boolean))).sort(),

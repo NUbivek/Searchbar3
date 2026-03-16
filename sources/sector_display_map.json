@@ -1,0 +1,80 @@
+{
+  "version": "1.0",
+  "description": "Maps raw sector_name and thesis tag values to consolidated display names for the Sector dropdown. Applied at query/display time only.",
+  "consolidation": {
+    "Manufacturing": [
+      "Manufacturing"
+    ],
+    "Supply Chain & Logistics": [
+      "Supply Chain",
+      "Logistics"
+    ],
+    "Industrial Tech": [
+      "Industrial",
+      "Industrial Tech"
+    ],
+    "Procurement & Spend": [
+      "Procurement"
+    ],
+    "Warehouse & Fulfillment": [
+      "Warehouse",
+      "Warehouse Automation",
+      "Warehouse Robotics",
+      "Fulfillment",
+      "3PL",
+      "WMS",
+      "Inventory",
+      "Inventory Management",
+      "Inventory Optimization"
+    ],
+    "Robotics & Automation": [
+      "Robotics"
+    ],
+    "AgTech & Food": [
+      "Agtech",
+      "Agbio",
+      "Food Supply"
+    ],
+    "Trade Finance & Payments": [
+      "Trade Finance",
+      "Supply Chain Finance",
+      "B2B Payments",
+      "Trade Management",
+      "Working Capital"
+    ],
+    "AI & Enterprise Software": [
+      "AI & Enterprise Software",
+      "AI/ML",
+      "B2B",
+      "Dev Tools",
+      "Security"
+    ],
+    "FinTech & Payments": [
+      "FinTech & Payments",
+      "Fintech"
+    ],
+    "Climate & Energy": [
+      "Climate & Energy",
+      "Energy",
+      "Climate Tech",
+      "Sustainability"
+    ],
+    "Deep Tech & Hardware": [
+      "Deep Tech",
+      "Hardware",
+      "Defense Tech"
+    ],
+    "Health & Life Sciences": [
+      "Health & Life Sciences",
+      "Healthcare",
+      "Biotech"
+    ],
+    "Consumer, Media & Other": [
+      "Consumer, Media & Other",
+      "Retail Tech",
+      "Mobility",
+      "General",
+      "Other"
+    ]
+  }
+}
