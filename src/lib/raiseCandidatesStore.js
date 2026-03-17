@@ -35,9 +35,11 @@ const SECTOR_DISPLAY_PRIORITY = [
   'FinTech & Payments',
   'Climate & Energy',
   'Health & Life Sciences',
-  'Consumer & Other'
+  'Retail & Commerce',
+  'Mobility & Transport',
+  'Other'
 ];
-const CONSUMER_CATCHALL_NAME = 'Consumer & Other';
+const CONSUMER_CATCHALL_NAME = 'Other';
 const STORE_EXACT_JUNK = new Set([
   'American Dynamism',
   'Bio Health',
@@ -308,15 +310,51 @@ function getDisplaySector(row = {}) {
   const mappedTags = Array.from(new Set(tags.map((tag) => getMappedDisplaySector(tag)).filter(Boolean)));
   const nonCatchallTags = mappedTags.filter((name) => name && name !== CONSUMER_CATCHALL_NAME);
   const prioritizedTag = SECTOR_DISPLAY_PRIORITY.find((name) => nonCatchallTags.includes(name));
+  const desc = String(row.description || row.description_summary || '').toLowerCase();
 
   if (prioritizedTag) return prioritizedTag;
   if (nonCatchallTags.length) return nonCatchallTags[0];
+
+  if (sectorName === 'Thesis-aligned') {
+    if (/supply\s*chain|logistics|freight|shipping|warehouse|fulfillment|3pl|last.?mile|transportation|transport/i.test(desc)) {
+      return 'Supply Chain & Logistics';
+    }
+    if (/manufactur|factory|production\s+line|cnc|machining|assembly/i.test(desc)) {
+      return 'Manufacturing';
+    }
+    if (/agri|farm|crop|food\s+(tech|supply|safety)|precision\s+agri/i.test(desc)) {
+      return 'AgTech & Food';
+    }
+    if (/procur|spend\s+management|supplier\s+management|sourcing\s+platform/i.test(desc)) {
+      return 'Procurement & Spend';
+    }
+    if (/robot|automat|amr|agv|cobot/i.test(desc)) {
+      return 'Robotics & Automation';
+    }
+    if (/iiot|industrial\s+iot|sensor|embedded|deep\s+tech|hardware|defense/i.test(desc)) {
+      return 'Industrial IoT & Deep Tech';
+    }
+    if (/inventory|wms|warehouse\s+management|order\s+management/i.test(desc)) {
+      return 'Warehouse & Fulfillment';
+    }
+    if (/trade\s+finance|supply\s+chain\s+finance|b2b\s+payment|working\s+capital/i.test(desc)) {
+      return 'Trade Finance & Payments';
+    }
+  }
 
   if (sectorName && !['Thesis-aligned', 'General', 'Consumer, Media & Other', 'Consumer & Other'].includes(sectorName)) {
     return mappedSectorName;
   }
   if (mappedTags.length) return mappedTags[0];
-  if (mappedSectorName) return mappedSectorName;
+  if (mappedSectorName && mappedSectorName !== 'Consumer & Other') return mappedSectorName;
+
+  if (/\bretail|commerce|e-commerce|ecommerce|marketplace|shopping|consumer\s+product|cpg|dtc|direct.?to.?consumer/i.test(desc)) {
+    return 'Retail & Commerce';
+  }
+  if (/\bmobility|automotive|electric\s+vehicle|\bev\b|fleet|ride|scooter|vehicle|transport/i.test(desc)) {
+    return 'Mobility & Transport';
+  }
+
   return CONSUMER_CATCHALL_NAME;
 }
 

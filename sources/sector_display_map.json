@@ -1,5 +1,5 @@
 {
-  "version": "1.1",
+  "version": "1.2",
   "description": "Maps raw sector_name and thesis tag values to consolidated display names. Applied at query/display time only.",
   "consolidation": {
     "Manufacturing": [
@@ -147,24 +147,52 @@
       "Pharma",
       "Digital Health"
     ],
-    "Consumer & Other": [
+    "Retail & Commerce": [
+      "Retail Tech",
+      "Retail",
+      "E-commerce",
+      "Ecommerce",
+      "Commerce",
+      "Marketplace",
+      "Shopping",
+      "DTC",
+      "Direct-to-Consumer",
+      "Consumer",
+      "B2C",
+      "CPG"
+    ],
+    "Mobility & Transport": [
+      "Mobility",
+      "Automotive",
+      "Electric Vehicle",
+      "EV",
+      "Fleet",
+      "Ride-hailing",
+      "Scooter",
+      "Urban Mobility",
+      "Vehicle"
+    ],
+    "Other": [
       "Consumer, Media & Other",
       "Consumer & Other",
-      "Retail Tech",
-      "Mobility",
       "General",
       "Other",
-      "Consumer",
       "Marketing",
-      "EdTech",
-      "Legal Tech",
-      "HR Tech",
-      "Real Estate",
-      "Gaming",
+      "Advertising",
       "Media",
       "Entertainment",
-      "E-commerce",
-      "Travel"
+      "EdTech",
+      "Education",
+      "Legal Tech",
+      "Legal",
+      "HR Tech",
+      "Human Resources",
+      "Recruiting",
+      "Real Estate",
+      "PropTech",
+      "Gaming",
+      "Travel",
+      "Hospitality"
     ]
   }
 }
