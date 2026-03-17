@@ -560,6 +560,65 @@ function sanitizeFundingAmount(value) {
   return amount;
 }
 
+function normalizeAlphaNum(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function stripDomainPrefixes(value) {
+  return String(value || '').replace(/^(get|with|use|try)/i, '');
+}
+
+function looksLikeFundingStageMention(text = '') {
+  const raw = String(text || '').toLowerCase();
+  if (!raw) return false;
+  return /\b(raised?|raises?|raising|round|financing|funding|backed|led by|pre[-\s]?seed round|seed round|series [abcde])/i.test(raw);
+}
+
+function cacheTextIncludesPhrase(cacheText, phrase) {
+  if (!cacheText || !phrase) return false;
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  return new RegExp(`\\b${escaped}\\b`, 'i').test(cacheText);
+}
+
+function isFundingCacheLikelyMatch(row, cached = {}) {
+  if (!cached || typeof cached !== 'object' || !Object.keys(cached).length) return false;
+
+  const cacheText = [
+    cached._debug_title,
+    cached._debug_raw,
+    cached.company_name,
+    cached.website,
+  ].filter(Boolean).join(' ');
+
+  const cacheNorm = normalizeAlphaNum(cacheText);
+  const companyName = cleanText(row.startup_name || row.company_name || '');
+  const companyNorm = normalizeAlphaNum(companyName);
+  const domain = cleanText(row.company_domain || row.company_root_domain || rootDomain(row.company_website || row.startup_url || ''));
+  const domainStem = normalizeAlphaNum((domain || '').split('.')[0]);
+  const strippedStem = normalizeAlphaNum(stripDomainPrefixes((domain || '').split('.')[0]));
+  const lastRoundType = cleanText(cached.last_funding_round) || 'Unknown';
+  const hasFundingLanguage = looksLikeFundingStageMention(cacheText);
+
+  if (lastRoundType === 'Unknown' && !hasFundingLanguage) {
+    return false;
+  }
+
+  if (lastRoundType === 'Unknown') {
+    return false;
+  }
+
+  if (domainStem && domainStem.length >= 6 && cacheNorm.includes(domainStem)) return true;
+  if (strippedStem && strippedStem.length >= 6 && cacheNorm.includes(strippedStem)) return true;
+
+  const companyTokens = companyName.split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 4);
+  if (companyTokens.length >= 2 && companyTokens.every((token) => cacheTextIncludesPhrase(cacheText, token))) return true;
+
+  if (companyNorm && companyNorm.length >= 4 && cacheTextIncludesPhrase(cacheText, companyName)) return true;
+  if (companyNorm && companyNorm.length >= 4 && cacheNorm.includes(companyNorm)) return true;
+
+  return false;
+}
+
 function reconcileStage(signalStage, fundingRound) {
   const STAGE_ORDER = {
     Stealth: 1,
@@ -580,7 +639,8 @@ function reconcileStage(signalStage, fundingRound) {
 }
 
 function mergeFundingData(row) {
-  const cached = fundingCache[row.company_domain] || {};
+  const rawCached = fundingCache[row.company_domain] || {};
+  const cached = isFundingCacheLikelyMatch(row, rawCached) ? rawCached : {};
   const cachedFunding = sanitizeFundingAmount(cached.last_funding_amount_usd);
   const cachedTotal = sanitizeFundingAmount(cached.total_funding_usd);
   const rowFunding = sanitizeFundingAmount(row.funding_usd);
@@ -1730,11 +1790,12 @@ function loadRealSourceRows() {
       const description = cleanText(pick(r, ['description', 'signal_text', 'summary', 'blurb', 'evidence_excerpt', 'evidence_title']));
       let stage = cleanText(pick(r, ['stage_inferred', 'stage', 'round_stage'])) || 'Unknown';
       if (stage === 'Unknown') stage = cleanText(pick(r, ['stage_guess'])) || 'Unknown';
-      if (/series\s*a/i.test(stage) || /series\s*a/i.test(description)) stage = 'Series A';
-      else if (/series\s*b/i.test(stage) || /series\s*b/i.test(description)) stage = 'Series B';
-      else if (/series\s*c/i.test(stage) || /series\s*c/i.test(description)) stage = 'Series C';
-      else if (/pre[-\s]?seed/i.test(stage) || /pre[-\s]?seed/i.test(description)) stage = 'Pre-Seed';
-      else if (/seed/i.test(stage) || /seed/i.test(description)) stage = 'Seed';
+      const descriptionSignalsStage = looksLikeFundingStageMention(description);
+      if (/series\s*a/i.test(stage) || (descriptionSignalsStage && /series\s*a/i.test(description))) stage = 'Series A';
+      else if (/series\s*b/i.test(stage) || (descriptionSignalsStage && /series\s*b/i.test(description))) stage = 'Series B';
+      else if (/series\s*c/i.test(stage) || (descriptionSignalsStage && /series\s*c/i.test(description))) stage = 'Series C';
+      else if (/pre[-\s]?seed/i.test(stage) || (descriptionSignalsStage && /pre[-\s]?seed/i.test(description))) stage = 'Pre-Seed';
+      else if (/^seed$/i.test(stage) || (descriptionSignalsStage && /\bseed\b/i.test(description))) stage = 'Seed';
       else if (/stealth/i.test(stage)) stage = 'Stealth';
       const hqRaw = cleanText(pick(r, ['hq', 'country', 'hq_country', 'location', 'region_guess'])) || '';
       const source = cleanText(pick(r, ['source_name', 'source', 'source_key', 'dataset'])) || path.basename(csvPath);
@@ -1779,7 +1840,7 @@ function loadRealSourceRows() {
           startupUrl = '';
         }
       }
-      const funding = parseMoney(pick(r, ['funding_amount', 'funding_usd', 'funding_amount_guess', 'amount_raised', 'last_round_amount']));
+      const funding = parseMoney(pick(r, ['funding_amount', 'funding_usd', 'amount_raised', 'last_round_amount']));
       const lastRound = parseSafeRoundDate(pick(r, ['last_round_date', 'round_date'])) || null;
       const headcount = pick(r, ['headcount', 'employees', 'team_size']) || null;
       const sectorRaw = pick(r, ['categories', 'category_tags', 'sector', 'category', 'industry', 'thesis_tags']);
