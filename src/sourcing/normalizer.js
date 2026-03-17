@@ -274,8 +274,8 @@ function classifySector(row = {}) {
     : [];
   const textParts = [
     row.description,
+    row.evidence_excerpt,
     row.company_name,
-    row.source_name,
     row.industry,
     row.category,
     ...(Array.isArray(row.thesis_tags) ? row.thesis_tags : []),
@@ -501,8 +501,11 @@ function inferStageGuess({ source, item }) {
 }
 
 function inferThesisTags({ source, item, query }) {
-  const baseTags = Array.isArray(source.thesis_tags) ? source.thesis_tags : [];
-  const content = `${item.title || ''} ${item.content || ''} ${item.snippet || ''} ${query || ''}`.trim();
+  const inventorySource = INVENTORY_SOURCE_CATEGORIES.has(String(source?.category || '').toLowerCase());
+  const baseTags = inventorySource ? [] : (Array.isArray(source.thesis_tags) ? source.thesis_tags : []);
+  const content = inventorySource
+    ? `${item.title || ''} ${item.content || ''} ${item.snippet || ''}`.trim()
+    : `${item.title || ''} ${item.content || ''} ${item.snippet || ''} ${query || ''}`.trim();
   const inferredTags = THESIS_RULES
     .filter((entry) => entry.pattern.test(content))
     .map((entry) => entry.tag);
@@ -705,6 +708,25 @@ function deriveWebsiteFromItemUrl({ itemUrl, sourceUrl }) {
   return candidate;
 }
 
+function looksLikeBadItemDescription(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return true;
+  if (/portfolio company focused on supply chain, logistics, agtech/i.test(text)) return true;
+  if (/obituary|funeral home|cremation services/i.test(text)) return true;
+  if (/rally\.tv|pluto tv|csrwire|latamlist/i.test(text)) return true;
+  return false;
+}
+
+function bestItemDescription({ source, item, thesisTags }) {
+  const candidates = [item.content, item.snippet, source.fetch_notes, source.notes];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const cleaned = cleanDescription(candidate, source.name, thesisTags);
+    if (cleaned && !looksLikeBadItemDescription(cleaned)) return cleaned;
+  }
+  return cleanDescription('', source.name, thesisTags);
+}
+
 function sourceGroundedDescription({ source, thesisTags }) {
   const rawNotes = String(source.fetch_notes || source.notes || '').trim();
   return cleanDescription(rawNotes, source.name, thesisTags);
@@ -804,7 +826,7 @@ function buildNormalizedSignal({ source, item, query }) {
   const scoring = computeConfidence({
     source,
   });
-  const description = sourceGroundedDescription({ source, thesisTags });
+  const description = bestItemDescription({ source, item, thesisTags });
   thesisTags = refineSaasTag(thesisTags, description, source.name || '');
   const stage = toDisplayStage(stageGuess);
   const normalizedCompanyName = companyName;
@@ -818,7 +840,7 @@ function buildNormalizedSignal({ source, item, query }) {
   const classification = classifySector({
     company_name: normalizedCompanyName,
     description,
-    source_name: source.name,
+    evidence_excerpt: String(item.snippet || item.content || ''),
     thesis_tags: thesisTags,
     industry: item.industry,
     category: item.category,

@@ -303,6 +303,23 @@ function getMappedDisplaySector(label = '') {
   return SECTOR_DISPLAY_LOOKUP[raw.toLowerCase()] || raw;
 }
 
+function inferSectorFromStrongCues(row = {}) {
+  const name = String(row.startup_name || row.company_name || '').toLowerCase();
+  const desc = String(row.description || row.description_summary || '').toLowerCase();
+  const text = `${name} ${desc}`;
+
+  if (/wms|warehouse management|order management|inventory management|inventory optimization|merchandise planning|omnichannel fulfillment|simplify returns|fresh operations/.test(text)) return 'Warehouse & Fulfillment';
+  if (/3pl|tms/.test(name) || /\b(supply chain|logistics|freight|shipping|carrier|dispatch|drayage|trucking|transportation management|transport management|fleet management|delivery management|direct store delivery|food wholesale|distributor)\b/.test(text)) return 'Supply Chain & Logistics';
+  if (/\b(rfid|computer vision|radar|industrial ai|industrial iot|iiot|sensor|embedded|machine vision|space|lander|satellite bus|hardware)\b/.test(text)) return 'Industrial IoT & Deep Tech';
+  if (/\b(robot|robotics|robotic|automation|automating|amr|agv|cobot|baggage handling)\b/.test(text)) return 'Robotics & Automation';
+  if (/manufactur|factory|production line|machining|assembly|industrial productivity/.test(text)) return 'Manufacturing';
+  if (/\b(protein|fermentation|food safety|traceability|crop|farm|agri|grocery retail)\b/.test(text)) return 'AgTech & Food';
+  if (/\b(vendor risk|vendor onboarding|vendor verification|supplier management|procurement|sourcing platform)\b/.test(text)) return 'Procurement & Spend';
+  if (/\b(transportation datasets|fleet insurance|ride-hailing|scooter|vehicle telematics|mobility data)\b/.test(text)) return 'Mobility & Transport';
+  if (/\b(retail workforce|retail analytics|retail management|b2b ecommerce|commerce platform|retail technology|customer engagement|point-of-sale|pos)\b/.test(text)) return 'Retail & Commerce';
+  return '';
+}
+
 function getDisplaySector(row = {}) {
   const sectorName = String(row.sector_name || '').trim();
   const mappedSectorName = getMappedDisplaySector(sectorName);
@@ -316,44 +333,27 @@ function getDisplaySector(row = {}) {
   if (nonCatchallTags.length) return nonCatchallTags[0];
 
   if (sectorName === 'Thesis-aligned') {
-    if (/supply\s*chain|logistics|freight|shipping|warehouse|fulfillment|3pl|last.?mile|transportation|transport/i.test(desc)) {
-      return 'Supply Chain & Logistics';
-    }
-    if (/manufactur|factory|production\s+line|cnc|machining|assembly/i.test(desc)) {
-      return 'Manufacturing';
-    }
-    if (/agri|farm|crop|food\s+(tech|supply|safety)|precision\s+agri/i.test(desc)) {
-      return 'AgTech & Food';
-    }
-    if (/procur|spend\s+management|supplier\s+management|sourcing\s+platform/i.test(desc)) {
-      return 'Procurement & Spend';
-    }
-    if (/robot|automat|amr|agv|cobot/i.test(desc)) {
-      return 'Robotics & Automation';
-    }
-    if (/iiot|industrial\s+iot|sensor|embedded|deep\s+tech|hardware|defense/i.test(desc)) {
-      return 'Industrial IoT & Deep Tech';
-    }
-    if (/inventory|wms|warehouse\s+management|order\s+management/i.test(desc)) {
-      return 'Warehouse & Fulfillment';
-    }
-    if (/trade\s+finance|supply\s+chain\s+finance|b2b\s+payment|working\s+capital/i.test(desc)) {
-      return 'Trade Finance & Payments';
-    }
+    if (/supply\s*chain|logistics|freight|shipping|warehouse|fulfillment|3pl|last.?mile|transportation|transport/i.test(desc)) return 'Supply Chain & Logistics';
+    if (/manufactur|factory|production\s+line|cnc|machining|assembly/i.test(desc)) return 'Manufacturing';
+    if (/agri|farm|crop|food\s+(tech|supply|safety)|precision\s+agri/i.test(desc)) return 'AgTech & Food';
+    if (/procur|spend\s+management|supplier\s+management|sourcing\s+platform/i.test(desc)) return 'Procurement & Spend';
+    if (/robot|automat|amr|agv|cobot/i.test(desc)) return 'Robotics & Automation';
+    if (/iiot|industrial\s+iot|sensor|embedded|deep\s+tech|hardware|defense/i.test(desc)) return 'Industrial IoT & Deep Tech';
+    if (/inventory|wms|warehouse\s+management|order\s+management/i.test(desc)) return 'Warehouse & Fulfillment';
+    if (/trade\s+finance|supply\s+chain\s+finance|b2b\s+payment|working\s+capital/i.test(desc)) return 'Trade Finance & Payments';
   }
 
-  if (sectorName && !['Thesis-aligned', 'General', 'Consumer, Media & Other', 'Consumer & Other'].includes(sectorName)) {
+  if (sectorName && !['Thesis-aligned', 'General', 'Consumer, Media & Other', 'Consumer & Other', 'Other'].includes(sectorName)) {
     return mappedSectorName;
   }
-  if (mappedTags.length) return mappedTags[0];
-  if (mappedSectorName && mappedSectorName !== 'Consumer & Other') return mappedSectorName;
+  if (nonCatchallTags.length) return nonCatchallTags[0];
+  if (mappedSectorName && !['Thesis-aligned', 'General', 'Consumer & Other', 'Other'].includes(mappedSectorName)) return mappedSectorName;
 
-  if (/\bretail|commerce|e-commerce|ecommerce|marketplace|shopping|consumer\s+product|cpg|dtc|direct.?to.?consumer/i.test(desc)) {
-    return 'Retail & Commerce';
-  }
-  if (/\bmobility|automotive|electric\s+vehicle|\bev\b|fleet|ride|scooter|vehicle|transport/i.test(desc)) {
-    return 'Mobility & Transport';
-  }
+  const strongCueSector = inferSectorFromStrongCues(row);
+  if (strongCueSector) return strongCueSector;
+
+  if (/\bretail|commerce|e-commerce|ecommerce|marketplace|shopping|consumer\s+product|cpg|dtc|direct.?to.?consumer/i.test(desc)) return 'Retail & Commerce';
+  if (/\bmobility|automotive|electric\s+vehicle|\bev\b|fleet|ride|scooter|vehicle|transport/i.test(desc)) return 'Mobility & Transport';
 
   return CONSUMER_CATCHALL_NAME;
 }
@@ -366,23 +366,34 @@ function sectorFilterValues(sector = '') {
 }
 
 function resolveSectorMetadata(row = {}) {
-  if (row.sector_class || row.sector_name) {
+  const runtimeDescription = pickBestRuntimeDescription(row);
+  const runtimeEvidence = extractEvidenceSnippet(row.evidence || '') || evidenceText(row.evidence || '');
+  const runtimeTags = shouldRuntimeReclassifyRow(row)
+    ? inferRuntimeThesisTags({ description: runtimeDescription, evidence: runtimeEvidence, existingTags: normalizeSignalTags(row.thesis_tags), allowFallback: false })
+    : normalizeSignalTags(row.thesis_tags);
+
+  if (!shouldRuntimeReclassifyRow(row) && (row.sector_class || row.sector_name)) {
     return {
       sector_class: row.sector_class || 'thesis',
       sector_name: row.sector_name || 'Thesis-aligned',
+      thesis_tags: runtimeTags,
+      description: runtimeDescription || row.description || '',
     };
   }
+
   const classification = classifySector({
     company_name: row.company_name || row.startup_name,
-    description: row.description,
-    source_name: row.source_name || row.source_key,
-    thesis_tags: normalizeSignalTags(row.thesis_tags),
-    industry: row.industry || row.sector || row.category,
+    description: runtimeDescription || row.description,
+    evidence_excerpt: runtimeEvidence,
+    thesis_tags: runtimeTags,
+    industry: shouldRuntimeReclassifyRow(row) ? (row.industry || row.category) : (row.industry || row.sector || row.category),
     category: row.category,
   });
   return {
     sector_class: classification.sector || 'thesis',
     sector_name: classification.sector_name || 'Thesis-aligned',
+    thesis_tags: runtimeTags,
+    description: runtimeDescription || row.description || '',
   };
 }
 
@@ -409,6 +420,66 @@ function isJunkRow(row = {}) {
   if (HARD_EXCLUSION_NAME_PATTERNS.some((pattern) => pattern.test(name))) return true;
   if (name.length <= 3 && name === name.toUpperCase() && !/^[A-Z]{2,3}$/.test(name)) return true;
   return false;
+}
+
+function evidenceText(value = '') {
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value || '');
+}
+
+function extractEvidenceSnippet(value = '') {
+  const raw = evidenceText(value).trim();
+  if (!raw) return '';
+  try {
+    const parsed = JSON.parse(raw);
+    return String(parsed.excerpt || parsed.title || '').trim();
+  } catch {}
+  const excerptMatch = raw.match(/"excerpt":"([^"]+)"/);
+  if (excerptMatch) return excerptMatch[1].trim();
+  const titleMatch = raw.match(/"title":"([^"]+)"/);
+  if (titleMatch) return titleMatch[1].trim();
+  return '';
+}
+
+function looksLikeBadRuntimeDescription(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return true;
+  if (/portfolio company focused on supply chain, logistics, agtech/i.test(text)) return true;
+  if (/obituary|funeral home|cremation services/i.test(text)) return true;
+  if (/rally\.tv|pluto tv|csrwire|latamlist/i.test(text)) return true;
+  return false;
+}
+
+function inferRuntimeThesisTags({ description = '', evidence = '', existingTags = [], allowFallback = true } = {}) {
+  const text = `${description} ${evidence}`.toLowerCase();
+  const tags = [];
+  if (/supply\s*chain|warehouse|fulfillment|3pl|freight|shipping|transportation|transport|distributor|erp|inventory/i.test(text)) tags.push('Supply Chain');
+  if (/logistics|last.?mile|middle.?mile|freight|shipping/i.test(text)) tags.push('Logistics');
+  if (/manufactur|factory|production|assembly|machining|industrial/i.test(text)) tags.push('Manufacturing');
+  if (/agri|farm|crop|food\s+(tech|supply|safety)|precision\s+agri/i.test(text)) tags.push('Agtech');
+  if (/robot|automation|amr|agv|cobot/i.test(text)) tags.push('Robotics');
+  if (/procur|spend\s+management|supplier|sourcing|government funding/i.test(text)) tags.push('Procurement');
+  if (/iiot|industrial\s+iot|sensor|embedded|hardware|deep\s+tech|space|lander|defense|radar/i.test(text)) tags.push('Deep Tech');
+  if (/ai|machine\s*learning|llm|artificial intelligence/i.test(text)) tags.push('AI/ML');
+  if (/fintech|payment|banking|lending|credit|working capital|financial os/i.test(text)) tags.push('Fintech');
+  if (/energy|climate|carbon|sustainability/i.test(text)) tags.push('Energy');
+  if (/health|medical|clinical|patient|wellness/i.test(text)) tags.push('Healthcare');
+  if (/retail|commerce|e-?commerce|marketplace|shopping|consumer|hotel/i.test(text)) tags.push('Retail Tech');
+  return cleanThesisTags(tags.length ? tags : (allowFallback ? existingTags : []));
+}
+
+function shouldRuntimeReclassifyRow(row = {}) {
+  const sourceName = String(row.source_name || row.source_key || '');
+  const signalType = String(row.signal_type || '');
+  return signalType === 'cohort_page_scrape' && /yc demo day/i.test(sourceName);
+}
+
+function pickBestRuntimeDescription(row = {}) {
+  const description = String(row.description || '').trim();
+  const excerpt = extractEvidenceSnippet(row.evidence || '');
+  if (description && !looksLikeBadRuntimeDescription(description)) return description;
+  if (excerpt && !looksLikeBadRuntimeDescription(excerpt)) return excerpt;
+  return description || excerpt || '';
 }
 
 function getPitchbookSheetBonus(row = {}) {
@@ -795,6 +866,9 @@ function summarizeDescription(raw = '', startupName = '', sector = '', sourceNam
     .filter((s) => s.length >= 35 && !/[{};=<>]/.test(s));
 
   let best = chunks[0] || '';
+  if (!best && !noisy && !thin && text.length >= 18) {
+    best = text;
+  }
   if (!best || noisy || thin) {
     const sectorTags = cleanThesisTags(sector);
     const primaryTags = sectorTags.slice(0, 2);
@@ -1807,6 +1881,8 @@ function toCandidate(row, idx) {
     return null;
   }
   const sectorMeta = resolveSectorMetadata(mergedRow);
+  mergedRow.description = sectorMeta.description || mergedRow.description;
+  mergedRow.thesis_tags = sectorMeta.thesis_tags || mergedRow.thesis_tags;
   const monthsSinceLastRound = monthsSince(mergedRow.last_round_date);
   const acceleratorRecent = hasAcceleratorSignal(mergedRow.raw_signal_text) || hasAcceleratorSignal(mergedRow.description);
   const momentumScore = Math.min(18, Math.max(4, mergedRow.description ? 12 : 7));
@@ -1875,9 +1951,19 @@ function toCandidate(row, idx) {
     ),
     source_summary: summarizeSource(sourceMeta.source_name || mergedRow.source_key, mergedRow.source_url),
     stage_summary: summarizeStage(mergedRow.stage),
-    sector: mergedRow.sector,
+    sector: getDisplaySector({
+      ...mergedRow,
+      sector_name: sectorMeta.sector_name,
+      thesis_tags: mergedRow.thesis_tags,
+      description: mergedRow.description,
+    }),
     sector_class: sectorMeta.sector_class,
-    sector_name: sectorMeta.sector_name,
+    sector_name: getDisplaySector({
+      ...mergedRow,
+      sector_name: sectorMeta.sector_name,
+      thesis_tags: mergedRow.thesis_tags,
+      description: mergedRow.description,
+    }),
     thesis_tags: Array.isArray(mergedRow.thesis_tags) ? mergedRow.thesis_tags : cleanThesisTags(mergedRow.sector),
     stage: mergedRow.stage,
     hq_country: mergedRow.hq_country,
