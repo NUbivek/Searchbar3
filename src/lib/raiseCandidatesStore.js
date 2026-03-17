@@ -1324,6 +1324,29 @@ function isUniversitySourcePlaceholder(row) {
   return true;
 }
 
+function hasGenericFilteredPitchbookFallback(row = {}) {
+  const summary = cleanText(row.description_summary || row.description || '');
+  return /^early-stage technology company\. backed by filtered pitchbook\.?$/i.test(summary);
+}
+
+function looksLikeNonStartupOrgName(name = '') {
+  const n = cleanText(name).toLowerCase();
+  if (!n) return false;
+  if (/(ventures|venture capital|capital|partners|holdings|private equity|growth equity|advisors|advisory|consulting|consultants|search|executive search|magazine|review|journal|media|publishing|association|alliance|institute|education|university|college|airport|authority|fund|foundation)/.test(n)) return true;
+  if (/(llp|lp)/.test(n)) return true;
+  if (/(world economic forum|andreessen horowitz|amazon web services|teachers' retirement system|j\.p\. morgan)/.test(n)) return true;
+  return false;
+}
+
+function isWeakFilteredPitchbookPlaceholder(row = {}) {
+  const isFilteredPitchbook = row.source_name === 'Filtered Pitchbook' || row.source_id === 'UPL-FPB-001';
+  if (!isFilteredPitchbook) return false;
+  if (!hasGenericFilteredPitchbookFallback(row)) return false;
+  if (row.startup_url || row.company_domain || row.company_website) return false;
+  if (['company_verified', 'company_probable'].includes(String(row.entity_class || ''))) return false;
+  return true;
+}
+
 function rejectStealthPlaceholder(row) {
   if (row.stage !== 'Stealth') return false;
   if (isExactJunkName(row.startup_name)) return true;
@@ -2087,6 +2110,12 @@ function classifyCandidateRow(row) {
   if (!startupHost && (sourceHost.endsWith('.edu') || /(comotion\.uw\.edu|entrepreneurship\.mit\.edu|alchemistaccelerator\.com|masschallenge\.org|500\.co|antler\.co)/.test(sourceHost))) {
     return { type: 'noise', confidence: 0.88, reasons: ['missing_company_domain_on_program_source'] };
   }
+  if (isWeakFilteredPitchbookPlaceholder(row) && looksLikeNonStartupOrgName(name)) {
+    return { type: 'noise', confidence: 0.96, reasons: ['filtered_pitchbook_non_startup_placeholder'] };
+  }
+  if (isWeakFilteredPitchbookPlaceholder(row)) {
+    return { type: 'noise', confidence: 0.86, reasons: ['filtered_pitchbook_generic_placeholder'] };
+  }
   if (/^(libraries?|calendar|directories?|resources?|about|contact|team|thesis|alumni|benefits|minister|view all( view all)?)$/i.test(name)) {
     return { type: 'noise', confidence: 0.9, reasons: ['generic_navigation_label'] };
   }
@@ -2137,6 +2166,7 @@ function validateCandidateRow(row) {
   const uploadedDatasetOverride = isFilteredPitchbook
     && admitted
     && clean
+    && !isWeakFilteredPitchbookPlaceholder(row)
     && !isGenericInstitutionPlaceholder(row)
     && !looksLikeUiLabel(row.startup_name || '')
     && !isExactJunkName(row.startup_name || '');
