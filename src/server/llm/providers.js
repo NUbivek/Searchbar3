@@ -2,8 +2,10 @@
  * LLM provider chain (OpenAI-compatible chat APIs).
  *
  * Free first: Groq (GROQ_API_KEY), then OpenRouter free models
- * (OPENROUTER_API_KEY). Together (TOGETHER_API_KEY) is paid, so it is only
- * used when LLM_ALLOW_PAID=true.
+ * (OPENROUTER_API_KEY), then Google Gemini (GOOGLE_AI_API_KEY or
+ * GEMINI_API_KEY; free only while the key's Google project has no billing
+ * account). Together (TOGETHER_API_KEY) is paid, so it is only used when
+ * LLM_ALLOW_PAID=true.
  *
  * Each provider's live model list is fetched (and cached) and the best
  * preferred model that is actually served today is chosen, so a retired
@@ -34,6 +36,19 @@ export const PROVIDERS = [
     onlyFree: true,
   },
   {
+    // Gemini's OpenAI-compatible endpoint. Flash models first: they have the
+    // largest free-tier quota. Ids arrive as "models/gemini-..." and are used
+    // without the prefix.
+    id: 'gemini',
+    label: 'Google Gemini',
+    free: true,
+    keyEnv: ['GOOGLE_AI_API_KEY', 'GEMINI_API_KEY'],
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    preferred: [/^gemini-[\d.]+-flash$/, /^gemini-[\d.]+-flash-(preview|latest)/, /^gemini-flash-latest$/, /^gemini-[\d.]+-flash-lite$/, /^gemini-[\d.]+-pro$/],
+    exclude: /embed|image|imagen|veo|tts|live|audio|aqa|learnlm|gemma|robotics|computer-use|native|thinking-exp/i,
+    newestFirst: true,
+  },
+  {
     id: 'together',
     label: 'Together (paid)',
     free: false,
@@ -46,8 +61,15 @@ export const PROVIDERS = [
 
 const modelCache = new Map();
 
+/** The API key for a provider (keyEnv may list alternative names). */
+export function providerKey(p) {
+  const names = Array.isArray(p.keyEnv) ? p.keyEnv : [p.keyEnv];
+  for (const name of names) if (process.env[name]) return process.env[name];
+  return null;
+}
+
 export function providerEnabled(p) {
-  if (!process.env[p.keyEnv]) return false;
+  if (!providerKey(p)) return false;
   if (!p.free && process.env.LLM_ALLOW_PAID !== 'true') return false;
   return true;
 }
@@ -56,17 +78,21 @@ async function listModels(p) {
   const cached = modelCache.get(p.id);
   if (cached && Date.now() - cached.at < CACHE_MS) return cached.models;
   const { data } = await axios.get(`${p.baseUrl}/models`, {
-    headers: { Authorization: `Bearer ${process.env[p.keyEnv]}` },
+    headers: { Authorization: `Bearer ${providerKey(p)}` },
     timeout: 10000,
   });
   const raw = Array.isArray(data) ? data : data?.data || [];
   let models = raw.map((m) => ({
-    id: m.id,
+    id: String(m.id || '').replace(/^models\//, ''),
     free: p.free && (!p.onlyFree || String(m.id).endsWith(':free') || (String(m.pricing?.prompt) === '0' && String(m.pricing?.completion) === '0')),
     context: m.context_length || m.context_window || null,
     type: m.type || null,
   }));
   if (p.onlyFree) models = models.filter((m) => m.free);
+  if (p.newestFirst) {
+    const version = (id) => Number((id.match(/-(\d+(?:\.\d+)?)-/) || [])[1] || 0);
+    models.sort((a, b) => version(b.id) - version(a.id));
+  }
   models = models.filter((m) => !p.exclude.test(m.id) && (!m.type || /chat|language/i.test(m.type)));
   modelCache.set(p.id, { at: Date.now(), models });
   return models;
@@ -109,6 +135,8 @@ function reasoningSettings(providerId, model) {
   if (/gpt-oss/.test(m)) {
     return providerId === 'openrouter' ? { reasoning: { effort: 'low', exclude: true } } : { reasoning_effort: 'low' };
   }
+  // Gemini 2.5+/3 think by default; "low" keeps room for the answer
+  if (providerId === 'gemini') return { reasoning_effort: 'low' };
   if (/qwen3|qwq|deepseek-r1|r1-distill/.test(m)) {
     if (providerId === 'groq') return { reasoning_format: 'hidden' };
     if (providerId === 'openrouter') return { reasoning: { exclude: true } };
@@ -142,7 +170,7 @@ export async function chatComplete(messages, { preferred = 'auto', maxTokens = 3
   const errors = [];
   for (const { p, model } of attempts) {
     try {
-      const headers = { Authorization: `Bearer ${process.env[p.keyEnv]}`, 'Content-Type': 'application/json', ...(p.id === 'openrouter' ? { 'X-Title': 'Research Hub' } : {}) };
+      const headers = { Authorization: `Bearer ${providerKey(p)}`, 'Content-Type': 'application/json', ...(p.id === 'openrouter' ? { 'X-Title': 'Research Hub' } : {}) };
       const base = { model, messages, max_tokens: maxTokens, temperature };
       const extras = reasoningSettings(p.id, model);
       let data;
@@ -173,8 +201,10 @@ export function llmStatus() {
     id: p.id,
     label: p.label,
     free: p.free,
-    keySet: Boolean(process.env[p.keyEnv]),
+    keySet: Boolean(providerKey(p)),
     enabled: providerEnabled(p),
-    note: !p.free && process.env[p.keyEnv] && process.env.LLM_ALLOW_PAID !== 'true' ? 'Paid provider: set LLM_ALLOW_PAID=true to use it' : null,
+    note: !p.free && providerKey(p) && process.env.LLM_ALLOW_PAID !== 'true'
+      ? 'Paid provider: set LLM_ALLOW_PAID=true to use it'
+      : p.id === 'gemini' && providerKey(p) ? 'Free only while the key\'s Google project has no billing account' : null,
   }));
 }

@@ -21,7 +21,12 @@ its live model list (`src/server/llm/providers.js`).
 |---|---|---|---|
 | 1 | Groq (gpt-oss-120b, Qwen 3.x) | `GROQ_API_KEY` | free tier |
 | 2 | OpenRouter free models (Nemotron, Gemma) | `OPENROUTER_API_KEY` | free models only |
-| 3 | Together | `TOGETHER_API_KEY` **and** `LLM_ALLOW_PAID=true` | paid, off by default |
+| 3 | Google Gemini (Flash first) | `GOOGLE_AI_API_KEY` (or `GEMINI_API_KEY`) | free tier, **only while the key's Google project has no billing account** |
+| 4 | Together | `TOGETHER_API_KEY` **and** `LLM_ALLOW_PAID=true` | paid, off by default |
+
+Each provider is tried in order; a rate limit or error moves to the next.
+Gemini's free tier lets Google use prompts (the question and source
+excerpts) to improve its products; contact data is never sent to any model.
 
 Without any of these, answers are quoted directly from sources (same
 sections), and the page says so.

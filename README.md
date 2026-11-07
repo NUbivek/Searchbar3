@@ -76,7 +76,7 @@ accelerator portfolio pages, funding and startup news, and market analysis feeds
 - **Pitchbook**: Investment and market data
 
 ### LLM Processing
-- **Free-first model chain** (`src/server/llm/providers.js`): Groq (`GROQ_API_KEY`), then OpenRouter free models (`OPENROUTER_API_KEY`); Together only with `LLM_ALLOW_PAID=true`. Each provider's live model list is used, so retired models cannot break answers.
+- **Free-first model chain** (`src/server/llm/providers.js`): Groq (`GROQ_API_KEY`), then OpenRouter free models (`OPENROUTER_API_KEY`), then Google Gemini free tier (`GOOGLE_AI_API_KEY`); Together only with `LLM_ALLOW_PAID=true`. Each provider's live model list is used, so retired models cannot break answers.
 - **Smart Fallback System**: Automatic fallbacks between models and providers, then quoted answers
 - **Comprehensive Error Handling**: Ensures consistent user experience even when APIs fail
 - **Source Preservation**: Maintains source attribution throughout the processing pipeline
@@ -93,7 +93,7 @@ accelerator portfolio pages, funding and startup news, and market analysis feeds
 - Advanced search result scoring system
 
 ### LLM Integration
-- **Auto** (default): best free model available today (e.g. gpt-oss-120b or Qwen on Groq, Nemotron or Gemma on OpenRouter)
+- **Auto** (default): best free model available today (e.g. gpt-oss-120b or Qwen on Groq, Nemotron or Gemma on OpenRouter, Gemini Flash)
 - The model menu lists only models that are actually available (`/api/llm/models`)
 - **Automatic Fallback**: next model, next provider, then quoted answers
 
