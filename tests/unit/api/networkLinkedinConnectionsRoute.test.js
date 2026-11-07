@@ -38,9 +38,11 @@ describe('/api/network/linkedin/connections', () => {
     axios.get
       .mockResolvedValueOnce({
         data: {
-          localizedFirstName: 'Avery',
-          localizedLastName: 'Stone',
-          profilePicture: { displayImage: 'avatar-url' },
+          sub: 'avery-sub',
+          given_name: 'Avery',
+          family_name: 'Stone',
+          name: 'Avery Stone',
+          picture: 'avatar-url',
         },
       })
       .mockResolvedValueOnce({
@@ -71,7 +73,7 @@ describe('/api/network/linkedin/connections', () => {
 
     expect(axios.get).toHaveBeenNthCalledWith(
       1,
-      'https://api.linkedin.com/v2/me',
+      'https://api.linkedin.com/v2/userinfo',
       {
         headers: {
           Authorization: 'Bearer token-123',
@@ -121,14 +123,17 @@ describe('/api/network/linkedin/connections', () => {
         value: 1,
       },
     ]);
+    expect(res.body.connectionsAvailable).toBe(true);
+    expect(res.body.note).toBeUndefined();
   });
 
-  test('falls back to simulated connections when linkedin returns none', async () => {
+  test('returns only the user node and a note when linkedin returns no connections', async () => {
     axios.get
       .mockResolvedValueOnce({
         data: {
-          localizedFirstName: 'Avery',
-          localizedLastName: 'Stone',
+          sub: 'avery-sub',
+          given_name: 'Avery',
+          family_name: 'Stone',
         },
       })
       .mockResolvedValueOnce({
@@ -146,25 +151,26 @@ describe('/api/network/linkedin/connections', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body.nodes).toHaveLength(6);
-    expect(res.body.links).toHaveLength(5);
-    expect(res.body.nodes[0]).toEqual(
-      expect.objectContaining({
-        id: 'user',
-        name: 'Avery Stone',
-        type: 'user',
-      })
-    );
-    expect(res.body.nodes[1]).toEqual(
-      expect.objectContaining({
-        simulated: true,
-        source: 'linkedin',
-        type: 'linkedin',
-      })
-    );
+    expect(res.body).toEqual({
+      nodes: [
+        {
+          id: 'user',
+          name: 'Avery Stone',
+          val: 20,
+          color: '#0077B5',
+          image: null,
+          degree: 0,
+          type: 'user',
+        },
+      ],
+      links: [],
+      connectionsAvailable: false,
+      note: expect.any(String),
+    });
+    expect(res.body.nodes.some((node) => node.simulated)).toBe(false);
   });
 
-  test('returns 401 when linkedin token is expired', async () => {
+  test('returns 401 when the linkedin profile request reports an expired token', async () => {
     const error = new Error('Unauthorized');
     error.response = { status: 401, data: { message: 'expired' } };
     axios.get.mockRejectedValueOnce(error);
@@ -181,7 +187,7 @@ describe('/api/network/linkedin/connections', () => {
     expect(res.body).toEqual({ error: 'LinkedIn session expired, please reconnect' });
   });
 
-  test('returns fail-soft payload for unexpected linkedin failures', async () => {
+  test('returns fail-soft payload for unexpected linkedin profile failures', async () => {
     axios.get.mockRejectedValueOnce(new Error('linkedin down'));
 
     const req = createMockReq({
@@ -198,7 +204,7 @@ describe('/api/network/linkedin/connections', () => {
       nodes: [],
       links: [],
       degradedSources: ['linkedin-network'],
-      error: 'Failed to fetch LinkedIn connections',
+      error: 'Failed to fetch LinkedIn profile',
       details: 'linkedin down',
     });
   });

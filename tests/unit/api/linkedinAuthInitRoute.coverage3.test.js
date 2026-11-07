@@ -47,20 +47,15 @@ describe('/api/auth/linkedin init route', () => {
     jest.clearAllMocks();
   });
 
-  it('returns fail-soft payload when LinkedIn client id is missing', async () => {
+  it('redirects back to /network with a clear error when LinkedIn client id is missing', async () => {
     delete process.env.LINKEDIN_CLIENT_ID;
     const req = { method: 'GET' };
     const res = createRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      status: 'fail-soft',
-      error: 'Configuration error',
-      details: 'LinkedIn client ID is not configured.',
-      degradedSources: ['linkedin-auth'],
-    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.Location).toBe(`/network?error=${encodeURIComponent('LinkedIn is not configured yet: add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET to .env.local and restart the dev server.')}`);
   });
 
   it('sets state cookie and redirects to LinkedIn auth url', async () => {
@@ -70,7 +65,7 @@ describe('/api/auth/linkedin init route', () => {
 
     await handler(req, res);
 
-    expect(getCallbackUrl).toHaveBeenCalledWith('linkedin');
+    expect(getCallbackUrl).toHaveBeenCalledWith('linkedin', req);
     expect(res.statusCode).toBe(302);
     expect(res.headers['Set-Cookie']).toEqual(
       expect.stringContaining('linkedin_auth_state=')

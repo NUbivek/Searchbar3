@@ -307,7 +307,7 @@ async function handleTokenValidation(req, res) {
 async function handleCodeExchange(req, res, code) {
   try {
     // Get configuration
-    const clientId = process.env.TWITTER_CLIENT_ID || process.env.TWITTER_API_KEY;
+    const clientId = process.env.TWITTER_CLIENT_ID;
     const clientSecret = process.env.TWITTER_CLIENT_SECRET;
     const redirectUri = getCallbackUrl('twitter', req);
     
@@ -321,7 +321,10 @@ async function handleCodeExchange(req, res, code) {
     
     // Parse cookies to get the code verifier
     const cookies = parse(req.headers.cookie || '');
-    const codeVerifier = cookies.twitter_code_verifier || 'challenge';
+    const codeVerifier = cookies.twitter_code_verifier;
+    if (!codeVerifier) {
+      return res.status(400).json({ error: 'Sign-in session expired, please try connecting X again' });
+    }
     
     // Exchange code for token
     const tokenResponse = await axios.post(
@@ -423,7 +426,7 @@ async function handleTokenRefresh(req, res) {
  * Helper function to refresh a Twitter token
  */
 async function refreshTwitterToken(refreshToken) {
-  const clientId = process.env.TWITTER_CLIENT_ID || process.env.TWITTER_API_KEY;
+  const clientId = process.env.TWITTER_CLIENT_ID;
   const clientSecret = process.env.TWITTER_CLIENT_SECRET;
   
   if (!clientId) {

@@ -10,21 +10,22 @@ import { isDebugMode } from './debug';
 const { performSearchDetailed } = require('./sourceIntegration');
 
 // Import the processWithLLM function explicitly to avoid circular dependencies
-let nativeProcessWithLLM = null;
-try {
-  const { processWithLLM: llmProcessor } = require('./llmProcessing');
-  nativeProcessWithLLM = llmProcessor;
-  debug('Successfully imported LLM processing module');
-} catch (error) {
-  warn('LLM processing module not available, using fallback');
-  nativeProcessWithLLM = async (query, results, context, model) => {
+// Loaded lazily with import(): llmProcessing is an async module under Next's
+// bundler, so require() returned a pending Promise and processWithLLM was
+// always undefined (AI summaries never ran).
+const nativeProcessWithLLM = async (...args) => {
+  try {
+    const { processWithLLM: llmProcessor } = await import('./llmProcessing');
+    return await llmProcessor(...args);
+  } catch (error) {
+    warn('LLM processing module not available, using fallback');
     return {
       content: `Unable to process with LLM: ${error.message}`,
       sourceMap: {},
       followUpQuestions: []
     };
-  };
-}
+  }
+};
 
 /**
  * Process search results with an LLM
@@ -610,7 +611,8 @@ export async function unifiedSearch({
       const normalizedSources = Array.from(
         new Set(
           (Array.isArray(sources) ? sources : [])
-            .map(source => sourceKeyMap[source] || null)
+            // Callers pass either display names ("Web") or lowercase keys ("web").
+            .map(source => sourceKeyMap[source] || (Object.values(sourceKeyMap).includes(String(source).toLowerCase()) ? String(source).toLowerCase() : null))
             .filter(Boolean)
         )
       );
@@ -626,7 +628,8 @@ export async function unifiedSearch({
       const openSearchResult = await performSearchDetailed(query, normalizedSources, {
         customUrls,
         files: uploadedFiles,
-        timeoutMs: 8000
+        // Providers allow 12s each (Tavily, then Serper fallback); 8s cut them off.
+        timeoutMs: 25000
       });
 
       results = results.concat(openSearchResult.results || []);

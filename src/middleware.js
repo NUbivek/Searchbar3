@@ -17,7 +17,10 @@ export async function middleware(request) {
   log.info(`[${searchId}] API Request`, {
     method: request.method,
     url: request.url,
-    headers: Object.fromEntries(request.headers)
+    // Never log cookies or auth headers: they carry OAuth access tokens.
+    headers: Object.fromEntries(
+      [...request.headers].filter(([name]) => !['cookie', 'authorization'].includes(name.toLowerCase()))
+    )
   });
 
   // Process request
@@ -29,7 +32,9 @@ export async function middleware(request) {
     response.headers.set('Access-Control-Allow-Origin', '*');
     response.headers.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
     response.headers.set('Access-Control-Allow-Headers', 'X-Requested-With,Content-Type');
-    response.headers.set('Content-Type', 'application/json');
+    // Do not set Content-Type here: on NextResponse.next() it overrides the
+    // request's content type, so form-encoded search bodies were parsed as
+    // JSON and rejected with 400 "Invalid JSON". Each API route sets its own.
   }
 
   // Log response time

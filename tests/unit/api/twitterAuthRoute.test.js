@@ -56,39 +56,30 @@ describe('/api/auth/twitter', () => {
     expect(res.body).toEqual({ error: 'Method not allowed' });
   });
 
-  test('returns fail-soft payload when client id is missing', () => {
+  test('redirects back to /network with a clear error when client id is missing', () => {
     const req = createMockReq();
     const res = createRedirectRes();
 
     handler(req, res);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      status: 'fail-soft',
-      error: 'Configuration error',
-      details: 'Twitter API key is not configured.',
-      degradedSources: ['twitter-auth'],
-    });
+    expect(res.redirect).toHaveBeenCalledWith(`/network?error=${encodeURIComponent('X is not configured yet: add TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET to .env.local and restart the dev server.')}`);
     expect(getCallbackUrl).not.toHaveBeenCalled();
-    expect(res.redirect).not.toHaveBeenCalled();
   });
 
   test('sets cookies and redirects to twitter authorize url', () => {
-    process.env.TWITTER_API_KEY = 'twitter-client-id';
-    const randomValues = [0.123456, 0.654321];
-    jest.spyOn(Math, 'random').mockImplementation(() => randomValues.shift() ?? 0.5);
+    process.env.TWITTER_CLIENT_ID = 'twitter-client-id';
 
     const req = createMockReq();
     const res = createRedirectRes();
 
     handler(req, res);
 
-    expect(getCallbackUrl).toHaveBeenCalledWith('twitter');
+    expect(getCallbackUrl).toHaveBeenCalledWith('twitter', req);
     expect(res.setHeader).toHaveBeenCalledWith(
       'Set-Cookie',
       expect.arrayContaining([
         expect.stringContaining('twitter_auth_state='),
-        expect.stringContaining('twitter_code_verifier=challenge'),
+        expect.stringMatching(/^twitter_code_verifier=[A-Za-z0-9_-]{43,128};/),
       ])
     );
     expect(res.redirect).toHaveBeenCalledTimes(1);
@@ -97,7 +88,7 @@ describe('/api/auth/twitter', () => {
     expect(res.redirectUrl).toContain(
       encodeURIComponent('https://example.com/api/auth/twitter/callback')
     );
-    expect(res.redirectUrl).toContain('code_challenge_method=plain');
+    expect(res.redirectUrl).toContain('code_challenge_method=S256');
     expect(res.redirectUrl).toContain('scope=tweet.read');
   });
 });

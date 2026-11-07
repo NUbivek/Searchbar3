@@ -1,3 +1,4 @@
+import { searchHackerNews } from '../../../utils/sources/hackernewsAlgolia';
 import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 
 export default async function handler(req, res) {
@@ -11,22 +12,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&hitsPerPage=10`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    const r = await fetch(url, { signal: controller.signal });
-    const data = await r.json();
-    clearTimeout(timeout);
-
-    const results = (data.hits || []).map((hit) => ({
-      title: hit.title || hit.story_title || 'Untitled',
-      url: hit.url || hit.story_url || `https://news.ycombinator.com/item?id=${hit.objectID}`,
-      content: hit.story_text || hit.comment_text || '',
-      snippet: hit.story_text || hit.comment_text || '',
-      source: 'hackernews',
-      timestamp: hit.created_at || new Date().toISOString(),
-      score: hit.points || 0
-    }));
+    const results = await searchHackerNews(query);
 
     return res.status(200).json(normalizeSearchResponseV1({
       query,

@@ -78,6 +78,8 @@ export default function NetworkPage() {
   });
   
   const [errorMessage, setErrorMessage] = useState('');
+  // Once dismissed, the "connected but no connections" notice must not reappear.
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [networkData, setNetworkData] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -99,12 +101,18 @@ export default function NetworkPage() {
       } else {
         // Show a helpful message when the user is connected but no data loaded
         console.log('Network connected but no connections found');
-        if ((connectionStatus.LinkedIn || connectionStatus.Twitter) && !errorMessage) {
+        const providerNote = networkData.linkedinNote || networkData.note;
+        if (noticeDismissed) {
+          // user closed the notice
+        } else if (providerNote && !errorMessage) {
+          // e.g. LinkedIn only shares connection lists with partner apps
+          setErrorMessage(providerNote);
+        } else if ((connectionStatus.LinkedIn || connectionStatus.Twitter) && !errorMessage) {
           setErrorMessage(`Your account is connected, but no network data was found. This might be because you're using a new account or don't have any connections yet.`);
         }
       }
     }
-  }, [networkData, connectionStatus, errorMessage]);
+  }, [networkData, connectionStatus, errorMessage, noticeDismissed]);
   
   // Clear error message when navigating away
   useEffect(() => {
@@ -114,7 +122,8 @@ export default function NetworkPage() {
   // Handle authentication status and errors from URL params
   useEffect(() => {
     if (error) {
-      setErrorMessage(decodeURIComponent(error));
+      // Next.js already decodes query params; decoding again throws on '%'.
+      setErrorMessage(String(error));
       // Remove error from URL
       router.replace('/network', undefined, { shallow: true });
     }
@@ -308,7 +317,7 @@ export default function NetworkPage() {
     try {
       setIsLoading(true);
       console.log('Fetching LinkedIn network data');
-      const response = await axios.get('/api/network/linkedin/index');
+      const response = await axios.get('/api/network/linkedin');
       
       if (response.data && (response.data.connections || response.data.networksData)) {
         console.log('Successfully retrieved LinkedIn network data:', 
@@ -339,6 +348,7 @@ export default function NetworkPage() {
             twitterNetworkData: prevData.twitterNetworkData,
             // LinkedIn specific data
             linkedinNetworkData: response.data.networksData,
+            linkedinNote: response.data.note || null,
             // Merge connections from both sources
             connections: [
               ...nonLinkedinConnections,
@@ -751,7 +761,7 @@ export default function NetworkPage() {
               <span>{errorMessage}</span>
             </div>
             <button 
-              onClick={() => setErrorMessage('')} 
+              onClick={() => { setErrorMessage(''); setNoticeDismissed(true); }} 
               className="text-red-500 hover:text-red-700 ml-2 p-1"
               aria-label="Dismiss error"
             >

@@ -1,3 +1,4 @@
+import { searchHackerNews } from '../../../utils/sources/hackernewsAlgolia';
 import unifiedSearch from '../../../utils/search-legacy';
 import { processWithLLM } from '../../../utils/llmProcessing';
 import { synthesizeFromResults } from '../../../utils/fallbackSynthesizer';
@@ -72,9 +73,9 @@ export default async function handler(req, res) {
     const degradedSources = [];
     
     console.log('DEBUG: Environment variables check:', {
-      TOGETHER_API_KEY: process.env.TOGETHER_API_KEY ? 'Set (starts with: ' + process.env.TOGETHER_API_KEY.substring(0, 5) + '...)' : 'Not set',
-      PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY ? 'Set (starts with: ' + process.env.PERPLEXITY_API_KEY.substring(0, 5) + '...)' : 'Not set',
-      SERPER_API_KEY: process.env.SERPER_API_KEY ? 'Set (starts with: ' + process.env.SERPER_API_KEY.substring(0, 5) + '...)' : 'Not set',
+      TOGETHER_API_KEY: process.env.TOGETHER_API_KEY ? 'Set' : 'Not set',
+      PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY ? 'Set' : 'Not set',
+      SERPER_API_KEY: process.env.SERPER_API_KEY ? 'Set' : 'Not set',
       NODE_ENV: process.env.NODE_ENV || 'Not set',
       BASE_URL: process.env.NEXT_PUBLIC_BASE_URL || 'Not set'
     });
@@ -162,23 +163,7 @@ export default async function handler(req, res) {
 
     // Always-on HackerNews safety net (no API key required)
     try {
-      const hnController = new AbortController();
-      const hnTimeout = setTimeout(() => hnController.abort(), HN_FALLBACK_TIMEOUT_MS);
-      const hnResp = await (async () => {
-        try {
-          return await fetch(
-            `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'}/api/search/hackernews?q=${encodeURIComponent(query)}`,
-            { signal: hnController.signal }
-          );
-        } finally {
-          clearTimeout(hnTimeout);
-        }
-      })();
-      if (!hnResp.ok) {
-        throw new Error(`HackerNews fallback returned ${hnResp.status}`);
-      }
-      const hnData = await hnResp.json();
-      const hnResults = Array.isArray(hnData?.results) ? hnData.results : [];
+      const hnResults = await searchHackerNews(query, { timeoutMs: HN_FALLBACK_TIMEOUT_MS });
 
       if (hnResults.length > 0) {
         const merged = [...results, ...hnResults.map(item => ({ ...item, source: item.source || 'hackernews' }))];
@@ -308,7 +293,7 @@ export default async function handler(req, res) {
       
       try {
         console.log(`Processing ${results.length} results with LLM model: ${llmModel}`);
-        console.log(`API key check - Together API: ${process.env.TOGETHER_API_KEY ? 'Valid key (starts with ' + process.env.TOGETHER_API_KEY.substring(0, 5) + '...)' : 'MISSING'}`);
+        console.log(`API key check - Together API: ${process.env.TOGETHER_API_KEY ? 'set' : 'MISSING'}`);
         console.log(`API key length check: ${process.env.TOGETHER_API_KEY ? process.env.TOGETHER_API_KEY.length + ' characters' : 'No key'}`);
         
         // Validate and prepare sources before sending to LLM

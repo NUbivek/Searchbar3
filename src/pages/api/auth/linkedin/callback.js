@@ -4,6 +4,7 @@
  */
 import axios from 'axios';
 import { getCallbackUrl } from '../../../../utils/oauthUtils';
+import { fetchLinkedInProfile } from '../../../../utils/linkedinProfile';
 
 const LINKEDIN_CALLBACK_TIMEOUT_MS = 10000;
 
@@ -38,6 +39,12 @@ export default async function handler(req, res) {
 
   if (!code) {
     return redirectToNetwork('error=No authorization code received');
+  }
+
+  // CSRF check: state must match the one set when sign-in started.
+  const storedState = req.cookies?.linkedin_auth_state;
+  if (!storedState || state !== storedState) {
+    return redirectToNetwork(`error=${encodeURIComponent('Sign-in check failed, please try connecting LinkedIn again')}`);
   }
 
   try {
@@ -77,12 +84,7 @@ export default async function handler(req, res) {
     console.log('LinkedIn token obtained successfully');
 
     // Fetch basic profile information
-    const profileResponse = await axios.get('https://api.linkedin.com/v2/me', {
-      headers: {
-        Authorization: `Bearer ${access_token}`
-      },
-      timeout: LINKEDIN_CALLBACK_TIMEOUT_MS,
-    });
+    const profile = await fetchLinkedInProfile(access_token, LINKEDIN_CALLBACK_TIMEOUT_MS);
     
     console.log('LinkedIn profile fetched successfully');
 
@@ -90,8 +92,9 @@ export default async function handler(req, res) {
     // HttpOnly cookie to prevent client-side access to the token
     const maxAge = expires_in * 1000; // Convert to milliseconds
     res.setHeader('Set-Cookie', [
-      `linkedin_access_token=${access_token}; Path=/; Max-Age=${expires_in}; HttpOnly; SameSite=Lax`,
-      `linkedin_user_id=${profileResponse.data.id}; Path=/; Max-Age=${expires_in}; SameSite=Lax`
+      `linkedin_access_token=${access_token}; Path=/; Max-Age=${expires_in}; HttpOnly; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`,
+      `linkedin_user_id=${encodeURIComponent(profile.id)}; Path=/; Max-Age=${expires_in}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`,
+      `linkedin_auth_state=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`
     ]);
 
     // Redirect back to the network page with success flag

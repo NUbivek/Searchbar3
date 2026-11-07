@@ -1,5 +1,5 @@
+import { selfBaseUrl } from './serverBaseUrl';
 import { debug, info, error, warn } from './logger';
-const { deepWebSearch } = require('./deepWebSearch');
 const { sourceHandlers, performSearch: sourcePerformSearch } = require('./sourceIntegration');
 const axios = require('axios');
 const { SearchModes, SourceTypes } = require('./constants');
@@ -64,9 +64,7 @@ async function processResults(query, results, model = 'mistral', context = '') {
       baseUrl = window.location.origin;
     } else {
       // Server-side
-      baseUrl = process.env.NODE_ENV === 'development' 
-        ? 'http://localhost:3010' 
-        : process.env.NEXT_PUBLIC_BASE_URL || '';
+      baseUrl = selfBaseUrl();
     }
       
     // Use the real LLM processing endpoint
@@ -188,7 +186,7 @@ async function searchOpenSources(query, selectedSources = [], options = {}) {
 
   try {
     // Import the openSearch.js function which is now a wrapper around unifiedSearch
-    const { searchOpenSources: openSearch } = require('./openSearch');
+    const { searchOpenSources: openSearch } = await import('./openSearch');
     
     return await openSearch({
       query,
@@ -220,7 +218,7 @@ async function searchVerifiedSources(query, options = {}) {
 
   try {
     // Import the verifiedSearch.js function which is now a wrapper around unifiedSearch
-    const { searchVerifiedSources: verifiedSearch } = require('./verifiedSearch');
+    const { searchVerifiedSources: verifiedSearch } = await import('./verifiedSearch');
     
     // Determine sources based on category if provided
     const sourcesToSearch = [];
@@ -267,7 +265,9 @@ async function performSimpleSearch(query, sources = ['web'], options = {}) {
     log.debug('Using unified performSimpleSearch:', { query, sources });
     
     // Import unified search function using require to avoid circular dependencies
-    const { unifiedSearch } = require('./search');
+    // require('./search') returns an empty object under Next's bundler (ESM/CJS
+    // interop), which made every search fail with "unifiedSearch is not a function".
+    const { unifiedSearch } = await import('./search');
     
     // Call unified search with open mode
     const searchResult = await unifiedSearch({
@@ -304,7 +304,9 @@ async function performSimpleVerifiedSearch(query, sources = ['fmp', 'sec'], opti
     log.debug('Using unified performSimpleVerifiedSearch:', { query, sources });
     
     // Import unified search function using require to avoid circular dependencies
-    const { unifiedSearch } = require('./search');
+    // require('./search') returns an empty object under Next's bundler (ESM/CJS
+    // interop), which made every search fail with "unifiedSearch is not a function".
+    const { unifiedSearch } = await import('./search');
     
     // Call unified search with verified mode
     const searchResult = await unifiedSearch({

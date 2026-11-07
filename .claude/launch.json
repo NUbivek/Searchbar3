@@ -4,8 +4,8 @@
     {
       "name": "searchbar3-dev",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["next", "dev"],
-      "port": 3005
+      "runtimeArgs": ["next", "dev", "-p", "3007"],
+      "port": 3007
     },
     {
       "name": "searchbar3-attach",

@@ -32,7 +32,7 @@ describe('/api/auth/linkedin', () => {
     process.env = originalEnv;
   });
 
-  it('returns fail-soft payload when LINKEDIN_CLIENT_ID is missing', () => {
+  it('redirects to /network with a configuration error when LINKEDIN_CLIENT_ID is missing', () => {
     delete process.env.LINKEDIN_CLIENT_ID;
     getCallbackUrl.mockReturnValue('https://app.example.com/api/auth/linkedin/token');
 
@@ -40,14 +40,15 @@ describe('/api/auth/linkedin', () => {
 
     handler({ method: 'GET' }, res);
 
-    expect(res.status).toHaveBeenCalledWith(200);
-    expect(res.json).toHaveBeenCalledWith({
-      status: 'fail-soft',
-      error: 'Configuration error',
-      details: 'LinkedIn client ID is not configured.',
-      degradedSources: ['linkedin-auth'],
-    });
-    expect(res.redirect).not.toHaveBeenCalled();
+    expect(res.redirect).toHaveBeenCalledTimes(1);
+    expect(res.redirect).toHaveBeenCalledWith(
+      '/network?error=' +
+        encodeURIComponent(
+          'LinkedIn is not configured yet: add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET to .env.local and restart the dev server.'
+        )
+    );
+    expect(res.json).not.toHaveBeenCalled();
+    expect(res.setHeader).not.toHaveBeenCalled();
   });
 
   it('sets auth state cookie and redirects to LinkedIn oauth url', () => {
@@ -72,7 +73,7 @@ describe('/api/auth/linkedin', () => {
     expect(redirectUrl).toContain(
       encodeURIComponent('https://app.example.com/api/auth/linkedin/token')
     );
-    expect(redirectUrl).toContain('scope=r_emailaddress+r_liteprofile');
+    expect(redirectUrl).toContain('scope=openid+profile+email');
     expect(redirectUrl).toContain('state=');
   });
 });

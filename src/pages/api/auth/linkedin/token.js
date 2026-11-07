@@ -5,6 +5,7 @@
 
 import axios from 'axios';
 import { getCallbackUrl } from '../../../../utils/oauthUtils';
+import { fetchLinkedInProfile } from '../../../../utils/linkedinProfile';
 
 const LINKEDIN_AUTH_TIMEOUT_MS = 10000;
 
@@ -21,21 +22,15 @@ export default async function handler(req, res) {
     try {
       console.log('Validating LinkedIn token from cookies');
       // Verify the token is still valid by making a simple API call
-      const profileResponse = await axios.get('https://api.linkedin.com/v2/me', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`
-        },
-        timeout: LINKEDIN_AUTH_TIMEOUT_MS,
-      });
-      
-      console.log('LinkedIn token is valid, user:', profileResponse.data.localizedFirstName);
+      const profile = await fetchLinkedInProfile(accessToken, LINKEDIN_AUTH_TIMEOUT_MS);
+      console.log('LinkedIn token is valid');
       return res.status(200).json({ 
         isAuthenticated: true,
         provider: 'linkedin',
         user: {
-          id: profileResponse.data.id,
-          firstName: profileResponse.data.localizedFirstName,
-          lastName: profileResponse.data.localizedLastName
+          id: profile.id,
+          firstName: profile.firstName,
+          lastName: profile.lastName
         }
       });
     } catch (error) {
@@ -101,34 +96,15 @@ export default async function handler(req, res) {
     const { access_token, expires_in } = tokenResponse.data;
     
     // Get user profile information
-    const profileResponse = await axios.get('https://api.linkedin.com/v2/me', {
-      headers: {
-        Authorization: `Bearer ${access_token}`,
-      },
-      timeout: LINKEDIN_AUTH_TIMEOUT_MS,
-    });
-
-    // Get user email address (if we have the correct scope permissions)
-    let email = null;
-    try {
-      const emailResponse = await axios.get('https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))', {
-        headers: {
-          Authorization: `Bearer ${access_token}`,
-        },
-        timeout: LINKEDIN_AUTH_TIMEOUT_MS,
-      });
-      email = emailResponse.data?.elements?.[0]?.['handle~']?.emailAddress || null;
-    } catch (emailError) {
-      console.warn('Unable to fetch LinkedIn email (may require additional scope permissions):', emailError.message);
-    }
+    const profile = await fetchLinkedInProfile(access_token, LINKEDIN_AUTH_TIMEOUT_MS);
 
     // Create user data object for response
     const userData = {
       profile: {
-        id: profileResponse.data.id,
-        firstName: profileResponse.data.localizedFirstName,
-        lastName: profileResponse.data.localizedLastName,
-        email
+        id: profile.id,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        email: profile.email
       },
       accessToken: access_token,
       expiresIn: expires_in,
@@ -138,7 +114,7 @@ export default async function handler(req, res) {
     const maxAge = expires_in * 1000; // Convert to milliseconds
     res.setHeader('Set-Cookie', [
       `linkedin_access_token=${access_token}; Path=/; Max-Age=${expires_in}; HttpOnly; SameSite=Lax`,
-      `linkedin_user_id=${profileResponse.data.id}; Path=/; Max-Age=${expires_in}; SameSite=Lax`
+      `linkedin_user_id=${encodeURIComponent(profile.id)}; Path=/; Max-Age=${expires_in}; SameSite=Lax`
     ]);
 
     // Return success response with user data

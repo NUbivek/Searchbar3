@@ -1,3 +1,4 @@
+import { selfBaseUrl } from '../serverBaseUrl';
 import axios from 'axios';
 import { logger } from '../logger';
 
@@ -7,7 +8,7 @@ export async function searchReddit(query) {
 
   try {
     // Use base URL from environment if available
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3010';
+    const baseUrl = selfBaseUrl();
     const response = await axios.get(`${baseUrl}/api/search/reddit`, {
       params: {
         query,

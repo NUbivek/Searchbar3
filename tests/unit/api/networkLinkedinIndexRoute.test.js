@@ -35,96 +35,102 @@ describe('/api/network/linkedin', () => {
     const req = createMockReq({
       method: 'GET',
       cookies: { linkedin_access_token: 'token-123' },
-      headers: { cookie: 'linkedin_access_token=token-123' },
+      headers: { cookie: 'linkedin_access_token=token-123', host: 'app.example.com' },
     });
     const res = createMockRes();
 
     axios.get
       .mockResolvedValueOnce({
         data: {
-          id: 'abc123',
-          localizedFirstName: 'Ada',
-          localizedLastName: 'Lovelace',
-          profilePicture: { displayImage: 'pic-url' },
+          sub: 'abc123',
+          given_name: 'Ada',
+          family_name: 'Lovelace',
+          name: 'Ada Lovelace',
+          email: 'ada@example.com',
+          picture: 'pic-url',
         },
       })
       .mockResolvedValueOnce({
         data: {
           elements: [
-            {
-              'handle~': {
-                emailAddress: 'ada@example.com',
-              },
-            },
+            { miniProfile: { id: 'c1', firstName: 'Grace', lastName: 'Hopper', occupation: 'Navy' } },
+            { miniProfile: { id: 'c2', firstName: 'Alan', lastName: 'Turing' } },
           ],
-        },
-      })
-      .mockResolvedValueOnce({
-        data: {
-          nodes: [
-            { id: 'user', name: 'Current User' },
-            { id: 'c1', name: 'First Connection' },
-            { id: 'c2', name: 'Second Connection' },
-          ],
-          edges: [{ source: 'user', target: 'c1' }],
         },
       });
 
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      user: {
-        id: 'abc123',
-        firstName: 'Ada',
-        lastName: 'Lovelace',
-        profilePicture: 'pic-url',
-        email: 'ada@example.com',
-      },
-      connections: [
-        { id: 'c1', name: 'First Connection' },
-        { id: 'c2', name: 'Second Connection' },
-      ],
-      networksData: {
-        nodes: [
-          { id: 'user', name: 'Current User' },
-          { id: 'c1', name: 'First Connection' },
-          { id: 'c2', name: 'Second Connection' },
-        ],
-        edges: [{ source: 'user', target: 'c1' }],
-      },
+    expect(res.body.user).toEqual({
+      id: 'abc123',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      profilePicture: 'pic-url',
+      email: 'ada@example.com',
     });
+    expect(res.body.connections.map(c => c.name)).toEqual(['Grace Hopper', 'Alan Turing']);
+    expect(res.body.connections[0]).toEqual(expect.objectContaining({ id: 'linkedin-c1', company: 'Navy', source: 'linkedin' }));
+    expect(res.body.connectionsAvailable).toBe(true);
+    expect(res.body.note).toBeNull();
+    expect(res.body.networksData.nodes[0]).toEqual(expect.objectContaining({ id: 'user', name: 'Ada Lovelace' }));
+    expect(res.body.networksData.links).toHaveLength(2);
 
+    expect(axios.get).toHaveBeenCalledTimes(2);
     expect(axios.get).toHaveBeenNthCalledWith(
       1,
-      'https://api.linkedin.com/v2/me',
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: 'Bearer token-123',
-        }),
-        timeout: 10000,
-      })
+      'https://api.linkedin.com/v2/userinfo',
+      expect.objectContaining({ headers: { Authorization: 'Bearer token-123' }, timeout: 10000 })
     );
     expect(axios.get).toHaveBeenNthCalledWith(
       2,
-      'https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))',
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: 'Bearer token-123',
-        }),
-        timeout: 10000,
-      })
+      expect.stringContaining('https://api.linkedin.com/v2/connections'),
+      expect.objectContaining({ headers: { Authorization: 'Bearer token-123' }, timeout: 10000 })
     );
-    expect(axios.get).toHaveBeenNthCalledWith(
-      3,
-      'http://localhost:3002/api/network/linkedin/connections',
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Cookie: 'linkedin_access_token=token-123',
-        }),
-        timeout: 10000,
-      })
-    );
+    expect(axios.get).not.toHaveBeenCalledWith(expect.stringContaining('/v2/me'), expect.anything());
+  });
+
+  it('never calls back into the app via request Host headers (SSRF guard)', async () => {
+    const req = createMockReq({
+      method: 'GET',
+      cookies: { linkedin_access_token: 'token-123' },
+      headers: { host: '169.254.169.254', 'x-forwarded-host': 'internal-svc:8080' },
+    });
+    const res = createMockRes();
+
+    axios.get
+      .mockResolvedValueOnce({ data: { sub: 'abc123', given_name: 'Ada', family_name: 'Lovelace' } })
+      .mockRejectedValueOnce({ response: { status: 403 } });
+
+    await handler(req, res);
+
+    for (const [url] of axios.get.mock.calls) {
+      expect(url.startsWith('https://api.linkedin.com/')).toBe(true);
+    }
+  });
+
+  it('returns the profile-only graph and a note when connections are unavailable (403)', async () => {
+    const req = createMockReq({ method: 'GET', cookies: { linkedin_access_token: 'token-123' } });
+    const res = createMockRes();
+
+    axios.get
+      .mockResolvedValueOnce({ data: { sub: 'abc123', given_name: 'Ada', family_name: 'Lovelace' } })
+      .mockRejectedValueOnce({ response: { status: 403 } });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.user).toEqual({
+      id: 'abc123',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      profilePicture: null,
+      email: '',
+    });
+    expect(res.body.connections).toEqual([]);
+    expect(res.body.connectionsAvailable).toBe(false);
+    expect(res.body.note).toMatch(/approved partner apps/);
+    expect(res.body.networksData.nodes).toHaveLength(1);
   });
 
   it('returns 401 when LinkedIn responds with an auth error', async () => {

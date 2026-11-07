@@ -24,7 +24,12 @@ const IntelligentSearchDemo = () => {
     
     try {
       // Simulate search API call
-      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+      // /api/search only accepts POST
+      const response = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query })
+      });
       
       if (!response.ok) {
         throw new Error(`Search failed with status: ${response.status}`);

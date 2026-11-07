@@ -1,6 +1,7 @@
 /**
  * Twitter OAuth2 Authentication - Initiation endpoint
  */
+import crypto from 'crypto';
 import { getCallbackUrl } from '../../../../utils/oauthUtils';
 
 export default function handler(req, res) {
@@ -8,18 +9,13 @@ export default function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Get Twitter API key from environment variables
-  const clientId = process.env.TWITTER_API_KEY || process.env.TWITTER_CLIENT_ID;
+  // OAuth 2.0 Client ID from the X developer portal (not the v1.1 API key)
+  const clientId = process.env.TWITTER_CLIENT_ID;
   
   // Validate required parameters
   if (!clientId) {
-    console.error('Twitter API key is missing. Check your .env.local file.');
-    return res.status(200).json({
-      status: 'fail-soft',
-      error: 'Configuration error',
-      details: 'Twitter API key is not configured.',
-      degradedSources: ['twitter-auth']
-    });
+    console.error('TWITTER_CLIENT_ID is missing. Check your .env.local file.');
+    return res.redirect(`/network?error=${encodeURIComponent('X is not configured yet: add TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET to .env.local and restart the dev server.')}`);
   }
   
   // Define the redirect URI using the utility function
@@ -34,18 +30,18 @@ export default function handler(req, res) {
   ].join(' ');
   
   // State parameter to prevent CSRF attacks
-  const state = Math.random().toString(36).substring(2, 15);
+  const state = crypto.randomBytes(16).toString('hex');
   
-  // Code challenge for PKCE (Proof Key for Code Exchange)
-  // Generate a more complex code challenge with additional random characters
-  const randomChars = Math.random().toString(36).substring(2, 10);
-  const codeChallenge = `challenge${randomChars}`;
-  const codeChallengeMethod = 'plain';
+  // PKCE (RFC 7636): random 43+ char verifier, S256 challenge
+  const codeVerifier = crypto.randomBytes(48).toString('base64url');
+  const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+  const codeChallengeMethod = 'S256';
   
   // Store state and code verifier in session/cookie for validation on callback
   res.setHeader('Set-Cookie', [
-    `twitter_auth_state=${state}; Path=/; HttpOnly; SameSite=Lax`,
-    `twitter_code_verifier=${codeChallenge}; Path=/; HttpOnly; SameSite=Lax`
+    // Short-lived: only needed until the callback (10 minutes).
+    `twitter_auth_state=${state}; Path=/; Max-Age=600; HttpOnly; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`,
+    `twitter_code_verifier=${codeVerifier}; Path=/; Max-Age=600; HttpOnly; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
   ]);
   
   // Print debug information to server logs
@@ -53,8 +49,7 @@ export default function handler(req, res) {
     clientId,
     redirectUri,
     scope,
-    state,
-    codeChallenge
+    state
   });
   
   // Construct the Twitter authorization URL

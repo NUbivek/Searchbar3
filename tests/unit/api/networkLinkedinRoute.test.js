@@ -12,6 +12,7 @@ describe('/api/network/linkedin', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    axios.get.mockReset(); // don't leak queued responses between tests
     process.env.NEXT_PUBLIC_BASE_URL = 'https://example.com';
   });
 
@@ -44,32 +45,10 @@ describe('/api/network/linkedin', () => {
   test('returns combined profile and connection data', async () => {
     axios.get
       .mockResolvedValueOnce({
-        data: {
-          id: 'user-1',
-          localizedFirstName: 'Avery',
-          localizedLastName: 'Stone',
-          profilePicture: { displayImage: 'avatar-url' },
-        },
+        data: { sub: 'user-1', given_name: 'Avery', family_name: 'Stone', name: 'Avery Stone', email: 'avery@example.com', picture: 'avatar-url' },
       })
       .mockResolvedValueOnce({
-        data: {
-          elements: [
-            {
-              'handle~': {
-                emailAddress: 'avery@example.com',
-              },
-            },
-          ],
-        },
-      })
-      .mockResolvedValueOnce({
-        data: {
-          nodes: [
-            { id: 'user', name: 'Avery Stone' },
-            { id: '2', name: 'Jordan Lee', company: 'Acme' },
-          ],
-          links: [],
-        },
+        data: { elements: [{ miniProfile: { id: '2', firstName: 'Jordan', lastName: 'Lee', occupation: 'Acme' } }] },
       });
 
     const req = createMockReq({
@@ -83,40 +62,21 @@ describe('/api/network/linkedin', () => {
 
     expect(axios.get).toHaveBeenNthCalledWith(
       1,
-      'https://api.linkedin.com/v2/me',
-      {
-        headers: {
-          Authorization: 'Bearer token-123',
-        },
-      }
+      'https://api.linkedin.com/v2/userinfo',
+      { headers: { Authorization: 'Bearer token-123' }, timeout: 10000 }
     );
-    expect(axios.get).toHaveBeenNthCalledWith(
-      3,
-      'https://example.com/api/network/linkedin/connections',
-      {
-        headers: {
-          Cookie: 'linkedin_access_token=token-123',
-        },
-      }
-    );
+    expect(axios.get).toHaveBeenCalledTimes(2);
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      user: {
-        id: 'user-1',
-        firstName: 'Avery',
-        lastName: 'Stone',
-        profilePicture: 'avatar-url',
-        email: 'avery@example.com',
-      },
-      connections: [{ id: '2', name: 'Jordan Lee', company: 'Acme' }],
-      networksData: {
-        nodes: [
-          { id: 'user', name: 'Avery Stone' },
-          { id: '2', name: 'Jordan Lee', company: 'Acme' },
-        ],
-        links: [],
-      },
+    expect(res.body.user).toEqual({
+      id: 'user-1',
+      firstName: 'Avery',
+      lastName: 'Stone',
+      profilePicture: 'avatar-url',
+      email: 'avery@example.com',
     });
+    expect(res.body.connections).toEqual([
+      expect.objectContaining({ id: 'linkedin-2', name: 'Jordan Lee', company: 'Acme' }),
+    ]);
   });
 
   test('returns 401 when linkedin reports an expired token', async () => {
@@ -141,7 +101,7 @@ describe('/api/network/linkedin', () => {
     expect(res.body).toEqual({ error: 'LinkedIn session expired, please reconnect' });
   });
 
-  test('returns 500 for other linkedin failures', async () => {
+  test('fails soft (200) for other linkedin failures', async () => {
     axios.get.mockRejectedValueOnce(new Error('linkedin down'));
 
     const req = createMockReq({
@@ -153,10 +113,11 @@ describe('/api/network/linkedin', () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(500);
-    expect(res.body).toEqual({
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual(expect.objectContaining({
+      status: 'fail-soft',
       error: 'Failed to fetch LinkedIn network data',
       details: 'linkedin down',
-    });
+    }));
   });
 });

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { performSimpleSearch, performSimpleVerifiedSearch } from '../../../utils/searchUtils';
 import { logger } from '../../../utils/logger';
+import { searchHackerNews } from '../../../utils/sources/hackernewsAlgolia';
 import { processWithLLM } from '../../../utils/llmProcessing';
 import { synthesizeFromResults } from '../../../utils/fallbackSynthesizer';
 import { processCategories } from '../../../components/search/categories/processors/CategoryProcessor';
@@ -127,6 +128,21 @@ export default async function handler(req, res) {
           customUrls,
           uploadedFiles: normalizedFiles
         });
+      }
+    }
+
+    // No-key fallback: if every selected source came back empty (e.g. no
+    // search API keys configured), use Hacker News so the page isn't blank.
+    if (results.length === 0) {
+      try {
+        const hnResults = await searchHackerNews(query);
+        if (hnResults.length > 0) {
+          results = hnResults;
+          degradedSources.push(...normalizedSources.filter(s => s !== 'hackernews'));
+        }
+      } catch (hnError) {
+        console.error('Hacker News fallback failed:', hnError.message);
+        degradedSources.push('hackernews');
       }
     }
 

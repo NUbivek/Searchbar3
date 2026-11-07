@@ -32,6 +32,7 @@ describe('/api/search/hackernews', () => {
 
   it('returns normalized results for successful fetches', async () => {
     global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
       json: jest.fn().mockResolvedValue({
         hits: [
           {

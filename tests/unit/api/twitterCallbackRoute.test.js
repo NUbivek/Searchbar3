@@ -105,7 +105,9 @@ describe('/api/auth/twitter/callback', () => {
 
     await handler(req, res);
 
-    expect(res.redirect).toHaveBeenCalledWith('/network?error=Invalid state parameter');
+    expect(res.redirect).toHaveBeenCalledWith(
+      `/network?error=${encodeURIComponent('Sign-in check failed, please try connecting X again')}`
+    );
     expect(axios.post).not.toHaveBeenCalled();
   });
 
@@ -116,7 +118,7 @@ describe('/api/auth/twitter/callback', () => {
         state: 'valid-state',
       },
       headers: {
-        cookie: 'twitter_auth_state=valid-state',
+        cookie: 'twitter_auth_state=valid-state; twitter_code_verifier=stored-verifier',
       },
     });
     const res = createRedirectRes();
@@ -165,10 +167,15 @@ describe('/api/auth/twitter/callback', () => {
       }
     );
     expect(res.setHeader).toHaveBeenCalledWith('Set-Cookie', [
-      'twitter_access_token=twitter-access-token; Max-Age=3600000; Path=/; HttpOnly; SameSite=Lax',
-      'twitter_refresh_token=twitter-refresh-token; Max-Age=2592000000; Path=/; HttpOnly; SameSite=Lax',
+      // Max-Age is in seconds: 1 hour access token, 30 day refresh token
+      'twitter_access_token=twitter-access-token; Max-Age=3600; Path=/; HttpOnly; SameSite=Lax',
+      'twitter_refresh_token=twitter-refresh-token; Max-Age=2592000; Path=/; HttpOnly; SameSite=Lax',
+      // one-time PKCE values are cleared after use
+      'twitter_auth_state=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax',
+      'twitter_code_verifier=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax',
     ]);
-    expect(res.redirect).toHaveBeenCalledWith('/network?auth=twitter_success');
+    // NEXT_PUBLIC_BASE_URL is set above, so the callback redirects to the absolute frontend URL.
+    expect(res.redirect).toHaveBeenCalledWith('https://example.com/network?auth=twitter_success');
   });
 
   test('redirects with detailed error when token exchange fails', async () => {
@@ -189,7 +196,7 @@ describe('/api/auth/twitter/callback', () => {
         state: 'valid-state',
       },
       headers: {
-        cookie: 'twitter_auth_state=valid-state',
+        cookie: 'twitter_auth_state=valid-state; twitter_code_verifier=stored-verifier',
       },
     });
     const res = createRedirectRes();

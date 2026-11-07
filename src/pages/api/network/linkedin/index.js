@@ -1,7 +1,7 @@
 /**
  * API endpoint to fetch and process LinkedIn network data for visualization
  */
-import axios from 'axios';
+import { fetchLinkedInProfile, fetchLinkedInGraph } from '../../../../utils/linkedinProfile';
 
 const LINKEDIN_NETWORK_TIMEOUT_MS = 10000;
 
@@ -21,47 +21,23 @@ export default async function handler(req, res) {
 
   try {
     // Fetch user profile
-    const profileResponse = await axios.get('https://api.linkedin.com/v2/me', {
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      },
-      timeout: LINKEDIN_NETWORK_TIMEOUT_MS,
-    });
+    const profile = await fetchLinkedInProfile(accessToken, LINKEDIN_NETWORK_TIMEOUT_MS);
 
-    const userData = profileResponse.data;
-
-    // Fetch email address
-    const emailResponse = await axios.get('https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))', {
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      },
-      timeout: LINKEDIN_NETWORK_TIMEOUT_MS,
-    });
-
-    const userEmail = emailResponse.data.elements?.[0]?.['handle~']?.emailAddress || '';
-
-    // Fetch connections using our existing endpoint
-    const connectionsResponse = await axios.get(
-      `${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3002'}/api/network/linkedin/connections`,
-      {
-        headers: {
-          Cookie: req.headers.cookie // Pass the cookies for authentication
-        },
-        timeout: LINKEDIN_NETWORK_TIMEOUT_MS,
-      }
-    );
+    const graph = await fetchLinkedInGraph(accessToken, profile, LINKEDIN_NETWORK_TIMEOUT_MS);
 
     // Combine user data with connections
     const result = {
       user: {
-        id: userData.id,
-        firstName: userData.localizedFirstName,
-        lastName: userData.localizedLastName,
-        profilePicture: userData.profilePicture?.displayImage,
-        email: userEmail
+        id: profile.id,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        profilePicture: profile.picture,
+        email: profile.email || ''
       },
-      connections: connectionsResponse.data.nodes.filter(node => node.id !== 'user'),
-      networksData: connectionsResponse.data // Full graph data for visualization
+      connections: (graph.nodes || []).filter(node => node.id !== 'user'),
+      connectionsAvailable: Boolean(graph.connectionsAvailable),
+      note: graph.note || null,
+      networksData: graph // Full graph data for visualization
     };
 
     return res.status(200).json(result);

@@ -96,11 +96,11 @@ describe('NetworkPage', () => {
     expect(screen.getByRole('button', { name: '' }).hasAttribute('disabled')).toBe(true);
   });
 
-  it('renders decoded error query params and clears the URL state', async () => {
+  it('renders error query params (already decoded by Next.js) and clears the URL state', async () => {
     const replace = jest.fn();
 
     useRouter.mockReturnValue({
-      query: { error: encodeURIComponent('Twitter failed') },
+      query: { error: 'Twitter failed' },
       replace
     });
 
@@ -109,6 +109,19 @@ describe('NetworkPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Twitter failed')).toBeTruthy();
       expect(replace).toHaveBeenCalledWith('/network', undefined, { shallow: true });
+    });
+  });
+
+  it('shows error messages containing % without crashing', async () => {
+    useRouter.mockReturnValue({
+      query: { error: 'Quota at 100% used' },
+      replace: jest.fn()
+    });
+
+    render(<NetworkPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Quota at 100% used')).toBeTruthy();
     });
   });
 });

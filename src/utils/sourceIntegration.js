@@ -1,8 +1,8 @@
 const axios = require('axios');
+const { selfBaseUrl } = require('./serverBaseUrl');
 const logger = require('./logger');
 const { searchCompany, getFilings } = require('./edgarUtils');
 const { MARKET_DATA_SOURCES, VC_FIRMS } = require('./dataSources');
-const { deepWebSearch, enrichResults } = require('./deepWebSearch');
 const { fetchUrlContent, buildUrlSearchResult } = require('./urlExtraction');
 const { 
   VERIFIED_DATA_SOURCES, 
@@ -22,9 +22,7 @@ const getBaseUrl = () => {
     return window.location.origin;
   } else {
     // Server-side
-    return process.env.NODE_ENV === 'development' 
-      ? 'http://localhost:3010' 
-      : process.env.NEXT_PUBLIC_BASE_URL || '';
+    return selfBaseUrl();
   }
 };
 

@@ -70,9 +70,10 @@ describe('/api/auth/linkedin/token', () => {
   test('returns authenticated user on GET when token is valid', async () => {
     axios.get.mockResolvedValueOnce({
       data: {
-        id: 'linkedin-user',
-        localizedFirstName: 'Ada',
-        localizedLastName: 'Lovelace',
+        sub: 'linkedin-user',
+        given_name: 'Ada',
+        family_name: 'Lovelace',
+        name: 'Ada Lovelace',
       },
     });
 
@@ -84,7 +85,8 @@ describe('/api/auth/linkedin/token', () => {
 
     await handler(req, res);
 
-    expect(axios.get).toHaveBeenCalledWith('https://api.linkedin.com/v2/me', {
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    expect(axios.get).toHaveBeenCalledWith('https://api.linkedin.com/v2/userinfo', {
       headers: {
         Authorization: 'Bearer valid-token',
       },
@@ -172,25 +174,16 @@ describe('/api/auth/linkedin/token', () => {
       },
     });
 
-    axios.get
-      .mockResolvedValueOnce({
-        data: {
-          id: 'linkedin-user',
-          localizedFirstName: 'Grace',
-          localizedLastName: 'Hopper',
-        },
-      })
-      .mockResolvedValueOnce({
-        data: {
-          elements: [
-            {
-              'handle~': {
-                emailAddress: 'grace@example.com',
-              },
-            },
-          ],
-        },
-      });
+    axios.get.mockResolvedValueOnce({
+      data: {
+        sub: 'linkedin-user',
+        given_name: 'Grace',
+        family_name: 'Hopper',
+        name: 'Grace Hopper',
+        email: 'grace@example.com',
+        picture: 'https://media.licdn.com/grace.jpg',
+      },
+    });
 
     const req = createMockReq({ method: 'POST', body: { code: 'auth-code' } });
     const res = createHeaderRes();
@@ -213,6 +206,21 @@ describe('/api/auth/linkedin/token', () => {
         },
         timeout: 10000,
       }
+    );
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    expect(axios.get).toHaveBeenCalledWith('https://api.linkedin.com/v2/userinfo', {
+      headers: {
+        Authorization: 'Bearer linkedin-access-token',
+      },
+      timeout: 10000,
+    });
+    expect(axios.get).not.toHaveBeenCalledWith(
+      expect.stringContaining('/v2/me'),
+      expect.anything()
+    );
+    expect(axios.get).not.toHaveBeenCalledWith(
+      expect.stringContaining('/v2/emailAddress'),
+      expect.anything()
     );
     expect(res.setHeader).toHaveBeenCalledWith('Set-Cookie', [
       'linkedin_access_token=linkedin-access-token; Path=/; Max-Age=7200; HttpOnly; SameSite=Lax',

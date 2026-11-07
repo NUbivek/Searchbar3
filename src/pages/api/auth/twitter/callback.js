@@ -49,18 +49,21 @@ export default async function handler(req, res) {
   const cookies = parse(req.headers.cookie || '');
   const storedState = cookies.twitter_auth_state;
   
-  if (storedState && state !== storedState) {
+  if (!storedState || state !== storedState) {
     console.error('Invalid state parameter', { received: state, stored: storedState });
-    return redirectToNetwork('error=Invalid state parameter');
+    return redirectToNetwork(`error=${encodeURIComponent('Sign-in check failed, please try connecting X again')}`);
   }
   
   try {
     // Get the code verifier (used for PKCE)
     // Already parsed cookies above
-    const codeVerifier = cookies.twitter_code_verifier || `challenge${state.substring(0, 8)}`; // Use part of state as fallback
+    const codeVerifier = cookies.twitter_code_verifier;
+    if (!codeVerifier) {
+      return redirectToNetwork('error=Sign-in session expired, please try connecting X again');
+    }
     
     // Get configuration from environment variables
-    const clientId = process.env.TWITTER_CLIENT_ID || process.env.TWITTER_API_KEY;
+    const clientId = process.env.TWITTER_CLIENT_ID;
     const clientSecret = process.env.TWITTER_CLIENT_SECRET;
     const redirectUri = getCallbackUrl('twitter', req);
     
@@ -107,7 +110,7 @@ export default async function handler(req, res) {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: expires_in * 1000, // Convert seconds to milliseconds
+      maxAge: expires_in, // cookie.serialize takes seconds
       path: '/'
     };
     
@@ -117,8 +120,11 @@ export default async function handler(req, res) {
       serialize('twitter_refresh_token', refresh_token, {
         ...cookieOptions,
         // Refresh token typically lives longer
-        maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
-      })
+        maxAge: 30 * 24 * 60 * 60 // 30 days, in seconds
+      }),
+      // One-time PKCE/state values are spent; clear them.
+      serialize('twitter_auth_state', '', { ...cookieOptions, maxAge: 0 }),
+      serialize('twitter_code_verifier', '', { ...cookieOptions, maxAge: 0 })
     ]);
     
     // Redirect back to the network page with success flag
