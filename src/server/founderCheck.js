@@ -3,8 +3,10 @@
  * sentence (or headline) copied verbatim from a fetched source, tagged with
  * the index of that source in `sources`. Nothing is inferred or written here.
  *
- * Name matching is strict: the full name, case-sensitive, on word
- * boundaries. "Arthur Mensch" never matches "arthur mensch" or "A. Mensch".
+ * Name matching is strict: the full name on word boundaries, written in the
+ * source as a capitalized proper name. The user's capitalization does not
+ * matter ("arthur mensch" finds "Arthur Mensch"), but initials ("A. Mensch")
+ * and lowercase common-word uses do not match.
  * LinkedIn is not used (it does not share profiles with ordinary apps).
  */
 import { searchCuratedSources } from '../utils/sources/curatedIndex';
@@ -48,12 +50,22 @@ function escapeRe(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Strict full-name matcher: case-sensitive, word boundaries. */
+/** Strict full-name matcher: full name, word boundaries, capitalized in the source. */
 export function nameMatcher(name) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean).map(escapeRe);
   if (!parts.length) return () => false;
-  const re = new RegExp(`(?<![A-Za-z0-9])${parts.join('\\s+')}(?![A-Za-z0-9])`);
-  return (text) => re.test(String(text || ''));
+  // Whatever capitalization the user types ("bivek adhikari"), match the
+  // full name case-insensitively, but only where the source writes it as a
+  // proper name (each part capitalized, e.g. "Bivek Adhikari"), so common
+  // words that happen to equal a name part do not match.
+  const re = new RegExp(`(?<![A-Za-z0-9])${parts.join('\\s+')}(?![A-Za-z0-9])`, 'gi');
+  return (text) => {
+    const str = String(text || '');
+    for (const m of str.matchAll(re)) {
+      if (m[0].split(/\s+/).every((w) => /^[A-Z\u00C0-\u024F]/.test(w))) return true;
+    }
+    return false;
+  };
 }
 
 function companyMatcher(company) {
@@ -300,12 +312,17 @@ export async function runFounderCheck({ name, company } = {}, deps = {}) {
 
   const evidence = extractFounderEvidence({ name: person, company: co, results });
 
-  warnings.push('Name matching is strict (exact full name, case-sensitive). Mentions using initials, nicknames or a different spelling are not included; different people can share the same name.');
+  warnings.push('Name matching is strict (exact full name, any capitalization). Mentions using initials, nicknames or a different spelling are not included; different people can share the same name.');
   if (co) {
     const flagged = [...evidence.timeline, ...evidence.pastCompanies, ...evidence.litigation, ...evidence.press].filter((x) => x.possibleDifferentPerson).length;
     if (flagged) warnings.push(`${flagged} item(s) come from sources that do not mention "${co}" and may refer to a different person with the same name.`);
   }
-  if (!evidence.sources.length) warnings.push(`No source in the available indexes mentions "${person}" by exact full name.`);
+  if (!evidence.sources.length) {
+    const webMissing = unavailableSources.some((u) => /web/i.test(u.source));
+    warnings.push(webMissing
+      ? `No source mentions "${person}" by full name. Without web search, only the curated startup-news feeds and Hacker News are searched, and they rarely cover individuals who have not been in funding news. Add a web search key (SERPER_API_KEY or TAVILY_API_KEY) to search the wider web.`
+      : `No source mentions "${person}" by full name.`);
+  }
 
   return {
     name: person,

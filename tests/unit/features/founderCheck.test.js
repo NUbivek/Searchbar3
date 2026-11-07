@@ -100,3 +100,17 @@ describe('runFounderCheck', () => {
     expect(out.unavailableSources.map((u) => u.source)).not.toContain('Web search');
   });
 });
+
+describe('nameMatcher capitalization', () => {
+  const { nameMatcher } = require('../../../src/server/founderCheck');
+  test('lowercase typed name finds the capitalized name in a source', () => {
+    const match = nameMatcher('bivek adhikari');
+    expect(match('Interview with Bivek Adhikari, founder of Acme.')).toBe(true);
+  });
+  test('still requires the source to write it as a proper name', () => {
+    const match = nameMatcher('Grace Hopper');
+    expect(match('the grace hopper conference schedule')).toBe(false);
+    expect(match('Grace Hopper wrote the first compiler.')).toBe(true);
+    expect(match('G. Hopper wrote it')).toBe(false);
+  });
+});
