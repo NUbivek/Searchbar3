@@ -68,6 +68,8 @@ export function validateAnswer(text, sourceCount, sections = SECTIONS) {
   let content = normalizeCitations(String(text || '').replace(/<think>[\s\S]*?<\/think>/gi, '')).trim();
   // Some models wrap output in code fences or add a preface before SUMMARY
   content = content.replace(/^```(?:markdown)?\s*/i, '').replace(/```\s*$/, '');
+  // "**## TIMELINE**" or "## SUMMARY**" -> "## TIMELINE" (bold markers around headings)
+  content = content.replace(/^[ \t]*(?:\*\*|__)?[ \t]*(#{2,4})[ \t]*(?:\*\*|__)?[ \t]*(.+?)[ \t]*(?:\*\*|__)?[ \t]*$/gm, (m, h, title) => `${h} ${title.replace(/^(\*\*|__)|(\*\*|__)$/g, '').trim()}`);
   const start = content.indexOf(sections[0]);
   if (start < 0) return { ok: false, reason: `missing ${sections[0].replace(/^#+\s*/, '')} section` };
   content = content.slice(start);
@@ -81,9 +83,13 @@ export function validateAnswer(text, sourceCount, sections = SECTIONS) {
   });
   const citations = (content.match(/\[Source \d+\]/g) || []).length;
   if (citations === 0) return { ok: false, reason: 'no valid citations' };
-  const conf = content.match(/^CONFIDENCE:\s*(High|Medium|Low)\b\s*[-–:]?\s*(.*)$/im);
+  // Models write it as "CONFIDENCE: High - ...", "**CONFIDENCE:** High – ..." etc.
+  const conf = content.match(/^[ \t>*_#-]*CONFIDENCE[*_\s]*:[*_\s]*(High|Medium|Low)(?![a-z])[*_]*\s*[-–—:]?\s*(.*)$/im);
   if (conf) content = content.replace(conf[0], '').trim();
-  return { ok: true, content, citations, removedCitations: removed, confidence: conf ? { level: conf[1], reason: conf[2].trim() } : null };
+  // "- • point" -> "• point" (the format the prompt and the quoted digest use)
+  content = content.replace(/^([ \t]*)[-*][ \t]*•[ \t]*/gm, '$1• ');
+  const confidence = conf ? { level: conf[1], reason: conf[2].replace(/[*_]+/g, '').trim() } : null;
+  return { ok: true, content, citations, removedCitations: removed, confidence };
 }
 
 export function llmConfigured() {

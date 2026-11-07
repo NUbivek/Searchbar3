@@ -101,6 +101,24 @@ describe('validateAnswer', () => {
     expect(v.confidence).toEqual({ level: 'Medium', reason: 'two sources agree' });
     expect(v.content).not.toMatch(/CONFIDENCE/);
   });
+  test('reads a bold confidence line and collapses doubled bullets', () => {
+    const text = '## SUMMARY\nRaised $11B [Source 1].\n## KEY POINTS  \n- • $11B round [Source 1]  \n## DETAILED ANALYSIS\nx [Source 1]\n## DIFFERENT PERSPECTIVES\n* • y [Source 1]\n## FOLLOW-UP QUESTIONS\n- • Who led it?\n\n**CONFIDENCE:** High – four outlets agree';
+    const v = validateAnswer(text, 1);
+    expect(v.confidence).toEqual({ level: 'High', reason: 'four outlets agree' });
+    expect(v.content).not.toMatch(/CONFIDENCE/);
+    expect(v.content).not.toMatch(/[-*] •/);
+    expect(v.content).toMatch(/^• \$11B round/m);
+    expect(validateAnswer(text.replace('**CONFIDENCE:** High –', 'CONFIDENCE: **Low** -'), 1).confidence.level).toBe('Low');
+  });
+  test('removes bold markers around section headings', () => {
+    const v = validateAnswer('## SUMMARY**  \nRaised [Source 1].\n\n**## KEY POINTS**\n• a [Source 1]\n## **DETAILED ANALYSIS**\n### **Round**\nx [Source 1]\n## DIFFERENT PERSPECTIVES\n## FOLLOW-UP QUESTIONS\n• q', 1);
+    expect(v.ok).toBe(true);
+    expect(v.content).toMatch(/^## SUMMARY$/m);
+    expect(v.content).toMatch(/^## KEY POINTS$/m);
+    expect(v.content).toMatch(/^## DETAILED ANALYSIS$/m);
+    expect(v.content).toMatch(/^### Round$/m);
+    expect(v.content).not.toMatch(/\*\*/);
+  });
   test('rejects output without sections or citations', () => {
     expect(validateAnswer('Here is an answer without structure.', 3).ok).toBe(false);
     expect(validateAnswer('## SUMMARY\nNo citations.\n## KEY POINTS\n## DETAILED ANALYSIS\n## DIFFERENT PERSPECTIVES\n## FOLLOW-UP QUESTIONS', 3).ok).toBe(false);
