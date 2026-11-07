@@ -36,6 +36,21 @@ A sophisticated search application that integrates multiple data sources, includ
 - **Reuters**: Global financial news and data
 - **WSJ**: Market insights and financial reporting
 
+### Curated Sources (default, no API key)
+Most diligence targets are private companies with no SEC filings, so the primary
+evidence base is the curated registry in `sources/registry.json`: VC and
+accelerator portfolio pages, funding and startup news, and market analysis feeds.
+
+- The **Curated sources** toggle (on by default) searches these directly. Items are
+  indexed in memory, refreshed every 3 hours, and ranked by name match, funding
+  relevance and recency. Portfolio pages show which investors list a company.
+- `npm run sourcing:health` checks every source and writes
+  `sources/registry-health.json`. Dead or broken sources are skipped, and
+  verified URL repairs are used, without editing `registry.json`.
+- `GET /api/sources/curated` shows index status; `?q=` searches it directly.
+- With no AI model configured, results are summarized as an extractive digest:
+  quoted sentences with citations and dates, never generated analysis.
+
 ### Open Research Sources
 - **Substack**: Newsletter and blog content
 - **Medium**: Article and publication search

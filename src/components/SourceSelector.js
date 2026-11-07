@@ -18,6 +18,7 @@ export default function SourceSelector({
   
   const sources = {
     open: [
+      { id: 'Curated', name: 'Curated sources' },
       { id: 'Web', name: 'Web' },
       { id: 'LinkedIn', name: 'LinkedIn' },
       { id: 'X', name: 'X' },

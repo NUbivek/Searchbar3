@@ -53,8 +53,8 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  // Only select Web by default
-  const [selectedSources, setSelectedSources] = useState(['Web']);
+  // Curated registry sources (private-company coverage, no key needed) + Web
+  const [selectedSources, setSelectedSources] = useState(['Curated', 'Web']);
   const [customUrls, setCustomUrls] = useState([]);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [results, setResults] = useState([]);
@@ -74,6 +74,11 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
       scrollToBottom();
     }
   }, [query]);
+
+  // Start warming the curated source index so the first search is fast.
+  useEffect(() => {
+    fetch('/api/sources/curated').catch(() => {});
+  }, []);
 
   const handleSourceToggle = (source) => {
     if (selectedSources.includes(source)) {

@@ -643,6 +643,13 @@ const sourceHandlers = {
   crunchbase: (query) => handleWebsiteScrape(query, 'crunchbase.com'),
   pitchbook: (query) => handleWebsiteScrape(query, 'pitchbook.com'),
   cbinsights: (query) => handleWebsiteScrape(query, 'cbinsights.com'),
+
+  // Curated registry (sources/registry.json): VC portfolios, funding and
+  // startup news, market analysis. Searched directly; no API key needed.
+  curated: async (query) => {
+    const { searchCuratedSources } = await import('./sources/curatedIndex');
+    return searchCuratedSources(query, { limit: 15 });
+  },
   
   // Handler for employee social media handles
   employee_handles: async (query) => {

@@ -8,7 +8,8 @@ import { processCategories } from '../../../components/search/categories/process
 import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 
 // Define valid sources
-const VALID_SOURCES = ['web', 'linkedin', 'twitter', 'reddit', 'substack', 'medium', 'crunchbase', 'pitchbook', 'verified'];
+// Must list every source the UI offers; unlisted ones were silently dropped (Carta was).
+const VALID_SOURCES = ['curated', 'web', 'linkedin', 'twitter', 'reddit', 'substack', 'medium', 'crunchbase', 'pitchbook', 'carta', 'verified'];
 
 function normalizeSources(input) {
   const raw = Array.isArray(input)
@@ -20,7 +21,8 @@ function normalizeSources(input) {
   const aliasMap = {
     x: 'twitter',
     'x.com': 'twitter',
-    'verified sources': 'verified'
+    'verified sources': 'verified',
+    'curated sources': 'curated'
   };
 
   const normalized = raw
@@ -71,65 +73,66 @@ export default async function handler(req, res) {
     const degradedSources = [];
     const normalizedFiles = Array.isArray(uploadedFiles) && uploadedFiles.length > 0 ? uploadedFiles : files;
 
-    // Check if verified sources is selected
+    // Search every selected source together. (Previously, selecting Web
+    // searched only Web and silently ignored the other selected sources.)
+    const searchSources = normalizedSources.filter(source => source !== 'verified');
+    const searches = [];
+    const searchGroups = [];
+
     if (normalizedSources.includes('verified')) {
-      // Use all verified sources (fmp, sec, edgar)
-      const verifiedResults = await performSimpleVerifiedSearch(query, ['fmp', 'sec', 'edgar'], {
+      // Public-company data (FMP, SEC, EDGAR); usually empty for private companies.
+      searches.push(performSimpleVerifiedSearch(query, ['fmp', 'sec', 'edgar'], {
         model,
         customUrls,
         uploadedFiles: normalizedFiles
-      });
-      results = [...results, ...verifiedResults];
-      
-      // Filter out 'verified' from sources for regular search
-      const otherSources = normalizedSources.filter(source => source !== 'verified');
-      
-      // Only perform regular search if there are other sources selected
-      if (otherSources.length > 0) {
-        // Perform regular search with selected sources
-        if (otherSources.includes('web')) {
-          console.log(`DEBUG: Executing web search via performSimpleSearch for: "${query}"`);
-          const webResults = await performSimpleSearch(query, ['web'], {
-            model,
-            customUrls,
-            uploadedFiles: normalizedFiles
-          });
-          console.log(`DEBUG: Web search (provider chain) returned ${webResults.length} results`);
-          if (webResults.length === 0) {
-            degradedSources.push('web');
-          }
-          results = [...results, ...webResults];
-        } else {
-          const otherResults = await performSimpleSearch(query, otherSources, {
-            model,
-            customUrls,
-            uploadedFiles: normalizedFiles
-          });
-          results = [...results, ...otherResults];
-        }
-      }
-    } else {
-      // Perform regular search with selected sources
-      if (normalizedSources.includes('web')) {
-        console.log(`DEBUG: Executing web search via performSimpleSearch for: "${query}"`);
-        const webResults = await performSimpleSearch(query, ['web'], {
-          model,
-          customUrls,
-          uploadedFiles: normalizedFiles
-        });
-        console.log(`DEBUG: Web search (provider chain) returned ${webResults.length} results`);
-        if (webResults.length === 0) {
-          degradedSources.push('web');
-        }
-        results = [...results, ...webResults];
-      } else {
-        results = await performSimpleSearch(query, normalizedSources, {
-          model,
-          customUrls,
-          uploadedFiles: normalizedFiles
-        });
-      }
+      }).then(found => ({ sources: ['verified'], found })));
+      searchGroups.push(['verified']);
     }
+
+    if (searchSources.length > 0 || customUrls.length > 0 || normalizedFiles.length > 0) {
+      searches.push(performSimpleSearch(query, searchSources, {
+        model,
+        customUrls,
+        uploadedFiles: normalizedFiles
+      }).then(found => ({ sources: searchSources, found })));
+      searchGroups.push(searchSources);
+    }
+
+    // Each search group fails independently: a failure or an empty group
+    // marks its sources degraded without discarding the other groups' results.
+    const settled = await Promise.allSettled(searches);
+    // If every group failed, it's a whole-request failure: let the outer
+    // handler return its fail-soft response with the error.
+    if (settled.length > 0 && settled.every(outcome => outcome.status === 'rejected')) {
+      throw settled[0].reason;
+    }
+    settled.forEach((outcome, i) => {
+      if (outcome.status !== 'fulfilled') {
+        logger.error('Open search group failed:', outcome.reason?.message || outcome.reason);
+        degradedSources.push(...(searchGroups[i] || []));
+        return;
+      }
+      const { sources: groupSources, found } = outcome.value;
+      const groupResults = Array.isArray(found) ? found : [];
+      results = [...results, ...groupResults];
+      if (groupResults.length === 0) {
+        degradedSources.push(...groupSources);
+        return;
+      }
+      // Within a group that returned something, flag selected sources that
+      // contributed nothing (only when results say which source they are from).
+      const labelled = groupResults.filter(r => r && r.source);
+      if (labelled.length === 0 || groupSources.length < 2) return;
+      const contributed = new Set(labelled.map(r => String(r.source).toLowerCase()));
+      const contributedBy = (source) => {
+        if (source === 'twitter') return contributed.has('twitter') || contributed.has('x');
+        if (['crunchbase', 'pitchbook', 'carta'].includes(source)) {
+          return [...contributed].some(c => c.includes(source));
+        }
+        return contributed.has(source);
+      };
+      degradedSources.push(...groupSources.filter(source => !contributedBy(source)));
+    });
 
     // No-key fallback: if every selected source came back empty (e.g. no
     // search API keys configured), use Hacker News so the page isn't blank.
@@ -138,7 +141,6 @@ export default async function handler(req, res) {
         const hnResults = await searchHackerNews(query);
         if (hnResults.length > 0) {
           results = hnResults;
-          degradedSources.push(...normalizedSources.filter(s => s !== 'hackernews'));
         }
       } catch (hnError) {
         console.error('Hacker News fallback failed:', hnError.message);

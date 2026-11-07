@@ -605,7 +605,8 @@ export async function unifiedSearch({
         Medium: 'medium',
         Crunchbase: 'crunchbase',
         Pitchbook: 'pitchbook',
-        Carta: 'carta'
+        Carta: 'carta',
+        Curated: 'curated'
       };
 
       const normalizedSources = Array.from(
