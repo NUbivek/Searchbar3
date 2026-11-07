@@ -25,6 +25,7 @@ jobs:
         npm run build
         touch out/.nojekyll
       env:
+        STATIC_EXPORT: "1"
         NEXT_PUBLIC_API_BASE_URL: "https://api.research.bivek.ai"
         NEXT_PUBLIC_BASE_URL: "https://airesearch.bivek.ai"
         NEXT_PUBLIC_ENABLE_LOGGING: "true"
