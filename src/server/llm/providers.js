@@ -144,12 +144,27 @@ function reasoningSettings(providerId, model) {
   return {};
 }
 
+/** Short, user-facing reason a model was skipped (no secrets). */
+export function describeFailure(error) {
+  const status = error.response?.status;
+  const detail = String(error.response?.data?.error?.message || error.response?.data?.message || '').slice(0, 160);
+  const why = status === 429 ? 'rate limited or out of free quota'
+    : status === 401 || status === 403 ? 'key rejected'
+    : status === 404 ? 'model not available'
+    : status === 400 ? 'request rejected'
+    : status >= 500 ? 'provider error'
+    : /timeout/i.test(error.code || error.message) ? 'timed out'
+    : 'request failed';
+  return { why, detail, status: status || null };
+}
+
 /**
  * Chat completion with fallback across providers/models.
  * @param {Array<{role, content}>} messages
  * @param {{ preferred?: string, maxTokens?: number, temperature?: number, timeoutMs?: number }} options
  *   preferred: "provider:model" from the model menu, or "auto"
- * @returns {Promise<{ text, provider, model } | null>} null when no provider is configured or all fail
+ * @returns {Promise<{ text, provider, model, skipped } | null>} null when no provider is configured or all fail.
+ *   skipped: models tried first that failed, e.g. [{ model, provider, why }]
  */
 export async function chatComplete(messages, { preferred = 'auto', maxTokens = 3000, temperature = 0.2, timeoutMs = 60000 } = {}) {
   const attempts = [];
@@ -168,6 +183,7 @@ export async function chatComplete(messages, { preferred = 'auto', maxTokens = 3
     }
   }
   const errors = [];
+  const skipped = [];
   for (const { p, model } of attempts) {
     try {
       const headers = { Authorization: `Bearer ${providerKey(p)}`, 'Content-Type': 'application/json', ...(p.id === 'openrouter' ? { 'X-Title': 'Research Hub' } : {}) };
@@ -184,12 +200,19 @@ export async function chatComplete(messages, { preferred = 'auto', maxTokens = 3
       const text = String(data?.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
       if (!text && data?.choices?.[0]?.finish_reason === 'length') {
         errors.push(`${p.id}:${model} ran out of tokens before answering`);
+        skipped.push({ provider: p.label, model, why: 'ran out of tokens before answering' });
         continue;
       }
-      if (text) return { text, provider: p.id, providerLabel: p.label, model };
+      if (text) {
+        if (skipped.length) console.warn('LLM fallback:', errors.join('; '));
+        return { text, provider: p.id, providerLabel: p.label, model, skipped };
+      }
       errors.push(`${p.id}:${model} empty response`);
+      skipped.push({ provider: p.label, model, why: 'empty response' });
     } catch (error) {
-      errors.push(`${p.id}:${model} ${error.response?.status || error.message}`);
+      const f = describeFailure(error);
+      errors.push(`${p.id}:${model} ${f.status || error.message}${f.detail ? ` (${f.detail})` : ''}`);
+      skipped.push({ provider: p.label, model, why: f.why });
     }
   }
   if (errors.length) console.warn('All LLM attempts failed:', errors.join('; '));

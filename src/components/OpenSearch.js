@@ -8,6 +8,7 @@ import { postSearchRequest } from '../utils/clientApi';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
+import { skippedNote } from '../utils/skippedNote';
 
 // Feature 6: limit results by publication date (undated items are kept and flagged)
 const DATE_FILTERS = [
@@ -407,8 +408,8 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
           {hasSearched && apiMeta.answerInfo && (
             <div className="text-xs text-gray-500 mb-2">
               {apiMeta.answerInfo.mode === 'ai'
-                ? <>Answer written by <strong>{apiMeta.answerInfo.model}</strong> ({apiMeta.answerInfo.provider}) from the cited sources{apiMeta.answerInfo.confidence ? <> · Confidence: <strong>{apiMeta.answerInfo.confidence.level}</strong>{apiMeta.answerInfo.confidence.reason ? ` (${apiMeta.answerInfo.confidence.reason})` : ''}</> : null}</>
-                : <>Answer quoted directly from sources ({apiMeta.answerInfo.reason || 'no AI model'}). Add a free GROQ_API_KEY or OPENROUTER_API_KEY for written analysis.</>}
+                ? <>Answer written by <strong>{apiMeta.answerInfo.model}</strong> ({apiMeta.answerInfo.provider}) from the cited sources{apiMeta.answerInfo.confidence ? <> · Confidence: <strong>{apiMeta.answerInfo.confidence.level}</strong>{apiMeta.answerInfo.confidence.reason ? ` (${apiMeta.answerInfo.confidence.reason})` : ''}</> : null}{skippedNote(apiMeta.answerInfo.skipped)}</>
+                : <>Answer quoted directly from sources ({apiMeta.answerInfo.reason || 'no AI model'}). Add a free model key (Groq, OpenRouter or Gemini) for written analysis.</>}
               {apiMeta.queryPlan?.entity && <> · About <strong>{apiMeta.queryPlan.entity}</strong>{apiMeta.queryPlan.droppedForRelevance ? ` (${apiMeta.queryPlan.droppedForRelevance} unrelated results removed)` : ''}</>}
             </div>
           )}

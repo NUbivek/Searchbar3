@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import PageShell from '../components/layout/PageShell';
 import { renderSafeHtml } from '../components/search/results/SimplifiedLLMResults';
+import { skippedNote } from '../utils/skippedNote';
 
 const EMPTY = 'Nothing found in available sources.';
 
@@ -134,7 +135,7 @@ export default function FounderPage() {
           {data.briefInfo && (
             <p className="text-xs text-gray-500 mb-2">
               {data.briefInfo.mode === 'ai'
-                ? <>Brief written by <strong>{data.briefInfo.model}</strong> ({data.briefInfo.provider}) from the cited sources{data.briefInfo.confidence ? <> · Confidence: <strong>{data.briefInfo.confidence.level}</strong>{data.briefInfo.confidence.reason ? ` (${data.briefInfo.confidence.reason})` : ''}</> : null}</>
+                ? <>Brief written by <strong>{data.briefInfo.model}</strong> ({data.briefInfo.provider}) from the cited sources{data.briefInfo.confidence ? <> · Confidence: <strong>{data.briefInfo.confidence.level}</strong>{data.briefInfo.confidence.reason ? ` (${data.briefInfo.confidence.reason})` : ''}</> : null}{skippedNote(data.briefInfo.skipped)}</>
                 : <>Brief quoted directly from sources ({data.briefInfo.reason}).</>}
             </p>
           )}

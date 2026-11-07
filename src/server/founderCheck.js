@@ -474,7 +474,7 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
       const checked = validateAnswer(out.text, Math.min(15, ranked.length), BRIEF_SECTIONS);
       if (checked.ok) {
         brief = checked.content;
-        briefInfo = { mode: 'ai', provider: out.providerLabel, model: out.model, confidence: checked.confidence };
+        briefInfo = { mode: 'ai', provider: out.providerLabel, model: out.model, confidence: checked.confidence, skipped: out.skipped || [] };
       } else {
         briefInfo = { mode: 'quoted', reason: `The AI brief failed validation (${checked.reason})` };
       }

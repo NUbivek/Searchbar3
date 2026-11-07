@@ -121,7 +121,7 @@ ${sourcesBlock(top)}`;
         return {
           content: checked.content,
           sourceMap,
-          llm: { provider: out.provider, providerLabel: out.providerLabel, model: out.model, confidence: checked.confidence, removedCitations: checked.removedCitations },
+          llm: { provider: out.provider, providerLabel: out.providerLabel, model: out.model, confidence: checked.confidence, removedCitations: checked.removedCitations, skipped: out.skipped || [] },
         };
       }
       reason = `The AI answer failed validation (${checked.reason})`;

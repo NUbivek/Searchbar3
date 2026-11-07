@@ -166,7 +166,7 @@ export default async function handler(req, res) {
         content: null,
       },
       answerInfo: answer.llm
-        ? { mode: 'ai', provider: answer.llm.providerLabel, model: answer.llm.model, confidence: answer.llm.confidence }
+        ? { mode: 'ai', provider: answer.llm.providerLabel, model: answer.llm.model, confidence: answer.llm.confidence, skipped: answer.llm.skipped || [] }
         : { mode: 'quoted', reason: answer.fallbackReason || null },
       metadata: { generatedAt: new Date().toISOString(), totalSources: results.length },
       categories,

@@ -193,6 +193,13 @@ describe('LLM provider chain', () => {
     const geminiCall = axios.post.mock.calls.find(([url]) => url.includes('generativelanguage'));
     expect(geminiCall[0]).toBe('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions');
     expect(geminiCall[2].headers.Authorization).toBe('Bearer ga');
+    expect(out.skipped).toEqual([
+      { provider: 'Groq', model: 'openai/gpt-oss-120b', why: 'rate limited or out of free quota' },
+      { provider: 'OpenRouter (free)', model: 'google/gemma-4-31b-it:free', why: 'rate limited or out of free quota' },
+    ]);
+    const { skippedNote } = require('../../../src/utils/skippedNote');
+    expect(skippedNote(out.skipped)).toBe(' · Skipped: gpt-oss-120b (rate limited or out of free quota), gemma-4-31b-it (rate limited or out of free quota)');
+    expect(skippedNote([])).toBe('');
   });
 
   test('returns null when no provider is configured', async () => {
