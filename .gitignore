@@ -53,3 +53,6 @@ research-hub-api/
 /data/source_health.csv
 /data/latest_run_summary.json
 .env*.local
+
+# Claude Code local settings
+.claude/settings.local.json
