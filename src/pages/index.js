@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Tab } from '@headlessui/react';
 import OpenSearch from '../components/OpenSearch';
 import AccountMenu from '../components/account/AccountMenu';
-import { FaSearch, FaProjectDiagram } from 'react-icons/fa';
+import { FaSearch, FaProjectDiagram, FaUserTie } from 'react-icons/fa';
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
@@ -31,7 +31,7 @@ export default function Home() {
         </div>
         
         <Tab.Group selectedIndex={selectedTab} onChange={setSelectedTab}>
-          <Tab.List className="flex space-x-2 rounded-xl bg-blue-100 p-1 mb-6 max-w-md mx-auto">
+          <Tab.List className="flex space-x-2 rounded-xl bg-blue-100 p-1 mb-6 max-w-xl mx-auto">
             <Tab
               className={({ selected }) =>
                 classNames(
@@ -47,6 +47,9 @@ export default function Home() {
             </Tab>
             <Link href="/network" className="w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center bg-blue-100 text-blue-500 hover:bg-white/[0.12] hover:text-blue-700">
               <FaProjectDiagram className="mr-2" /> Network Map
+            </Link>
+            <Link href="/founder" className="w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center bg-blue-100 text-blue-500 hover:bg-white/[0.12] hover:text-blue-700">
+              <FaUserTie className="mr-2" /> Founder Check
             </Link>
           </Tab.List>
           <Tab.Panels className="mt-2">

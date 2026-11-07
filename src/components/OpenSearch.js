@@ -333,16 +333,29 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
           </label>
           {signedIn ? (
             <label className="flex items-center gap-2 text-gray-600">
-              Save to
+              Save search to
               <select
                 value={workspaceId}
                 onChange={(e) => setWorkspaceId(e.target.value)}
+                aria-label="Save this search to a deal workspace"
+                title="Deal workspace this search is filed under (not the AI model)"
                 className="border border-gray-300 rounded-md px-2 py-1 bg-white"
               >
-                <option value="">History only</option>
-                {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                <option value="">History only (no workspace)</option>
+                {workspaces.length > 0 && (
+                  <optgroup label="Deal workspaces">
+                    {workspaces.map((w) => {
+                      // Same-named workspaces are told apart by creation date
+                      const duplicate = workspaces.filter((x) => x.name === w.name).length > 1;
+                      const created = duplicate ? ` (created ${new Date(w.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })})` : '';
+                      return <option key={w.id} value={w.id}>📁 {w.name}{created}</option>;
+                    })}
+                  </optgroup>
+                )}
               </select>
-              <Link href="/workspaces" className="text-blue-600 hover:underline">Manage</Link>
+              <Link href="/workspaces" className="text-blue-600 hover:underline">
+                {workspaces.length > 0 ? 'Manage workspaces' : 'New workspace'}
+              </Link>
             </label>
           ) : (
             <span className="text-gray-500">

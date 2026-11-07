@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { Tab } from '@headlessui/react';
 import axios from 'axios';
-import { FaSearch, FaProjectDiagram, FaUsers, FaLink, FaCheckCircle, FaExclamationCircle, FaInfoCircle, FaLinkedin } from 'react-icons/fa';
+import { FaSearch, FaProjectDiagram, FaUserTie, FaUsers, FaLink, FaCheckCircle, FaExclamationCircle, FaInfoCircle, FaLinkedin } from 'react-icons/fa';
 import { FaXTwitter } from 'react-icons/fa6'; // X logo (formerly Twitter)
 import NetworkDebug from '../components/NetworkDebug';
 
@@ -638,7 +638,7 @@ export default function NetworkPage() {
         </div>
         
         <Tab.Group>
-          <Tab.List className="flex space-x-2 rounded-xl bg-blue-100 p-1 mb-6 max-w-md mx-auto">
+          <Tab.List className="flex space-x-2 rounded-xl bg-blue-100 p-1 mb-6 max-w-xl mx-auto">
             <Link href="/" className="w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center bg-blue-100 text-blue-500 hover:bg-white/[0.12] hover:text-blue-700">
               <FaSearch className="mr-2" /> Open Research
             </Link>
@@ -655,6 +655,9 @@ export default function NetworkPage() {
             >
               <FaProjectDiagram className="mr-2" /> Network Map
             </Tab>
+            <Link href="/founder" className="w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center bg-blue-100 text-blue-500 hover:bg-white/[0.12] hover:text-blue-700">
+              <FaUserTie className="mr-2" /> Founder Check
+            </Link>
           </Tab.List>
         </Tab.Group>
 
