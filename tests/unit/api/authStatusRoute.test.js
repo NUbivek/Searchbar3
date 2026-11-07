@@ -1,4 +1,4 @@
-import handler from '../../../src/pages/api/auth/[network]/status';
+import handler from '../../../src/server/socialAuthStatus';
 import { createMockReq, createMockRes } from './testUtils';
 
 describe('api/auth/[network]/status', () => {

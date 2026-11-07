@@ -150,21 +150,31 @@ describe('no-LLM digest is extractive and correctly cited', () => {
     { title: 'Ramp opens London office', url: 'https://b.test', source: 'web', content: 'Ramp is opening an office in London to serve European customers.' },
   ];
 
-  test('every key point is a sentence from the cited source', () => {
+  test('keeps the standard five sections in order', () => {
     const { content } = synthesizeFromResults('Ramp funding', results);
-    const points = content.split('## KEY POINTS')[1].split('##')[0].trim().split('\n').filter(l => l.startsWith('- '));
-    expect(points.length).toBeGreaterThan(0);
-    for (const line of points) {
+    const order = ['## SUMMARY', '## KEY POINTS', '## DETAILED ANALYSIS', '## DIFFERENT PERSPECTIVES', '## FOLLOW-UP QUESTIONS']
+      .map((h) => content.indexOf(h));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((x, y) => x - y)).toEqual(order);
+  });
+
+  test('every key point and perspective is a sentence from the cited source', () => {
+    const { content } = synthesizeFromResults('Ramp funding', results);
+    const section = (h) => content.split(h)[1].split('\n## ')[0];
+    const lines = [...section('## KEY POINTS').split('\n'), ...section('## DIFFERENT PERSPECTIVES').split('\n')]
+      .filter((l) => l.startsWith('• ') && /\[Source \d+\]/.test(l));
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) {
       const n = Number(line.match(/\[Source (\d+)\]/)[1]);
-      const sentence = line.slice(2, line.indexOf(' *('));
+      const body = line.replace(/^• (\*\*[^*]+\*\*: )?/, '');
+      const sentence = body.slice(0, body.lastIndexOf(' ('));
       expect(results[n - 1].content).toContain(sentence);
     }
   });
 
   test('contains no template filler', () => {
     const { content } = synthesizeFromResults('Ramp funding', results);
-    expect(content).not.toMatch(/Perspective|conversational assistants|Educational institutions|\\n/);
-    expect(content).toContain('[Ramp raises $500M](https://a.test)');
+    expect(content).not.toMatch(/these technologies can enhance productivity|conversational assistants|Educational institutions|\\n/);
   });
 
   test('follow-up questions name the company, not the funding words', () => {

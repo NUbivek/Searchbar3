@@ -1,4 +1,4 @@
-const handler = require('../../../src/pages/api/auth/[network]/status').default;
+const handler = require('../../../src/server/socialAuthStatus').default;
 const { createMockReq, createMockRes } = require('./testUtils');
 
 describe('auth network status route', () => {

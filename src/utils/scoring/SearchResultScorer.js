@@ -10,6 +10,7 @@
 import MetricsCalculator from '../../components/search/metrics/MetricsCalculator';
 import CategoryMetricsCalculator from '../../components/search/categories/processors/CategoryMetricsCalculator';
 import { detectQueryContext } from '../../components/search/utils/contextDetector';
+import { buildCorpus } from '../../components/search/metrics/MeasuredMetrics';
 
 /**
  * Enhanced Search Result Scorer class
@@ -32,6 +33,8 @@ class SearchResultScorer {
     
     // Detect query context if not provided
     const context = options.context || detectQueryContext(query);
+    // Cross-source evidence (claim agreement, same-story coverage), built once
+    const corpus = options.corpus || buildCorpus(results);
     
     // Process each result with metrics
     const scoredResults = results.map(result => {
@@ -46,7 +49,9 @@ class SearchResultScorer {
         isTechnicalQuery: context.isTechnicalQuery,
         isFinancialQuery: context.isFinancialQuery,
         isMedicalQuery: context.isMedicalQuery,
-        ...options
+        ...options,
+        context,
+        corpus
       });
       
       return {

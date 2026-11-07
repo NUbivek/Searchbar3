@@ -3,6 +3,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { Tab } from '@headlessui/react';
 import OpenSearch from '../components/OpenSearch';
+import AccountMenu from '../components/account/AccountMenu';
 import { FaSearch, FaProjectDiagram } from 'react-icons/fa';
 
 function classNames(...classes) {
@@ -23,6 +24,7 @@ export default function Home() {
       </Head>
 
       <main className="container mx-auto px-4 py-6">
+        <div className="flex justify-end mb-2"><AccountMenu /></div>
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-gray-800">Research Hub</h1>
           <p className="text-gray-600 mt-1">Search across web, academic sources, and more.</p>

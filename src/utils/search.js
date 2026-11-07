@@ -591,6 +591,20 @@ export async function unifiedSearch({
         const verifiedResults = await searchVerifiedSourcesInternal(query);
         results = results.concat(verifiedResults);
       }
+
+      // The Verified button asks for 'fmp' / 'sec' / 'edgar' (lowercase),
+      // which none of the checks above matched, so it never returned
+      // anything. Route those to the real SEC EDGAR and FMP handlers.
+      const directKeys = Array.from(new Set(sources
+        .map((s) => String(s).toLowerCase())
+        .map((s) => (s === 'edgar' ? 'sec' : s))
+        .filter((s) => s === 'sec' || s === 'fmp')));
+      if (directKeys.length > 0) {
+        const { performSearchDetailed } = await import('./sourceIntegration');
+        const detailed = await performSearchDetailed(query, directKeys, { timeoutMs: 20000 });
+        results = results.concat(detailed.results || []);
+        providerStatuses = providerStatuses.concat(detailed.providers || []);
+      }
     } else {
       // Open search implementation
       debug(`[${searchId}] Searching open sources:`, sources);

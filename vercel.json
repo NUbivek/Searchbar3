@@ -15,5 +15,11 @@
       "src": "/(.*)",
       "dest": "/$1"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/watchlists",
+      "schedule": "0 6 * * *"
+    }
   ]
 }

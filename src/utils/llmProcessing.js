@@ -271,6 +271,12 @@ const generateSearchPrompt = (query, content, options = {}) => {
   - Consider alternative interpretations
 
   ## FOLLOW-UP QUESTIONS\n  - Suggest 3-5 thoughtful questions for further exploration\n\n
+  EVIDENCE RULES (this is investment due diligence):\n
+  - Use only facts found in the SEARCH RESULTS above; never add facts from memory.
+  - After every factual sentence or bullet, cite the supporting result(s) as [Source n], using the SOURCE numbers above.
+  - When results disagree (different amounts, dates, valuations or claims), say so explicitly in DIFFERENT PERSPECTIVES and cite each side.
+  - If the results do not answer part of the query, say that plainly instead of guessing.
+  - End with one line: "CONFIDENCE: High|Medium|Low - <reason>", based on how many independent sources support the key claims.\n\n
   YOUR RESPONSE: Based on the search results provided, here is my comprehensive answer to the query: "${query}":`;
 };
 

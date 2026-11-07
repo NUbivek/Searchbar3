@@ -4,6 +4,10 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import Home from '../../src/pages/index';
 
+jest.mock('../../src/components/account/AccountMenu', () => function MockAccountMenu() {
+  return <a href="/signin">Sign in</a>;
+});
+
 jest.mock('next/head', () => function MockHead({ children }) {
   return <>{children}</>;
 });

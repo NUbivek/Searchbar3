@@ -133,7 +133,9 @@ describe('/api/search/open', () => {
       })
     );
     expect(res.statusCode).toBe(200);
-    expect(res.body.results).toEqual([{ id: 'verified-result' }, { id: 'source-result' }]);
+    expect(res.body.results).toEqual([expect.objectContaining({ id: 'verified-result' }), expect.objectContaining({ id: 'source-result' })]);
+    // every result is labelled with its source tier
+    expect(res.body.results.every((r) => typeof r.sourceTierLabel === 'string')).toBe(true);
     expect(res.body.status).toBe('ok');
     expect(res.body.categories).toEqual([{ id: 'cat-1' }]);
     expect(processWithLLM).not.toHaveBeenCalled();

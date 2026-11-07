@@ -73,8 +73,8 @@ const calculateCredibilityScore = (result, options = {}) => {
     (citationQualityScore * WEIGHTS.CITATION_QUALITY) +
     (verificationFactorsScore * WEIGHTS.VERIFICATION_FACTORS);
   
-  // Normalize to 0-100 scale
-  return normalizeScore(weightedScore * 100);
+  // 0-1 scale (normalizeScore clamps to 0-1; score*100 made every source 1.0)
+  return normalizeScore(weightedScore);
 };
 
 /**

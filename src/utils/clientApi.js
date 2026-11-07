@@ -28,6 +28,9 @@ export async function postSearchRequest(payload = {}) {
     body.append('customUrls', url);
   }
 
+  if (payload.workspaceId) body.set('workspaceId', payload.workspaceId);
+  if (payload.maxAgeDays) body.set('maxAgeDays', String(payload.maxAgeDays));
+
   const files = Array.isArray(payload.files) ? payload.files : [];
   for (const file of files) {
     body.append('files', typeof file === 'string' ? file : JSON.stringify(file));

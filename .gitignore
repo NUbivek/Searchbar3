@@ -56,3 +56,6 @@ research-hub-api/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Local embedded database (PGlite) for development
+.data/

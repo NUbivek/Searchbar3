@@ -5,6 +5,17 @@ import SimplifiedLLMResults, { FollowUpChat } from './search/results/SimplifiedL
 import { isLLMResult } from '../utils/isLLMResult';
 import DegradedBanner from './search/DegradedBanner';
 import { postSearchRequest } from '../utils/clientApi';
+import { useRouter } from 'next/router';
+import Link from 'next/link';
+import { useSession } from 'next-auth/react';
+
+// Feature 6: limit results by publication date (undated items are kept and flagged)
+const DATE_FILTERS = [
+  { value: '', label: 'Any time' },
+  { value: '30', label: 'Past month' },
+  { value: '365', label: 'Past year' },
+  { value: '1095', label: 'Past 3 years' },
+];
 
 function normalizeClientError(error) {
   const axiosMessage = error?.response?.data?.error;
@@ -61,6 +72,36 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [apiMeta, setApiMeta] = useState({ status: null, degradedSources: [], failSoftContent: null });
   const [hasSearched, setHasSearched] = useState(false);
   const resultsContainerRef = useRef(null);
+  const router = useRouter();
+  const { status: sessionStatus } = useSession();
+  const signedIn = sessionStatus === 'authenticated';
+  const [workspaces, setWorkspaces] = useState([]);
+  const [workspaceId, setWorkspaceId] = useState('');
+  const [maxAgeDays, setMaxAgeDays] = useState('');
+  const [savedHistoryId, setSavedHistoryId] = useState(null);
+  const autoRanRef = useRef(false);
+
+  // Signed-in users can file searches under a deal workspace
+  useEffect(() => {
+    if (!signedIn) return;
+    fetch('/api/workspaces')
+      .then((r) => (r.ok ? r.json() : { workspaces: [] }))
+      .then((d) => setWorkspaces(d.workspaces || []))
+      .catch(() => {});
+  }, [signedIn]);
+
+  // ?q=...&workspace=... (from History "Run again", workspaces, company pages)
+  useEffect(() => {
+    if (!router.isReady || autoRanRef.current) return;
+    const q = typeof router.query.q === 'string' ? router.query.q.trim() : '';
+    if (typeof router.query.workspace === 'string') setWorkspaceId(router.query.workspace);
+    if (q) {
+      autoRanRef.current = true;
+      setQuery(q);
+      handleSearch(q, typeof router.query.workspace === 'string' ? router.query.workspace : undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.isReady]);
 
   // Scroll to bottom of results when new results are loaded
   const scrollToBottom = () => {
@@ -98,6 +139,27 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
     setUploadedFiles([...uploadedFiles, ...files]);
   };
 
+  // Pin a source from the results to the selected workspace
+  const saveSourceToWorkspace = async (source) => {
+    const res = await fetch(`/api/workspaces/${workspaceId}/sources`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: source.title || source.displayTitle,
+        url: source.url,
+        sourceName: source.sourceName || source.displayTitle || null,
+        publishedAt: source.date || source.publishedAt || null,
+        excerpt: String(source.snippet || source.content || '').slice(0, 1000)
+      })
+    });
+    return res.ok;
+  };
+
+  // Company name for the profile link: the query minus funding/topic words
+  const profileName = String(query || '')
+    .split(/\b(?:funding|raise[sd]?|round|series [a-h]|seed|valuation|investors?|revenue|competitors?|founders?|ceo|news|ipo|acquisition)\b/i)[0]
+    .replace(/[^\w&.' -]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+
   const handleModelChange = (model) => {
     setSelectedModel(model);
   };
@@ -109,11 +171,13 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
     handleSearch(followUpQuery);
   };
 
-  const handleSearch = async (searchQuery = query) => {
+  const handleSearch = async (searchQuery = query, workspaceOverride) => {
     if (!searchQuery.trim()) return;
 
     setLoading(true);
     setError(null);
+    setSavedHistoryId(null);
+    const activeWorkspace = workspaceOverride !== undefined ? workspaceOverride : workspaceId;
 
     try {
       console.log('Performing search for query:', searchQuery);
@@ -128,8 +192,11 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         sources: selectedSources,
         customUrls,
         files: uploadedFiles,
-        useLLM: true
+        useLLM: true,
+        workspaceId: activeWorkspace || undefined,
+        maxAgeDays: maxAgeDays || undefined
       });
+      setSavedHistoryId(data?.historyId || null);
       
       setApiMeta({
         status: data?.status || null,
@@ -252,6 +319,48 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
           </div>
         </div>
         
+        {/* Date filter and (signed in) workspace filing */}
+        <div className="flex flex-wrap items-center gap-3 mb-3 text-sm">
+          <label className="flex items-center gap-2 text-gray-600">
+            Published
+            <select
+              value={maxAgeDays}
+              onChange={(e) => setMaxAgeDays(e.target.value)}
+              className="border border-gray-300 rounded-md px-2 py-1 bg-white"
+            >
+              {DATE_FILTERS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+            </select>
+          </label>
+          {signedIn ? (
+            <label className="flex items-center gap-2 text-gray-600">
+              Save to
+              <select
+                value={workspaceId}
+                onChange={(e) => setWorkspaceId(e.target.value)}
+                className="border border-gray-300 rounded-md px-2 py-1 bg-white"
+              >
+                <option value="">History only</option>
+                {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+              <Link href="/workspaces" className="text-blue-600 hover:underline">Manage</Link>
+            </label>
+          ) : (
+            <span className="text-gray-500">
+              <Link href="/signin" className="text-blue-600 hover:underline">Sign in</Link> to save searches to your history and workspaces
+            </span>
+          )}
+          {savedHistoryId && (
+            <Link href={`/history/${savedHistoryId}`} className="text-green-700 hover:underline">✓ Saved to history</Link>
+          )}
+          {hasSearched && profileName && (
+            <span className="text-gray-600">
+              <Link href={`/company/${encodeURIComponent(profileName)}`} className="text-blue-600 hover:underline">Company profile: {profileName}</Link>
+              {' · '}
+              <Link href={`/founder?company=${encodeURIComponent(profileName)}`} className="text-blue-600 hover:underline">Founder check</Link>
+            </span>
+          )}
+        </div>
+
         {/* Source selector */}
         <SourceSelector
           mode="open"
@@ -285,6 +394,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
                 query={query}
                 results={results}
                 onFollowUpSearch={handleFollowUpSearch}
+                onSaveSource={signedIn && workspaceId ? saveSourceToWorkspace : null}
               />
 
               {Array.isArray(results) && results.length === 0 && (

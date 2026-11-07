@@ -93,8 +93,8 @@ describe('/api/search/open', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.status).toBe('ok');
     expect(res.body.results).toEqual([
-      { id: 'verified-1', score: 2 },
-      { id: 'twitter-1', score: 1 },
+      expect.objectContaining({ id: 'verified-1', score: 2 }),
+      expect.objectContaining({ id: 'twitter-1', score: 1 }),
     ]);
     expect(res.body.categories).toEqual([{ id: 'cat-verified' }]);
   });

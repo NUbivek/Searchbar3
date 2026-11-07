@@ -8,24 +8,26 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import TabNavigation from './TabNavigation';
 import styles from './SimplifiedLLMResults.module.css';
-import EvidencePanel from './EvidencePanel';
+import searchResultScorer from '../../../utils/scoring/SearchResultScorer';
+import { detectQueryContext } from '../utils/contextDetector';
+import { scoreSourceReputation, getSourceBadge } from '../sources/SourceReputationScorer';
+import { describeMetric } from '../metrics/MeasuredMetrics';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
 let purifyConfigured = false;
 
 /**
- * Render result text (markdown or HTML) to sanitized HTML.
- * Result text comes from third-party pages, feeds and LLM output, so it must
- * never be injected unsanitized (XSS).
+ * Render result text (markdown or HTML) to sanitized HTML. Result text comes
+ * from third-party pages, feeds and LLM output, so it must never be injected
+ * unsanitized (XSS).
  */
 export const renderSafeHtml = (text) => {
   // Some LLM paths emit literal "\n" sequences instead of newlines.
   const normalized = String(text || '').replace(/\\n/g, '\n');
-  const looksLikeHtml = /<\/?(p|div|h[1-6]|ul|ol|li|br|strong|em|a|table)\b/i.test(normalized);
+  const looksLikeHtml = /<\/?(p|div|h[1-6]|ul|ol|li|br|strong|em|a|table|span)\b/i.test(normalized);
   const html = looksLikeHtml ? normalized : marked.parse(normalized, { breaks: true, gfm: true });
   if (typeof window === 'undefined') {
-    // Server render: no DOM to sanitize with, so show plain escaped text.
     return normalized.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
   if (!purifyConfigured) {
@@ -39,6 +41,22 @@ export const renderSafeHtml = (text) => {
   }
   return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
 };
+
+const escapeHtml = (text) => String(text || '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+// Same highlight style as categories/display/NumberHighlighter.js
+const NUMBER_PATTERN = /((?:[$€£]\s?)?\d[\d,.]*\s?(?:%|percent|[MBK]\b|million|billion|x\b)?)/g;
+// Highlight figures but not dates ("2026-10-21") or source citations.
+const DATE_OR_CITATION = /(\d{4}-\d{2}-\d{2}|\[Source[^\]]*\])/;
+const highlightNumbers = (sentence) => escapeHtml(sentence)
+  .split(DATE_OR_CITATION)
+  .map((part, i) => (i % 2 === 1 ? part : part.replace(NUMBER_PATTERN, (m) => (
+    /\d/.test(m) && m.trim().length > 1
+      ? `<span style="font-weight:bold;color:#0066cc;background-color:#0066cc15;padding:2px 4px;border-radius:3px">${m}</span>`
+      : m
+  ))))
+  .join('');
 
 /**
  * ExpandableContent Component
@@ -97,7 +115,7 @@ const ExpandableContent = ({ content }) => {
     return String(content);
   };
   
-  const processedContent = renderSafeHtml(processContent());
+  const processedContent = processContent();
   
   // Toggle expanded state
   const toggleExpansion = () => {
@@ -113,7 +131,7 @@ const ExpandableContent = ({ content }) => {
           maxHeight: expanded || !needsExpansion ? 'none' : `${maxCollapsedHeight}px`,
           overflowY: expanded || !needsExpansion ? 'auto' : 'hidden',
         }}
-        dangerouslySetInnerHTML={{ __html: processedContent }} 
+        dangerouslySetInnerHTML={{ __html: renderSafeHtml(processedContent) }} 
       />
       
       {needsExpansion && (
@@ -182,11 +200,209 @@ export const FollowUpChat = ({ onSubmit }) => {
  * @param {string} props.query - The search query
  * @param {Function} props.onFollowUpSearch - Callback for handling follow-up searches
  */
+const debugLog = () => {};
+
+// Create concise descriptions for each source - max 5 words, complete thoughts
+const createDescriptiveTitle = (result, index) => {
+  // Curated registry results carry the source's own name ("Sifted Funding Feed")
+  if (result.sourceName) {
+    return String(result.sourceName).replace(/\s+(Feed|RSS)$/i, '');
+  }
+
+  // First try to extract domain name if URL exists
+  if (result.url) {
+    try {
+      const url = new URL(String(result.url));
+      const domain = url.hostname.replace('www.', '');
+      // Extract main domain name and capitalize
+      const siteName = domain.split('.')[0];
+      return siteName.charAt(0).toUpperCase() + siteName.slice(1);
+    } catch {}
+  }
+  
+  // If title exists, extract a clean, short phrase
+  if (result.title) {
+    const title = String(result.title);
+    // Clean up title
+    const cleaned = title.replace(/^(https?:\/\/)?([\w\.-]+\.[a-z]{2,})(\/.*)?(\s|\||-|:)/, '');
+    
+    // For short titles, just return as is
+    if (cleaned.length < 20) return cleaned;
+    
+    // Filter out common words for a more meaningful phrase
+    const words = cleaned.split(/\s+/).filter(word => {
+      return word.length > 2 && 
+            !['and', 'the', 'for', 'with', 'that', 'this', 'from', 'to'].includes(word.toLowerCase());
+    });
+    
+    // Create a 3-5 word phrase that makes sense
+    if (words.length >= 2) {
+      return words.slice(0, Math.min(5, words.length)).join(' ');
+    }
+    
+    // If no good phrase, use first 20 chars
+    return cleaned.substring(0, 20);
+  }
+  
+  // If snippet exists, extract a meaningful phrase
+  if (result.snippet) {
+    const snippet = String(result.snippet);
+    
+    // For short snippets, use as is
+    if (snippet.length < 20) return snippet;
+    
+    // Try to find the most meaningful phrase
+    const cleanWords = snippet.split(/\s+/).filter(word => {
+      return word.length > 2 && 
+            !['and', 'the', 'for', 'with', 'that', 'this', 'from', 'to'].includes(word.toLowerCase());
+    });
+    
+    if (cleanWords.length >= 2) {
+      return cleanWords.slice(0, Math.min(5, cleanWords.length)).join(' ');
+    }
+  }
+  
+  // Last resort - use the raw URL if available
+  if (result.url) {
+    const rawUrl = String(result.url);
+    // Just show the domain + first path segment if possible
+    try {
+      const url = new URL(rawUrl);
+      const domain = url.hostname.replace('www.', '');
+      const pathSegment = url.pathname.split('/').filter(s => s.length > 0)[0] || '';
+      const displayUrl = domain + (pathSegment ? '/' + pathSegment : '');
+      return displayUrl.length > 25 ? displayUrl.substring(0, 25) : displayUrl;
+    } catch {}
+    
+    // If URL parsing fails, use raw URL (shortened)
+    return rawUrl.length > 25 ? rawUrl.substring(0, 25) : rawUrl;
+  }
+  
+  // Absolute last resort - generic source reference
+  return 'Source ' + (index + 1);
+};
+
+/**
+ * Collect every real source object (url + title/snippet) from the results payload.
+ */
+const collectSources = (results, validResults) => {
+  // Prefer the full search result objects (they carry dates, tiers and
+  // source categories); the summary's sourceMap is only a stripped copy.
+  if (results && !Array.isArray(results) && Array.isArray(results.results)) {
+    const direct = results.results.filter((r) => r && typeof r === 'object' && (r.url || r.link) && (r.title || r.snippet));
+    if (direct.length > 0) return direct.map((r) => ({ ...r, url: r.url || r.link }));
+  }
+    let allPossibleSources = [];
+    
+    // Function to recursively search for sources in objects
+    const extractSourcesFromObject = (obj) => {
+      // Guard clause for non-objects
+      if (!obj || typeof obj !== 'object') return;
+      
+      // Direct source objects have URL and title or snippet
+      if (obj.url && (obj.title || obj.snippet)) {
+        allPossibleSources.push(obj);
+      }
+      
+      // Check for sources array property
+      if (obj.sources && Array.isArray(obj.sources)) {
+        obj.sources.forEach(source => {
+          if (source && typeof source === 'object' && source.url) {
+            allPossibleSources.push(source);
+          }
+        });
+      }
+      
+      // Check for data.sources path
+      if (obj.data && obj.data.sources && Array.isArray(obj.data.sources)) {
+        obj.data.sources.forEach(source => {
+          if (source && typeof source === 'object' && source.url) {
+            allPossibleSources.push(source);
+          }
+        });
+      }
+      
+      // Special case: check for references/citations section
+      if (obj.references && Array.isArray(obj.references)) {
+        obj.references.forEach(ref => {
+          if (ref && typeof ref === 'object' && ref.url) {
+            allPossibleSources.push(ref);
+          }
+        });
+      }
+      
+      // Recursively search nested objects but not arrays
+      Object.keys(obj).forEach(key => {
+        if (obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
+          extractSourcesFromObject(obj[key]);
+        }
+      });
+    };
+    
+    // First check direct source arrays
+    if (results && results.sources && Array.isArray(results.sources)) {
+      debugLog('Found sources array at top level');
+      allPossibleSources = [...results.sources.filter(s => s && s.url)];
+    }
+    
+    // Extract sources from raw results
+    if (Array.isArray(results)) {
+      debugLog('Searching array results for sources');
+      results.forEach(result => {
+        // Direct source objects
+        if (result && typeof result === 'object' && result.url && !result.isLLMResults) {
+          allPossibleSources.push(result);
+        }
+        
+        // Recursively search in objects
+        if (result && typeof result === 'object') {
+          extractSourcesFromObject(result);
+        }
+      });
+    } else if (results && typeof results === 'object') {
+      // Single result object - search recursively
+      debugLog('Searching single result object for sources');
+      extractSourcesFromObject(results);
+    }
+    
+    // Also check validResults
+    if (validResults && validResults.length > 0) {
+      debugLog('Searching validResults for sources');
+      validResults.forEach(result => {
+        if (result && typeof result === 'object') {
+          if (result.url && !result.isLLMResults) {
+            allPossibleSources.push(result);
+          }
+          extractSourcesFromObject(result);
+        }
+      });
+    }
+    
+
+  return allPossibleSources.filter((source) => source.url && source.url !== '#' || source.source === 'file');
+};
+
+const CLAIM_STYLE = {
+  corroborated: { label: 'Corroborated', color: '#0F9D58', background: '#E6F4EA' },
+  'single-source': { label: 'Single source', color: '#B06000', background: '#FEF7E0' },
+  conflict: { label: 'Sources disagree', color: '#DB4437', background: '#FCE8E6' },
+};
+
 const SimplifiedLLMResults = ({ 
   results = [],
   query = '',
-  onFollowUpSearch = null
+  onFollowUpSearch = null,
+  onSaveSource = null
 }) => {
+  const [savedUrls, setSavedUrls] = useState({});
+  const [showLowerSources, setShowLowerSources] = useState(false);
+  const claimCheck = results && !Array.isArray(results) ? results.claimCheck : null;
+  const handleSave = async (source) => {
+    if (!onSaveSource) return;
+    setSavedUrls((prev) => ({ ...prev, [source.url]: 'saving' }));
+    const ok = await onSaveSource(source).catch(() => false);
+    setSavedUrls((prev) => ({ ...prev, [source.url]: ok ? 'saved' : 'error' }));
+  };
   const [followUpQueries, setFollowUpQueries] = useState([]);
   
   const isErrorPayload = (item) => Boolean(
@@ -337,6 +553,306 @@ const SimplifiedLLMResults = ({
     return sanitizeResults([results]);
   }, [results]);
 
+  // Score every real source once with the project's scoring engine
+  // (MetricsCalculator via SearchResultScorer). Drives both Top Sources and
+  // the Quality Assessment bars, so the numbers shown are always computed.
+  const scoredSources = useMemo(() => {
+    const sources = collectSources(results, validResults);
+    if (sources.length === 0) return [];
+    const queryContext = detectQueryContext(query);
+    const scored = searchResultScorer.scoreResults(sources, query, {
+      recalculateMetrics: true,
+      context: queryContext,
+      sourceType: 'llm'
+    });
+    const enhanced = scored
+      .filter((result) => result.metrics)
+      .map((result, index) => {
+        const { relevance, accuracy, credibility, overall } = result.metrics;
+        let reputation = null;
+        let badge = null;
+        try {
+          // Curated registry sources are vetted, so they carry the verified
+          // badge (.planning/PROJECT.md: "Curated source prioritization +
+          // verified badge"); registry tier A/B/C sets the reputation.
+          const curatedTier = result.source === 'curated' ? (result.metadata?.tier || 'B') : null;
+          const rep = curatedTier
+            ? { score: { A: 85, B: 80, C: 75 }[curatedTier] || 80, tier: 'standard', category: 'curated' }
+            : scoreSourceReputation({ url: result.url, title: result.title });
+          reputation = rep?.score ?? rep?.reputation ?? null;
+          badge = getSourceBadge(rep);
+        } catch {
+          badge = null;
+        }
+        return {
+          ...result,
+          url: result.url || '#',
+          relevanceScore: relevance,
+          accuracyScore: accuracy,
+          credibilityScore: credibility,
+          combinedScore: overall,
+          reputation,
+          badge,
+          displayTitle: createDescriptiveTitle(result, index)
+        };
+      });
+    const unique = enhanced.filter((item, index, self) => index === self.findIndex((t) => t.url === item.url));
+    // Display all available high-quality sources (same threshold as before)
+    // Every source that could be measured, best first (scores are measured,
+    // so a source with no measurable evidence has no score and is left out)
+    return unique.filter((source) => source.combinedScore != null).sort((a, b) => b.combinedScore - a.combinedScore);
+  }, [results, validResults, query]);
+
+  // Original display threshold for Top Sources (scores above 60%); the rest
+  // stay available under "lower-scoring sources" instead of disappearing.
+  const topSources = useMemo(() => scoredSources.filter((s) => s.combinedScore > 0.6), [scoredSources]);
+  const lowerSources = useMemo(() => scoredSources.filter((s) => s.combinedScore <= 0.6), [scoredSources]);
+
+  // Aggregate quality = mean of the scored sources (null when nothing scored)
+  // Aggregate quality: mean of each metric over the sources where that
+  // metric was measured; overall is the mean of the sources' overall scores
+  // (each already context-weighted per docs/METRICS_SYSTEM.md).
+  const qualityMetrics = useMemo(() => {
+    if (scoredSources.length === 0) return null;
+    const mean = (key) => {
+      const vals = scoredSources.map((src) => src[key]).filter((v) => v != null);
+      return vals.length ? { value: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length } : { value: null, n: 0 };
+    };
+    const relevance = mean('relevanceScore');
+    const accuracy = mean('accuracyScore');
+    const credibility = mean('credibilityScore');
+    const overall = mean('combinedScore');
+    const measuredCount = scoredSources.reduce((sum, src) => sum + (src.metrics?.coverage?.measuredComponents || 0), 0);
+    const totalCount = scoredSources.reduce((sum, src) => sum + (src.metrics?.coverage?.totalComponents || 0), 0);
+    return {
+      relevance: relevance.value, accuracy: accuracy.value, credibility: credibility.value, overall: overall.value,
+      n: { relevance: relevance.n, accuracy: accuracy.n, credibility: credibility.n, overall: overall.n },
+      sources: scoredSources.length,
+      componentCoverage: totalCount ? measuredCount / totalCount : 0,
+    };
+  }, [scoredSources]);
+
+  const METRIC_HELP = {
+    relevance: 'Relevance = query match 40%, recency 35%, content quality 15%, domain fit 10%',
+    accuracy: 'Accuracy = data verification 30%, source reliability 30%, factual consistency 25%, external validation 15%',
+    credibility: 'Credibility = source reputation 40%, author expertise 25%, citation quality 20%, verification factors 15%',
+  };
+  const aggregateTitle = (metric) => (qualityMetrics
+    ? `${METRIC_HELP[metric]}\nMeasured on ${qualityMetrics.n[metric]} of ${qualityMetrics.sources} sources. Components with no evidence are not counted (no default values).`
+    : 'No measurable sources');
+  // ScoreVisualizer bands: >=80 green, >=60 blue, >=40 amber, else red
+  const scoreColor = (v) => (v == null ? '#9CA3AF' : v >= 0.8 ? '#10B981' : v >= 0.6 ? '#3B82F6' : v >= 0.4 ? '#F59E0B' : '#EF4444');
+  const sourceTitle = (src) => [
+    `Overall ${Math.round(src.combinedScore * 100)}% · ${src.metrics?.coverage?.measuredComponents}/${src.metrics?.coverage?.totalComponents} components measured`,
+    '', 'RELEVANCE', describeMetric(src.metrics, 'relevance'),
+    '', 'ACCURACY', describeMetric(src.metrics, 'accuracy'),
+    '', 'CREDIBILITY', describeMetric(src.metrics, 'credibility'),
+  ].join('\n');
+  const pct = (value) => (value == null ? null : Math.round(value * 100));
+
+  // Process results to create comprehensive, visually appealing Key Insights
+  const keyInsightsContent = useMemo(() => {
+    if (validResults.length === 0) return [];
+    
+    try {
+      // Calculate average scores across all sources
+      const aggregateScores = {
+        relevance: 0,
+        accuracy: 0, 
+        credibility: 0,
+        count: 0
+      };
+      
+      // Extract all content and scores from validResults
+      let allContent = '';
+      validResults.forEach(result => {
+        // Handle different result structures to extract metrics if available
+        if (result?.metrics) {
+          aggregateScores.relevance += parseFloat(result.metrics.relevance || 0);
+          aggregateScores.accuracy += parseFloat(result.metrics.accuracy || 0);
+          aggregateScores.credibility += parseFloat(result.metrics.credibility || 0);
+          aggregateScores.count++;
+        } else if (result?.scores) {
+          aggregateScores.relevance += parseFloat(result.scores.relevance || 0);
+          aggregateScores.accuracy += parseFloat(result.scores.accuracy || 0);
+          aggregateScores.credibility += parseFloat(result.scores.credibility || 0);
+          aggregateScores.count++;
+        } else if (result?.score) {
+          // If there's just a general score, use it for all metrics
+          const score = parseFloat(result.score || 0);
+          aggregateScores.relevance += score;
+          aggregateScores.accuracy += score;
+          aggregateScores.credibility += score;
+          aggregateScores.count++;
+        } else if (typeof result === 'object') {
+          // Look for any properties that might contain scores
+          Object.keys(result).forEach(key => {
+            if (typeof result[key] === 'number' && key.match(/score|quality|relevance|accuracy|credibility/i)) {
+              const value = parseFloat(result[key] || 0);
+              if (key.match(/relevance/i)) aggregateScores.relevance += value;
+              else if (key.match(/accuracy/i)) aggregateScores.accuracy += value;
+              else if (key.match(/credibility/i)) aggregateScores.credibility += value;
+              else {
+                // Generic score, apply to all metrics
+                aggregateScores.relevance += value;
+                aggregateScores.accuracy += value;
+                aggregateScores.credibility += value;
+              }
+              if (!aggregateScores.count) aggregateScores.count = 1;
+            }
+          });
+        }
+        
+        
+        // Extract content
+        const resultContent = typeof result === 'string' ? result : 
+                            (result.content || result.text || result.summary || 
+                             (result.insights ? JSON.stringify(result.insights) : JSON.stringify(result)));
+        allContent += resultContent + ' ';
+      });
+      
+      // Calculate averages - ensure values are between 0 and 1
+      const avgScores = {
+        relevance: aggregateScores.count ? 
+          Math.min(Math.max(aggregateScores.relevance / aggregateScores.count, 0), 1) : 0.75,
+        accuracy: aggregateScores.count ? 
+          Math.min(Math.max(aggregateScores.accuracy / aggregateScores.count, 0), 1) : 0.8,
+        credibility: aggregateScores.count ? 
+          Math.min(Math.max(aggregateScores.credibility / aggregateScores.count, 0), 1) : 0.85
+      };
+      
+      // Not using text-based quality metrics anymore - quality metrics are now shown only in the progress bar visualization
+      
+      // Detect query type for context-aware visualization
+      const isFinancialQuery = query.toLowerCase().match(/financ|revenue|profit|stock|market|growth|investor|economic|business|company/i);
+      const isTechnicalQuery = query.toLowerCase().match(/tech|software|hardware|code|program|develop|algorithm|data|compute|ai|ml|api/i);
+      const isHealthQuery = query.toLowerCase().match(/health|medical|doctor|patient|disease|treatment|symptom|therapy|wellness/i);
+      
+      // Format content for dashboard appearance
+      let formattedHTML = '';
+      
+      // Create a summary section with appropriate styling
+      formattedHTML += `<div class="insight-summary">`;
+      
+      // Add appropriate header based on context
+      if (isFinancialQuery) {
+        formattedHTML += `<h2>📈 Financial Analysis</h2>`;
+      } else if (isTechnicalQuery) {
+        formattedHTML += `<h2>🔧 Technical Overview</h2>`;
+      } else if (isHealthQuery) {
+        formattedHTML += `<h2>🧪 Health Assessment</h2>`;
+      } else {
+        formattedHTML += `<h2>🔍 Key Insights</h2>`;
+      }
+      
+      // Extract and clean sentences for insights
+      // Strip markdown so sentences read cleanly: headings, bullets,
+      // emphasis, and [title](url) links (keep the title).
+      const plainContent = allContent
+        .replace(/\\n/g, '\n')
+        .replace(/^#{1,6}\s.*$/gm, ' ')
+        .replace(/\[([^\]]+)\]\((?:[^)]+)\)/g, '$1')
+        .replace(/^\s*(?:[-•*]|\d+\.)\s+/gm, '')
+        .replace(/[*_`]+/g, '');
+      const sentences = plainContent.match(/[^.!?\n]+[.!?]+(?:\s*\([^)]*\))?(?:\s*\[Source[^\]]*\])?/g) || [];
+      const cleanedSentences = sentences
+        .map(s => s.trim())
+        .filter(s => s.length > 25 && s.length < 500) // Filter out very short or very long sentences
+        .filter(s => !/No AI model is configured|Each point below is quoted|Verify claims in the original|contain no further detail|Only one kind of source/i.test(s))
+        .filter(s => !/\?\s*$/.test(s)) // questions belong to FOLLOW-UP, not insights
+        .filter(s => !/^Based on \d+ sources? for /.test(s)) // coverage line, not an insight
+        // Drop perspective labels ("Company Announcements: ...") before comparing
+        .map(s => s.replace(/^(Company Announcements|Investor View|Press Coverage|Analyst Commentary|Community Discussion|Your Documents):\s*/, ''))
+        // Remove duplicates by core sentence (ignore citations and dates)
+        .filter((s, i, arr) => {
+          const core = (x) => x.replace(/\s*\([^)]*\)\s*(\[Source[^\]]*\])?\s*$/, '').trim().toLowerCase();
+          return arr.findIndex(t => core(t) === core(s)) === i;
+        });
+      
+      // Sentences with figures or funding facts first (stable order otherwise)
+      const isFactual = (s) => /[$€£]\s?\d|\d+(\.\d+)?\s?(%|million|billion|[MBK]\b)|\b(raised|funding|series [a-e]|seed|valuation|led by|ARR|revenue)\b/i.test(s);
+      const keyPoints = [...cleanedSentences.filter(isFactual), ...cleanedSentences.filter(s => !isFactual(s))].slice(0, 12);
+      
+      // Create an attractive bullet point list of key insights
+      formattedHTML += `<ul class="key-points">`;
+      keyPoints.slice(0, 5).forEach(point => {
+        formattedHTML += `<li>${highlightNumbers(point.trim())}</li>`;
+      });
+      formattedHTML += `</ul>`;
+      
+      // No longer displaying quality metrics in the text content area
+      
+      // Add detailed analysis section if we have more points
+      if (keyPoints.length > 5) {
+        formattedHTML += `<h3>Additional Context</h3><p class="detailed-analysis">`;
+        keyPoints.slice(5).forEach(point => {
+          formattedHTML += highlightNumbers(point.trim()) + ' ';
+        });
+        formattedHTML += `</p>`;
+      }
+      
+      // Add context-specific visualizations
+      if (isFinancialQuery) {
+        // Financial dashboard components
+        formattedHTML += `
+          <h3>Financial Indicators</h3>
+          <div class="financial-indicators">
+            <div class="indicator">
+              <div class="indicator-icon growth">📈</div>
+              <div class="indicator-label">Growth Potential</div>
+            </div>
+            <div class="indicator">
+              <div class="indicator-icon market">🌐</div>
+              <div class="indicator-label">Market Presence</div>
+            </div>
+            <div class="indicator">
+              <div class="indicator-icon risk">⚖️</div>
+              <div class="indicator-label">Risk Assessment</div>
+            </div>
+          </div>
+        `;
+      } else if (isTechnicalQuery) {
+        // Technical overview - no header needed as it's handled by the TabNavigation component
+        formattedHTML += `
+          <div class="business-focused-content">
+          </div>
+        `;
+      } else if (isHealthQuery) {
+        // Health dashboard components
+        formattedHTML += `
+          <h3>Health Indicators</h3>
+          <div class="tech-stack">
+            <div class="stack-component">
+              <div class="stack-icon">🩺</div>
+              <div class="stack-label">Diagnosis</div>
+            </div>
+            <div class="stack-component">
+              <div class="stack-icon">💊</div>
+              <div class="stack-label">Treatment</div>
+            </div>
+            <div class="stack-component">
+              <div class="stack-icon">🧠</div>
+              <div class="stack-label">Wellness</div>
+            </div>
+          </div>
+        `;
+      }
+      
+      formattedHTML += `</div>`; // Close insight-summary div
+      
+      return [formattedHTML];
+    } catch (e) {
+      console.error('Error creating key insights:', e);
+      console.error(e.stack);
+      // Return a minimal dashboard with error info
+      return [`
+        <div class="insight-summary">
+          <h2>🔍 Key Insights</h2>
+          <p class="detailed-analysis">Unable to generate insights for this query. Please try a different search term.</p>
+        </div>
+      `];
+    }
+  }, [validResults, query]);
 
   // Handle follow-up search
   const handleFollowUpSearch = (followUpQuery) => {
@@ -376,13 +892,216 @@ const SimplifiedLLMResults = ({
     )
   };
 
-  // Evidence tab: quoted, cited facts and a source table (no invented scores)
+  // Create the Key Insights tab - make sure it's always populated
   const keyInsightsTab = {
     id: 'key-insights',
-    label: 'Evidence',
+    label: 'Key Insights',
     content: (
       <div className={styles.tabContentContainer}>
-        <EvidencePanel data={results} />
+        {keyInsightsContent && keyInsightsContent.length > 0 ? (
+          <div className={styles.keyInsightsContainer}>
+            <div className={styles.responsiveLayout}>
+              {/* Right column with metrics - Always at the top */}
+              <div className={styles.metricsColumn}>
+                <div className={styles.metricsCard}>
+                  <h3>Quality Assessment</h3>
+                  <div className={styles.metricItem} title={aggregateTitle('relevance')}>
+                    <div className={styles.metricLabel}>Relevance</div>
+                    <div className={styles.metricBarContainer}>
+                      <div className={styles.metricBar} style={{width: `${pct(qualityMetrics?.relevance) ?? 0}%`, backgroundColor: scoreColor(qualityMetrics?.relevance)}}></div>
+                    </div>
+                    <div className={styles.metricValue}>{qualityMetrics ? `${pct(qualityMetrics.relevance)}%` : 'N/A'}</div>
+                  </div>
+                  <div className={styles.metricItem} title={aggregateTitle('accuracy')}>
+                    <div className={styles.metricLabel}>Accuracy</div>
+                    <div className={styles.metricBarContainer}>
+                      <div className={styles.metricBar} style={{width: `${pct(qualityMetrics?.accuracy) ?? 0}%`, backgroundColor: scoreColor(qualityMetrics?.accuracy)}}></div>
+                    </div>
+                    <div className={styles.metricValue}>{qualityMetrics ? `${pct(qualityMetrics.accuracy)}%` : 'N/A'}</div>
+                  </div>
+                  <div className={styles.metricItem} title={aggregateTitle('credibility')}>
+                    <div className={styles.metricLabel}>Credibility</div>
+                    <div className={styles.metricBarContainer}>
+                      <div className={styles.metricBar} style={{width: `${pct(qualityMetrics?.credibility) ?? 0}%`, backgroundColor: scoreColor(qualityMetrics?.credibility)}}></div>
+                    </div>
+                    <div className={styles.metricValue}>{qualityMetrics ? `${pct(qualityMetrics.credibility)}%` : 'N/A'}</div>
+                  </div>
+                  <div className={styles.overallMetric} title={qualityMetrics ? `Overall = context-weighted average of relevance, accuracy and credibility per source (weights from docs/METRICS_SYSTEM.md), averaged over ${qualityMetrics.n.overall} measured sources.` : 'No measurable sources'}>
+                    <div className={styles.overallLabel}>Overall</div>
+                    <div className={styles.overallScore}>
+                      {qualityMetrics ? `${pct(qualityMetrics.overall)}%` : 'N/A'}
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Claim check: do independent sources agree on the figures? */}
+                {claimCheck && claimCheck.claims && claimCheck.claims.length > 0 && (
+                  <div className={styles.sourcesCard}>
+                    <h3>Claim Check</h3>
+                    <div className={styles.sourcesList}>
+                      {claimCheck.claims.slice(0, 6).map((claim, index) => {
+                        const st = CLAIM_STYLE[claim.status] || CLAIM_STYLE['single-source'];
+                        return (
+                          <div key={`claim-${index}`} className={styles.sourceItem} style={{ display: 'block' }} title={claim.quote}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                              <span>{claim.label}: <strong style={{ color: '#0066cc' }}>{claim.value}</strong></span>
+                              <span style={{ fontSize: 11, color: st.color, backgroundColor: st.background, padding: '1px 6px', borderRadius: 10, whiteSpace: 'nowrap' }}>{st.label}</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#6b7280' }}>
+                              {(claim.sourceRefs || []).map((ref) => ref.site).join(', ')}
+                              {(claim.alternatives || []).map((alt) => ` · vs ${alt.value} (${(alt.sourceRefs || []).map((r) => r.site).join(', ')})`).join('')}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Top Performing Sources Section */}
+                <div className={styles.sourcesCard}>
+                  <h3>Top Sources</h3>
+                  <div className={styles.sourcesList}>
+                    {/* Extract and sort sources by score */}
+                    {scoredSources.length > 0 ? (
+                      [...topSources, ...lowerSources].map((result, index) => {
+                        const score = Math.round(result.combinedScore * 100);
+                        const isLower = index >= topSources.length;
+                        if (isLower && !showLowerSources) return null;
+                        return (
+                          <div key={`source-${index}`} className={styles.sourceItem} style={isLower ? { opacity: 0.75 } : undefined}>
+                            <a href={result.url} target="_blank" rel="noopener noreferrer" className={styles.sourceLink}>
+                              {result.displayTitle}
+                            </a>
+                            {result.badge && (
+                              <span
+                                title={`${result.badge.label}${result.reputation ? ` (reputation ${result.reputation}/100)` : ''}`}
+                                style={{ color: result.badge.color, backgroundColor: result.badge.background || result.badge.backgroundColor, fontSize: 11, padding: '1px 6px', borderRadius: 10, marginLeft: 6, whiteSpace: 'nowrap' }}
+                              >
+                                {result.badge.icon} {result.badge.label}
+                              </span>
+                            )}
+                            {result.sourceTierLabel && (
+                              <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 6, whiteSpace: 'nowrap' }}>{result.sourceTierLabel}</span>
+                            )}
+                            <span className={styles.sourceScore} title={sourceTitle(result)} style={{ color: scoreColor(result.combinedScore), cursor: 'help' }}>{score}%</span>
+                            {onSaveSource && result.url && result.url !== '#' && (
+                              <button
+                                type="button"
+                                onClick={() => handleSave(result)}
+                                disabled={savedUrls[result.url] === 'saving' || savedUrls[result.url] === 'saved'}
+                                title="Save this source to the selected workspace"
+                                style={{ fontSize: 11, marginLeft: 6, color: savedUrls[result.url] === 'error' ? '#DB4437' : '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}
+                              >
+                                {savedUrls[result.url] === 'saved' ? '✓ Saved' : savedUrls[result.url] === 'error' ? 'Retry' : savedUrls[result.url] === 'saving' ? '…' : '+ Save'}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      // No placeholders - only show real sources
+                      <div className={styles.noSourcesMessage}>
+                        No sources available for this search.
+                      </div>
+                    )}
+                    {lowerSources.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowLowerSources((v) => !v)}
+                        style={{ fontSize: 12, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0' }}
+                      >
+                        {showLowerSources ? 'Hide' : 'Show'} {lowerSources.length} lower-scoring source{lowerSources.length === 1 ? '' : 's'} (60% or below)
+                      </button>
+                    )}
+                    {qualityMetrics && (
+                      <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+                        Scores are measured from each source's evidence ({Math.round(qualityMetrics.componentCoverage * 100)}% of scoring components had evidence). Hover a score for the breakdown.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Main content area - Flexible based on content */}
+              <div className={styles.mainInsightColumn}>
+                {!Array.isArray(keyInsightsContent) ? (
+                  <div className={styles.insightContainer}>
+                    <div 
+                      className={styles.formattedKeyInsights} 
+                      dangerouslySetInnerHTML={{ __html: renderSafeHtml(keyInsightsContent) }} 
+                    />
+                  </div>
+                ) : (
+                  <div className={styles.multiInsightContainer}>
+                    {keyInsightsContent.map((item, index) => {
+                      // Determine layout pattern based on content length and position
+                      const insightClass = index === 0 ? styles.primaryInsight : 
+                                           (index % 3 === 0) ? styles.fullWidthInsight : styles.standardInsight;
+                      return (
+                        <div key={`insight-${index}`} className={`${styles.insightItem} ${insightClass}`}>
+                          <div 
+                            className={styles.formattedKeyInsights} 
+                            dangerouslySetInnerHTML={{ __html: renderSafeHtml(item) }} 
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className={styles.keyInsightsContainer}>
+            <div className={styles.responsiveLayout}>
+              {/* Right column with metrics - Always at the top */}
+              <div className={styles.metricsColumn}>
+                <div className={styles.metricsCard}>
+                  <h3>Quality Assessment</h3>
+                  <div className={styles.metricItem}>
+                    <div className={styles.metricLabel}>Relevance</div>
+                    <div className={styles.metricBarContainer}>
+                      <div className={styles.metricBar} style={{width: '0%'}}></div>
+                    </div>
+                    <div className={styles.metricValue}>N/A</div>
+                  </div>
+                  <div className={styles.metricItem}>
+                    <div className={styles.metricLabel}>Accuracy</div>
+                    <div className={styles.metricBarContainer}>
+                      <div className={styles.metricBar} style={{width: '0%'}}></div>
+                    </div>
+                    <div className={styles.metricValue}>N/A</div>
+                  </div>
+                  <div className={styles.metricItem}>
+                    <div className={styles.metricLabel}>Credibility</div>
+                    <div className={styles.metricBarContainer}>
+                      <div className={styles.metricBar} style={{width: '0%'}}></div>
+                    </div>
+                    <div className={styles.metricValue}>N/A</div>
+                  </div>
+                  <div className={styles.overallMetric}>
+                    <div className={styles.overallLabel}>Overall</div>
+                    <div className={styles.overallScore}>N/A</div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Main content area */}
+              <div className={styles.mainInsightColumn}>
+                <div className={styles.placeholderInsight}>
+                  <h2><span className={styles.insightIcon}>🔍</span> Key Insights</h2>
+                  <p className={styles.analysisMessage}>
+                    Analyzing search results to generate insights...
+                  </p>
+                  <div className={styles.insightLoading}>
+                    <div className={styles.loadingBar}></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   };

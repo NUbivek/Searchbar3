@@ -6,6 +6,30 @@ import { processWithLLM } from '../../../utils/llmProcessing';
 import { synthesizeFromResults } from '../../../utils/fallbackSynthesizer';
 import { processCategories } from '../../../components/search/categories/processors/CategoryProcessor';
 import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
+import { getUserId } from '../../../server/auth';
+import { sortByTier, filterByAge, tierInfo } from '../../../utils/sourceTiers';
+import { checkClaims } from '../../../utils/claimCheck';
+import { recordSearch } from '../../../server/store';
+
+/** Save this search to the signed-in user's history (never breaks the search). */
+async function saveToHistory(req, res, { query, sources, workspaceId, content, results }) {
+  try {
+    const userId = await getUserId(req, res);
+    if (!userId) return null;
+    const topSources = (results || []).slice(0, 15).map((r) => ({
+      title: r.title, url: r.url || r.link, source: r.source, sourceName: r.sourceName || null,
+      date: r.date || r.publishedAt || null, snippet: String(r.snippet || r.content || '').slice(0, 400)
+    }));
+    const saved = await recordSearch(userId, {
+      workspaceId: typeof workspaceId === 'string' ? workspaceId : null,
+      query, sources, summary: typeof content === 'string' ? content : '', topSources, resultCount: (results || []).length
+    });
+    return saved?.id || null;
+  } catch (error) {
+    logger.warn('Search history not saved:', error.message);
+    return null;
+  }
+}
 
 // Define valid sources
 // Must list every source the UI offers; unlisted ones were silently dropped (Carta was).
@@ -48,14 +72,15 @@ export default async function handler(req, res) {
 
   try {
     // Extract query and other parameters from request body
-    const {
+    let {
       query,
       sources = ['web'],
       model,
       customUrls = [],
       uploadedFiles = [],
       files = [],
-      useLLM = true
+      useLLM = true,
+      workspaceId = null
     } = req.body;
 
     if (!query) {
@@ -63,6 +88,19 @@ export default async function handler(req, res) {
     }
 
     const normalizedSources = normalizeSources(sources);
+
+    // The UI posts form-encoded data: a single value arrives as a string, not
+    // an array, and booleans arrive as "true"/"false" strings.
+    const toArray = (value) => (Array.isArray(value) ? value : value == null || value === '' ? [] : [value]);
+    customUrls = toArray(customUrls).map(String).filter((u) => /^https?:\/\//i.test(u));
+    const parseFile = (f) => {
+      if (f && typeof f === 'object') return f;
+      try { return JSON.parse(f); } catch { return null; }
+    };
+    uploadedFiles = toArray(uploadedFiles).map(parseFile).filter(Boolean);
+    files = toArray(files).map(parseFile).filter(Boolean);
+    useLLM = !(useLLM === false || useLLM === 'false');
+    const maxAgeDays = Math.max(0, Number(req.body?.maxAgeDays) || 0);
 
     // Log search request
     logger.info('Open search request:', { query, model, sources: normalizedSources });
@@ -146,6 +184,21 @@ export default async function handler(req, res) {
         console.error('Hacker News fallback failed:', hnError.message);
         degradedSources.push('hackernews');
       }
+    }
+
+    // Feature 6: date filter, then order by source tier (filings > reputable
+    // press > blogs > forums) and label each result with its tier.
+    results = sortByTier(filterByAge(results, maxAgeDays)).map((r) => {
+      const t = tierInfo(r);
+      return { ...r, sourceTier: t.tier, sourceTierLabel: t.label };
+    });
+
+    // Feature 3: cross-source claim check on funding/valuation figures
+    let claimCheck = null;
+    try {
+      claimCheck = checkClaims(results);
+    } catch (claimError) {
+      logger.warn('Claim check failed:', claimError.message);
     }
 
     // Generate LLM response if requested
@@ -232,7 +285,14 @@ export default async function handler(req, res) {
       content: null
     };
 
+    const historyId = results.length > 0
+      ? await saveToHistory(req, res, { query, sources: normalizedSources, workspaceId, content: llmPayload.content, results })
+      : null;
+
     return res.status(200).json(normalizeSearchResponseV1({
+      historyId,
+      claimCheck,
+      maxAgeDays: maxAgeDays || null,
       results,
       status: results.length > 0 ? (degradedSources.length > 0 ? 'degraded' : 'ok') : 'fail-soft',
       degradedSources: Array.from(new Set(degradedSources)),

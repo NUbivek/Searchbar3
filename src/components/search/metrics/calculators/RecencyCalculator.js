@@ -19,7 +19,7 @@ const calculateRecency = (result, options = {}) => {
   
   try {
     // Extract date information from result
-    const dateStr = result.date || result.publishedDate || result.metadata?.date || '';
+    const dateStr = result.date || result.publishedDate || result.publishedAt || result.timestamp || result.metadata?.date || '';
     
     if (dateStr) {
       const date = new Date(dateStr);
@@ -65,11 +65,11 @@ const calculateRecency = (result, options = {}) => {
       }
     }
     
-    // Normalize score to 0-100 range
-    return normalizeScore(score) * 100;
+    // 0-1 scale, like the other calculators
+    return normalizeScore(score);
   } catch (error) {
     console.error('Error calculating recency score:', error);
-    return 50; // Default middle score on error
+    return 0.5; // Default middle score on error
   }
 };
 

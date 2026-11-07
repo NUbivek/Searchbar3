@@ -104,7 +104,7 @@ describe('/api/search/open route', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.status).toBe('ok');
     expect(res.body.degradedSources).toEqual([]);
-    expect(res.body.results).toEqual(results);
+    expect(res.body.results).toEqual(results.map((r) => expect.objectContaining(r)));
     expect(res.body.content).toBe('LLM summary');
     expect(res.body.categories).toEqual(categories);
     expect(processWithLLM).toHaveBeenCalledWith(
@@ -160,6 +160,6 @@ describe('/api/search/open route', () => {
     expect(deepWebSearch).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
     expect(res.body.status).toBe('ok');
-    expect(res.body.results).toEqual(verifiedResults);
+    expect(res.body.results).toEqual(verifiedResults.map((r) => expect.objectContaining(r)));
   });
 });

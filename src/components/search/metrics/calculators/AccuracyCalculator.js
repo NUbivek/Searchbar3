@@ -66,11 +66,13 @@ export const calculateAccuracyScore = (result, options = {}) => {
     (externalValidationScore * WEIGHTS.EXTERNAL_VALIDATION)
   );
   
-  // Convert to 0-100 scale
-  const finalScore = Math.round(weightedScore * 100);
+  // 0-1 scale, like the other calculators (this returned 0-100, which
+  // MetricsCalculator treated as 0-1 and capped at 0.95)
+  const finalScore = Math.min(Math.max(weightedScore, 0), 1);
   
-  // Apply threshold
-  return finalScore < ACCURACY_THRESHOLD ? ACCURACY_THRESHOLD : finalScore;
+  // Apply threshold (DISPLAY_THRESHOLD is a percentage)
+  const floor = ACCURACY_THRESHOLD / 100;
+  return finalScore < floor ? floor : finalScore;
 };
 
 /**

@@ -1,7 +1,7 @@
 const axios = require('axios');
 const { selfBaseUrl } = require('./serverBaseUrl');
 const logger = require('./logger');
-const { searchCompany, getFilings } = require('./edgarUtils');
+const { searchCompany, getFilings, getRecentFilings } = require('./edgarUtils');
 const { MARKET_DATA_SOURCES, VC_FIRMS } = require('./dataSources');
 const { fetchUrlContent, buildUrlSearchResult } = require('./urlExtraction');
 const { 
@@ -486,8 +486,8 @@ const sourceHandlers = {
       
       // Get filings for the top 3 companies
       const topCompanies = companies.slice(0, 3);
-      const filingsPromises = topCompanies.map(company => 
-        getFilings(company.cik)
+      const filingsPromises = topCompanies.map(company =>
+        getRecentFilings(company.cik, 5)
       );
       
       const filingSettled = await Promise.allSettled(filingsPromises);
@@ -501,6 +501,7 @@ const sourceHandlers = {
         .map(filing => ({
           title: `${filing.companyName} - ${filing.formType}`,
           content: `Filing Date: ${filing.filingDate} | Description: ${filing.description || 'No description available'}`,
+          date: filing.filingDate,
           url: filing.url || `https://www.sec.gov/edgar/browse/?CIK=${filing.cik}`,
           source: 'sec'
         }));
