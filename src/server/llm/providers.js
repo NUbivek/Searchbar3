@@ -153,7 +153,7 @@ export function describeFailure(error) {
     : status === 404 ? 'model not available'
     : status === 400 ? 'request rejected'
     : status >= 500 ? 'provider error'
-    : /timeout/i.test(error.code || error.message) ? 'timed out'
+    : /timeout|ECONNABORTED|ETIMEDOUT/i.test(`${error.code || ''} ${error.message || ''}`) ? 'timed out'
     : 'request failed';
   return { why, detail, status: status || null };
 }
@@ -161,12 +161,17 @@ export function describeFailure(error) {
 /**
  * Chat completion with fallback across providers/models.
  * @param {Array<{role, content}>} messages
- * @param {{ preferred?: string, maxTokens?: number, temperature?: number, timeoutMs?: number }} options
+ * @param {{ preferred?: string, maxTokens?: number, temperature?: number, timeoutMs?: number, deadline?: number }} options
  *   preferred: "provider:model" from the model menu, or "auto"
+ *   deadline: epoch ms by which the whole chain must finish (serverless
+ *     time limit). Each attempt leaves FALLBACK_RESERVE_MS for the next one.
  * @returns {Promise<{ text, provider, model, skipped } | null>} null when no provider is configured or all fail.
  *   skipped: models tried first that failed, e.g. [{ model, provider, why }]
  */
-export async function chatComplete(messages, { preferred = 'auto', maxTokens = 3000, temperature = 0.2, timeoutMs = 60000 } = {}) {
+const FALLBACK_RESERVE_MS = 12000;
+const MIN_ATTEMPT_MS = 5000;
+
+export async function chatComplete(messages, { preferred = 'auto', maxTokens = 3000, temperature = 0.2, timeoutMs = 60000, deadline = null } = {}) {
   const attempts = [];
   const enabled = PROVIDERS.filter(providerEnabled);
   const [prefProvider, ...prefModelParts] = String(preferred || 'auto').split(':');
@@ -184,18 +189,29 @@ export async function chatComplete(messages, { preferred = 'auto', maxTokens = 3
   }
   const errors = [];
   const skipped = [];
-  for (const { p, model } of attempts) {
+  for (const [i, { p, model }] of attempts.entries()) {
+    let attemptMs = timeoutMs;
+    if (deadline) {
+      const remaining = deadline - Date.now();
+      const isLast = i === attempts.length - 1;
+      attemptMs = Math.min(timeoutMs, isLast ? remaining : remaining - FALLBACK_RESERVE_MS);
+      if (!isLast && attemptMs < MIN_ATTEMPT_MS) attemptMs = Math.min(timeoutMs, remaining); // no room to reserve
+      if (attemptMs < MIN_ATTEMPT_MS) {
+        errors.push(`${p.id}:${model} not tried (out of time)`);
+        break;
+      }
+    }
     try {
       const headers = { Authorization: `Bearer ${providerKey(p)}`, 'Content-Type': 'application/json', ...(p.id === 'openrouter' ? { 'X-Title': 'Research Hub' } : {}) };
       const base = { model, messages, max_tokens: maxTokens, temperature };
       const extras = reasoningSettings(p.id, model);
       let data;
       try {
-        ({ data } = await axios.post(`${p.baseUrl}/chat/completions`, { ...base, ...extras }, { headers, timeout: timeoutMs }));
+        ({ data } = await axios.post(`${p.baseUrl}/chat/completions`, { ...base, ...extras }, { headers, timeout: attemptMs }));
       } catch (error) {
         // A provider that rejects the reasoning settings: retry without them
         if (error.response?.status !== 400 || Object.keys(extras).length === 0) throw error;
-        ({ data } = await axios.post(`${p.baseUrl}/chat/completions`, base, { headers, timeout: timeoutMs }));
+        ({ data } = await axios.post(`${p.baseUrl}/chat/completions`, base, { headers, timeout: Math.max(MIN_ATTEMPT_MS, deadline ? Math.min(attemptMs, deadline - Date.now()) : attemptMs) }));
       }
       const text = String(data?.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
       if (!text && data?.choices?.[0]?.finish_reason === 'length') {

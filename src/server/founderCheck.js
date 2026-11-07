@@ -372,7 +372,7 @@ async function searchCourtListener(name, { timeoutMs = 12000 } = {}) {
  * @param {{ name: string, company?: string, model?: string, useLLM?: boolean }} input
  * @param {{ searchers?: object }} deps override searchers in tests
  */
-export async function runFounderCheck({ name, company, model = 'auto', useLLM = true } = {}, deps = {}) {
+export async function runFounderCheck({ name, company, model = 'auto', useLLM = true, deadline = null } = {}, deps = {}) {
   const person = String(name || '').trim().replace(/\s+/g, ' ');
   const co = String(company || '').trim().replace(/\s+/g, ' ');
   if (!person) throw new Error('name is required');
@@ -469,7 +469,7 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
   let briefInfo = { mode: 'quoted', reason: 'No AI model is configured' };
   if (ranked.length > 0 && useLLM && PROVIDERS.some(providerEnabled)) {
     const user = `Today's date: ${new Date().toISOString().slice(0, 10)}\nPerson: ${displayName}${co ? `\nCompany (to disambiguate): ${co}` : ''}\n\nSources:\n${sourcesBlock(ranked.slice(0, 15))}`;
-    const out = await chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], { preferred: model, maxTokens: 3000 });
+    const out = await chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], { preferred: model, maxTokens: 3000, deadline });
     if (out) {
       const checked = validateAnswer(out.text, Math.min(15, ranked.length), BRIEF_SECTIONS);
       if (checked.ok) {

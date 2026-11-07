@@ -72,7 +72,11 @@ const parseFile = (f) => {
   try { return JSON.parse(f); } catch { return null; }
 };
 
+// Leave headroom under maxDuration (60s) for categories, history and the response
+const ANSWER_DEADLINE_MS = 50000;
+
 export default async function handler(req, res) {
+  const startedAt = Date.now();
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -122,7 +126,7 @@ export default async function handler(req, res) {
     // 6. Answer
     let answer = { content: null, sourceMap: {}, llm: null };
     if (results.length > 0) {
-      answer = await generateAnswer(plan, entity, results, { model, useLLM });
+      answer = await generateAnswer(plan, entity, results, { model, useLLM, deadline: startedAt + ANSWER_DEADLINE_MS });
     }
 
     let categories = [];

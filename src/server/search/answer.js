@@ -102,7 +102,7 @@ export function llmConfigured() {
  * @param {Object[]} results ranked results
  * @param {{ model?: string, useLLM?: boolean }} options
  */
-export async function generateAnswer(plan, entity, results, { model = 'auto', useLLM = true } = {}) {
+export async function generateAnswer(plan, entity, results, { model = 'auto', useLLM = true, deadline = null } = {}) {
   const top = results.slice(0, MAX_SOURCES_FOR_LLM);
   const sourceMap = Object.fromEntries(top.map((r, i) => [String(i + 1), { title: r.title, url: r.url, sourceName: r.sourceName || hostOf(r.url), date: dateOf(r), type: r.type || r.source }]));
   let reason = 'No AI model is configured';
@@ -114,7 +114,7 @@ Question: ${plan.query}
 ${entity.mode === 'entity' ? `Subject: ${entity.name}\n` : ''}${plan.intents.length ? `The user wants: ${plan.intents.join(', ')}${plan.recency ? ' (latest)' : ''}\n` : plan.recency ? 'The user wants the latest information\n' : ''}
 Sources:
 ${sourcesBlock(top)}`;
-    const out = await chatComplete([{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: user }], { preferred: model, maxTokens: 3000 });
+    const out = await chatComplete([{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: user }], { preferred: model, maxTokens: 3000, deadline });
     if (out) {
       const checked = validateAnswer(out.text, top.length);
       if (checked.ok) {

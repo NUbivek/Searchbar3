@@ -202,6 +202,30 @@ describe('LLM provider chain', () => {
     expect(skippedNote([])).toBe('');
   });
 
+  test('time budget: the chosen model leaves time for a fast fallback; nothing starts after the deadline', async () => {
+    process.env.GROQ_API_KEY = 'g'; process.env.GOOGLE_AI_API_KEY = 'ga'; delete process.env.OPENROUTER_API_KEY;
+    jest.resetModules();
+    const axios = require('axios');
+    axios.get.mockImplementation(async (url) => ({ data: { data: url.includes('groq') ? [{ id: 'openai/gpt-oss-120b' }] : [{ id: 'models/gemini-3.8-flash' }] } }));
+    axios.post.mockImplementation(async (url, body) => {
+      if (url.includes('generativelanguage')) throw Object.assign(new Error('timeout of 28000ms exceeded'), { code: 'ECONNABORTED' });
+      return { data: { choices: [{ message: { content: 'fast answer' } }] } };
+    });
+    const { chatComplete } = require('../../../src/server/llm/providers');
+    const out = await chatComplete([{ role: 'user', content: 'hi' }], { preferred: 'gemini:gemini-3.8-flash', deadline: Date.now() + 40000 });
+    const [first, second] = axios.post.mock.calls;
+    expect(first[0]).toMatch(/generativelanguage/);
+    expect(first[2].timeout).toBeLessThanOrEqual(28000);
+    expect(first[2].timeout).toBeGreaterThan(26000);
+    expect(second[0]).toMatch(/groq/);
+    expect(out).toEqual(expect.objectContaining({ provider: 'groq', text: 'fast answer' }));
+    expect(out.skipped).toEqual([{ provider: 'Google Gemini', model: 'gemini-3.8-flash', why: 'timed out' }]);
+
+    axios.post.mockClear();
+    expect(await chatComplete([{ role: 'user', content: 'hi' }], { deadline: Date.now() + 2000 })).toBeNull();
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
   test('returns null when no provider is configured', async () => {
     delete process.env.GROQ_API_KEY; delete process.env.OPENROUTER_API_KEY; delete process.env.TOGETHER_API_KEY; delete process.env.GOOGLE_AI_API_KEY; delete process.env.GEMINI_API_KEY;
     const { chatComplete } = require('../../../src/server/llm/providers');

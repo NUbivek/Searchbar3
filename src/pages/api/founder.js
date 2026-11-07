@@ -31,6 +31,7 @@ async function backchannelReferences(req, res, result) {
 }
 
 export default async function handler(req, res) {
+  const startedAt = Date.now(); // the brief must finish inside maxDuration (60s)
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
     return res.status(405).json({ error: 'Method not allowed' });
@@ -42,7 +43,7 @@ export default async function handler(req, res) {
   if (name.length > 120) return res.status(400).json({ error: 'name must be 120 characters or fewer' });
   if (company.length > 120) return res.status(400).json({ error: 'company must be 120 characters or fewer' });
   try {
-    const result = await runFounderCheck({ name, company, model });
+    const result = await runFounderCheck({ name, company, model, deadline: startedAt + 50000 });
     const references = await backchannelReferences(req, res, result);
     res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json({ ...result, references });
