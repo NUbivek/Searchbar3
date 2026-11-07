@@ -100,13 +100,30 @@ export async function availableModels() {
 }
 
 /**
+ * Reasoning models (gpt-oss, Qwen 3, DeepSeek R1) can spend the whole token
+ * budget thinking, or put <think> text in the answer. Keep reasoning short
+ * and hidden so the answer itself fits.
+ */
+function reasoningSettings(providerId, model) {
+  const m = String(model).toLowerCase();
+  if (/gpt-oss/.test(m)) {
+    return providerId === 'openrouter' ? { reasoning: { effort: 'low', exclude: true } } : { reasoning_effort: 'low' };
+  }
+  if (/qwen3|qwq|deepseek-r1|r1-distill/.test(m)) {
+    if (providerId === 'groq') return { reasoning_format: 'hidden' };
+    if (providerId === 'openrouter') return { reasoning: { exclude: true } };
+  }
+  return {};
+}
+
+/**
  * Chat completion with fallback across providers/models.
  * @param {Array<{role, content}>} messages
  * @param {{ preferred?: string, maxTokens?: number, temperature?: number, timeoutMs?: number }} options
  *   preferred: "provider:model" from the model menu, or "auto"
  * @returns {Promise<{ text, provider, model } | null>} null when no provider is configured or all fail
  */
-export async function chatComplete(messages, { preferred = 'auto', maxTokens = 1800, temperature = 0.2, timeoutMs = 60000 } = {}) {
+export async function chatComplete(messages, { preferred = 'auto', maxTokens = 3000, temperature = 0.2, timeoutMs = 60000 } = {}) {
   const attempts = [];
   const enabled = PROVIDERS.filter(providerEnabled);
   const [prefProvider, ...prefModelParts] = String(preferred || 'auto').split(':');
@@ -125,13 +142,22 @@ export async function chatComplete(messages, { preferred = 'auto', maxTokens = 1
   const errors = [];
   for (const { p, model } of attempts) {
     try {
-      const { data } = await axios.post(`${p.baseUrl}/chat/completions`, {
-        model, messages, max_tokens: maxTokens, temperature,
-      }, {
-        headers: { Authorization: `Bearer ${process.env[p.keyEnv]}`, 'Content-Type': 'application/json', ...(p.id === 'openrouter' ? { 'X-Title': 'Research Hub' } : {}) },
-        timeout: timeoutMs,
-      });
-      const text = data?.choices?.[0]?.message?.content?.trim();
+      const headers = { Authorization: `Bearer ${process.env[p.keyEnv]}`, 'Content-Type': 'application/json', ...(p.id === 'openrouter' ? { 'X-Title': 'Research Hub' } : {}) };
+      const base = { model, messages, max_tokens: maxTokens, temperature };
+      const extras = reasoningSettings(p.id, model);
+      let data;
+      try {
+        ({ data } = await axios.post(`${p.baseUrl}/chat/completions`, { ...base, ...extras }, { headers, timeout: timeoutMs }));
+      } catch (error) {
+        // A provider that rejects the reasoning settings: retry without them
+        if (error.response?.status !== 400 || Object.keys(extras).length === 0) throw error;
+        ({ data } = await axios.post(`${p.baseUrl}/chat/completions`, base, { headers, timeout: timeoutMs }));
+      }
+      const text = String(data?.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      if (!text && data?.choices?.[0]?.finish_reason === 'length') {
+        errors.push(`${p.id}:${model} ran out of tokens before answering`);
+        continue;
+      }
       if (text) return { text, provider: p.id, providerLabel: p.label, model };
       errors.push(`${p.id}:${model} empty response`);
     } catch (error) {

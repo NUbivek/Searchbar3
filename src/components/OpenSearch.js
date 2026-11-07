@@ -203,7 +203,8 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         degradedSources: Array.isArray(data?.degradedSources) ? data.degradedSources : [],
         failSoftContent: data?.failSoftContent || null,
         queryPlan: data?.queryPlan || null,
-        answerInfo: data?.answerInfo || null
+        answerInfo: data?.answerInfo || null,
+        sourceStatuses: Array.isArray(data?.sourceStatuses) ? data.sourceStatuses : []
       });
 
       // Log the response for debugging
@@ -400,7 +401,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
       ) : (
         <div ref={resultsContainerRef}>
           {hasSearched && apiMeta.degradedSources.length > 0 && (
-            <DegradedBanner degradedSources={apiMeta.degradedSources} status={apiMeta.status} />
+            <DegradedBanner degradedSources={apiMeta.degradedSources} status={apiMeta.status} sourceStatuses={apiMeta.sourceStatuses} />
           )}
 
           {hasSearched && apiMeta.answerInfo && (

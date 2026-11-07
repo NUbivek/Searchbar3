@@ -115,12 +115,9 @@ export default async function handler(req, res) {
       logger.warn('Claim check failed:', claimError.message);
     }
 
-    // Sources that failed or contributed nothing relevant
-    const contributed = new Set(results.map((r) => r.retrievedBy));
-    const degradedSources = statuses
-      .filter((s) => s.status === 'error' || !contributed.has(s.source))
-      .map((s) => s.source)
-      .filter((s) => s !== 'hackernews' || !contributed.size);
+    // Degraded = a selected source failed or is not configured. A source
+    // that worked but had nothing about this query is not degraded.
+    const degradedSources = statuses.filter((s) => s.status === 'error').map((s) => s.source);
 
     // 6. Answer
     let answer = { content: null, sourceMap: {}, llm: null };

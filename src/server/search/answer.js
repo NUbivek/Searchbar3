@@ -38,23 +38,43 @@ Then one final line: CONFIDENCE: High|Medium|Low - <reason based on how many ind
 
 function sourcesBlock(results) {
   return results.map((r, i) => {
-    const text = String(r.content || r.snippet || '').replace(/\s+/g, ' ').slice(0, 700);
+    const text = String(r.content || r.snippet || '').replace(/\s+/g, ' ').slice(0, 500);
     return `[Source ${i + 1}] ${r.title}\nPublisher: ${r.sourceName || hostOf(r.url)}${dateOf(r) ? ` | Date: ${dateOf(r)}` : ''} | Type: ${r.sourceTierLabel || r.type || 'web'}\nURL: ${r.url}\nText: ${text || '(headline only)'}`;
   }).join('\n\n');
 }
 
+/**
+ * Models cite in different styles: gpt-oss uses 【3】 or 【3†source】, others
+ * [3], [1, 2], [S3], (Source 3), [Source: 3]. Normalize all to [Source n].
+ */
+export function normalizeCitations(text) {
+  const list = (nums) => nums.split(/\s*[,;]\s*|\s*(?:and|&)\s*/i).map((x) => x.trim()).filter(Boolean)
+    .flatMap((x) => {
+      const range = x.match(/^(\d+)\s*[–-]\s*(\d+)$/);
+      if (range) { const out = []; for (let n = Number(range[1]); n <= Math.min(Number(range[2]), Number(range[1]) + 20); n += 1) out.push(n); return out; }
+      const n = x.match(/^S?(\d+)$/i);
+      return n ? [Number(n[1])] : [];
+    });
+  const fmt = (nums) => { const ns = list(nums); return ns.length ? ns.map((n) => `[Source ${n}]`).join(' ') : null; };
+  return String(text || '')
+    .replace(/【\s*(?:source\s*)?(\d+)(?:†[^】]*)?】/gi, (m, n) => `[Source ${n}]`)
+    .replace(/\[(?:sources?|src|ref|s)?\s*:?\s*((?:S?\d+)(?:\s*(?:[,;–-]|and|&)\s*S?\d+)*)\](?!\()/gi, (m, nums) => fmt(nums) || m)
+    .replace(/\((?:sources?|src)\s*:?\s*(\d+(?:\s*(?:[,;–-]|and|&)\s*\d+)*)\)/gi, (m, nums) => fmt(nums) || m);
+}
+
 /** Remove citations to sources that do not exist; true when output is usable. */
-export function validateAnswer(text, sourceCount) {
-  let content = String(text || '').trim();
+export function validateAnswer(text, sourceCount, sections = SECTIONS) {
+  // Reasoning models may include their thinking; never show it
+  let content = normalizeCitations(String(text || '').replace(/<think>[\s\S]*?<\/think>/gi, '')).trim();
   // Some models wrap output in code fences or add a preface before SUMMARY
   content = content.replace(/^```(?:markdown)?\s*/i, '').replace(/```\s*$/, '');
-  const start = content.indexOf('## SUMMARY');
-  if (start < 0) return { ok: false, reason: 'missing SUMMARY section' };
+  const start = content.indexOf(sections[0]);
+  if (start < 0) return { ok: false, reason: `missing ${sections[0].replace(/^#+\s*/, '')} section` };
   content = content.slice(start);
-  const missing = SECTIONS.filter((h) => !content.includes(h));
+  const missing = sections.filter((h) => !content.includes(h));
   if (missing.length > 1) return { ok: false, reason: `missing sections: ${missing.join(', ')}` };
   let removed = 0;
-  content = content.replace(/\[Sources?\s*([\d,\s–-]+)\]/gi, (m, nums) => {
+  content = content.replace(/\[Sources? (\d+)\]/g, (m, nums) => {
     const valid = nums.split(/[,\s]+/).map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= sourceCount);
     if (valid.length === 0) { removed += 1; return ''; }
     return valid.map((n) => `[Source ${n}]`).join(' ');
@@ -88,7 +108,7 @@ Question: ${plan.query}
 ${entity.mode === 'entity' ? `Subject: ${entity.name}\n` : ''}${plan.intents.length ? `The user wants: ${plan.intents.join(', ')}${plan.recency ? ' (latest)' : ''}\n` : plan.recency ? 'The user wants the latest information\n' : ''}
 Sources:
 ${sourcesBlock(top)}`;
-    const out = await chatComplete([{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: user }], { preferred: model, maxTokens: 1800 });
+    const out = await chatComplete([{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: user }], { preferred: model, maxTokens: 3000 });
     if (out) {
       const checked = validateAnswer(out.text, top.length);
       if (checked.ok) {

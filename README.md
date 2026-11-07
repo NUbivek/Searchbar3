@@ -13,11 +13,29 @@ A sophisticated search application that integrates multiple data sources, includ
 - **File Upload**: Process and search through uploaded documents
 - **LLM Processing**: AI-powered insights from search results
 
+### Search pipeline (Open Research)
+`src/server/search/`: the query is split into the company or person, the intent
+(funding, competitors, team, financials, product, legal) and recency ("latest");
+each source gets a rewritten query; results that do not name the company are
+removed; the rest are ranked by where the company is named, intent, recency and
+source tier, and syndicated duplicates are collapsed. The answer is written by
+a free model with checked citations, or quoted from sources when no model is
+configured. See `PROVIDER_CAPABILITY_MATRIX.md`.
+
+### Founder Check
+Background brief (AI-written with checked citations, or quoted), career
+timeline, past companies, education, litigation mentions (CourtListener with a
+token), press, public profile snippets (LinkedIn/Crunchbase pages as they appear
+in web search), disambiguation when several people share a name, and
+backchannel references: people in your imported network at the founder's
+current and past companies.
+
 ### Network Map
-- **Professional Network Visualization**: View your connections across platforms
-- **LinkedIn Integration**: Professional network data
-- **Twitter Integration**: Social media connections
-- **Reddit Integration**: Community participation
+- **Import your network**: LinkedIn's own data export (`Connections.csv`) or any CSV/XLSX of contacts (LinkedIn's API does not give apps your connections)
+- **Professional Network Visualization**: interactive graph of you, companies and people, colored by source
+- **Ask your network**: "Who do I know at Google?", "Find software engineers in my network"
+- **Warm intro paths**: your contacts at a target company and at its investors
+- **Twitter/X**: following list where the X API tier allows it
 
 ### Verified Sources
 - **LinkedIn**: Professional network search with OAuth 2.0 authentication
@@ -58,10 +76,8 @@ accelerator portfolio pages, funding and startup news, and market analysis feeds
 - **Pitchbook**: Investment and market data
 
 ### LLM Processing
-- **Multi-Model Support**: Integrated with multiple LLM providers and models:
-  - Together API: mixtral-8x7b, mistral-7b, gemma-7b
-  - Perplexity API: sonar-small-chat
-- **Smart Fallback System**: Automatic fallbacks between models and providers
+- **Free-first model chain** (`src/server/llm/providers.js`): Groq (`GROQ_API_KEY`), then OpenRouter free models (`OPENROUTER_API_KEY`); Together only with `LLM_ALLOW_PAID=true`. Each provider's live model list is used, so retired models cannot break answers.
+- **Smart Fallback System**: Automatic fallbacks between models and providers, then quoted answers
 - **Comprehensive Error Handling**: Ensures consistent user experience even when APIs fail
 - **Source Preservation**: Maintains source attribution throughout the processing pipeline
 - **Dynamic Content Generation**: Creates summaries, insights, and follow-up questions
@@ -77,10 +93,9 @@ accelerator portfolio pages, funding and startup news, and market analysis feeds
 - Advanced search result scoring system
 
 ### LLM Integration
-- **Mixtral-8x7b**: Primary LLM model for processing search results
-- **Llama-2-70b**: Alternative high-performance model
-- **Gemma-2-9b**: Lightweight model option
-- **Automatic Fallback**: Graceful degradation to Mixtral if other models fail
+- **Auto** (default): best free model available today (e.g. gpt-oss-120b or Qwen on Groq, Nemotron or Gemma on OpenRouter)
+- The model menu lists only models that are actually available (`/api/llm/models`)
+- **Automatic Fallback**: next model, next provider, then quoted answers
 
 ## Architecture
 

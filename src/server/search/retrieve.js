@@ -32,45 +32,56 @@ export function parseResultDate(value) {
 
 const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
 
-/** Web search via Serper (primary) or Tavily (fallback), with news for recency/funding. */
-async function webSearch(plan) {
-  const q = webQuery(plan);
-  const wantNews = plan.recency || plan.intents.includes('funding') || plan.intents.includes('legal');
+export function webSearchConfigured() {
+  return Boolean(process.env.SERPER_API_KEY || process.env.TAVILY_API_KEY);
+}
+
+/**
+ * One web query via Serper (primary) or Tavily (fallback).
+ * @param {string} q
+ * @param {{ news?: boolean, withinDays?: number, num?: number }} options
+ */
+export async function searchWeb(q, { news = false, withinDays = 0, num = 10 } = {}) {
   const serper = process.env.SERPER_API_KEY;
   const tavily = process.env.TAVILY_API_KEY;
   if (!serper && !tavily) throw new Error('No SERPER_API_KEY or TAVILY_API_KEY configured');
-
   if (serper) {
-    const headers = { 'X-API-KEY': serper, 'Content-Type': 'application/json' };
-    const calls = [axios.post('https://google.serper.dev/search', { q, num: 10, gl: 'us', hl: 'en' }, { headers, timeout: 12000 })];
-    if (wantNews) {
-      calls.push(axios.post('https://google.serper.dev/news', { q, num: 10, gl: 'us', hl: 'en', ...(plan.recency ? { tbs: 'qdr:y' } : {}) }, { headers, timeout: 12000 }));
+    try {
+      const tbs = withinDays ? (withinDays <= 7 ? 'qdr:w' : withinDays <= 31 ? 'qdr:m' : withinDays <= 366 ? 'qdr:y' : null) : null;
+      const { data } = await axios.post(`https://google.serper.dev/${news ? 'news' : 'search'}`, { q, num, gl: 'us', hl: 'en', ...(tbs ? { tbs } : {}) }, {
+        headers: { 'X-API-KEY': serper, 'Content-Type': 'application/json' }, timeout: 12000,
+      });
+      const items = news ? data?.news || [] : data?.organic || [];
+      const out = items.map((it) => ({
+        title: it.title, url: it.link, content: it.snippet || '', snippet: it.snippet || '',
+        source: 'web', sourceName: it.source || hostOf(it.link), publishedAt: parseResultDate(it.date),
+        date: parseResultDate(it.date)?.slice(0, 10) || null, type: news ? 'news' : 'web',
+      }));
+      if (out.length > 0 || !tavily) return out;
+    } catch (error) {
+      if (!tavily) throw error;
     }
-    const settled = await Promise.allSettled(calls);
-    const out = [];
-    settled.forEach((s, i) => {
-      if (s.status !== 'fulfilled') return;
-      const items = i === 0 ? s.value.data?.organic || [] : s.value.data?.news || [];
-      for (const it of items) {
-        out.push({
-          title: it.title, url: it.link, content: it.snippet || '', snippet: it.snippet || '',
-          source: 'web', sourceName: it.source || hostOf(it.link), publishedAt: parseResultDate(it.date), date: parseResultDate(it.date)?.slice(0, 10) || null,
-          type: i === 0 ? 'web' : 'news',
-        });
-      }
-    });
-    if (out.length > 0 || !tavily) return out;
   }
-
   const { data } = await axios.post('https://api.tavily.com/search', {
-    api_key: tavily, query: q, max_results: 10, search_depth: 'basic',
-    topic: wantNews ? 'news' : 'general', ...(plan.recency ? { days: 365 } : {}),
+    api_key: tavily, query: q, max_results: num, search_depth: 'basic',
+    topic: news ? 'news' : 'general', ...(withinDays ? { days: withinDays } : {}),
   }, { timeout: 15000 });
   return (data?.results || []).map((it) => ({
     title: it.title, url: it.url, content: it.content || '', snippet: it.content || '',
-    source: 'web', sourceName: hostOf(it.url), publishedAt: parseResultDate(it.published_date), date: parseResultDate(it.published_date)?.slice(0, 10) || null,
-    type: wantNews ? 'news' : 'web',
+    source: 'web', sourceName: hostOf(it.url), publishedAt: parseResultDate(it.published_date),
+    date: parseResultDate(it.published_date)?.slice(0, 10) || null, type: news ? 'news' : 'web',
   }));
+}
+
+/** Web search for a query plan: organic results, plus news for recency/funding/legal. */
+async function webSearch(plan) {
+  const q = webQuery(plan);
+  const wantNews = plan.recency || plan.intents.includes('funding') || plan.intents.includes('legal');
+  const calls = [searchWeb(q)];
+  if (wantNews) calls.push(searchWeb(q, { news: true, withinDays: plan.recency ? 365 : 0 }));
+  const settled = await Promise.allSettled(calls);
+  if (settled.every((x) => x.status === 'rejected')) throw settled[0].reason;
+  return settled.flatMap((x) => (x.status === 'fulfilled' ? x.value : []));
 }
 
 async function curatedSearch(plan) {

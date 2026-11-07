@@ -32,7 +32,8 @@ export const renderSafeHtml = (text) => {
   }
   if (!purifyConfigured) {
     DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-      if (node.tagName === 'A' && node.getAttribute('href')) {
+      // External links open in a new tab; in-page anchors (#source-3) do not
+      if (node.tagName === 'A' && node.getAttribute('href') && !node.getAttribute('href').startsWith('#')) {
         node.setAttribute('target', '_blank');
         node.setAttribute('rel', 'noopener noreferrer');
       }

@@ -11,20 +11,19 @@ describe('DegradedBanner', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders status and toggles source details', () => {
-    render(<DegradedBanner degradedSources={['Web', 'Custom URL']} status="degraded" />);
+  it('names unavailable sources and shows the reason for each on demand', () => {
+    render(<DegradedBanner degradedSources={['web', 'custom']} status="degraded" sourceStatuses={[{ source: 'web', status: 'error', error: 'No SERPER_API_KEY or TAVILY_API_KEY configured' }]} />);
 
-    expect(screen.getByText('Degraded mode active')).toBeTruthy();
-    expect(screen.getByText(/status: degraded/)).toBeTruthy();
-    expect(screen.queryByText('Web')).toBeNull();
+    expect(screen.getByText('Some sources unavailable')).toBeTruthy();
+    expect(screen.getByText(/Web, Your URLs are unavailable for this search/)).toBeTruthy();
+    expect(screen.queryByText(/No SERPER_API_KEY/)).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Show details' }));
 
-    expect(screen.getByText('Web')).toBeTruthy();
-    expect(screen.getByText('Custom URL')).toBeTruthy();
+    expect(screen.getByText(/No SERPER_API_KEY or TAVILY_API_KEY configured/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Hide details' }));
 
-    expect(screen.queryByText('Web')).toBeNull();
+    expect(screen.queryByText(/No SERPER_API_KEY/)).toBeNull();
   });
 });

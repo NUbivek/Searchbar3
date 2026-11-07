@@ -11,7 +11,7 @@ jest.mock('../../../src/server/auth', () => ({ getUserId: jest.fn(async () => nu
 const axios = require('axios');
 const { understandQuery, resolveEntity, webQuery } = require('../../../src/server/search/queryPlan');
 const { filterAndRank } = require('../../../src/server/search/rank');
-const { validateAnswer } = require('../../../src/server/search/answer');
+const { validateAnswer, normalizeCitations } = require('../../../src/server/search/answer');
 const { createMockReq, createMockRes } = require('../api/testUtils');
 
 const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString();
@@ -190,5 +190,49 @@ describe('/api/search/open contract', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.status).toBe('fail-soft');
     expect(res.body.degradedSources).toEqual(['open-search']);
+  });
+});
+
+
+describe('citation styles from real models', () => {
+  const sections = '## KEY POINTS\n• a\n## DETAILED ANALYSIS\nb\n## DIFFERENT PERSPECTIVES\n• c\n## FOLLOW-UP QUESTIONS\n• d';
+  test.each([
+    ['gpt-oss full-width brackets', 'OpenAI raised $11B【1】 and【2†source】.', '[Source 1]', '[Source 2]'],
+    ['bare numbers', 'OpenAI raised $11B [1][2].', '[Source 1]', '[Source 2]'],
+    ['lists and ranges', 'Raised $11B [1, 2] and [3-4].', '[Source 2]', '[Source 4]'],
+    ['S-prefixed', 'Raised $11B [S1] [S2].', '[Source 1]', '[Source 2]'],
+    ['parenthesized', 'Raised $11B (Source 1) (Sources 2 and 3).', '[Source 1]', '[Source 3]'],
+    ['colon style', 'Raised $11B [Source: 2].', '[Source 2]', '[Source 2]'],
+  ])('%s', (_label, text, a, b) => {
+    const out = normalizeCitations(text);
+    expect(out).toContain(a);
+    expect(out).toContain(b);
+    const v = validateAnswer(`## SUMMARY\n${text}\n${sections}`, 4);
+    expect(v.ok).toBe(true);
+  });
+  test('markdown links are left alone, thinking text is removed', () => {
+    expect(normalizeCitations('See [1](https://x.test) and [Report](https://y.test)')).toBe('See [1](https://x.test) and [Report](https://y.test)');
+    const v = validateAnswer(`<think>plan the answer</think>## SUMMARY\nRaised [1].\n${sections}`, 2);
+    expect(v.content).not.toMatch(/plan the answer/);
+  });
+});
+
+describe('reasoning models', () => {
+  const env = { ...process.env };
+  afterEach(() => { process.env = { ...env }; jest.resetModules(); });
+  test('gpt-oss on Groq gets low reasoning effort; retried without it if rejected', async () => {
+    process.env.GROQ_API_KEY = 'g';
+    delete process.env.OPENROUTER_API_KEY;
+    jest.resetModules();
+    const ax = require('axios');
+    ax.get.mockResolvedValue({ data: { data: [{ id: 'openai/gpt-oss-120b' }] } });
+    ax.post
+      .mockRejectedValueOnce(Object.assign(new Error('bad param'), { response: { status: 400 } }))
+      .mockResolvedValueOnce({ data: { choices: [{ message: { content: '<think>x</think>## SUMMARY ok' } }] } });
+    const { chatComplete } = require('../../../src/server/llm/providers');
+    const out = await chatComplete([{ role: 'user', content: 'q' }]);
+    expect(ax.post.mock.calls[0][1].reasoning_effort).toBe('low');
+    expect(ax.post.mock.calls[1][1].reasoning_effort).toBeUndefined();
+    expect(out.text).toBe('## SUMMARY ok');
   });
 });

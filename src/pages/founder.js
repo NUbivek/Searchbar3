@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import PageShell from '../components/layout/PageShell';
+import { renderSafeHtml } from '../components/search/results/SimplifiedLLMResults';
 
 const EMPTY = 'Nothing found in available sources.';
 
@@ -92,7 +94,7 @@ export default function FounderPage() {
   return (
     <PageShell
       title="Founder Check"
-      subtitle="Career timeline, past companies, litigation mentions and press for a person, quoted from cited sources. LinkedIn is not used."
+      subtitle="Background brief, career timeline, past companies, education, litigation mentions, press and backchannel references for a person, from cited sources."
     >
       <form onSubmit={onSubmit} className="bg-white border border-gray-200 rounded-lg p-4 mb-4 flex flex-col md:flex-row gap-2">
         <input
@@ -123,12 +125,77 @@ export default function FounderPage() {
       {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 mb-4 text-sm">{error}</div>}
       {loading && (
         <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4 text-sm text-gray-600">
-          Searching news, Hacker News and other available sources for &ldquo;{qName}&rdquo;. This can take up to 20 seconds.
+          Searching the web, news, public profile pages, your curated sources, Hacker News and court records for &ldquo;{qName}&rdquo;. This can take up to 30 seconds.
         </div>
       )}
 
       {data && (
         <>
+          {data.briefInfo && (
+            <p className="text-xs text-gray-500 mb-2">
+              {data.briefInfo.mode === 'ai'
+                ? <>Brief written by <strong>{data.briefInfo.model}</strong> ({data.briefInfo.provider}) from the cited sources{data.briefInfo.confidence ? <> · Confidence: <strong>{data.briefInfo.confidence.level}</strong>{data.briefInfo.confidence.reason ? ` (${data.briefInfo.confidence.reason})` : ''}</> : null}</>
+                : <>Brief quoted directly from sources ({data.briefInfo.reason}).</>}
+            </p>
+          )}
+
+          {data.brief && (
+            <section className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+              <h2 className="text-lg font-semibold text-gray-800 mb-2">Background brief: {data.name}{data.company ? ` (${data.company})` : ''}</h2>
+              <div
+                className="text-sm text-gray-800 founder-brief space-y-2"
+                dangerouslySetInnerHTML={{ __html: renderSafeHtml(String(data.brief).replace(/\[Source (\d+)\]/g, '[[$1]](#source-$1)')) }}
+              />
+            </section>
+          )}
+
+          {data.profiles?.length > 0 && (
+            <Section title="Public profiles" empty={false}>
+              <ul className="space-y-2">
+                {data.profiles.map((p, i) => (
+                  <li key={i} className="text-sm text-gray-800">
+                    <span className="font-medium">{p.platform}:</span>{' '}
+                    {[p.role, p.company].filter(Boolean).join(' at ') || 'Profile'}
+                    {p.location ? ` · ${p.location}` : ''}
+                    {p.education ? ` · Education: ${p.education}` : ''}
+                    <Cite index={p.sourceIndex} sources={sources} />
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-gray-500 mt-2">From public profile pages as they appear in web search results; check that each profile is the same person.</p>
+            </Section>
+          )}
+
+          {data.references && (
+            <section className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+              <h2 className="text-lg font-semibold text-gray-800 mb-2">Backchannel references</h2>
+              {!data.references.available ? (
+                <p className="text-sm text-gray-600">
+                  {data.references.reason}{' '}
+                  <Link href="/network" className="text-blue-600 hover:underline">Open Network Map</Link>
+                </p>
+              ) : data.references.contacts.length === 0 ? (
+                <p className="text-sm text-gray-600">
+                  Nobody in your imported network works or worked at {data.references.companies.length ? data.references.companies.join(', ') : 'the companies found'}.
+                </p>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500 mb-2">People in your network at companies linked to {data.name}: potential reference checks. Your network data stays on this site.</p>
+                  <ul className="divide-y divide-gray-100">
+                    {data.references.contacts.map((c, i) => (
+                      <li key={i} className="py-2 text-sm">
+                        <span className="font-medium text-gray-800">{c.name}</span>
+                        <span className="text-gray-600">{c.position ? ` · ${c.position}` : ''}{c.company ? ` at ${c.company}` : ''}</span>
+                        {c.matchedCompany && <span className="ml-2 text-xs bg-blue-50 text-blue-700 rounded px-1.5 py-0.5">via {c.matchedCompany}</span>}
+                        {c.profileUrl && <a href={c.profileUrl} target="_blank" rel="noopener noreferrer" className="ml-2 text-xs text-blue-600 hover:underline">profile</a>}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </section>
+          )}
+
           {(data.warnings?.length > 0 || data.unavailableSources?.length > 0) && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4 text-sm text-yellow-900">
               {data.warnings?.length > 0 && (
@@ -164,6 +231,17 @@ export default function FounderPage() {
                 <li key={i}>
                   <span className="font-medium text-gray-800">{c.company}</span>
                   <Quote item={c} sources={sources} />
+                </li>
+              ))}
+            </ul>
+          </Section>
+
+          <Section title="Education" empty={!(data.education || []).length}>
+            <ul className="space-y-2">
+              {(data.education || []).map((e, i) => (
+                <li key={i}>
+                  <span className="font-medium text-gray-800">{e.school}</span>
+                  <Quote item={e} sources={sources} />
                 </li>
               ))}
             </ul>

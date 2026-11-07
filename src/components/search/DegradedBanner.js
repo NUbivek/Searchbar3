@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 
-export default function DegradedBanner({ degradedSources = [], status }) {
+const LABELS = { web: 'Web', curated: 'Curated sources', hackernews: 'Hacker News', verified: 'Verified (SEC/FMP)', linkedin: 'LinkedIn', twitter: 'X', reddit: 'Reddit', substack: 'Substack', medium: 'Medium', crunchbase: 'Crunchbase', pitchbook: 'PitchBook', carta: 'Carta', custom: 'Your URLs', file: 'Your files', 'open-search': 'Search service' };
+
+export default function DegradedBanner({ degradedSources = [], status, sourceStatuses = [] }) {
   const [open, setOpen] = useState(false);
 
   if (!Array.isArray(degradedSources) || degradedSources.length === 0) {
@@ -11,10 +13,9 @@ export default function DegradedBanner({ degradedSources = [], status }) {
     <div className="mb-4 border border-yellow-300 bg-yellow-50 rounded-md p-3">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <div className="font-semibold text-yellow-900">Degraded mode active</div>
+          <div className="font-semibold text-yellow-900">Some sources unavailable</div>
           <div className="text-sm text-yellow-800">
-            Some providers are unavailable right now. Results will still render with available sources.
-            {status ? ` (status: ${status})` : ''}
+            {degradedSources.map((x) => LABELS[x] || x).join(', ')} {degradedSources.length === 1 ? 'is' : 'are'} unavailable for this search. Results come from the other selected sources.
           </div>
         </div>
         <button
@@ -28,9 +29,10 @@ export default function DegradedBanner({ degradedSources = [], status }) {
 
       {open && (
         <ul className="mt-2 list-disc ml-5 text-sm text-yellow-900">
-          {degradedSources.map((source) => (
-            <li key={source}>{source}</li>
-          ))}
+          {degradedSources.map((source) => {
+            const detail = (sourceStatuses || []).find((x) => x.source === source)?.error;
+            return <li key={source}><strong>{LABELS[source] || source}</strong>{detail ? `: ${detail}` : ''}</li>;
+          })}
         </ul>
       )}
     </div>
