@@ -69,7 +69,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [customUrls, setCustomUrls] = useState([]);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [results, setResults] = useState([]);
-  const [apiMeta, setApiMeta] = useState({ status: null, degradedSources: [], failSoftContent: null });
+  const [apiMeta, setApiMeta] = useState({ status: null, degradedSources: [], failSoftContent: null, queryPlan: null, answerInfo: null });
   const [hasSearched, setHasSearched] = useState(false);
   const resultsContainerRef = useRef(null);
   const router = useRouter();
@@ -156,9 +156,9 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
   };
 
   // Company name for the profile link: the query minus funding/topic words
-  const profileName = String(query || '')
+  const profileName = apiMeta.queryPlan?.entity || (apiMeta.queryPlan?.mode === 'topic' ? '' : String(query || '')
     .split(/\b(?:funding|raise[sd]?|round|series [a-h]|seed|valuation|investors?|revenue|competitors?|founders?|ceo|news|ipo|acquisition)\b/i)[0]
-    .replace(/[^\w&.' -]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+    .replace(/[^\w&.' -]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80));
 
   const handleModelChange = (model) => {
     setSelectedModel(model);
@@ -201,7 +201,9 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
       setApiMeta({
         status: data?.status || null,
         degradedSources: Array.isArray(data?.degradedSources) ? data.degradedSources : [],
-        failSoftContent: data?.failSoftContent || null
+        failSoftContent: data?.failSoftContent || null,
+        queryPlan: data?.queryPlan || null,
+        answerInfo: data?.answerInfo || null
       });
 
       // Log the response for debugging
@@ -401,6 +403,14 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
             <DegradedBanner degradedSources={apiMeta.degradedSources} status={apiMeta.status} />
           )}
 
+          {hasSearched && apiMeta.answerInfo && (
+            <div className="text-xs text-gray-500 mb-2">
+              {apiMeta.answerInfo.mode === 'ai'
+                ? <>Answer written by <strong>{apiMeta.answerInfo.model}</strong> ({apiMeta.answerInfo.provider}) from the cited sources{apiMeta.answerInfo.confidence ? <> · Confidence: <strong>{apiMeta.answerInfo.confidence.level}</strong>{apiMeta.answerInfo.confidence.reason ? ` (${apiMeta.answerInfo.confidence.reason})` : ''}</> : null}</>
+                : <>Answer quoted directly from sources ({apiMeta.answerInfo.reason || 'no AI model'}). Add a free GROQ_API_KEY or OPENROUTER_API_KEY for written analysis.</>}
+              {apiMeta.queryPlan?.entity && <> · About <strong>{apiMeta.queryPlan.entity}</strong>{apiMeta.queryPlan.droppedForRelevance ? ` (${apiMeta.queryPlan.droppedForRelevance} unrelated results removed)` : ''}</>}
+            </div>
+          )}
           {hasSearched && query && (
             <>
               <SimplifiedLLMResults 

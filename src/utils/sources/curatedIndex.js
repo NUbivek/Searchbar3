@@ -89,7 +89,7 @@ function toItem(source, raw) {
   return {
     title,
     url: raw.url,
-    content: stripHtml(raw.content).slice(0, 600),
+    content: stripHtml(raw.content).replace(/The post .{3,300}? appeared first on [^.]{2,80}\.?/gi, ' ').replace(/\s*(\[…\]|\[\.\.\.\]|Continue reading.*)$/i, '').replace(/\s+/g, ' ').trim().slice(0, 600),
     publishedAt: isPortfolio || Number.isNaN(published) ? null : new Date(published).toISOString(),
     kind: isPortfolio ? 'portfolio' : 'article',
     companyWebsite: raw.company_website || null,
@@ -314,6 +314,47 @@ export async function searchCuratedSources(query, { limit = 15, waitMs = 12000 }
     const count = perSource.get(item.sourceId) || 0;
     if (count >= 3) continue;
     perSource.set(item.sourceId, count + 1);
+    results.push(toResult(item, score));
+    if (results.length >= limit) break;
+  }
+  return results;
+}
+
+/**
+ * Entity search: items that name the entity as a proper noun (matched by
+ * `isMention(text)`), scored by where it appears, intent words and recency.
+ * Used when the query is about a specific company or person, so generic
+ * word matches ("open" + "ai" for "open ai") never qualify.
+ * @param {(text: string) => boolean} isMention
+ * @param {{ intentRes?: RegExp[], recency?: boolean, limit?: number, waitMs?: number }} options
+ */
+export async function searchCuratedForEntity(isMention, { intentRes = [], recency = false, limit = 20, waitMs = 12000 } = {}) {
+  warmCuratedIndex();
+  if (!state.builtAt && state.building) {
+    await Promise.race([state.building, new Promise((r) => setTimeout(r, waitMs))]);
+  }
+  const scored = [];
+  for (const item of state.items) {
+    const inTitle = isMention(item.title);
+    if (!inTitle && !isMention(item.content)) continue;
+    let score = inTitle ? 3 : 1;
+    for (const re of intentRes) {
+      if (re.test(item.title)) score += 2;
+      else if (re.test(item.content)) score += 1;
+    }
+    if (item.publishedAt) {
+      const ageDays = (Date.now() - Date.parse(item.publishedAt)) / 86400000;
+      score += recency ? Math.max(0, 3 - ageDays / 60) : (ageDays < 90 ? 1 : 0);
+    }
+    scored.push({ item, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const seen = new Set();
+  const results = [];
+  for (const { item, score } of scored) {
+    const key = item.title.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
     results.push(toResult(item, score));
     if (results.length >= limit) break;
   }

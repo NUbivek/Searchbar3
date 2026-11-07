@@ -8,8 +8,11 @@
 const FUNDING_RE = /\b(rais(e|es|ed|ing)|funding|series [a-e]|seed|pre-seed|round|valuation|valued|investors?|led by|backed)\b/i;
 const FACT_RE = /(\$|€|£)\s?\d|\d+(\.\d+)?\s?(%|percent|[mbk]\b|million|billion)|\b(arr|revenue|margin|burn|runway|customers|employees|headcount|valuation)\b/i;
 
+// RSS footers such as "The post X appeared first on Y." or "Continue reading"
+const FEED_BOILERPLATE = /(The post .{3,300}? appeared first on [^.]{2,80}\.?|Continue reading\b.*$|Read more\b.*$|\[…\]|\[\.\.\.\]|\[&#8230;\])/gi;
+
 function cleanText(value) {
-  return String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return String(value || '').replace(/<[^>]+>/g, ' ').replace(FEED_BOILERPLATE, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function formatDate(value) {

@@ -97,49 +97,7 @@ describe('curated registry search', () => {
   });
 });
 
-// ---- open search: every selected source is searched --------------------
-jest.mock('../../../src/utils/searchUtils', () => ({
-  performSimpleSearch: jest.fn(),
-  performSimpleVerifiedSearch: jest.fn(),
-}));
-jest.mock('../../../src/utils/llmProcessing', () => ({ processWithLLM: jest.fn() }));
-
-describe('/api/search/open source handling', () => {
-  const handler = require('../../../src/pages/api/search/open').default;
-  const { performSimpleSearch, performSimpleVerifiedSearch } = require('../../../src/utils/searchUtils');
-  const { createMockReq, createMockRes } = require('../api/testUtils');
-
-  beforeEach(() => jest.clearAllMocks());
-
-  test('Web plus other sources are searched together (Web used to hide the rest)', async () => {
-    performSimpleSearch.mockResolvedValue([
-      { title: 'w', url: 'https://w.test', source: 'web' },
-      { title: 'c', url: 'https://c.test', source: 'curated' },
-    ]);
-    const req = createMockReq({ method: 'POST', body: { query: 'Ramp', sources: ['Curated', 'Web', 'Carta'], useLLM: false } });
-    const res = createMockRes();
-
-    await handler(req, res);
-
-    expect(performSimpleSearch).toHaveBeenCalledTimes(1);
-    expect(performSimpleSearch.mock.calls[0][1]).toEqual(['curated', 'web', 'carta']);
-    expect(res.body.results).toHaveLength(2);
-    expect(res.body.degradedSources).toEqual(['carta']); // only the source that returned nothing
-  });
-
-  test('a failing Verified search does not discard other results', async () => {
-    performSimpleVerifiedSearch.mockRejectedValue(new Error('FMP down'));
-    performSimpleSearch.mockResolvedValue([{ title: 'c', url: 'https://c.test', source: 'curated' }]);
-    const req = createMockReq({ method: 'POST', body: { query: 'Ramp', sources: ['Curated', 'Verified'], useLLM: false } });
-    const res = createMockRes();
-
-    await handler(req, res);
-
-    expect(res.body.results).toHaveLength(1);
-    expect(res.body.degradedSources).toEqual(['verified']);
-    expect(res.body.status).toBe('degraded');
-  });
-});
+// ---- open search route: covered by tests/unit/features/searchPipeline.test.js
 
 // ---- extractive digest ---------------------------------------------------
 describe('no-LLM digest is extractive and correctly cited', () => {
@@ -168,7 +126,8 @@ describe('no-LLM digest is extractive and correctly cited', () => {
       const n = Number(line.match(/\[Source (\d+)\]/)[1]);
       const body = line.replace(/^• (\*\*[^*]+\*\*: )?/, '');
       const sentence = body.slice(0, body.lastIndexOf(' ('));
-      expect(results[n - 1].content).toContain(sentence);
+      // quoted from the cited source's text or its headline
+      expect(`${results[n - 1].title} ${results[n - 1].content}`).toContain(sentence);
     }
   });
 

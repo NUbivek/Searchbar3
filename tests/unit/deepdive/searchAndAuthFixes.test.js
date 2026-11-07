@@ -4,14 +4,9 @@
  * Hacker News HTTP errors, and the server self-URL helper.
  */
 jest.mock('axios', () => ({ get: jest.fn(), post: jest.fn() }));
-jest.mock('../../../src/utils/searchUtils', () => ({
-  performSimpleSearch: jest.fn(),
-  performSimpleVerifiedSearch: jest.fn(),
-}));
 jest.mock('../../../src/utils/llmProcessing', () => ({ processWithLLM: jest.fn() }));
 
 const axios = require('axios');
-const { performSimpleSearch } = require('../../../src/utils/searchUtils');
 const { createMockReq, createMockRes } = require('../api/testUtils');
 
 function createRedirectRes() {
@@ -69,41 +64,8 @@ describe('LinkedIn callback CSRF state check', () => {
   });
 });
 
-describe('/api/search/open Hacker News fallback', () => {
-  const handler = require('../../../src/pages/api/search/open').default;
-  const originalFetch = global.fetch;
-
-  afterEach(() => { global.fetch = originalFetch; jest.clearAllMocks(); });
-
-  test('falls back to Hacker News when selected sources return nothing', async () => {
-    performSimpleSearch.mockResolvedValue([]);
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ hits: [{ title: 'HN story', url: 'https://x.test/a', objectID: '1', points: 5 }] }),
-    });
-    const req = createMockReq({ method: 'POST', body: { query: 'anthropic', sources: ['Web'], useLLM: false } });
-    const res = createMockRes();
-
-    await handler(req, res);
-
-    expect(res.statusCode).toBe(200);
-    expect(res.body.results.map(r => r.title)).toContain('HN story');
-    expect(res.body.degradedSources).toContain('web');
-    expect(global.fetch.mock.calls[0][0]).toMatch(/^https:\/\/hn\.algolia\.com\//);
-  });
-
-  test('does not call Hacker News when a source returned results', async () => {
-    performSimpleSearch.mockResolvedValue([{ title: 'Web hit', url: 'https://w.test', source: 'web' }]);
-    global.fetch = jest.fn();
-    const req = createMockReq({ method: 'POST', body: { query: 'anthropic', sources: ['Web'], useLLM: false } });
-    const res = createMockRes();
-
-    await handler(req, res);
-
-    expect(global.fetch).not.toHaveBeenCalled();
-    expect(res.body.results.map(r => r.title)).toEqual(['Web hit']);
-  });
-});
+// The open-search route (including Hacker News coverage) is now tested in
+// tests/unit/features/searchPipeline.test.js.
 
 describe('searchHackerNews', () => {
   const { searchHackerNews } = require('../../../src/utils/sources/hackernewsAlgolia');

@@ -22,29 +22,42 @@ function queryTerms(query) {
     .filter((t) => !STOPWORDS.has(t) && t.length > 1);
 }
 
-/** Rank a result's sentences by relevance to the query (facts and funding count too). */
-function rankedSentences(result, terms) {
+/**
+ * Rank a result's sentences by relevance. ctx (from the query plan):
+ *   entityTest(sentence) -> true when the sentence names the entity
+ *   intentRes            -> regexes for what the user asked (funding, team...)
+ * In entity mode a sentence must name the entity. The title is a candidate
+ * too (many news/HN results are headline-only).
+ */
+function rankedSentences(result, terms, ctx = {}) {
   const text = cleanText(result.snippet);
   const sentences = text.split(/(?<=[.!?])\s+/).filter((s) => s.length >= 20 && s.length <= 400);
-  return sentences
-    .map((sentence, position) => {
+  const title = cleanText(result.title);
+  const candidates = sentences.map((sentence, position) => ({ sentence, position }));
+  if (title.length >= 20 && !sentences.some((x) => x.includes(title))) candidates.push({ sentence: title, position: -1 });
+  return candidates
+    .map(({ sentence, position }) => {
       const lower = sentence.toLowerCase();
-      let score = terms.reduce((n, t) => n + (lower.includes(t) ? 1 : 0), 0);
+      if (ctx.entityTest && !ctx.entityTest(sentence)) return { sentence, position, score: 0 };
+      let score = terms.reduce((n, t) => n + (lower.includes(t) ? 1 : 0), 0) + (ctx.entityTest ? 2 : 0);
+      for (const re of ctx.intentRes || []) if (re.test(sentence)) score += 2;
       if (FUNDING_RE.test(sentence)) score += 0.5;
       if (FACT_RE.test(sentence)) score += 0.5;
       return { sentence, position, score };
     })
-    .filter((s) => s.score > 0)
+    .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score || a.position - b.position);
 }
 
 /** Pick the most query-relevant sentence from a result (title as fallback). */
-function bestSentence(result, terms) {
-  const [top] = rankedSentences(result, terms);
+function bestSentence(result, terms, ctx) {
+  const [top] = rankedSentences(result, terms, ctx);
   if (top) return top.sentence;
   const title = cleanText(result.title);
   return title.length >= 10 ? title : null;
 }
+
+const normSentence = (x) => String(x).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 function primaryEntity(query) {
   // "Acme Robotics Series B" -> "Acme Robotics": stop at funding words.
@@ -54,8 +67,8 @@ function primaryEntity(query) {
   return names[0] || null;
 }
 
-function generateFollowUpQuestions(query) {
-  const entity = primaryEntity(query);
+function generateFollowUpQuestions(query, entityName = null) {
+  const entity = entityName || primaryEntity(query);
   if (entity) {
     return [
       `Who led ${entity}'s most recent round, and at what valuation?`,
@@ -100,25 +113,36 @@ function cite(result, index) {
  * DIFFERENT PERSPECTIVES, FOLLOW-UP QUESTIONS), filled only with sentences
  * quoted from the results and cited to them.
  */
-function createSynthesizedContent(query, results) {
-  const terms = queryTerms(query);
-  const entity = primaryEntity(query);
+function createSynthesizedContent(query, results, ctx = {}) {
+  const terms = queryTerms(ctx.termsQuery || query);
+  const entity = ctx.entityName || primaryEntity(query);
   const entityWords = String(entity || '').toLowerCase().split(/\s+/).filter(Boolean);
   const used = new Set();
-  const take = (sentence) => { used.add(sentence.toLowerCase()); return sentence; };
-  const unused = (sentence) => !used.has(sentence.toLowerCase());
+  const take = (sentence) => { used.add(normSentence(sentence)); return sentence; };
+  const unused = (sentence) => !used.has(normSentence(sentence));
 
-  // Candidate sentences from every result, ranked per result
-  const ranked = results.map((result, index) => ({ result, index, sentences: rankedSentences(result, terms) }));
+  // Candidate sentences from every result (results are already ranked)
+  const ranked = results.map((result, index) => ({ result, index, sentences: rankedSentences(result, terms, ctx) }));
 
-  // SUMMARY: the strongest sentence from up to 3 different sources
-  const summaryLines = ranked
-    .filter((r) => r.sentences.length)
-    .slice(0, 3)
-    .map(({ result, index, sentences }) => `${take(sentences[0].sentence)} ${cite(result, index)}`);
+  // SUMMARY: answer first. For "latest", lead with the newest relevant
+  // source; then the strongest distinct sentences from other sources.
+  const withSentences = ranked.filter((r) => r.sentences.length);
+  const time = (r) => Date.parse(r.result.publishedAt || r.result.date || r.result.timestamp || '') || 0;
+  const leadPool = ctx.recency ? [...withSentences].sort((a, b) => time(b) - time(a)) : withSentences;
+  const summaryLines = [];
+  const summarySources = new Set();
+  for (const r of [...leadPool.slice(0, 1), ...withSentences]) {
+    if (summaryLines.length >= 3) break;
+    if (summarySources.has(r.index)) continue; // one sentence per source
+    const s = r.sentences.find((x) => unused(x.sentence));
+    if (s) {
+      summarySources.add(r.index);
+      summaryLines.push(`${take(s.sentence)} ${cite(r.result, r.index)}`);
+    }
+  }
   const curatedCount = results.filter((r) => r.source === 'curated').length;
   const dated = results.map((r) => formatDate(r.publishedAt || r.date || r.timestamp)).filter(Boolean).sort();
-  const coverage = `Based on ${results.length} source${results.length === 1 ? '' : 's'} for "${query}"` +
+  const coverage = `Based on ${results.length} source${results.length === 1 ? '' : 's'} ${entity ? `about ${entity}` : `for "${query}"`}` +
     `${curatedCount ? ` (${curatedCount} from your curated sources)` : ''}` +
     `${dated.length ? `, dated ${dated[0]} to ${dated[dated.length - 1]}` : ''}:`;
 
@@ -127,7 +151,7 @@ function createSynthesizedContent(query, results) {
   const perSource = results.length <= 2 ? 5 : results.length <= 4 ? 2 : 1;
   const keyPoints = [];
   for (const { result, index, sentences } of ranked) {
-    const picked = sentences.filter((s) => unused(s.sentence)).slice(0, perSource).sort((a, b) => a.position - b.position);
+    const picked = sentences.filter((x) => unused(x.sentence)).slice(0, perSource).sort((a, b) => a.position - b.position);
     for (const s of picked) {
       if (keyPoints.length >= MAX_POINTS) break;
       keyPoints.push(`• ${take(s.sentence)} ${cite(result, index)}`);
@@ -136,6 +160,8 @@ function createSynthesizedContent(query, results) {
   if (keyPoints.length === 0) {
     results.slice(0, 5).forEach((r, i) => keyPoints.push(`• ${cleanText(r.title)} ${cite(r, i)}`));
   }
+  // Detailed analysis and perspectives must not repeat the key points
+  for (const line of keyPoints) used.add(normSentence(line.replace(/^• /, '').replace(/\s*\([^)]*\)\s*\[Source \d+\]$/, '')));
 
   // DETAILED ANALYSIS: remaining quoted sentences grouped by theme
   const themed = THEMES.map((theme) => {
@@ -157,7 +183,7 @@ function createSynthesizedContent(query, results) {
   for (const { result, index, sentences } of ranked) {
     const kind = perspectiveOf(result, entityWords);
     if (byPerspective.has(kind)) continue;
-    const sentence = sentences[0]?.sentence || cleanText(result.title);
+    const sentence = sentences[0]?.sentence;
     if (sentence) byPerspective.set(kind, `• **${kind}**: ${sentence} ${cite(result, index)}`);
   }
   const perspectives = byPerspective.size > 1
@@ -180,12 +206,12 @@ function createSynthesizedContent(query, results) {
     perspectives,
     '',
     '## FOLLOW-UP QUESTIONS',
-    generateFollowUpQuestions(query).map((q) => `• ${q}`).join('\n'),
+    generateFollowUpQuestions(query, entity).map((q) => `• ${q}`).join('\n'),
     '',
     '---',
     `*Results synthesized from ${results.length} sources on ${dateStr}*`,
     '',
-    '*Note: No AI model is configured, so every statement above is quoted from the cited source. For most accurate information, please verify with original sources.*',
+    `*Note: ${ctx.reason || 'No AI model is configured'}, so every statement above is quoted from the cited source. For most accurate information, please verify with original sources.*`,
   ].join('\n');
 }
 
@@ -235,7 +261,7 @@ function createEmptyResponse(query) {
  * @param {Array} results
  * @returns {Object} LLM-shaped response (flagged as synthesized)
  */
-function synthesizeFromResults(query, results) {
+function synthesizeFromResults(query, results, ctx = {}) {
   if (!Array.isArray(results) || results.length === 0) {
     return createEmptyResponse(query);
   }
@@ -266,9 +292,9 @@ function synthesizeFromResults(query, results) {
   });
 
   return resultDetector.addLLMFlags({
-    content: createSynthesizedContent(query, validResults),
+    content: createSynthesizedContent(query, validResults, ctx),
     query,
-    followUpQuestions: generateFollowUpQuestions(query),
+    followUpQuestions: generateFollowUpQuestions(query, ctx.entityName),
     sourceMap,
     categories: generateCategories(validResults),
     metadata: {

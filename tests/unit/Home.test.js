@@ -67,7 +67,7 @@ describe('Home page', () => {
     expect(screen.getByRole('heading', { name: 'Research Hub' })).toBeTruthy();
     expect(screen.getByText('Search across web, academic sources, and more.')).toBeTruthy();
     expect(networkLink?.getAttribute('href')).toBe('/network');
-    expect(openSearch.textContent).toContain('model:mistral-7b');
+    expect(openSearch.textContent).toContain('model:auto'); // best available free model
     expect(openSearch.textContent).toContain('setter:function');
   });
 });
