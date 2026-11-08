@@ -139,7 +139,9 @@ export function extractClaims(result, sourceNumber, { mentions = null } = {}) {
   const claims = [];
   // Table cells and elisions in snippets are separate statements
   const text = `${result.title || ''}. ${result.content || result.snippet || ''}`.replace(/\s*\|\s*|\[\.\.\.\]|\[…\]|\s+·\s+/g, '. ');
+  const titleText = String(result.title || '').replace(/\s+/g, ' ').trim();
   for (const sentence of sentencesOf(text)) {
+    const fromTitle = titleText.length > 0 && sentence.startsWith(titleText.slice(0, Math.min(40, titleText.length)));
     // Raw JSON or code in a snippet is not prose
     if (/[{}]|"\s*:\s*["\[{]/.test(sentence)) continue;
     if (mentions) {
@@ -214,6 +216,7 @@ export function extractClaims(result, sourceNumber, { mentions = null } = {}) {
         whenPubKey: pub ? pub.key : 0,
         prior: isPrior,
         current: !said && CURRENT_NEWS_RE.test(clause.text),
+        fromTitle,
         total,
         namedRound: Boolean(round),
       });

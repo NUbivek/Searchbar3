@@ -439,6 +439,23 @@ describe('ranking: duplicates, user documents and the date filter (defects 7, 10
 });
 
 describe('claim check (defect 3)', () => {
+  test('a figure in the headline of a top-ranked result leads over an older, more-cited one', () => {
+    const { checkClaims } = require('../../../src/utils/claimCheck');
+    const out = checkClaims([
+      { title: 'Ramp raises $1.85 billion at $60 billion valuation', content: 'Expense management company Ramp said on Thursday that it had raised $1.85 billion.', url: 'https://techcrunch.com/1' },
+      { title: 'Ramp Series F', content: 'Ramp raised $750 million at a $44 billion valuation.', url: 'https://cnbc.com/2', publishedAt: '2026-06-15' },
+      { title: 'Ramp Series F', content: 'Ramp announced a $750M Series F.', url: 'https://prnewswire.com/3', publishedAt: '2026-06-15' },
+      { title: 'Ramp Series F', content: 'Ramp closes $750 million round.', url: 'https://yahoo.com/4', publishedAt: '2026-06-16' },
+    ], { entity: 'Ramp' });
+    const funding = out.claims.find((c) => /Funding/.test(c.label));
+    expect(funding.value).toBe('$1.85B');
+    expect(funding.status).toBe('single-source');
+    // the June $750M figures are their own named round, not a disagreement
+    const seriesF = out.claims.find((c) => /Series F/.test(c.label));
+    expect(seriesF.value).toBe('$750M');
+    expect(funding.alternatives.map((a) => a.value)).not.toContain('$750M');
+  });
+
   test('JSON snippets, another company\'s round and "a total of" are not the company\'s claims', () => {
     const { checkClaims } = require('../../../src/utils/claimCheck');
     const out = checkClaims([
