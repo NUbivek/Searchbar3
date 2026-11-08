@@ -179,7 +179,8 @@ export function extractClaims(result, sourceNumber, { mentions = null } = {}) {
       // In a valuation sentence a smaller figure is a raise only when a raise
       // verb sits right before it ("raise as much as $30B"); "up from $500B"
       // is a prior valuation and is left out.
-      const raiseNear = /\b(rais\w*|secur\w*|clos\w*|land\w*|bag\w*|nab\w*|invest\w*|funding|round|financing)\b/i.test(before);
+      const raiseNear = /\b(rais\w*|secur\w*|clos\w*|land\w*|bag\w*|nab\w*|invest\w*|funding|round|financing)\b/i.test(before)
+        || /^\s*(?:in\s+)?(?:funding|financing|round|raise|investment|series [a-h])\b/i.test(after); // "in $1.85bn funding round"
       const clause = clauseAt(sentence, m.index);
       let kind = null;
       if (valuationHere || largestOfSeveral || (isValuation && !isFunding)) kind = 'valuation';

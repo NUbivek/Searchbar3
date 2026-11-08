@@ -442,7 +442,7 @@ describe('claim check (defect 3)', () => {
   test('a figure in the headline of a top-ranked result leads over an older, more-cited one', () => {
     const { checkClaims } = require('../../../src/utils/claimCheck');
     const out = checkClaims([
-      { title: 'Ramp raises $1.85 billion at $60 billion valuation', content: 'Expense management company Ramp said on Thursday that it had raised $1.85 billion.', url: 'https://techcrunch.com/1' },
+      { title: 'Ramp hits $60bn valuation in $1.85bn funding round', content: 'Expense management company Ramp said on Thursday that it had raised $1.85 billion.', url: 'https://techcrunch.com/1' },
       { title: 'Ramp Series F', content: 'Ramp raised $750 million at a $44 billion valuation.', url: 'https://cnbc.com/2', publishedAt: '2026-06-15' },
       { title: 'Ramp Series F', content: 'Ramp announced a $750M Series F.', url: 'https://prnewswire.com/3', publishedAt: '2026-06-15' },
       { title: 'Ramp Series F', content: 'Ramp closes $750 million round.', url: 'https://yahoo.com/4', publishedAt: '2026-06-16' },
@@ -491,7 +491,9 @@ describe('claim check (defect 3)', () => {
     const funding = out.claims.find((c) => /Funding/.test(c.label));
     expect(funding.value).toBe('$1.85B');
     expect(funding.status).toBe('corroborated');
-    expect(funding.alternatives.find((a) => a.value === '$750M')).toEqual(expect.objectContaining({ sameRound: false }));
+    // the June figures are their own named round (Series F), not a disagreement
+    expect(funding.alternatives.map((a) => a.value)).not.toContain('$750M');
+    expect(out.claims.find((c) => /Series F/.test(c.label)).value).toBe('$750M');
   });
 
   test('"prior commitments" and "a year to the day after X\'s $2 billion Series C, which valued the company at $13.7 billion" are earlier figures', () => {
