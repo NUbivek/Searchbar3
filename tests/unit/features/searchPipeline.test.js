@@ -439,6 +439,24 @@ describe('ranking: duplicates, user documents and the date filter (defects 7, 10
 });
 
 describe('claim check (defect 3)', () => {
+  test('a reported target ("in talks to raise $30B") never beats or conflicts with a confirmed raise', () => {
+    const { checkClaims, isSpeculativeClaim } = require('../../../src/utils/claimCheck');
+    const mk = (title, content, url, date) => ({ title, content, url, publishedAt: date });
+    const out = checkClaims([
+      mk('OpenAI in talks to raise $30 billion', 'OpenAI is in talks to raise $30 billion in new funding, people familiar said.', 'https://a.com/1', '2026-11-01'),
+      mk('OpenAI could raise up to $30B', 'OpenAI could raise up to $30 billion this month.', 'https://b.com/2', '2026-11-02'),
+      mk('OpenAI seeks $30B round', 'OpenAI seeks $30 billion at a $1.25 trillion valuation.', 'https://c.com/3', '2026-11-03'),
+      mk('OpenAI raises $11 billion', 'OpenAI raised $11 billion at a $1.25 trillion valuation, the company said.', 'https://d.com/4', '2026-11-07'),
+      mk('OpenAI closes $11B', 'OpenAI has raised $11 billion in a new funding round that values it at $1.25 trillion.', 'https://e.com/5', '2026-11-07'),
+    ]);
+    const funding = out.claims.find((c) => /Funding/.test(c.label));
+    expect(funding.value).toBe('$11B');
+    expect(funding.status).toBe('corroborated');
+    expect(funding.alternatives).toEqual([expect.objectContaining({ value: '$30B', speculative: true })]);
+    expect(isSpeculativeClaim('OpenAI raised $11 billion')).toBe(false);
+    expect(isSpeculativeClaim('OpenAI is in talks to raise $30 billion')).toBe(true);
+  });
+
   const { checkClaims, formatAmount } = require('../../../src/utils/claimCheck');
   test('"$11 billion at a $1.25 trillion valuation" is a raise and a valuation, not a conflict', () => {
     const results = [

@@ -107,6 +107,14 @@ export function extractClaims(result, sourceNumber) {
  * @param {Array} results search results in display order (source n = index+1)
  * @returns {{ claims: Array, summary: { corroborated, singleSource, conflicts } }}
  */
+// "in talks to raise $30B", "could raise up to $40B": a target, not a figure
+// that was raised. Confirmed figures outrank targets when choosing the
+// headline value, and a target never counts as a disagreement with a raise.
+const SPECULATIVE_RE = /\b(in talks|talks to|seeks?|seeking|sought|plans? to|planning|could|may|might|reportedly (?:looking|seeking|planning|aiming)|looking to|aims?|aiming|targets?|targeting|would|considering|exploring|hopes?|wants?|expected to|set to|as much as|up to|potential(?:ly)?|proposed|rumou?red)\b/i;
+export function isSpeculativeClaim(quote) {
+  return SPECULATIVE_RE.test(String(quote || ''));
+}
+
 export function checkClaims(results = []) {
   const all = results.flatMap((r, i) => extractClaims(r, i + 1));
   // A raise with no round named ("Mistral raises €3B") that matches the
@@ -134,8 +142,12 @@ export function checkClaims(results = []) {
       if (hit) hit.items.push(c);
       else clusters.push({ amount: c.amount, items: [c] });
     }
-    clusters.sort((a, b) => new Set(b.items.map((i) => i.site)).size - new Set(a.items.map((i) => i.site)).size);
+    const definite = (cl) => cl.items.filter((i) => !isSpeculativeClaim(i.quote));
+    const siteCount = (list) => new Set(list.map((i) => i.site)).size;
+    // Confirmed figures first (by independent sites), then targets
+    clusters.sort((a, b) => (siteCount(definite(b)) - siteCount(definite(a))) || (siteCount(b.items) - siteCount(a.items)));
     const top = clusters[0];
+    const isTarget = (cl) => definite(cl).length === 0;
     const sites = new Set(top.items.map((i) => i.site));
     // Two figures are a conflict only when they describe the same round: the
     // same named round, or the same month/year. Otherwise they are most
@@ -144,13 +156,14 @@ export function checkClaims(results = []) {
     const dates = (cl) => new Set(cl.items.map((i) => i.when).filter(Boolean));
     const sameRound = (a, b) => (a.items[0].namedRound && b.items[0].namedRound && a.items[0].key === b.items[0].key)
       || [...dates(a)].some((d) => dates(b).has(d));
-    const conflicting = clusters.slice(1).filter((cl) => sameRound(top, cl));
+    const conflicting = clusters.slice(1).filter((cl) => sameRound(top, cl) && !isTarget(cl) && !isTarget(top));
     const status = conflicting.length > 0 ? 'conflict' : sites.size >= 2 ? 'corroborated' : 'single-source';
     const alternatives = clusters.slice(1).map((cl) => ({
       value: formatAmount({ amount: cl.amount, currency: items[0].currency }),
       sources: [...new Set(cl.items.map((i) => i.source))],
       quote: cl.items[0].quote,
       sameRound: sameRound(top, cl),
+      speculative: isTarget(cl),
     }));
     claims.push({
       label: items[0].label,

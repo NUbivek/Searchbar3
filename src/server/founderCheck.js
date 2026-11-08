@@ -43,7 +43,7 @@ const NEAR_CHARS = 90;
 export const LITIGATION_DISCLAIMER =
   'Absence of litigation or regulatory results here is NOT evidence of a clean record. These sources are news, Hacker News and (when configured) web search and CourtListener; they do not cover all courts, regulators or jurisdictions.';
 
-const ROLE_WORD = "(?:co-?founders?|founders?|CEO|CTO|COO|CFO|CPO|CSO|CRO|CMO|CIO|chief\\s+[a-z]+\\s+officer|president|chair(?:man|woman|person)?|managing\\s+director|executive\\s+director|director|general\\s+partner|partner|VP|vice\\s+president|head\\s+of\\s+[a-z]+|researcher|research\\s+scientist|scientist|engineer|professor|investor|advis[eo]r|board\\s+member|executive|manager|analyst)";
+const ROLE_WORD = "(?:co-?founders?|founders?|CEO|CTO|COO|CFO|CPO|CSO|CRO|CMO|CIO|chief\\s+executive(?:\\s+officer)?|chief\\s+[a-z]+\\s+officer|president|chair(?:man|woman|person)?|managing\\s+director|executive\\s+director|director|general\\s+partner|partner|VP|vice\\s+president|head\\s+of\\s+[a-z]+|researcher|research\\s+scientist|scientist|engineer|professor|investor|advis[eo]r|board\\s+member|executive|manager|analyst)";
 
 const ROLE_RE = new RegExp(`\\b(?:found(?:ed|er|ers|ing)|co-?found(?:ed|er|ers)|joined|joins|left|leaves|departed|departs|served|serves|appointed|appoints|named|became|becomes|worked|works|hired|launched|launches|started|starts|led(?!\\s+by)|leads|runs|heads|promoted|stepped\\s+down|steps\\s+down|resigned|resigns|fired|ousted|returns?|rejoined|takes\\s+over|took\\s+over|graduated|studied|earned|previously|formerly|former|${ROLE_WORD})\\b`, 'i');
 
@@ -62,7 +62,10 @@ const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_RE = /\b(19[89]\d|20\d\d)\b/g;
 
 // A company name: one to four capitalized tokens (allowing &, ., -, digits).
-const CO = "(?<co>[A-Z\\u00C0-\\u024F][A-Za-z\\u00C0-\\u024F0-9&.'-]*(?:\\s+(?:[A-Z\\u00C0-\\u024F][A-Za-z\\u00C0-\\u024F0-9&.'-]*|&|of|de|du|la)){0,3})";
+// A company token never starts with a role word ("Mistral Chief Executive Arthur Mensch" -> "Mistral").
+const NOT_ROLE = "(?!(?:Chief|Executive|Officer|President|Founder|Co-?Founder|CEO|CTO|COO|CFO|Director|Head|VP|Chairman|Chairwoman|Partner|Boss)\\b)";
+const CO_TOKEN = `${NOT_ROLE}[A-Z\\u00C0-\\u024F][A-Za-z\\u00C0-\\u024F0-9&.'-]*`;
+const CO = `(?<co>${CO_TOKEN}(?:\\s+(?:${CO_TOKEN}|&|of|de|du|la)){0,3})`;
 
 /**
  * Make lowercase keywords in a pattern match with either capitalization
@@ -100,7 +103,8 @@ const EDUCATION_PATTERNS = [
 ];
 
 const COMPANY_STOP = new Set(['The', 'A', 'An', 'He', 'She', 'They', 'His', 'Her', 'In', 'On', 'At', 'And', 'Before', 'After', 'Then', 'Its', 'This', 'That', 'It', 'We', 'You', 'I', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'Chief', 'Founder', 'CEO', 'Series', 'Today', 'Yesterday']);
-const COMPANY_LEADING = new Set(['The', 'A', 'An', 'Former', 'Then', 'Ex', 'Current', 'Outgoing', 'Incoming', 'Longtime', 'Veteran', 'Fellow', 'Interim']);
+const COMPANY_LEADING = new Set(['The', 'A', 'An', 'Former', 'Then', 'Ex', 'Current', 'Outgoing', 'Incoming', 'Longtime', 'Veteran', 'Fellow', 'Interim', 'French', 'British', 'American', 'German', 'European', 'Indian', 'Chinese', 'Canadian', 'Australian', 'Israeli', 'Japanese', 'Korean', 'Dutch', 'Swiss', 'Swedish', 'Spanish', 'Italian', 'Irish', 'Nigerian', 'Brazilian', 'Mexican', 'Singaporean', 'Paris-based', 'London-based', 'US-based', 'New York-based', 'San Francisco-based']);
+const COMPANY_GENERIC = new Set(['AI', 'Tech', 'Startup', 'Company', 'Firm', 'Unicorn', 'Lab', 'Labs', 'Executive', 'Chief', 'Officer', 'Founder', 'Boss', 'Billionaire', 'Entrepreneur']);
 
 function escapeRe(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -196,18 +200,29 @@ function companyMatcher(company) {
   };
 }
 
-function cleanCompany(raw, name) {
+function cleanCompany(raw, name, host = '') {
   // "Y Combinator. AMA" -> "Y Combinator" (a period followed by a space ends the name)
   let c = String(raw || '').trim().split(/\.\s+/)[0].replace(/['’]s$/, '').replace(/[.,;:'-]+$/, '').replace(/\s+(of|de|du|la|&)$/i, '').trim();
   let words = c.split(/\s+/);
   while (words.length > 1 && COMPANY_LEADING.has(words[0])) words = words.slice(1);
+  // Trailing role words come from "Mistral Chief Executive ..." captures; real
+  // names keep "AI"/"Labs" ("Mistral AI" stays).
+  while (words.length > 1 && /^(Executive|Chief|Officer|Founder|Boss|Billionaire|Entrepreneur)$/.test(words[words.length - 1])) words = words.slice(0, -1);
+  // Web snippets sometimes glue the publisher to the text: "CybernewsMistral"
+  // when the page came from cybernews.com. Drop a prefix that names the host.
+  const glued = words[0] && words[0].match(/^([A-Z][a-z]{3,})([A-Z].+)$/);
+  if (glued && host && host.toLowerCase().includes(glued[1].toLowerCase())) words[0] = glued[2];
   c = words.join(' ');
-  if (!c || COMPANY_STOP.has(words[0]) || c.length < 2) return null;
+  if (!c || COMPANY_STOP.has(words[0]) || COMPANY_GENERIC.has(c) || c.length < 2) return null;
   if (new RegExp(`^${ROLE_WORD}$`, 'i').test(c)) return null;
   // Never treat the person themselves (or part of their name) as a company.
   const nameParts = String(name).split(/\s+/);
   if (nameParts.includes(c) || String(name).includes(c)) return null;
   return c;
+}
+
+function hostOf(result) {
+  try { return new URL(result?.url || result?.link || '').hostname; } catch { return ''; }
 }
 
 function yearsIn(sentence) {
@@ -352,7 +367,7 @@ export function extractFounderEvidence({ name, company, results, keepAllSources 
       for (const { kind, re } of [...COMPANY_PATTERNS, ...namedPatterns]) {
         const m = nearName(text, hasName, re);
         if (!m) continue;
-        const co = cleanCompany(m.groups?.co, personName);
+        const co = cleanCompany(m.groups?.co, personName, hostOf(result));
         if (!co) continue;
         let role = m.groups?.role ? String(m.groups.role).replace(/\s+/g, ' ') : null;
         if (role && /founded$/i.test(role)) role = /^co/i.test(role) ? 'co-founder' : 'founder';

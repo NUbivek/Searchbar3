@@ -180,6 +180,21 @@ describe('founderCheck extraction: real-world phrasings (from live outputs)', ()
     expect(out.mentions.map((p) => p.title)).toEqual(['Repl.it raises $4.5M from A16Z and others']);
   });
 
+  test('web-snippet phrasings: role words, nationalities and glued publishers do not become companies', () => {
+    const out = extractFounderEvidence({
+      name: 'Arthur Mensch',
+      results: [
+        R({ title: 'Mistral Chief Executive Arthur Mensch on Europe', url: 'https://www.cnbc.com/a', content: 'Mistral Chief Executive Arthur Mensch said the company will expand.' }),
+        R({ title: 'French AI executive Arthur Mensch speaks', url: 'https://www.ft.com/b', content: 'French AI executive Arthur Mensch spoke in Paris.' }),
+        R({ title: 'Mistral CEO on open models', url: 'https://cybernews.com/c', content: 'CybernewsMistral CEO Arthur Mensch argued for open weights.' }),
+      ],
+    });
+    const companies = out.pastCompanies.map((c) => c.company);
+    expect(companies).toEqual(['Mistral']);
+    expect(out.pastCompanies[0].role).toMatch(/^Chief Executive$|^CEO$/);
+    expect(out.currentRole.company).toBe('Mistral');
+  });
+
   test('company keys ignore suffixes and punctuation', () => {
     expect(companyKeys('Mistral AI, Inc.')).toEqual(['mistral']);
     expect(companyKeys('Google DeepMind')).toEqual(['google deepmind']);
