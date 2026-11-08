@@ -296,7 +296,7 @@ describe('founder check: profiles, education and brief', () => {
     expect(quoted.brief).toMatch(/## CAREER TIMELINE[\s\S]*2019/);
     expect(quoted.brief).toMatch(/NOT evidence of a clean record/);
     expect(quoted.brief).toMatch(/Most recent role found: Co-Founder/i);
-    expect(quoted.brief).toMatch(/Ask references about the reasons for each move between/);
+    expect(quoted.brief).toMatch(/Only one company was found \(Acme Robotics\)/);
 
     providers.providerEnabled.mockReturnValue(true);
     providers.chatComplete.mockResolvedValue({

@@ -527,7 +527,9 @@ function quotedBrief(person, company, evidence, reason) {
   const flagged = [...evidence.timeline, ...evidence.pastCompanies, ...evidence.litigation, ...evidence.press].filter((x) => x.possibleDifferentPerson).length;
   const redFlags = ['• Confirm identity: sources are matched by full name only; check that each describes the same person.'];
   if (flagged) redFlags.push(`• ${flagged} item(s) come from sources that do not mention ${company}; confirm they describe the same person.`);
-  if (evidence.pastCompanies.length) redFlags.push(`• Ask references about the reasons for each move between ${evidence.pastCompanies.map((c) => c.company).slice(0, 5).join(', ')}.`);
+  const companyNames = evidence.pastCompanies.map((c) => c.company).slice(0, 5);
+  if (companyNames.length > 1) redFlags.push(`• Ask references about the reasons for each move between ${companyNames.join(', ')}.`);
+  else if (companyNames.length === 1) redFlags.push(`• Only one company was found (${companyNames[0]}); ask for a full CV and verify earlier roles directly.`);
   else redFlags.push('• No employer could be extracted from the sources; ask for a CV and verify each role directly.');
   if (evidence.litigation.length) redFlags.push(`• Review the ${evidence.litigation.length} litigation or regulatory mention(s) above with counsel.`);
   if (!evidence.education.length) redFlags.push('• Education not found in the sources; verify degrees with the institution.');
