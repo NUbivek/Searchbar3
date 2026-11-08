@@ -1,17 +1,19 @@
 /**
  * The signed-in user's imported network contacts.
  *
- *   GET    -> { contacts: Contact[], stats }
+ *   GET    -> { contacts: Contact[], stats }   (compact: empty fields omitted)
  *   POST   { source: 'linkedin'|'csv'|'x', contacts: Contact[] }
- *          -> { saved, duplicates, truncated, rejected, stats }
- *          Replaces all contacts from that source (max 30,000 per user).
+ *          -> { saved, duplicates, truncated, rejected, stats, contacts }
+ *          Replaces all contacts from that source (max 30,000 per user);
+ *          `contacts` are the rows now saved for that source, so the page
+ *          does not have to download the whole network again.
  *   DELETE -> { deleted, stats }  (removes all of the user's network data)
  *
  * 401 when signed out, 503 when no database is configured.
  */
 import { withUser } from '../../../server/apiHelpers';
 import {
-  replaceContacts, listContacts, deleteAllContacts, contactStats, MAX_CONTACTS_PER_USER,
+  replaceContacts, listContacts, deleteAllContacts, contactStats, compactContact, MAX_CONTACTS_PER_USER,
 } from '../../../server/network/store';
 import { normalizeContact, SOURCES } from '../../../utils/network/parseContacts';
 
@@ -20,7 +22,7 @@ export const config = { api: { bodyParser: { sizeLimit: '15mb' } } };
 export default withUser(['GET', 'POST', 'DELETE'], async (req, res, userId) => {
   if (req.method === 'GET') {
     const [contacts, stats] = await Promise.all([listContacts(userId), contactStats(userId)]);
-    return res.status(200).json({ contacts, stats });
+    return res.status(200).json({ contacts: contacts.map(compactContact), stats });
   }
 
   if (req.method === 'DELETE') {

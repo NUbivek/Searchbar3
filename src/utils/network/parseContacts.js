@@ -102,15 +102,19 @@ const COMPANY_SUFFIXES = new Set([
 ]);
 
 /**
- * Grouping key for a company name: lower case, accents and punctuation
- * removed, "&" -> "and", leading "the" and trailing legal suffixes
- * (Inc, LLC, Ltd, Corp, GmbH...) stripped. "Stripe, Inc." -> "stripe".
+ * Grouping key for a company name: lower case, accents (on Latin letters)
+ * and punctuation removed, "&" -> "and", leading "the" and trailing legal
+ * suffixes (Inc, LLC, Ltd, Corp, GmbH...) stripped. "Stripe, Inc." ->
+ * "stripe". Letters and digits of every script are kept, so "Яндекс" and
+ * "株式会社トヨタ" get keys too (marks that are part of the script, such as
+ * Japanese dakuten, are left alone).
  */
 export function normalizeCompanyKey(name) {
-  let s = clean(name).toLowerCase();
+  let s = clean(name);
   if (!s) return '';
-  s = s.normalize('NFKD').replace(/[̀-ͯ]/g, '');
-  s = s.replace(/&/g, ' and ').replace(/['’`]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  // A fixed locale keeps keys identical in the browser and on the server.
+  s = s.normalize('NFKD').replace(/(\p{Script=Latin})\p{M}+/gu, '$1').normalize('NFC').toLocaleLowerCase('en');
+  s = s.replace(/&/g, ' and ').replace(/['’`]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   let words = s.split(' ').filter(Boolean);
   if (words[0] === 'the' && words.length > 1) words = words.slice(1);
   while (words.length > 1 && COMPANY_SUFFIXES.has(words[words.length - 1])) words.pop();
@@ -151,8 +155,10 @@ const isoDate = (y, m, d) => {
 /**
  * "05 Nov 2026" (LinkedIn), "2026-11-05", "11/05/2026" (US), "5 November
  * 2026", "Nov 5, 2026", or an Excel serial day number -> "YYYY-MM-DD".
+ * Slash dates are month/day unless the first number is over 12 (day/month)
+ * or `dayFirst` is set (detected per file by rowsToContacts).
  */
-export function parseDate(value) {
+export function parseDate(value, { dayFirst = false } = {}) {
   if (value == null || value === '') return null;
   if (typeof value === 'number' && Number.isFinite(value)) {
     if (value > 20000 && value < 80000) {
@@ -162,7 +168,12 @@ export function parseDate(value) {
     return null;
   }
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return isoDate(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
+    // Spreadsheet libraries hand back date-only cells as local midnight;
+    // anything else (e.g. an ISO instant) is read in UTC.
+    const local = value.getHours() === 0 && value.getMinutes() === 0 && value.getSeconds() === 0;
+    return local
+      ? isoDate(value.getFullYear(), value.getMonth() + 1, value.getDate())
+      : isoDate(value.getUTCFullYear(), value.getUTCMonth() + 1, value.getUTCDate());
   }
   const s = clean(value, 60);
   const month = (word) => MONTHS[word.slice(0, 3).toLowerCase()];
@@ -172,9 +183,31 @@ export function parseDate(value) {
   if (m && month(m[1])) return isoDate(m[3], month(m[1]), m[2]);
   m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
   if (m) return isoDate(m[1], m[2], m[3]);
-  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return isoDate(m[3], m[1], m[2]);
+  m = s.match(/^(\d{1,2})[/.](\d{1,2})[/.](\d{4})$/);
+  if (m) {
+    const first = Number(m[1]);
+    const second = Number(m[2]);
+    const dayIsFirst = first > 12 || (dayFirst && second <= 12);
+    return dayIsFirst ? isoDate(m[3], m[2], m[1]) : isoDate(m[3], m[1], m[2]);
+  }
   return null;
+}
+
+/**
+ * Look at a column of raw date strings and decide whether slash dates in
+ * this file are day-first: true when some row can only be day/month
+ * (first number over 12) and no row can only be month/day.
+ */
+export function detectDayFirst(values) {
+  let dayFirst = 0;
+  let monthFirst = 0;
+  for (const v of values || []) {
+    const m = String(v ?? '').trim().match(/^(\d{1,2})[/.](\d{1,2})[/.]\d{4}$/);
+    if (!m) continue;
+    if (Number(m[1]) > 12) dayFirst += 1;
+    else if (Number(m[2]) > 12) monthFirst += 1;
+  }
+  return dayFirst > 0 && monthFirst === 0;
 }
 
 /** Only http(s) links are kept; bare "linkedin.com/in/x" gets https://. */
@@ -208,7 +241,7 @@ function cleanTags(value) {
 }
 
 /** Validate and normalise one contact (from any source, client or server). */
-export function normalizeContact(raw, source) {
+export function normalizeContact(raw, source, { dayFirst = false } = {}) {
   if (!raw || typeof raw !== 'object') return null;
   const src = SOURCES.includes(source) ? source : (SOURCES.includes(raw.source) ? raw.source : 'csv');
   const firstName = clean(raw.firstName, LIMITS.firstName);
@@ -225,7 +258,7 @@ export function normalizeContact(raw, source) {
     email: cleanEmail(raw.email),
     profileUrl: cleanProfileUrl(raw.profileUrl),
     location: clean(raw.location, LIMITS.location),
-    connectedOn: parseDate(raw.connectedOn),
+    connectedOn: parseDate(raw.connectedOn, { dayFirst }),
     source: src,
     tags: cleanTags(raw.tags),
   };
@@ -294,7 +327,7 @@ export function mapHeaders(headerRow) {
 
 const usableMapping = (m) => m.name !== undefined || m.firstName !== undefined || m.lastName !== undefined;
 
-function rowToContact(row, mapping, source) {
+function rowToContact(row, mapping, source, { dayFirst = false } = {}) {
   const get = (field) => (mapping[field] === undefined ? '' : row[mapping[field]]);
   const location = [clean(get('location')), clean(get('country'))].filter(Boolean).join(', ');
   const tags = cleanTags(get('tags'));
@@ -311,7 +344,7 @@ function rowToContact(row, mapping, source) {
     location,
     connectedOn: get('connectedOn'),
     tags,
-  }, source);
+  }, source, { dayFirst });
 }
 
 /**
@@ -327,16 +360,28 @@ export function rowsToContacts(rows, { source = 'csv' } = {}) {
     const m = mapHeaders(list[i]);
     if (usableMapping(m)) { headerIdx = i; mapping = m; break; }
   }
-  if (headerIdx < 0) return { contacts: [], headerFound: false, skippedRows: list.length, mapping: {} };
+  if (headerIdx < 0) return { contacts: [], headerFound: false, skippedRows: list.length, duplicates: 0, truncated: 0, mapping: {} };
+  const body = list.slice(headerIdx + 1);
+  const dayFirst = mapping.connectedOn !== undefined && detectDayFirst(body.map((r) => r[mapping.connectedOn]));
   const contacts = [];
   let skippedRows = 0;
-  for (const row of list.slice(headerIdx + 1)) {
-    const c = rowToContact(row, mapping, source);
+  for (const row of body) {
+    const c = rowToContact(row, mapping, source, { dayFirst });
     if (c) contacts.push(c); else skippedRows += 1;
   }
   const deduped = dedupeContacts(contacts);
-  return { contacts: deduped.slice(0, MAX_CONTACTS), headerFound: true, skippedRows, duplicates: contacts.length - deduped.length, mapping };
+  return {
+    contacts: deduped.slice(0, MAX_CONTACTS),
+    headerFound: true,
+    skippedRows,
+    duplicates: contacts.length - deduped.length,
+    truncated: Math.max(0, deduped.length - MAX_CONTACTS),
+    mapping,
+  };
 }
+
+/** A header mapping with LinkedIn's three signature columns. */
+export const isLinkedInMapping = (m) => m && m.firstName !== undefined && m.lastName !== undefined && m.connectedOn !== undefined;
 
 /** True when the text looks like LinkedIn's Connections.csv export. */
 export function isLinkedInConnectionsCsv(text) {
@@ -388,36 +433,62 @@ export function parseXFollowing(json) {
     if (c) contacts.push(c); else skippedRows += 1;
   }
   const deduped = dedupeContacts(contacts);
-  return { contacts: deduped.slice(0, MAX_CONTACTS), headerFound: users.length > 0, skippedRows, duplicates: contacts.length - deduped.length };
+  return {
+    contacts: deduped.slice(0, MAX_CONTACTS),
+    headerFound: users.length > 0,
+    skippedRows,
+    duplicates: contacts.length - deduped.length,
+    truncated: Math.max(0, deduped.length - MAX_CONTACTS),
+  };
 }
+
+const EMPTY = { contacts: [], headerFound: false, skippedRows: 0, duplicates: 0, truncated: 0 };
 
 /**
  * Browser: parse an uploaded File. kind: 'linkedin' | 'auto'.
  * .xlsx/.xls are read with the `xlsx` package, loaded on demand.
+ *
+ * kind 'linkedin' (the "Upload LinkedIn Connections.csv" button) only
+ * accepts a file with LinkedIn's columns (First Name, Last Name, Connected
+ * On). Any other contacts file is refused with `reason: 'not-linkedin'`
+ * instead of being saved over the LinkedIn import.
  */
 export async function parseContactsFile(file, { kind = 'auto' } = {}) {
   const name = String(file?.name || '').toLowerCase();
   if (/\.(xlsx|xlsm|xls)$/.test(name)) {
     const XLSX = await import('xlsx');
     const buffer = await file.arrayBuffer();
-    const wb = XLSX.read(buffer, { type: 'array', cellDates: false });
+    // cellDates + raw keep date cells as Date objects (handled by parseDate)
+    // instead of locale-formatted strings.
+    const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+    let generic = null;
     for (const sheetName of wb.SheetNames) {
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: false, defval: '' });
-      const asLinkedIn = rows.slice(0, 15).some((r) => {
-        const m = mapHeaders(r);
-        return m.firstName !== undefined && m.lastName !== undefined && m.connectedOn !== undefined;
-      });
-      const result = rowsToContacts(rows, { source: kind === 'linkedin' || asLinkedIn ? 'linkedin' : 'csv' });
-      if (result.headerFound) return { ...result, source: result.contacts[0]?.source || 'csv' };
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: '' });
+      const asLinkedIn = rows.slice(0, 15).some((r) => isLinkedInMapping(mapHeaders(r)));
+      const result = rowsToContacts(rows, { source: asLinkedIn ? 'linkedin' : 'csv' });
+      if (!result.headerFound) continue;
+      if (kind === 'linkedin' && !asLinkedIn) { generic = generic || result; continue; }
+      return { ...result, source: asLinkedIn ? 'linkedin' : 'csv' };
     }
-    return { contacts: [], headerFound: false, skippedRows: 0, source: 'csv' };
+    if (generic) return { ...EMPTY, reason: 'not-linkedin', source: 'csv' };
+    return { ...EMPTY, source: 'csv' };
   }
   const text = await file.text();
   if (/\.json$/.test(name) || /^\s*[[{]/.test(text)) {
+    if (kind === 'linkedin') return { ...EMPTY, reason: 'not-linkedin', source: 'x' };
     return { ...parseXFollowing(text), source: 'x' };
   }
-  if (kind === 'linkedin' || isLinkedInConnectionsCsv(text)) {
+  if (isLinkedInConnectionsCsv(text)) {
     return { ...parseLinkedInConnectionsCsv(text), source: 'linkedin' };
+  }
+  if (kind === 'linkedin') {
+    // The header may be spelled differently; accept it only when the mapped
+    // columns are LinkedIn's. Otherwise refuse rather than guess.
+    const rows = parseCsv(text, { delimiter: ',' });
+    const asLinkedIn = rows.slice(0, 15).some((r) => isLinkedInMapping(mapHeaders(r)));
+    if (asLinkedIn) return { ...rowsToContacts(rows, { source: 'linkedin' }), source: 'linkedin' };
+    const generic = parseGenericCsv(text);
+    return { ...EMPTY, ...(generic.headerFound ? { reason: 'not-linkedin' } : {}), source: 'csv' };
   }
   return { ...parseGenericCsv(text), source: 'csv' };
 }

@@ -53,7 +53,8 @@ describe('/api/auth/twitter', () => {
 
     await handler(req, res);
 
-    expect(res.redirectUrl).toBe(`/network?error=${encodeURIComponent('X is not configured yet: add TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET to .env.local and restart the dev server.')}`);
+    // A short code the network page maps to user copy; no env var names or file paths.
+    expect(res.redirectUrl).toBe('/network?error=twitter_not_configured');
     expect(res.jsonPayload).toBeNull();
   });
 

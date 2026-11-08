@@ -8,11 +8,7 @@ const handler = require('../../../src/pages/api/auth/linkedin/index').default;
 
 function createRedirectRes() {
   const res = createMockRes();
-  res.headers = {};
   res.redirectUrl = null;
-  res.setHeader = jest.fn((name, value) => {
-    res.headers[name] = value;
-  });
   res.redirect = jest.fn((url) => {
     res.redirectUrl = url;
     return res;
@@ -22,15 +18,20 @@ function createRedirectRes() {
 
 describe('/api/auth/linkedin', () => {
   const originalClientId = process.env.LINKEDIN_CLIENT_ID;
-  const originalRandom = Math.random;
+  let logSpy;
 
   beforeEach(() => {
     jest.clearAllMocks();
     delete process.env.LINKEDIN_CLIENT_ID;
+    logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   afterAll(() => {
-    Math.random = originalRandom;
     if (originalClientId) {
       process.env.LINKEDIN_CLIENT_ID = originalClientId;
     } else {
@@ -45,57 +46,49 @@ describe('/api/auth/linkedin', () => {
     handler(req, res);
 
     expect(res.statusCode).toBe(405);
-    expect(res.body).toEqual({ error: 'Method not allowed' });
-  });
-
-  test('returns configuration error when client id is missing', () => {
-    const req = createMockReq();
-    const res = createRedirectRes();
-
-    handler(req, res);
-
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      status: 'fail-soft',
-      error: 'Configuration error',
-      details: 'LinkedIn client ID is not configured.',
-      degradedSources: ['linkedin-auth'],
-    });
-    expect(getCallbackUrl).toHaveBeenCalledWith('linkedin');
     expect(res.redirect).not.toHaveBeenCalled();
   });
 
-  test('sets auth state cookie and redirects to linkedin oauth', () => {
-    process.env.LINKEDIN_CLIENT_ID = 'linkedin-client-id';
-    jest.spyOn(Math, 'random').mockReturnValue(0.123456);
-
+  test('sends the user back to /network with an error code (not developer copy) when the client id is missing', () => {
     const req = createMockReq();
     const res = createRedirectRes();
 
     handler(req, res);
 
-    expect(getCallbackUrl).toHaveBeenCalledWith('linkedin');
-    expect(res.setHeader).toHaveBeenCalledWith(
-      'Set-Cookie',
-      expect.stringContaining('linkedin_auth_state=')
-    );
-    expect(res.headers['Set-Cookie']).toContain('HttpOnly');
-    expect(res.headers['Set-Cookie']).toContain('SameSite=Lax');
+    // The page maps the code to user-facing copy; env var names never reach the browser.
     expect(res.redirect).toHaveBeenCalledTimes(1);
-    expect(res.redirectUrl).toContain('https://www.linkedin.com/oauth/v2/authorization');
-    expect(res.redirectUrl).toContain('client_id=linkedin-client-id');
-    expect(res.redirectUrl).toContain('response_type=code');
-    expect(res.redirectUrl).toContain('scope=r_emailaddress+r_liteprofile');
-    expect(res.redirectUrl).toContain(
-      encodeURIComponent('https://example.com/api/auth/linkedin/callback')
-    );
+    expect(res.redirectUrl).toBe('/network?error=linkedin_not_configured');
+    expect(res.redirectUrl).not.toMatch(/LINKEDIN_CLIENT|\.env/);
+    expect(res.headers['Set-Cookie']).toBeUndefined();
+    expect(console.error).toHaveBeenCalledTimes(1);
+  });
 
-    const cookieState = res.headers['Set-Cookie']
-      .split(';')[0]
-      .split('=')[1];
-    const redirectState = new URL(res.redirectUrl).searchParams.get('state');
+  test('sets the auth state cookie and redirects to LinkedIn with the same state', () => {
+    process.env.LINKEDIN_CLIENT_ID = 'linkedin-client-id';
 
-    expect(cookieState).toBeTruthy();
-    expect(redirectState).toBe(cookieState);
+    const req = createMockReq({ headers: { host: 'localhost:3000' } });
+    const res = createRedirectRes();
+
+    handler(req, res);
+
+    expect(getCallbackUrl).toHaveBeenCalledWith('linkedin', req);
+    const cookie = res.headers['Set-Cookie'];
+    // State is 16 random bytes (hex) and the cookie expires after 10 minutes
+    expect(cookie).toMatch(/^linkedin_auth_state=[0-9a-f]{32};/);
+    expect(cookie).toContain('Max-Age=600');
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Lax');
+
+    expect(res.redirect).toHaveBeenCalledTimes(1);
+    expect(res.redirectUrl.startsWith('https://www.linkedin.com/oauth/v2/authorization?')).toBe(true);
+    const params = new URL(res.redirectUrl).searchParams;
+    expect(params.get('client_id')).toBe('linkedin-client-id');
+    expect(params.get('response_type')).toBe('code');
+    expect(params.get('redirect_uri')).toBe('https://example.com/api/auth/linkedin/callback');
+    expect(params.get('scope')).toBe('openid profile email');
+    expect(params.get('state')).toBe(cookie.split(';')[0].split('=')[1]);
+    // OAuth parameters (client id, authorization URL, state) are not logged.
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(console.error).not.toHaveBeenCalled();
   });
 });

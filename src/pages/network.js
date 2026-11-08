@@ -22,7 +22,7 @@ import NetworkGraph, { SOURCE_COLORS } from '../components/network/NetworkGraph'
 import {
   parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, MAX_CONTACTS,
 } from '../utils/network/parseContacts';
-import { buildGraph, personNodeId, companyNodeId, NO_COMPANY_KEY } from '../utils/network/graph';
+import { buildGraph, personNodeId, companyNodeId, NO_COMPANY_KEY, MAX_PEOPLE_PER_EXPANDED_COMPANY } from '../utils/network/graph';
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
@@ -31,6 +31,25 @@ function classNames(...classes) {
 const SOURCE_LABELS = { linkedin: 'LinkedIn', csv: 'CSV/XLSX', x: 'X' };
 const EXAMPLES = ['Who do I know at Google?', 'Find software engineers in my network', 'Intro paths to Stripe'];
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
+// The contacts API accepts 15 MB request bodies; stop a little short of it.
+const MAX_BODY_BYTES = 14 * 1024 * 1024;
+// Answers expand the companies of the top matches, but not huge ones.
+const AUTO_EXPAND_MAX_PEOPLE = 60;
+const fmt = (n) => Number(n || 0).toLocaleString('en-US');
+
+// OAuth redirects come back with ?error=<code>; only these are shown.
+const AUTH_ERRORS = {
+  linkedin_not_configured: 'LinkedIn sign-in is not set up on this server.',
+  linkedin_denied: 'LinkedIn sign-in was cancelled.',
+  linkedin_state: 'LinkedIn sign-in could not be verified. Please try connecting again.',
+  linkedin_failed: 'LinkedIn sign-in did not complete. Please try again.',
+  twitter_not_configured: 'X sign-in is not set up on this server.',
+  twitter_denied: 'X sign-in was cancelled.',
+  twitter_state: 'X sign-in could not be verified. Please try connecting again.',
+  twitter_expired: 'The X sign-in session expired. Please try connecting again.',
+  twitter_failed: 'X sign-in did not complete. Please try again.',
+};
+const authErrorText = (code) => AUTH_ERRORS[String(code || '')] || 'Sign-in did not complete. Please try again.';
 
 const formatDate = (iso) => {
   if (!iso) return '';
@@ -117,8 +136,8 @@ export default function NetworkPage() {
   const [notice, setNotice] = useState(null); // { kind: 'error'|'success'|'info', text }
   const [busy, setBusy] = useState(null);
 
-  const [linkedin, setLinkedin] = useState({ checked: false, connected: false, name: '' });
-  const [xStatus, setXStatus] = useState({ checked: false, connected: false, username: '', note: '' });
+  const [linkedin, setLinkedin] = useState({ checked: false, connected: false, name: '', configured: true });
+  const [xStatus, setXStatus] = useState({ checked: false, connected: false, username: '', note: '', configured: true });
 
   const [sourceFilter, setSourceFilter] = useState({ linkedin: true, csv: true, x: true });
   const [companyFilter, setCompanyFilter] = useState('');
@@ -171,20 +190,21 @@ export default function NetworkPage() {
       const r = await fetch('/api/auth/linkedin/token');
       const d = await readJson(r);
       const name = [d.user?.firstName, d.user?.lastName].filter(Boolean).join(' ');
-      setLinkedin({ checked: true, connected: Boolean(d.isAuthenticated), name });
+      setLinkedin({ checked: true, connected: Boolean(d.isAuthenticated), name, configured: d.configured !== false });
     } catch {
-      setLinkedin({ checked: true, connected: false, name: '' });
+      setLinkedin({ checked: true, connected: false, name: '', configured: true });
     }
     try {
       const r = await fetch('/api/auth/twitter/token');
       const d = await readJson(r);
+      const configured = d.configured !== false;
       if (r.status === 429) {
-        setXStatus({ checked: true, connected: false, username: '', note: 'X status is temporarily unavailable (rate limited).' });
+        setXStatus({ checked: true, connected: false, username: '', note: 'X status is temporarily unavailable (rate limited).', configured });
       } else {
-        setXStatus({ checked: true, connected: Boolean(d.authenticated), username: d.profile?.username || '', note: '' });
+        setXStatus({ checked: true, connected: Boolean(d.authenticated), username: d.profile?.username || '', note: '', configured });
       }
     } catch {
-      setXStatus({ checked: true, connected: false, username: '', note: '' });
+      setXStatus({ checked: true, connected: false, username: '', note: '', configured: true });
     }
   }, []);
 
@@ -195,7 +215,7 @@ export default function NetworkPage() {
     if (!router.isReady) return;
     const { error, auth } = router.query;
     if (!error && !auth) return;
-    if (error) setNotice({ kind: 'error', text: String(error) });
+    if (error) setNotice({ kind: 'error', text: authErrorText(error) });
     if (auth === 'linkedin_success') setNotice({ kind: 'success', text: 'LinkedIn connected (profile only). Upload Connections.csv to add your connections.' });
     if (auth === 'twitter_success') setNotice({ kind: 'success', text: 'X connected.' });
     checkSocial();
@@ -219,30 +239,60 @@ export default function NetworkPage() {
 
   // ------------------------------------------------------------ import
 
-  const saveSource = async (source, list) => {
+  /**
+   * Save (signed in) or keep (signed out) one source's contacts. Returns the
+   * notice text; `fileTruncated` is how many the parser already dropped at
+   * the 30,000 limit, so the counts in the notice add up.
+   */
+  const saveSource = async (source, list, { fileTruncated = 0 } = {}) => {
     const deduped = dedupeContacts(list).slice(0, MAX_CONTACTS);
+    const overLimit = (n) => `${fmt(n)} over the ${fmt(MAX_CONTACTS)} limit were not ${mode === 'saved' ? 'saved' : 'loaded'}`;
     if (mode === 'saved') {
+      const body = JSON.stringify({ source, contacts: deduped });
+      if (body.length > MAX_BODY_BYTES) {
+        throw new Error(`This import is too large to save in one go (${(body.length / 1048576).toFixed(1)} MB; the limit is 14 MB). Remove unneeded columns such as notes or tags, or split the file, and try again.`);
+      }
       const response = await fetch('/api/network/contacts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source, contacts: deduped }),
+        body,
       });
       const data = await readJson(response);
       if (response.status !== 503) {
+        if (response.status === 413) throw new Error('The server refused this import because it is too large (over 15 MB). Split the file and try again.');
+        if (response.status === 400 && !data.error) throw new Error('The server could not read this import. Please try the upload again.');
         if (!response.ok) throw new Error(data.error || `Import failed (${response.status})`);
-        await loadSaved();
+        if (Array.isArray(data.contacts)) {
+          // The server returns what it saved for this source: merge it in
+          // instead of downloading the whole network again.
+          setContacts((prev) => [...prev.filter((c) => c.source !== source), ...data.contacts]);
+          if (data.stats) setStats(data.stats);
+        } else {
+          await loadSaved();
+        }
         const extra = [
-          data.duplicates ? `${data.duplicates.toLocaleString('en-US')} already saved from another source` : '',
-          data.truncated ? `${data.truncated.toLocaleString('en-US')} over the ${MAX_CONTACTS.toLocaleString('en-US')} limit` : '',
+          data.duplicates ? `${fmt(data.duplicates)} already saved from another source` : '',
+          (Number(data.truncated) || 0) + fileTruncated ? overLimit((Number(data.truncated) || 0) + fileTruncated) : '',
         ].filter(Boolean).join('; ');
-        return `Saved ${Number(data.saved || 0).toLocaleString('en-US')} ${SOURCE_LABELS[source]} contacts to your account${extra ? ` (${extra})` : ''}.`;
+        return `Saved ${fmt(data.saved)} ${SOURCE_LABELS[source]} contacts to your account${extra ? ` (${extra})` : ''}.`;
       }
       setMode('memory');
       setLoadError('Saving is not available right now (no database is configured), so your network is kept in this tab only.');
     }
-    setContacts((prev) => dedupeContacts([...prev.filter((c) => c.source !== source), ...deduped]).slice(0, MAX_CONTACTS));
+    // Signed out: merge in memory, then report what is actually there.
+    const others = contacts.filter((c) => c.source !== source);
+    const merged = dedupeContacts([...others, ...deduped]);
+    const kept = merged.slice(0, MAX_CONTACTS);
+    const loaded = kept.filter((c) => c.source === source).length;
+    const dropped = merged.length - kept.length + fileTruncated;
+    const dupes = others.length + deduped.length - merged.length;
+    setContacts(kept);
     setMemoryImports((prev) => ({ ...prev, [source]: new Date().toISOString() }));
-    return `Loaded ${deduped.length.toLocaleString('en-US')} ${SOURCE_LABELS[source]} contacts into this tab.`;
+    const extra = [
+      dupes ? `${fmt(dupes)} already loaded from another source` : '',
+      dropped ? overLimit(dropped) : '',
+    ].filter(Boolean).join('; ');
+    return `Loaded ${fmt(loaded)} ${SOURCE_LABELS[source]} contacts into this tab${extra ? ` (${extra})` : ''}.`;
   };
 
   const handleFile = async (event, kind) => {
@@ -258,21 +308,27 @@ export default function NetworkPage() {
     try {
       const parsed = await parseContactsFile(file, { kind });
       if (!parsed.headerFound) {
-        setNotice({
-          kind: 'error',
-          text: kind === 'linkedin'
-            ? 'This does not look like LinkedIn\'s Connections.csv: no header row with First Name, Last Name, Company, Position and Connected On was found.'
-            : 'No contacts found: the file needs a header row with a name column (Name, or First Name and Last Name) and ideally Company and Title.',
-        });
+        let text;
+        if (parsed.reason === 'not-linkedin') {
+          text = 'This is a contacts file, not LinkedIn\'s Connections.csv (no First Name, Last Name and Connected On columns), so it was not imported. Use "Upload CSV/XLSX contacts" for it; your LinkedIn import is unchanged.';
+        } else if (kind === 'linkedin') {
+          text = 'This does not look like LinkedIn\'s Connections.csv: no header row with First Name, Last Name, Company, Position and Connected On was found.';
+        } else {
+          text = 'No contacts found: the file needs a header row with a name column (Name, or First Name and Last Name) and ideally Company and Title.';
+        }
+        setNotice({ kind: 'error', text });
         return;
       }
       if (!parsed.contacts.length) {
         setNotice({ kind: 'error', text: 'The file has a header row but no contacts with a name.' });
         return;
       }
-      const message = await saveSource(parsed.source, parsed.contacts);
-      const skipped = parsed.skippedRows ? ` ${parsed.skippedRows.toLocaleString('en-US')} rows without a name were skipped.` : '';
-      setNotice({ kind: 'success', text: `${message}${skipped}` });
+      const message = await saveSource(parsed.source, parsed.contacts, { fileTruncated: parsed.truncated || 0 });
+      const details = [
+        parsed.skippedRows ? `${fmt(parsed.skippedRows)} rows without a name were skipped.` : '',
+        parsed.duplicates ? `${fmt(parsed.duplicates)} duplicate rows in the file were merged.` : '',
+      ].filter(Boolean).join(' ');
+      setNotice({ kind: 'success', text: `${message}${details ? ` ${details}` : ''}` });
       setAnswer(null);
     } catch (error) {
       setNotice({ kind: 'error', text: `Import failed: ${error.message}` });
@@ -302,8 +358,9 @@ export default function NetworkPage() {
         setNotice({ kind: 'info', text: 'X returned an empty following list.' });
         return;
       }
-      const message = await saveSource('x', parsed.contacts);
-      setNotice({ kind: 'success', text: `${message}${data.note ? ` ${data.note}` : ''}` });
+      const message = await saveSource('x', parsed.contacts, { fileTruncated: parsed.truncated || 0 });
+      const dupes = parsed.duplicates ? ` ${fmt(parsed.duplicates)} duplicate accounts were merged.` : '';
+      setNotice({ kind: 'success', text: `${message}${dupes}${data.note ? ` ${data.note}` : ''}` });
     } catch (error) {
       setNotice({ kind: 'error', text: error.message });
     } finally {
@@ -389,7 +446,15 @@ export default function NetworkPage() {
     return ids;
   }, [graphSearch, answerKeys, visibleContacts]);
 
+  // Count only people actually drawn: in a large network most highlighted
+  // people sit in companies that are not expanded.
   const highlightedPeople = useMemo(() => {
+    let n = 0;
+    const drawn = new Set(graph.nodes.map((node) => node.id));
+    highlightIds.forEach((id) => { if (id.startsWith('p:') && drawn.has(id)) n += 1; });
+    return n;
+  }, [highlightIds, graph]);
+  const highlightedTotal = useMemo(() => {
     let n = 0;
     highlightIds.forEach((id) => { if (id.startsWith('p:')) n += 1; });
     return n;
@@ -437,9 +502,11 @@ export default function NetworkPage() {
     try {
       const body = { question: q, ...(target ? { target } : {}) };
       if (mode !== 'saved') {
+        // Signed out, the server has no copy: send only what scoring uses
+        // (never email) plus the identity key so results map back to the graph.
         body.contacts = contacts.map((c) => ({
-          name: c.name, company: c.company, position: c.position, location: c.location,
-          profileUrl: c.profileUrl, email: c.email, connectedOn: c.connectedOn, source: c.source, tags: c.tags,
+          key: dedupeKey(c), name: c.name, company: c.company, position: c.position, location: c.location,
+          profileUrl: c.profileUrl, connectedOn: c.connectedOn, source: c.source, tags: c.tags,
         }));
       }
       const response = await fetch('/api/network/query', {
@@ -452,10 +519,16 @@ export default function NetworkPage() {
       setAnswer(data);
       setSelected(null);
       if (graph.large) {
+        // Expand the top matches' companies, except very large ones (they
+        // would bury the answer); those stay as a company node to click.
+        const sizes = new Map(graph.nodes.filter((n) => n.type === 'company').map((n) => [n.key, n.count]));
         const keys = new Set(expanded);
         [...(data.results || []), ...((data.intro?.viaInvestors || []).flatMap((g) => g.contacts))]
           .slice(0, 30)
-          .forEach((r) => keys.add(normalizeCompanyKey(r.contact.company) || NO_COMPANY_KEY));
+          .forEach((r) => {
+            const key = normalizeCompanyKey(r.contact.company) || NO_COMPANY_KEY;
+            if ((sizes.get(key) || 0) <= AUTO_EXPAND_MAX_PEOPLE) keys.add(key);
+          });
         setExpanded(keys);
       }
     } catch (error) {
@@ -593,7 +666,9 @@ export default function NetworkPage() {
                   ) : (
                     <div className="flex items-center justify-between gap-2">
                       <span>Signing in with LinkedIn only shares your own profile: LinkedIn does not give apps your connections, so use the export above.</span>
-                      <a href="/api/auth/linkedin" className="shrink-0 text-blue-600 hover:underline">Connect profile</a>
+                      {linkedin.configured
+                        ? <a href="/api/auth/linkedin" className="shrink-0 text-blue-600 hover:underline">Connect profile</a>
+                        : <span className="shrink-0 text-gray-400">LinkedIn sign-in is not set up</span>}
                     </div>
                   )}
                 </div>
@@ -637,9 +712,13 @@ export default function NetworkPage() {
                   ) : (
                     <>
                       <p className="text-xs text-gray-600 mb-2">X only shares following lists with apps on a paid API tier, so this may not be available. You can also upload an X API following JSON file above.</p>
-                      <a href="/api/auth/twitter" className="inline-flex items-center bg-white border border-gray-300 text-gray-800 hover:bg-gray-50 text-sm px-3 py-2 rounded-md">
-                        <FaXTwitter className="mr-2" /> Connect X
-                      </a>
+                      {xStatus.configured ? (
+                        <a href="/api/auth/twitter" className="inline-flex items-center bg-white border border-gray-300 text-gray-800 hover:bg-gray-50 text-sm px-3 py-2 rounded-md">
+                          <FaXTwitter className="mr-2" /> Connect X
+                        </a>
+                      ) : (
+                        <p className="text-xs text-gray-400">X sign-in is not set up on this server.</p>
+                      )}
                     </>
                   )}
                   {xStatus.note && <p className="text-xs text-amber-700 mt-2">{xStatus.note}</p>}
@@ -715,7 +794,16 @@ export default function NetworkPage() {
                       Large network: showing companies only{graph.hiddenCompanies ? ` (largest ${(graph.companyCount - graph.hiddenCompanies).toLocaleString('en-US')}; filter to find others)` : ''}. Click a company to show its people.
                     </span>
                   )}
-                  {(graphSearch.trim() || answerKeys) && <span>{highlightedPeople.toLocaleString('en-US')} highlighted{graph.large ? ' (in expanded companies)' : ''}</span>}
+                  {graph.cappedCompanies?.length > 0 && (
+                    <span>
+                      Showing the first {fmt(MAX_PEOPLE_PER_EXPANDED_COMPANY)} people of {graph.cappedCompanies.map((c) => c.label).slice(0, 3).join(', ')}{graph.cappedCompanies.length > 3 ? ` and ${graph.cappedCompanies.length - 3} more` : ''}; everyone is in the company&apos;s details list.
+                    </span>
+                  )}
+                  {(graphSearch.trim() || answerKeys) && (
+                    <span>
+                      {fmt(highlightedPeople)} highlighted{graph.large && highlightedTotal > highlightedPeople ? ` (${fmt(highlightedTotal)} match; click a company to show its people)` : ''}
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex flex-col lg:flex-row gap-4">
@@ -793,8 +881,11 @@ export default function NetworkPage() {
                             </button>
                           </>
                         )}
+                        {graph.large && expanded.has(selected.key) && selected.count > MAX_PEOPLE_PER_EXPANDED_COMPANY && (
+                          <p className="mt-1 text-xs text-gray-500">The graph draws the first {fmt(MAX_PEOPLE_PER_EXPANDED_COMPANY)} people by name; all {fmt(selected.count)} are listed here.</p>
+                        )}
                         <ul className="mt-3 max-h-64 overflow-y-auto divide-y divide-gray-100">
-                          {selectedCompanyPeople.slice(0, 200).map((c) => (
+                          {selectedCompanyPeople.map((c) => (
                             <li key={dedupeKey(c)} className="py-1.5">
                               <button type="button" className="text-left hover:text-blue-700" onClick={() => selectContact({ ...c, key: dedupeKey(c) })}>
                                 <span className="font-medium">{c.name}</span>
@@ -814,7 +905,8 @@ export default function NetworkPage() {
           {/* ---------------------------------------------------- ask */}
           <section className="bg-white border border-gray-200 rounded-lg p-4" aria-labelledby="ask-heading">
             <h2 id="ask-heading" className="text-lg font-semibold text-gray-800 mb-1">Ask your network</h2>
-            <p className="text-sm text-gray-600 mb-3">Search by company, role, industry or place. Intro paths also check the company&apos;s investors from public sources.</p>
+            <p className="text-sm text-gray-600 mb-1">Search by company, role, industry or place. Intro paths also check the company&apos;s investors from public sources.</p>
+            <p className="text-xs text-gray-500 mb-3">Your contacts never leave this app. Only the text of your question may be sent to the configured AI model when the built-in rules cannot interpret it.</p>
             <form
               onSubmit={(e) => { e.preventDefault(); ask(); }}
               className="flex gap-2"
@@ -894,6 +986,13 @@ export default function NetworkPage() {
                         <p className="text-sm text-gray-500 mt-1">No one in your network lists {answer.intro.target} as their company.</p>
                       )}
                     </div>
+                    {answer.intro.possiblyRelated?.length > 0 && (
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-800">Possibly related ({answer.intro.possiblyRelated.length})</h3>
+                        <p className="text-xs text-gray-500">Similar company names, or {answer.intro.target} mentioned in a title. They may not work there.</p>
+                        <ul>{answer.intro.possiblyRelated.map((r) => <ResultRow key={`rel-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
+                      </div>
+                    )}
                     <div>
                       <h3 className="text-sm font-semibold text-gray-800">Via investors ({answer.intro.viaInvestors.reduce((n, g) => n + g.total, 0)})</h3>
                       {answer.intro.viaInvestors.length ? answer.intro.viaInvestors.map((g) => (
@@ -914,10 +1013,21 @@ export default function NetworkPage() {
                       <p className="text-sm text-gray-500 mt-1">Not available: LinkedIn&apos;s export and contact files only include current company, not employment history.</p>
                     </div>
                   </div>
-                ) : answer.results.length ? (
-                  <ul>{answer.results.map((r) => <ResultRow key={r.contact.key} item={r} onShow={selectContact} />)}</ul>
                 ) : (
-                  <p className="text-sm text-gray-500">No one in your network matches that. Try a company name, a role like &quot;engineers&quot;, or an industry like &quot;fintech&quot;.</p>
+                  <>
+                    {answer.results.length ? (
+                      <ul>{answer.results.map((r) => <ResultRow key={r.contact.key} item={r} onShow={selectContact} />)}</ul>
+                    ) : (
+                      <p className="text-sm text-gray-500">No one in your network matches that. Try a company name, a role like &quot;engineers&quot;, or an industry like &quot;fintech&quot;.</p>
+                    )}
+                    {answer.possiblyRelated?.results?.length > 0 && (
+                      <div className="mt-4">
+                        <h3 className="text-sm font-semibold text-gray-800">Possibly related ({fmt(answer.possiblyRelated.total)})</h3>
+                        <p className="text-xs text-gray-500">Similar company names, or the company mentioned in a title. They may not work there.</p>
+                        <ul>{answer.possiblyRelated.results.map((r) => <ResultRow key={`rel-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}

@@ -14,18 +14,19 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const { cookies } = req;
     const accessToken = cookies.linkedin_access_token;
+    // Lets the page hide "Connect profile" when sign-in is not set up here.
+    const configured = Boolean(process.env.LINKEDIN_CLIENT_ID && process.env.LINKEDIN_CLIENT_SECRET);
     
     if (!accessToken) {
-      return res.status(200).json({ isAuthenticated: false });
+      return res.status(200).json({ isAuthenticated: false, configured });
     }
     
     try {
-      console.log('Validating LinkedIn token from cookies');
       // Verify the token is still valid by making a simple API call
       const profile = await fetchLinkedInProfile(accessToken, LINKEDIN_AUTH_TIMEOUT_MS);
-      console.log('LinkedIn token is valid');
       return res.status(200).json({ 
         isAuthenticated: true,
+        configured,
         provider: 'linkedin',
         user: {
           id: profile.id,
@@ -34,13 +35,13 @@ export default async function handler(req, res) {
         }
       });
     } catch (error) {
-      console.error('LinkedIn token validation error:', error.message);
+      console.error(`LinkedIn token validation failed: ${String(error.message || '').slice(0, 120)}`);
       // If token is invalid, clear the cookie
       res.setHeader('Set-Cookie', [
         'linkedin_access_token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
         'linkedin_user_id=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax'
       ]);
-      return res.status(200).json({ isAuthenticated: false, error: 'Token invalid or expired' });
+      return res.status(200).json({ isAuthenticated: false, configured, error: 'Token invalid or expired' });
     }
   }
   
@@ -52,7 +53,6 @@ export default async function handler(req, res) {
   const { code } = req.body;
 
   if (!code) {
-    console.error('No authorization code provided in request body');
     return res.status(400).json({ error: 'Authorization code is required' });
   }
 
@@ -62,7 +62,7 @@ export default async function handler(req, res) {
   const redirectUri = getCallbackUrl('linkedin', req);
 
   if (!clientId || !clientSecret) {
-    console.error('LinkedIn credentials missing from environment variables');
+    console.error('LinkedIn token exchange requested but LINKEDIN_CLIENT_ID/LINKEDIN_CLIENT_SECRET are not set');
     return res.status(200).json({
       status: 'fail-soft',
       error: 'LinkedIn API credentials not configured',
@@ -71,8 +71,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log('Exchanging authorization code for LinkedIn token');
-    
     // Exchange authorization code for access token
     const tokenResponse = await axios.post(
       'https://www.linkedin.com/oauth/v2/accessToken',
@@ -92,7 +90,6 @@ export default async function handler(req, res) {
       }
     );
 
-    console.log('Successfully obtained LinkedIn access token');
     const { access_token, expires_in } = tokenResponse.data;
     
     // Get user profile information
@@ -123,8 +120,8 @@ export default async function handler(req, res) {
       ...userData,
     });
   } catch (error) {
-    console.error('LinkedIn token exchange error:', error.response?.data || error.message);
     const errorDetails = error.response?.data?.error_description || error.message || 'Unknown error';
+    console.error(`LinkedIn token exchange failed: ${String(errorDetails).slice(0, 120)}`);
     return res.status(200).json({
       status: 'fail-soft',
       error: 'Failed to exchange LinkedIn authorization code',

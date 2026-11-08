@@ -28,7 +28,8 @@ describe('/api/auth/twitter/token', () => {
     process.env = originalEnv;
   });
 
-  it('returns unauthenticated when no access token cookie is present', async () => {
+  it('returns unauthenticated, with whether X sign-in is configured, when no access token cookie is present', async () => {
+    delete process.env.TWITTER_CLIENT_ID;
     const req = createMockReq({
       method: 'GET',
       headers: {},
@@ -39,7 +40,19 @@ describe('/api/auth/twitter/token', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
+    // `configured` tells the page whether to offer "Connect X" at all.
     expect(res.body).toEqual({
+      configured: false,
+      error: 'Not authenticated with Twitter',
+      authenticated: false,
+    });
+
+    // The negative result is cached per client; `configured` is still added per response.
+    process.env.TWITTER_CLIENT_ID = 'twitter-client-id';
+    const again = createHeaderRes();
+    await handler(createMockReq({ method: 'GET', headers: {}, connection: { remoteAddress: '127.0.0.1' } }), again);
+    expect(again.body).toEqual({
+      configured: true,
       error: 'Not authenticated with Twitter',
       authenticated: false,
     });

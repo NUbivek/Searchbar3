@@ -30,12 +30,18 @@ describe('/api/auth/twitter/callback', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'log').mockImplementation(() => {});
     delete process.env.TWITTER_CLIENT_ID;
     delete process.env.TWITTER_API_KEY;
     delete process.env.TWITTER_CLIENT_SECRET;
     delete process.env.NEXT_PUBLIC_BASE_URL;
     delete process.env.TWITTER_REDIRECT_URI;
     delete process.env.NODE_ENV;
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   afterAll(() => {
@@ -67,7 +73,7 @@ describe('/api/auth/twitter/callback', () => {
     expect(res.redirect).toHaveBeenCalledWith('/network?error=Method%20not%20allowed');
   });
 
-  test('redirects with auth error from twitter', async () => {
+  test('redirects with a "denied" code when the user cancels at X; the upstream text is not forwarded', async () => {
     const req = createMockReq({
       query: {
         error: 'access_denied',
@@ -79,7 +85,20 @@ describe('/api/auth/twitter/callback', () => {
 
     await handler(req, res);
 
-    expect(res.redirect).toHaveBeenCalledWith('/network?error=User%20denied%20access');
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=twitter_denied');
+    expect(res.redirectTarget).not.toContain('denied%20access');
+    // one line in the server log, without the query string
+    expect(console.error).toHaveBeenCalledTimes(1);
+    expect(console.log).not.toHaveBeenCalled();
+  });
+
+  test('redirects with a generic failure code for other errors from X', async () => {
+    const req = createMockReq({ query: { error: 'server_error', error_description: 'Something broke' }, headers: {} });
+    const res = createRedirectRes();
+
+    await handler(req, res);
+
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=twitter_failed');
   });
 
   test('redirects when no authorization code is received', async () => {
@@ -88,7 +107,8 @@ describe('/api/auth/twitter/callback', () => {
 
     await handler(req, res);
 
-    expect(res.redirect).toHaveBeenCalledWith('/network?error=No authorization code received');
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=twitter_failed');
+    expect(console.log).not.toHaveBeenCalled();
   });
 
   test('redirects when state parameter is invalid', async () => {
@@ -105,9 +125,22 @@ describe('/api/auth/twitter/callback', () => {
 
     await handler(req, res);
 
-    expect(res.redirect).toHaveBeenCalledWith(
-      `/network?error=${encodeURIComponent('Sign-in check failed, please try connecting X again')}`
-    );
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=twitter_state');
+    expect(axios.post).not.toHaveBeenCalled();
+    // the received/stored state values are not logged
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  test('redirects with an "expired" code when the PKCE verifier cookie is gone', async () => {
+    const req = createMockReq({
+      query: { code: 'auth-code', state: 'valid-state' },
+      headers: { cookie: 'twitter_auth_state=valid-state' },
+    });
+    const res = createRedirectRes();
+
+    await handler(req, res);
+
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=twitter_expired');
     expect(axios.post).not.toHaveBeenCalled();
   });
 
@@ -125,7 +158,7 @@ describe('/api/auth/twitter/callback', () => {
 
     await handler(req, res);
 
-    expect(res.redirect).toHaveBeenCalledWith('/network?error=Missing Twitter client configuration');
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=twitter_not_configured');
     expect(axios.post).not.toHaveBeenCalled();
   });
 
@@ -178,7 +211,7 @@ describe('/api/auth/twitter/callback', () => {
     expect(res.redirect).toHaveBeenCalledWith('https://example.com/network?auth=twitter_success');
   });
 
-  test('redirects with detailed error when token exchange fails', async () => {
+  test('redirects with a failure code when token exchange fails; the upstream detail stays in one log line', async () => {
     process.env.TWITTER_CLIENT_ID = 'twitter-client-id';
 
     axios.post.mockRejectedValueOnce({
@@ -203,8 +236,9 @@ describe('/api/auth/twitter/callback', () => {
 
     await handler(req, res);
 
-    expect(res.redirect).toHaveBeenCalledWith(
-      '/network?error=Invalid%20request%20to%20Twitter%3A%20Authorization%20code%20expired'
-    );
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=twitter_failed');
+    expect(res.redirectTarget).not.toContain('expired');
+    expect(console.error).toHaveBeenCalledTimes(1);
+    expect(console.error.mock.calls[0].join(' ')).toContain('Authorization code expired');
   });
 });

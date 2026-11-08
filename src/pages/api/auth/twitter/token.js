@@ -70,6 +70,9 @@ const responseCache = {
  * Validates if the user has a valid Twitter token and returns the user data
  */
 async function handleTokenValidation(req, res) {
+  // Lets the page hide "Connect X" when sign-in is not set up here.
+  const configured = Boolean(process.env.TWITTER_CLIENT_ID);
+  const send = (status, data) => res.status(status).json({ configured, ...data });
   try {
     // Get client IP for rate limiting
     const clientIp = req.headers['x-forwarded-for'] || 
@@ -97,8 +100,7 @@ async function handleTokenValidation(req, res) {
     const cachedResponse = responseCache.entries[cacheKey];
     
     if (cachedResponse && (now - cachedResponse.timestamp) < responseCache.ttlMs) {
-      console.log('Serving Twitter token validation from cache');
-      return res.status(cachedResponse.status).json(cachedResponse.data);
+      return send(cachedResponse.status, cachedResponse.data);
     }
     
     // Refill the bucket based on elapsed time
@@ -120,8 +122,7 @@ async function handleTokenValidation(req, res) {
       res.setHeader('X-RateLimit-Remaining', 0);
       res.setHeader('X-RateLimit-Reset', Math.ceil((limiter.lastRequestTime + limiter.windowMs) / 1000));
       
-      // Include more helpful information for debugging
-      return res.status(429).json({
+      return send(429, {
         error: `Twitter API rate limit exceeded. Please try again in ${retryAfter} seconds.`,
         authenticated: false,
         rateLimited: true,
@@ -160,7 +161,7 @@ async function handleTokenValidation(req, res) {
         status: 200,
         data: responseData
       };
-      return res.status(200).json(responseData);
+      return send(200, responseData);
     }
     
     // Validate the token by calling the Twitter API
@@ -223,7 +224,7 @@ async function handleTokenValidation(req, res) {
         }
       }
       
-      return res.status(200).json(responseData);
+      return send(200, responseData);
     } catch (error) {
       // Token is invalid or expired
       if (error.response?.status === 401) {
@@ -256,7 +257,7 @@ async function handleTokenValidation(req, res) {
               timeout: TWITTER_AUTH_TIMEOUT_MS,
             });
             
-            return res.status(200).json({
+            return send(200, {
               authenticated: true,
               profile: retryResponse.data.data,
               refreshed: true,
@@ -265,7 +266,7 @@ async function handleTokenValidation(req, res) {
             // Clear invalid cookies
             clearAuthCookies(res);
             
-            return res.status(401).json({
+            return send(401, {
               error: 'Twitter session expired',
               authenticated: false,
             });
@@ -274,7 +275,7 @@ async function handleTokenValidation(req, res) {
           // No refresh token available
           clearAuthCookies(res);
           
-          return res.status(401).json({
+          return send(401, {
             error: 'Twitter session expired and no refresh token',
             authenticated: false,
           });
@@ -282,17 +283,17 @@ async function handleTokenValidation(req, res) {
       }
       
       // Other errors
-      console.error('Twitter API error:', error.response?.data || error.message);
+      console.error(`X token validation failed: ${error.response?.status || ''} ${String(error.message || '').slice(0, 120)}`);
       const upstreamStatus = error.response?.status || 500;
       return respondFailSoftWhenServerError(res, upstreamStatus, {
+        configured,
         error: 'Failed to validate Twitter token',
-        details: error.response?.data || error.message,
         authenticated: false,
       }, 'twitter-auth-token');
     }
   } catch (error) {
-    console.error('Twitter token validation error:', error);
-    return res.status(200).json({
+    console.error(`X token validation error: ${String(error.message || error).slice(0, 120)}`);
+    return send(200, {
       status: 'fail-soft',
       error: 'Internal server error during Twitter validation',
       authenticated: false,
@@ -368,11 +369,10 @@ async function handleCodeExchange(req, res, code) {
       accessToken: tokenResponse.data.access_token.substring(0, 10) + '...', // Only send a preview for security
     });
   } catch (error) {
-    console.error('Twitter token exchange error:', error.response?.data || error.message);
+    console.error(`X token exchange failed: ${error.response?.status || ''} ${String(error.response?.data?.error_description || error.message || '').slice(0, 120)}`);
     const upstreamStatus = error.response?.status || 500;
     return respondFailSoftWhenServerError(res, upstreamStatus, {
       error: 'Failed to exchange Twitter authorization code',
-      details: error.response?.data || error.message,
     }, 'twitter-auth-token');
   }
 }
@@ -409,7 +409,7 @@ async function handleTokenRefresh(req, res) {
       message: 'Twitter token refreshed successfully',
     });
   } catch (error) {
-    console.error('Twitter token refresh error:', error.response?.data || error.message);
+    console.error(`X token refresh failed: ${error.response?.status || ''} ${String(error.message || '').slice(0, 120)}`);
     
     // Clear invalid cookies
     clearAuthCookies(res);
@@ -417,7 +417,6 @@ async function handleTokenRefresh(req, res) {
     const upstreamStatus = error.response?.status || 500;
     return respondFailSoftWhenServerError(res, upstreamStatus, {
       error: 'Failed to refresh Twitter token',
-      details: error.response?.data || error.message,
     }, 'twitter-auth-token');
   }
 }

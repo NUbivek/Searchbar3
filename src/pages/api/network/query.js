@@ -20,11 +20,24 @@ import { listContacts, MAX_CONTACTS_PER_USER } from '../../../server/network/sto
 import { answerQuestion } from '../../../server/network/query';
 import { normalizeContact } from '../../../utils/network/parseContacts';
 
-export const config = { api: { bodyParser: { sizeLimit: '15mb' } } };
+// Question interpretation (up to 12s) plus the intro-path profile lookup
+// (up to 25s) can exceed Vercel's 10s default.
+export const config = { api: { bodyParser: { sizeLimit: '15mb' } }, maxDuration: 60 };
 
+/**
+ * Signed-out contacts come from the browser with only the fields scoring
+ * uses (no email). `key` is the browser's identity key for the contact, so
+ * results can be matched back to the graph without sending the email that
+ * the key may be derived from.
+ */
 function bodyContacts(list) {
   if (!Array.isArray(list)) return [];
-  return list.slice(0, MAX_CONTACTS_PER_USER).map((c) => normalizeContact(c, c?.source)).filter(Boolean);
+  return list.slice(0, MAX_CONTACTS_PER_USER).map((c) => {
+    const clean = normalizeContact(c, c?.source);
+    if (!clean) return null;
+    const key = typeof c?.key === 'string' && /^[uen]:/.test(c.key) ? c.key.slice(0, 600) : '';
+    return key ? { ...clean, key } : clean;
+  }).filter(Boolean);
 }
 
 export default async function handler(req, res) {

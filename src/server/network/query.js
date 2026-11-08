@@ -98,8 +98,8 @@ const cleanList = (list, max = 10) => {
 
 /** Trim a captured company phrase: drop trailing clauses and filler. */
 function cleanEntity(raw) {
-  let s = String(raw || '').replace(/[?!.;:]+.*$/, '').trim();
-  s = s.split(/\s+(?:in\s+my|in\s+the|from\s+my|who|that|which|whose|where|and\s+who|or|based|located|near|as|for|right\s+now|currently|in|with)\b/i)[0];
+  let s = String(raw || '').replace(/[?!;:]+.*$/, '').replace(/\.\s.*$/, '').replace(/\.$/, '').trim();
+  s = s.split(/\s+(?:in\s+my|in\s+the|from\s+my|who|that|which|whose|where|and\s+who|based|located|near|as|for|right\s+now|currently|in|with)\b/i)[0];
   s = s.replace(/^(?:the|a|an)\s+/i, '').replace(/[,'"“”]+$/g, '').replace(/^["“']+/, '').trim();
   s = s.replace(/'s$/i, '').trim();
   const words = s.split(/\s+/).filter(Boolean);
@@ -107,6 +107,29 @@ function cleanEntity(raw) {
   if (words.every((w) => STOPWORDS.has(w.toLowerCase()))) return '';
   if (/^(my|our|your)\b/i.test(s)) return '';
   return s.slice(0, 80);
+}
+
+const LEGAL_SUFFIX = /^(?:inc|incorporated|llc|ltd|limited|corp|corporation|co|plc|gmbh|ag|sa|lp|llp|pbc)\.?$/i;
+
+/**
+ * A captured phrase may name several companies: "Stripe or Brex", "Google,
+ * Meta and Apple", "Stripe/Adyen". Split on those separators (a legal suffix
+ * after a comma, as in "Stripe, Inc.", stays with its company) and clean each.
+ */
+function cleanEntities(raw) {
+  const parts = String(raw || '').split(/\s*(?:,|\/|\bor\b|\band\b)\s*/i);
+  const merged = [];
+  for (const part of parts) {
+    if (merged.length && LEGAL_SUFFIX.test(part.trim().replace(/[?!;:,\s]+$/, ''))) merged[merged.length - 1] += `, ${part.trim()}`;
+    else merged.push(part);
+  }
+  const out = [];
+  for (const part of merged) {
+    const entity = cleanEntity(part);
+    if (entity && !out.some((e) => e.toLowerCase() === entity.toLowerCase())) out.push(entity);
+    if (out.length >= 5) break;
+  }
+  return out;
 }
 
 const INTRO_PATTERNS = [
@@ -122,8 +145,17 @@ const COMPANY_PATTERNS = [
   /\b(?:at|@)\s+(.+)$/i,
 ];
 
-/** Rule-based question -> filters. */
-export function parseQuestionRules(question) {
+const isGenericWord = (entity) => entity.split(' ').length === 1
+  && [...KEYWORD_GROUPS, ...ROLE_GROUPS].some((g) => g.ask.test(entity));
+
+/**
+ * Rule-based question -> filters.
+ * `knownLocations` (the distinct location strings of the user's contacts)
+ * lets a lower-case place after "in"/"near" ("who works in paris") be
+ * accepted only when some contact is actually there; without it any such
+ * word that is not a role, industry or company counts as a place.
+ */
+export function parseQuestionRules(question, { knownLocations } = {}) {
   const q = String(question || '').replace(/\s+/g, ' ').trim().slice(0, 500);
   const filters = { companies: [], roles: [], keywords: [], locations: [], intent: 'general' };
   if (!q) return filters;
@@ -142,12 +174,11 @@ export function parseQuestionRules(question) {
   if (filters.intent !== 'intro-path') {
     for (const re of COMPANY_PATTERNS) {
       const m = q.match(re);
-      const company = m && cleanEntity(m[1]);
-      const generic = company && company.split(' ').length === 1
-        && [...KEYWORD_GROUPS, ...ROLE_GROUPS].some((g) => g.ask.test(company));
-      if (company && !generic) {
-        filters.companies.push(company);
-        rest = rest.replace(new RegExp(`\\b(?:at|@|for|with)\\s+${escapeRe(company)}`, 'i'), ' ');
+      const companies = m ? cleanEntities(m[1]).filter((c) => !isGenericWord(c)) : [];
+      if (companies.length) {
+        filters.companies.push(...companies);
+        rest = rest.replace(new RegExp(`\\b(?:at|@|for|with)\\s+${escapeRe(companies[0])}`, 'i'), ' ');
+        for (const c of companies.slice(1)) rest = rest.replace(new RegExp(`(^|\\s)${escapeRe(c)}(?=\\s|$|[?!.,;:])`, 'i'), '$1');
         break;
       }
     }
@@ -181,6 +212,28 @@ export function parseQuestionRules(question) {
   if (shortLoc) {
     const place = shortLoc[1].replace(/^the\s+/, '');
     if (!filters.locations.some((l) => l.toLowerCase() === place)) filters.locations.push(place);
+  }
+  // Lower-case places ("who works in paris"): the words after in/near up to
+  // the next filler word, when they are not a role, an industry or a company.
+  if (!filters.locations.length) {
+    const lowRe = /\b(?:based\s+in|located\s+in|living\s+in|in|near|around)\s+((?:the\s+)?[a-z][a-z.'-]*(?:\s+[a-z][a-z.'-]*){0,2})/g;
+    let lowM;
+    const known = knownLocations ? [...knownLocations].map((l) => String(l || '').toLowerCase()).filter(Boolean) : null;
+    while ((lowM = lowRe.exec(rest))) {
+      const words = [];
+      for (const w of lowM[1].replace(/^the\s+/, '').split(/\s+/)) {
+        if (STOPWORDS.has(w.replace(/[.'-]+$/, '')) || /^(?:my|our|your)$/.test(w)) break;
+        words.push(w);
+      }
+      const place = words.join(' ').replace(/[.,]+$/, '');
+      if (!place) continue;
+      if (KEYWORD_GROUPS.some((g) => g.ask.test(place)) || ROLE_GROUPS.some((g) => g.ask.test(place))) continue;
+      if (filters.companies.some((c) => c.toLowerCase() === place)) continue;
+      if (known && !known.some((l) => wordRe(place).test(l))) continue;
+      const shown = place.replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
+      if (!filters.locations.some((l) => l.toLowerCase() === place)) filters.locations.push(shown);
+      break;
+    }
   }
 
   if (filters.intent !== 'intro-path') {
@@ -254,8 +307,8 @@ export async function parseQuestionWithLlm(question, { complete = chatComplete }
  * Question -> { filters, parsedBy }. Rules first; the LLM (when configured
  * and allowed) is only consulted when the rules recognised nothing specific.
  */
-export async function parseQuestion(question, { useLlm = true, complete } = {}) {
-  const rules = parseQuestionRules(question);
+export async function parseQuestion(question, { useLlm = true, complete, knownLocations } = {}) {
+  const rules = parseQuestionRules(question, { knownLocations });
   const specific = rules.companies.length || rules.roles.length || rules.locations.length
     || rules.keywords.some((k) => KEYWORD_GROUPS.some((g) => g.label === k));
   if (specific || !useLlm || String(question || '').trim().split(/\s+/).length < 2) {
@@ -290,7 +343,7 @@ const keywordGroupFor = (label) => {
 };
 
 const publicContact = (c) => ({
-  key: dedupeKey(c),
+  key: typeof c.key === 'string' && c.key ? c.key : dedupeKey(c),
   name: c.name,
   company: c.company || '',
   position: c.position || '',
@@ -300,10 +353,16 @@ const publicContact = (c) => ({
   source: c.source,
 });
 
+/** A company relation that means the contact actually works there. */
+export const STRICT_COMPANY = new Set(['exact', 'contains', 'within']);
+
 /**
  * Score every contact against the filters. All given categories must match
- * (company AND role AND location); keywords match if any one does.
- * Returns { results: [{ contact, score, reasons }], total, notes }.
+ * (company AND role AND location); keywords match if any one does. Several
+ * companies are OR-ed: the best relation wins and is reported as
+ * `companyMatch` ('exact' | 'contains' | 'within' | 'related' | 'title').
+ * Returns { results: [{ contact, score, reasons, companyMatch }], total,
+ * strictTotal (results whose companyMatch is exact/contains/within), notes }.
  */
 export function scoreContacts(contacts, filters, { limit = MAX_RESULTS } = {}) {
   const f = {
@@ -341,17 +400,19 @@ export function scoreContacts(contacts, filters, { limit = MAX_RESULTS } = {}) {
     const position = String(c.position || '');
     const tagText = (c.tags || []).join(' ');
 
+    let companyMatch = null;
     if (targets.length) {
       let best = null;
       for (const t of targets) {
         const rel = companyRelation(companyKey, t.key);
-        if (rel === 'exact') { best = { pts: 100, reason: `Works at ${c.company}` }; break; }
-        if ((rel === 'contains' || rel === 'within') && (!best || best.pts < 80)) best = { pts: 80, reason: `Works at ${c.company} (matches ${t.name})` };
-        else if (rel === 'related' && (!best || best.pts < 60)) best = { pts: 60, reason: `Company "${c.company}" looks related to ${t.name}` };
-        else if (!rel && position && t.re.test(position) && (!best || best.pts < 35)) best = { pts: 35, reason: `Title mentions ${t.name}: "${position.slice(0, 80)}"` };
+        if (rel === 'exact') { best = { pts: 100, rel, reason: `Works at ${c.company}` }; break; }
+        if ((rel === 'contains' || rel === 'within') && (!best || best.pts < 80)) best = { pts: 80, rel, reason: `Works at ${c.company} (matches ${t.name})` };
+        else if (rel === 'related' && (!best || best.pts < 60)) best = { pts: 60, rel, reason: `Company "${c.company}" looks related to ${t.name}` };
+        else if (!rel && position && t.re.test(position) && (!best || best.pts < 35)) best = { pts: 35, rel: 'title', reason: `Title mentions ${t.name}: "${position.slice(0, 80)}"` };
       }
       if (!best) continue;
       score += best.pts;
+      companyMatch = best.rel;
       reasons.push(best.reason);
     }
 
@@ -386,13 +447,29 @@ export function scoreContacts(contacts, filters, { limit = MAX_RESULTS } = {}) {
       reasons.push(`Located in ${loc}`);
     }
 
-    scored.push({ contact: publicContact(c), score, reasons });
+    scored.push({ contact: publicContact(c), score, reasons, ...(companyMatch ? { companyMatch } : {}) });
   }
 
   scored.sort((a, b) => b.score - a.score
     || String(b.contact.connectedOn || '').localeCompare(String(a.contact.connectedOn || ''))
     || a.contact.name.localeCompare(b.contact.name));
-  return { results: scored.slice(0, limit), total: scored.length, notes };
+  const strictTotal = targets.length ? scored.filter((r) => STRICT_COMPANY.has(r.companyMatch)).length : scored.length;
+  return { results: scored.slice(0, limit), total: scored.length, strictTotal, notes };
+}
+
+/**
+ * Split company results into people who work there (exact / contains /
+ * within) and "possibly related" ones (similar company name, or the company
+ * only mentioned in their title). Both lists keep their ranking.
+ */
+export function splitByCompanyMatch({ results, total, strictTotal }) {
+  const strict = results.filter((r) => STRICT_COMPANY.has(r.companyMatch));
+  const related = results.filter((r) => !STRICT_COMPANY.has(r.companyMatch));
+  return {
+    results: strict,
+    total: strictTotal,
+    possiblyRelated: { results: related, total: Math.max(0, total - strictTotal) },
+  };
 }
 
 // ------------------------------------------------------------ intro paths
@@ -423,13 +500,16 @@ export function investorsFromProfile(profile) {
 
 /**
  * Who could introduce the user to `target`?
- *  direct:        contacts at the company itself
+ *  direct:        contacts whose company is the target (exact or whole-word containment)
+ *  possiblyRelated: similar company names or the target only mentioned in a title
  *  viaInvestors:  contacts at the company's investors (from public sources), grouped by investor
  *  viaPastEmployees: [] (the exports carry no employment history)
  */
 export async function introPaths(contacts, target, { profileLoader = buildCompanyProfile, timeoutMs = 25000 } = {}) {
   const company = String(target || '').trim().slice(0, 120);
-  const direct = scoreContacts(contacts, { companies: [company] }).results;
+  const split = splitByCompanyMatch(scoreContacts(contacts, { companies: [company] }));
+  const direct = split.results;
+  const possiblyRelated = split.possiblyRelated.results;
   const notes = [];
   let investors = [];
   let profileStatus = 'ok';
@@ -466,6 +546,7 @@ export async function introPaths(contacts, target, { profileLoader = buildCompan
   return {
     target: company,
     direct,
+    possiblyRelated,
     viaInvestors,
     investorsChecked: investors.map((i) => i.name),
     viaPastEmployees: [],
@@ -474,11 +555,18 @@ export async function introPaths(contacts, target, { profileLoader = buildCompan
   };
 }
 
+/** Distinct location strings of the contacts (for lower-case place detection). */
+export function knownLocationsOf(contacts) {
+  const out = new Set();
+  for (const c of Array.isArray(contacts) ? contacts : []) if (c?.location) out.add(String(c.location));
+  return out;
+}
+
 /** Full pipeline used by the API route. */
 export async function answerQuestion(contacts, { question, target, useLlm = true, profileLoader, complete } = {}) {
   const parsed = target
     ? { filters: { companies: [String(target).trim().slice(0, 120)], roles: [], keywords: [], locations: [], intent: 'intro-path' }, parsedBy: 'target' }
-    : await parseQuestion(question, { useLlm, complete });
+    : await parseQuestion(question, { useLlm, complete, knownLocations: knownLocationsOf(contacts) });
   const { filters } = parsed;
   const response = {
     question: String(question || '').slice(0, 500),
@@ -491,6 +579,12 @@ export async function answerQuestion(contacts, { question, target, useLlm = true
     const intro = await introPaths(contacts, filters.companies[0], profileLoader ? { profileLoader } : undefined);
     return { ...response, results: intro.direct, total: intro.direct.length, intro, notes: intro.notes };
   }
-  const { results, total, notes } = scoreContacts(contacts, filters);
-  return { ...response, results, total, notes };
+  const scored = scoreContacts(contacts, filters);
+  if (filters.companies.some((name) => normalizeCompanyKey(name))) {
+    // "Who do I know at X": people at X first; similar names and title
+    // mentions are listed separately so they are not mistaken for employees.
+    const split = splitByCompanyMatch(scored);
+    return { ...response, ...split, notes: scored.notes };
+  }
+  return { ...response, results: scored.results, total: scored.total, notes: scored.notes };
 }

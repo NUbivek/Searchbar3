@@ -30,19 +30,17 @@ export default async function handler(req, res) {
     return redirectToNetwork('error=Method%20not%20allowed');
   }
 
-  console.log('Twitter callback handler called', req.query);
-  const { code, state, error, error_description } = req.query;
+  const { code, state, error } = req.query;
 
-  // Handle error from Twitter
+  // Handle error from Twitter (the page maps these codes to user copy)
   if (error) {
-    console.error('Twitter auth error:', error, error_description);
-    return redirectToNetwork(`error=${encodeURIComponent(error_description || 'Authentication failed')}`);
+    console.error(`X sign-in failed: ${String(error).slice(0, 80)}`);
+    return redirectToNetwork(error === 'access_denied' ? 'error=twitter_denied' : 'error=twitter_failed');
   }
 
   // Validate the code parameter
   if (!code) {
-    console.error('No authorization code received from Twitter');
-    return redirectToNetwork('error=No authorization code received');
+    return redirectToNetwork('error=twitter_failed');
   }
   
   // Verify state parameter to prevent CSRF attacks
@@ -50,8 +48,7 @@ export default async function handler(req, res) {
   const storedState = cookies.twitter_auth_state;
   
   if (!storedState || state !== storedState) {
-    console.error('Invalid state parameter', { received: state, stored: storedState });
-    return redirectToNetwork(`error=${encodeURIComponent('Sign-in check failed, please try connecting X again')}`);
+    return redirectToNetwork('error=twitter_state');
   }
   
   try {
@@ -59,7 +56,7 @@ export default async function handler(req, res) {
     // Already parsed cookies above
     const codeVerifier = cookies.twitter_code_verifier;
     if (!codeVerifier) {
-      return redirectToNetwork('error=Sign-in session expired, please try connecting X again');
+      return redirectToNetwork('error=twitter_expired');
     }
     
     // Get configuration from environment variables
@@ -68,15 +65,9 @@ export default async function handler(req, res) {
     const redirectUri = getCallbackUrl('twitter', req);
     
     if (!clientId) {
-      console.error('Missing Twitter client ID');
-      return redirectToNetwork('error=Missing Twitter client configuration');
+      console.error('X sign-in callback but TWITTER_CLIENT_ID is not set');
+      return redirectToNetwork('error=twitter_not_configured');
     }
-    
-    console.log('Exchanging code for token with Twitter', {
-      clientId: clientId.substring(0, 5) + '...',
-      redirectUri,
-      codeLength: code.length
-    });
     
     // Exchange the authorization code for an access token
     const tokenResponse = await axios.post(
@@ -99,8 +90,6 @@ export default async function handler(req, res) {
         timeout: TWITTER_CALLBACK_TIMEOUT_MS,
       }
     );
-    
-    console.log('Twitter token exchange successful');
     
     // Set access token and refresh token in cookies
     const { access_token, refresh_token, expires_in } = tokenResponse.data;
@@ -130,25 +119,7 @@ export default async function handler(req, res) {
     // Redirect back to the network page with success flag
     return redirectToNetwork('auth=twitter_success');
   } catch (error) {
-    console.error('Error in Twitter token exchange:', error.response?.data || error.message);
-    
-    // Provide a more specific error message
-    let errorMessage = 'Failed to complete Twitter authentication';
-    
-    if (error.response) {
-      // Handle specific API error responses
-      const statusCode = error.response.status;
-      const errorData = error.response.data;
-      
-      if (statusCode === 400) {
-        errorMessage = 'Invalid request to Twitter: ' + (errorData.error_description || 'Bad Request');
-      } else if (statusCode === 401) {
-        errorMessage = 'Twitter authentication failed: ' + (errorData.error_description || 'Unauthorized');
-      } else if (statusCode === 403) {
-        errorMessage = 'Twitter access forbidden: ' + (errorData.error_description || 'Access Denied');
-      }
-    }
-    
-    return redirectToNetwork(`error=${encodeURIComponent(errorMessage)}`);
+    console.error(`X token exchange failed: ${error.response?.status || ''} ${String(error.response?.data?.error_description || error.message || '').slice(0, 120)}`);
+    return redirectToNetwork('error=twitter_failed');
   }
 }

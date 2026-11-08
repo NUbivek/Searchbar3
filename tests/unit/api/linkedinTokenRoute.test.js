@@ -63,7 +63,20 @@ describe('/api/auth/linkedin/token', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ isAuthenticated: false });
+    // `configured` tells the page whether to offer "Connect profile" at all.
+    expect(res.body).toEqual({ isAuthenticated: false, configured: false });
+    expect(axios.get).not.toHaveBeenCalled();
+  });
+
+  test('reports configured: true on GET when both LinkedIn credentials are set', async () => {
+    process.env.LINKEDIN_CLIENT_ID = 'linkedin-client-id';
+    process.env.LINKEDIN_CLIENT_SECRET = 'linkedin-client-secret';
+    const req = createMockReq({ method: 'GET', cookies: {} });
+    const res = createMockRes();
+
+    await handler(req, res);
+
+    expect(res.body).toEqual({ isAuthenticated: false, configured: true });
     expect(axios.get).not.toHaveBeenCalled();
   });
 
@@ -95,6 +108,7 @@ describe('/api/auth/linkedin/token', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
       isAuthenticated: true,
+      configured: false,
       provider: 'linkedin',
       user: {
         id: 'linkedin-user',
@@ -122,6 +136,7 @@ describe('/api/auth/linkedin/token', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
       isAuthenticated: false,
+      configured: false,
       error: 'Token invalid or expired',
     });
   });

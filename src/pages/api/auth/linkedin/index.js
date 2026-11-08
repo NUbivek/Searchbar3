@@ -16,10 +16,10 @@ export default function handler(req, res) {
   // Get the callback URL using our utility function
   const redirectUri = getCallbackUrl('linkedin', req);
   
-  // Validate required parameters
+  // Not configured on this deployment: the page maps the code to user copy.
   if (!clientId) {
-    console.error('LinkedIn client ID is missing. Check your .env.local file.');
-    return res.redirect(`/network?error=${encodeURIComponent('LinkedIn is not configured yet: add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET to .env.local and restart the dev server.')}`);
+    console.error('LinkedIn sign-in requested but LINKEDIN_CLIENT_ID is not set');
+    return res.redirect('/network?error=linkedin_not_configured');
   }
   
   // Define scopes for requested data - only using officially supported ones
@@ -32,14 +32,6 @@ export default function handler(req, res) {
   // In a production app, you would use a proper session mechanism
   res.setHeader('Set-Cookie', `linkedin_auth_state=${state}; Path=/; Max-Age=600; HttpOnly; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
   
-  // Print debug information to server logs
-  console.log('LinkedIn OAuth Parameters:', {
-    clientId,
-    redirectUri,
-    scope,
-    state
-  });
-  
   // Construct the LinkedIn authorization URL
   const authUrl = new URL('https://www.linkedin.com/oauth/v2/authorization');
   authUrl.searchParams.append('response_type', 'code');
@@ -48,10 +40,6 @@ export default function handler(req, res) {
   authUrl.searchParams.append('state', state);
   authUrl.searchParams.append('scope', scope);
   
-  // Final URL for debugging
-  const finalUrl = authUrl.toString();
-  console.log('LinkedIn OAuth URL:', finalUrl);
-  
   // Redirect the user to LinkedIn's authorization page
-  res.redirect(finalUrl);
+  res.redirect(authUrl.toString());
 }

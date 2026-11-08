@@ -15,14 +15,19 @@ const METHOD_NAMES = [
   'centerAt', 'zoom', 'zoomToFit', 'getGraphBbox', 'screen2GraphCoords', 'graph2ScreenCoords',
 ];
 
+/** Person labels are drawn on zoom only for graphs smaller than this; above it only highlighted/selected people are labelled. */
+export const LABEL_ALL_PEOPLE_BELOW = 300;
+
 let forceGraphPromise = null;
 function loadForceGraph2D() {
   if (!forceGraphPromise) {
-    forceGraphPromise = Promise.all([import('react-kapsule'), import('force-graph')])
-      .then(([kapsule, forceGraph]) => {
+    // d3-force ships with force-graph; only forceCollide is needed here.
+    forceGraphPromise = Promise.all([import('react-kapsule'), import('force-graph'), import('d3-force')])
+      .then(([kapsule, forceGraph, d3Force]) => {
         const fromKapsule = kapsule.default || kapsule;
         const ForceGraph2D = fromKapsule(forceGraph.default || forceGraph, { methodNames: METHOD_NAMES });
         ForceGraph2D.displayName = 'ForceGraph2D';
+        ForceGraph2D.forceCollide = d3Force.forceCollide;
         return ForceGraph2D;
       })
       .catch((error) => {
@@ -57,13 +62,16 @@ export default function NetworkGraph({
     for (const n of graphData.nodes) {
       if (n.type === 'person' && !prev.has(n.id)) ringSize.set(n.companyKey, (ringSize.get(n.companyKey) || 0) + 1);
     }
+    // While a newly expanded cluster settles, every company that already has
+    // a position stays pinned so the rest of the map does not reflow; the
+    // pins are released when the simulation stops (see onEngineStop).
+    const pinCompanies = ringSize.size > 0;
     const ringIndex = new Map();
     const nodes = graphData.nodes.map((n) => {
       const p = prev.get(n.id);
       if (p && Number.isFinite(p.x)) {
         kept += 1;
-        // A company whose people were just shown stays put while they settle.
-        const pin = n.type === 'company' && ringSize.has(n.key) ? { fx: p.x, fy: p.y } : {};
+        const pin = n.type === 'company' && pinCompanies ? { fx: p.x, fy: p.y, pinned: true } : {};
         return { ...n, x: p.x, y: p.y, vx: 0, vy: 0, ...pin };
       }
       // New people start next to their (already placed) company node.
@@ -103,8 +111,13 @@ export default function NetworkGraph({
     const fg = fgRef.current;
     if (!fg) return;
     try {
-      fg.d3Force('charge')?.strength(data.nodes.length > 600 ? -18 : data.nodes.length > 150 ? -30 : -40);
+      const n = data.nodes.length;
+      fg.d3Force('charge')?.strength(n > 600 ? -18 : n > 150 ? -30 : -40);
       fg.d3Force('link')?.distance((link) => (link.kind === 'me' ? 70 : 22));
+      if (ForceGraph2D?.forceCollide && !fg.d3Force('collide')) {
+        // Keeps circles from stacking when a company's people are shown.
+        fg.d3Force('collide', ForceGraph2D.forceCollide((node) => (node.r || 3) + 1.5).iterations(1));
+      }
       fg.d3ReheatSimulation();
     } catch {
       // forces not ready yet
@@ -149,6 +162,10 @@ export default function NetworkGraph({
   };
 
   // Labels are drawn after all nodes so they are never hidden under circles.
+  // People are only labelled on zoom in small graphs; in large ones a label
+  // per person would cover the canvas, so only highlighted/selected people
+  // get one (the tooltip still names everyone).
+  const labelPeopleOnZoom = data.nodes.length < LABEL_ALL_PEOPLE_BELOW;
   const drawLabels = (ctx, scale) => {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
@@ -157,7 +174,7 @@ export default function NetworkGraph({
       const lit = hasHighlight && highlightIds.has(node.id);
       const show = node.type === 'me'
         || (node.type === 'company' && (node.labelled || scale > 3 || lit))
-        || (node.type === 'person' && (scale > 2.5 || node.id === selectedId));
+        || (node.type === 'person' && (node.id === selectedId || lit || (labelPeopleOnZoom && scale > 2.5)));
       if (!show) continue;
       if (hasHighlight && !lit && node.type !== 'me' && node.id !== selectedId) ctx.globalAlpha = 0.35;
       const r = node.r || 3;
@@ -198,6 +215,10 @@ export default function NetworkGraph({
         linkWidth={(l) => (l.kind === 'me' ? 0.6 : 0.4)}
         cooldownTicks={150}
         onEngineStop={() => {
+          // Release company pins now that the new cluster has settled.
+          for (const node of data.nodes) {
+            if (node.pinned) { delete node.fx; delete node.fy; node.pinned = false; }
+          }
           if (fittedFor.current !== data && fgRef.current) {
             const first = fittedFor.current === null;
             fittedFor.current = data;

@@ -12,10 +12,10 @@ export default function handler(req, res) {
   // OAuth 2.0 Client ID from the X developer portal (not the v1.1 API key)
   const clientId = process.env.TWITTER_CLIENT_ID;
   
-  // Validate required parameters
+  // Not configured on this deployment: the page maps the code to user copy.
   if (!clientId) {
-    console.error('TWITTER_CLIENT_ID is missing. Check your .env.local file.');
-    return res.redirect(`/network?error=${encodeURIComponent('X is not configured yet: add TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET to .env.local and restart the dev server.')}`);
+    console.error('X sign-in requested but TWITTER_CLIENT_ID is not set');
+    return res.redirect('/network?error=twitter_not_configured');
   }
   
   // Define the redirect URI using the utility function
@@ -44,14 +44,6 @@ export default function handler(req, res) {
     `twitter_code_verifier=${codeVerifier}; Path=/; Max-Age=600; HttpOnly; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
   ]);
   
-  // Print debug information to server logs
-  console.log('Twitter OAuth Parameters:', {
-    clientId,
-    redirectUri,
-    scope,
-    state
-  });
-  
   // Construct the Twitter authorization URL
   const authUrl = new URL('https://twitter.com/i/oauth2/authorize');
   authUrl.searchParams.append('response_type', 'code');
@@ -62,10 +54,6 @@ export default function handler(req, res) {
   authUrl.searchParams.append('code_challenge', codeChallenge);
   authUrl.searchParams.append('code_challenge_method', codeChallengeMethod);
   
-  // Final URL for debugging
-  const finalUrl = authUrl.toString();
-  console.log('Twitter OAuth URL:', finalUrl);
-  
   // Redirect the user to Twitter's authorization page
-  res.redirect(finalUrl);
+  res.redirect(authUrl.toString());
 }

@@ -56,13 +56,15 @@ describe('/api/auth/twitter', () => {
     expect(res.body).toEqual({ error: 'Method not allowed' });
   });
 
-  test('redirects back to /network with a clear error when client id is missing', () => {
+  test('redirects back to /network with an error code (not developer copy) when client id is missing', () => {
     const req = createMockReq();
     const res = createRedirectRes();
 
     handler(req, res);
 
-    expect(res.redirect).toHaveBeenCalledWith(`/network?error=${encodeURIComponent('X is not configured yet: add TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET to .env.local and restart the dev server.')}`);
+    // The page maps the code to user-facing copy; env var names never reach the browser.
+    expect(res.redirect).toHaveBeenCalledWith('/network?error=twitter_not_configured');
+    expect(res.redirectUrl).not.toMatch(/TWITTER_CLIENT|\.env/);
     expect(getCallbackUrl).not.toHaveBeenCalled();
   });
 

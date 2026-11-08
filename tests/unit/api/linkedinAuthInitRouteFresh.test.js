@@ -48,11 +48,8 @@ describe('/api/auth/linkedin', () => {
     await handler(req, res);
 
     expect(res.jsonPayload).toBeNull();
-    expect(res.redirectedTo).toBe(
-      `/network?error=${encodeURIComponent(
-        'LinkedIn is not configured yet: add LINKEDIN_CLIENT_ID and LINKEDIN_CLIENT_SECRET to .env.local and restart the dev server.'
-      )}`
-    );
+    // A short code the network page maps to user copy; no env var names or file paths.
+    expect(res.redirectedTo).toBe('/network?error=linkedin_not_configured');
   });
 
   it('sets auth state cookie and redirects to LinkedIn auth url', async () => {

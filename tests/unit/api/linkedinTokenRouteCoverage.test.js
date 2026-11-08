@@ -22,6 +22,9 @@ describe('/api/auth/linkedin/token', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
+    // GET reports `configured` from these; keep it deterministic regardless of the host env.
+    delete process.env.LINKEDIN_CLIENT_ID;
+    delete process.env.LINKEDIN_CLIENT_SECRET;
   });
 
   afterAll(() => {
@@ -45,7 +48,7 @@ describe('/api/auth/linkedin/token', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ isAuthenticated: false });
+    expect(res.body).toEqual({ isAuthenticated: false, configured: false });
   });
 
   it('returns authenticated on get when the linkedin token is valid', async () => {
@@ -75,6 +78,7 @@ describe('/api/auth/linkedin/token', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
       isAuthenticated: true,
+      configured: false,
       provider: 'linkedin',
       user: {
         id: 'ln-123',
@@ -105,6 +109,7 @@ describe('/api/auth/linkedin/token', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
       isAuthenticated: false,
+      configured: false,
       error: 'Token invalid or expired',
     });
   });

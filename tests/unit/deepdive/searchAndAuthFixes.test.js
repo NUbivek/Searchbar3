@@ -4,7 +4,6 @@
  * Hacker News HTTP errors, and the server self-URL helper.
  */
 jest.mock('axios', () => ({ get: jest.fn(), post: jest.fn() }));
-jest.mock('../../../src/utils/llmProcessing', () => ({ processWithLLM: jest.fn() }));
 
 const axios = require('axios');
 const { createMockReq, createMockRes } = require('../api/testUtils');
@@ -41,7 +40,8 @@ describe('LinkedIn callback CSRF state check', () => {
     expect(axios.post).not.toHaveBeenCalled();
     const url = new URL(res.redirectTarget);
     expect(url.pathname).toBe('/network');
-    expect(url.searchParams.get('error')).toMatch(/Sign-in check failed/);
+    // A short code the network page maps to "could not be verified" copy.
+    expect(url.searchParams.get('error')).toBe('linkedin_state');
   });
 
   test('accepts a matching state, sets the token and clears the state cookie', async () => {

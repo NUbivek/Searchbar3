@@ -52,8 +52,8 @@ describe('/api/auth/twitter', () => {
     process.env = originalEnv;
   });
 
-  const X_NOT_CONFIGURED =
-    'X is not configured yet: add TWITTER_CLIENT_ID and TWITTER_CLIENT_SECRET to .env.local and restart the dev server.';
+  // A short code the network page maps to user copy; no env var names or file paths.
+  const X_NOT_CONFIGURED = '/network?error=twitter_not_configured';
 
   it('redirects to /network with a configuration error when TWITTER_CLIENT_ID is missing', async () => {
     const req = createReq();
@@ -64,7 +64,7 @@ describe('/api/auth/twitter', () => {
     expect(res.statusCode).toBe(302);
     expect(res.body).toBeNull();
     expect(res.headers['Set-Cookie']).toBeUndefined();
-    expect(res.headers.Location).toBe(`/network?error=${encodeURIComponent(X_NOT_CONFIGURED)}`);
+    expect(res.headers.Location).toBe(X_NOT_CONFIGURED);
   });
 
   it('does not fall back to TWITTER_API_KEY when TWITTER_CLIENT_ID is missing', async () => {
@@ -75,7 +75,7 @@ describe('/api/auth/twitter', () => {
 
     await handler(req, res);
 
-    expect(res.headers.Location).toBe(`/network?error=${encodeURIComponent(X_NOT_CONFIGURED)}`);
+    expect(res.headers.Location).toBe(X_NOT_CONFIGURED);
     expect(res.headers.Location).not.toContain('legacy-api-key');
   });
 
