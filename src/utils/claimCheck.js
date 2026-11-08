@@ -285,12 +285,16 @@ export function checkClaims(results = [], { entity = null } = {}) {
     // independent sites report; otherwise the most-reported confirmed one.
     // Targets and figures only mentioned as "earlier" never lead.
     const confirmed = clusters.filter((cl) => definite(cl).length > 0);
+    // The search already ranks results by relevance and recency: a figure in
+    // the headline of one of the top three results is the story's figure.
+    const headline = confirmed.filter((cl) => definite(cl).some((i) => i.fromTitle && i.source <= 3))
+      .sort((a, b) => Math.min(...definite(a).filter((i) => i.fromTitle).map((i) => i.source)) - Math.min(...definite(b).filter((i) => i.fromTitle).map((i) => i.source)))[0];
     const corroboratedNewest = confirmed.filter((cl) => siteCount(definite(cl)) >= 2).sort((a, b) => newest(b) - newest(a) || siteCount(definite(b)) - siteCount(definite(a)))[0];
     const mostCited = [...confirmed].sort((a, b) => siteCount(definite(b)) - siteCount(definite(a)) || newest(b) - newest(a))[0];
     // A group with no confirmed figure is context, not a claim: earlier
     // figures and running totals are dropped; a target is shown as one.
     if (!confirmed.length && !clusters.some(isTarget)) continue;
-    const top = corroboratedNewest || mostCited || [...clusters].sort((a, b) => siteCount(b.items) - siteCount(a.items))[0];
+    const top = headline || corroboratedNewest || mostCited || [...clusters].sort((a, b) => siteCount(b.items) - siteCount(a.items))[0];
     clusters.sort((a, b) => (a === top ? -1 : b === top ? 1 : 0) || newest(b) - newest(a));
     const sites = new Set(top.items.map((i) => i.site));
     // Two figures are a conflict only when they describe the same round: the
