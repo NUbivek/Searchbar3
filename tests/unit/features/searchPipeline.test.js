@@ -439,6 +439,18 @@ describe('ranking: duplicates, user documents and the date filter (defects 7, 10
 });
 
 describe('claim check (defect 3)', () => {
+  test('a figure of $100B or more is never a funding amount', () => {
+    const { checkClaims } = require('../../../src/utils/claimCheck');
+    const out = checkClaims([
+      { title: 'OpenAI round', content: 'OpenAI raised $11 billion at a $1.25 trillion valuation.', url: 'https://a.com/1', publishedAt: '2026-11-07' },
+      { title: 'Talks', content: 'OpenAI is in early talks for funding at up to a $1.5 trillion value.', url: 'https://b.com/2', publishedAt: '2026-11-03' },
+      { title: 'Total', content: 'OpenAI has raised $122 billion in total funding since 2015.', url: 'https://c.com/3', publishedAt: '2026-11-04' },
+    ]);
+    const funding = out.claims.find((c) => /Funding/.test(c.label));
+    expect(funding.value).toBe('$11B');
+    expect(funding.alternatives).toEqual([]);
+  });
+
   test('the largest figure in a valuation sentence is the valuation, never a funding alternative', () => {
     const { checkClaims } = require('../../../src/utils/claimCheck');
     const out = checkClaims([

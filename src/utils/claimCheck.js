@@ -98,6 +98,9 @@ export function extractClaims(result, sourceNumber) {
       let kind = null;
       if (valuationHere || largestOfSeveral || (isValuation && !isFunding)) kind = 'valuation';
       else if (isFunding && (!isValuation || raiseNear)) kind = 'raise';
+      // No funding round has reached $100B: a figure that large is a
+      // valuation (or a total, which is not a round) however it is phrased.
+      if (kind === 'raise' && money.amount >= 1e11) kind = isValuation ? 'valuation' : null;
       if (!kind) return;
       claims.push({
         key: kind === 'valuation' ? 'valuation' : `raise:${(round || 'unspecified').toLowerCase()}`,
