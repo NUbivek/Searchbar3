@@ -9,7 +9,7 @@ import { listAlerts, markAlertsSeen } from '../../server/store';
 export default withUser(['GET', 'POST'], async (req, res, userId) => {
   if (req.method === 'GET') {
     const unseenOnly = req.query.unseen === '1' || req.query.unseen === 'true';
-    const limit = Number(req.query.limit) || 100;
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
     return res.status(200).json({ alerts: await listAlerts(userId, { unseenOnly, limit }) });
   }
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(isUuid) : null;

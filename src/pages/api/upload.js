@@ -1,4 +1,12 @@
-import fs from 'fs';
+/**
+ * POST /api/upload (multipart, field "files", up to 5 files, 25 MB each)
+ * -> { files: [{ name, type, size, content, metadata, error }] }
+ *
+ * Files are parsed to text on the server (PDF, DOCX, CSV, TXT) and the
+ * temporary copy is deleted as soon as parsing finishes. Temporary files go
+ * to the OS temp directory: on Vercel only /tmp is writable.
+ */
+import os from 'os';
 import path from 'path';
 import formidable from 'formidable';
 import { processFile, cleanupFiles } from '../../utils/fileProcessing';
@@ -10,22 +18,27 @@ export const config = {
   },
 };
 
-const uploadDir = path.join(process.cwd(), 'temp-uploads');
-
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const ALLOWED_TYPES = [
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'text/plain',
-  'text/csv',
-  'application/csv',
-  'text/x-csv',
-];
+// Accepted extension -> the MIME types a browser may declare for it. Both the
+// extension and the declared type must match, so a .txt sent as
+// application/pdf (or a .exe sent as text/plain) is rejected.
+// Browsers sometimes declare binary files as application/octet-stream; the
+// parser then verifies the content (a damaged or mislabelled file is reported).
+const ALLOWED_FILES = {
+  '.pdf': ['application/pdf', 'application/octet-stream'],
+  '.docx': ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/octet-stream'],
+  '.txt': ['text/plain'],
+  '.csv': ['text/csv', 'application/csv', 'text/x-csv', 'application/vnd.ms-excel', 'text/plain'],
+};
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
+
+export function isAllowedUpload(part) {
+  const ext = path.extname(String(part?.originalFilename || '')).toLowerCase();
+  const allowedTypes = ALLOWED_FILES[ext];
+  if (!allowedTypes) return false;
+  const mimetype = String(part?.mimetype || '').toLowerCase().split(';')[0].trim();
+  return allowedTypes.includes(mimetype);
+}
 
 function flattenFormidableFiles(fileMap) {
   return Object.values(fileMap || {})
@@ -70,31 +83,33 @@ function normalizeUploadError(error) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  let parsedFiles = [];
   try {
     const form = formidable({
-      uploadDir,
+      uploadDir: os.tmpdir(),
       keepExtensions: true,
       maxFiles: 5,
       maxFileSize: MAX_FILE_SIZE,
       allowEmptyFiles: false,
-      filter: (part) => Boolean(part.mimetype && ALLOWED_TYPES.includes(part.mimetype))
+      filter: isAllowedUpload
     });
 
     const [, files] = await new Promise((resolve, reject) => {
-      form.parse(req, (err, fields, parsedFiles) => {
+      form.parse(req, (err, fields, parsed) => {
         if (err) {
           reject(err);
           return;
         }
 
-        resolve([fields, parsedFiles]);
+        resolve([fields, parsed]);
       });
     });
 
-    const parsedFiles = flattenFormidableFiles(files);
+    parsedFiles = flattenFormidableFiles(files);
     if (parsedFiles.length === 0) {
       return res.status(400).json({
         error: 'No supported files uploaded',
@@ -124,12 +139,6 @@ export default async function handler(req, res) {
       })
     );
 
-    setTimeout(() => {
-      cleanupFiles(parsedFiles).catch((error) => {
-        logger.error('File cleanup error:', error);
-      });
-    }, 3600000);
-
     logger.info('Files uploaded successfully', {
       count: uploadedFiles.length,
       types: uploadedFiles.map((file) => file.type)
@@ -137,11 +146,19 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       files: uploadedFiles,
-      message: 'Files will be automatically deleted after 1 hour'
+      message: 'Files were parsed on the server and the uploaded copies deleted'
     });
   } catch (error) {
     logger.error('Upload error:', error);
     const normalized = normalizeUploadError(error);
     return res.status(normalized.status).json(normalized.body);
+  } finally {
+    // The temporary copies are only needed while parsing. A deferred cleanup
+    // never runs in a serverless function, so delete them now.
+    if (parsedFiles.length) {
+      await Promise.resolve(cleanupFiles(parsedFiles)).catch((error) => {
+        logger.error('File cleanup error:', error);
+      });
+    }
   }
 }

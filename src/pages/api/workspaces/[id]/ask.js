@@ -9,6 +9,9 @@ import { answerQuestion } from '../../../../server/dataroom';
 
 export const MAX_QUESTION_CHARS = 2000;
 
+// The answer waits on an upstream model; Vercel's default function limit is 10s.
+export const config = { maxDuration: 60 };
+
 export default withUser(['POST'], async (req, res, userId) => {
   const { id } = req.query;
   if (!isUuid(id)) return res.status(400).json({ error: 'Invalid id' });

@@ -198,30 +198,37 @@ async function processExcelFile(file) {
   }
 }
 
+/**
+ * Extract the text layer of a PDF with pdf-parse's default page renderer.
+ * (A custom `pagerender` that returns getTextContent() objects makes the
+ * text "[object Object]".) A PDF the parser reads but that has no text layer
+ * is almost always a scan: say so, because the fix (OCR) is different from a
+ * damaged file.
+ */
+async function extractPdfText(buffer) {
+  let data;
+  try {
+    data = await pdf(buffer);
+  } catch (error) {
+    const reason = error?.message ? ` (${error.message})` : '';
+    throw new Error(`Could not read this PDF: the file may be damaged, encrypted or not a PDF${reason}`);
+  }
+  const text = typeof data?.text === 'string' ? data.text : '';
+  if (!text.trim()) {
+    throw new Error('This PDF has no text layer (it is probably a scanned image). Run it through OCR and upload the result.');
+  }
+  return {
+    content: text,
+    metadata: {
+      pageCount: data.numpages,
+      info: data.info
+    }
+  };
+}
+
 async function processPDFFile(file) {
   const buffer = await readUploadBuffer(file);
-  try {
-    const data = await pdf(buffer, {
-      max: 0,  // No page limit
-      pagerender: async (pageData) => {
-        const renderOptions = {
-          normalizeWhitespace: true,
-          disableCombineTextItems: false
-        };
-        return await pageData.getTextContent(renderOptions);
-      }
-    });
-
-    return {
-      content: data.text,
-      metadata: {
-        pageCount: data.numpages,
-        info: data.info
-      }
-    };
-  } catch (error) {
-    return Promise.reject(new Error('Invalid or corrupted PDF file'));
-  }
+  return extractPdfText(buffer);
 }
 
 async function processDocxFile(file) {
@@ -299,19 +306,7 @@ async function handleExcelFile(file) {
 // Handle PDF files
 async function handlePdfFile(file) {
   const buffer = await fs.readFile(file.filepath);
-
-  try {
-    const data = await pdf(buffer);
-    return {
-      content: data.text,
-      metadata: {
-        pageCount: data.numpages,
-        info: data.info
-      }
-    };
-  } catch (error) {
-    return Promise.reject(new Error('Invalid or corrupted PDF file'));
-  }
+  return extractPdfText(buffer);
 }
 
 async function handleDocxFile(file) {

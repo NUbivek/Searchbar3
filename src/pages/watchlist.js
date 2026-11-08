@@ -151,7 +151,7 @@ export default function WatchlistPage() {
   return (
     <PageShell
       title="Watchlist"
-      subtitle="Alerts for new funding rounds, people moves, filings, portfolio listings and press about the companies you follow. Checked every 6 hours from the curated sources and Hacker News."
+      subtitle="Alerts for new funding rounds, people moves, filings, portfolio listings and press about the companies you follow. Checked once a day from the curated sources and Hacker News, or on demand with “Check now”."
     >
       <form onSubmit={add} className="bg-white border border-gray-200 rounded-lg p-4 mb-4 flex flex-col sm:flex-row gap-2">
         <input

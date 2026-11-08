@@ -205,7 +205,7 @@ export async function listAlerts(userId, { unseenOnly = false, limit = 100 } = {
      FROM alerts a JOIN watchlist w ON w.id = a.watch_id
      WHERE a.user_id = $1 ${unseenOnly ? 'AND a.seen = false' : ''}
      ORDER BY a.created_at DESC LIMIT $2`,
-    [userId, Math.min(Number(limit) || 100, 500)]
+    [userId, Math.min(Math.max(Number(limit) || 100, 1), 500)]
   );
 }
 

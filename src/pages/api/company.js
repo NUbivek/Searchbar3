@@ -4,7 +4,8 @@
  */
 import { buildCompanyProfile } from '../../server/companyProfile';
 
-export const config = { api: { responseLimit: '4mb' } };
+// Profiles call several upstream sources; Vercel's default function limit is 10s.
+export const config = { api: { responseLimit: '4mb' }, maxDuration: 60 };
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {

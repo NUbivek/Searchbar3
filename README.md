@@ -1,322 +1,229 @@
-# Research Hub Search Application
+# Research Hub
 
-> **IMPORTANT**: For a comprehensive guide to the search and UI flow in all circumstances, please refer to the [USER FLOW DOCUMENTATION](./USER_FLOW.md) first.
+A due-diligence research tool for venture investors: search a company or
+person across curated VC/startup sources, Hacker News and the web, get an
+answer written only from those sources with checked citations, keep the work
+in deal workspaces, and watch companies for new funding, people and filings.
 
-A sophisticated search application that integrates multiple data sources, including verified platforms, market data, and open research sources, to provide comprehensive research capabilities.
+Next.js 14 (pages router), React 18, Tailwind. Deploys to Vercel. Every AI
+feature runs on free providers first; nothing is paid unless you turn it on.
 
-## Features
+## What it does
 
-### Open Research
-- **Web Search**: General web results using Serper API
-- **Verified Sources**: Access to LinkedIn, Twitter, and Reddit data
-- **Custom URLs**: Add and search specific websites
-- **File Upload**: Process and search through uploaded documents
-- **LLM Processing**: AI-powered insights from search results
+The home page has three tabs: **Open Research**, **Network Map** and
+**Founder Check**. Signed-in users also get **Workspaces** and **Watchlist**
+in the navigation.
 
-### Search pipeline (Open Research)
-`src/server/search/`: the query is split into the company or person, the intent
-(funding, competitors, team, financials, product, legal) and recency ("latest");
-each source gets a rewritten query; results that do not name the company are
-removed; the rest are ranked by where the company is named, intent, recency and
-source tier, and syndicated duplicates are collapsed. The answer is written by
-a free model with checked citations, or quoted from sources when no model is
-configured. See `PROVIDER_CAPABILITY_MATRIX.md`.
+### Open Research (`/`)
+- Sources you can toggle: curated registry (on by default, no key), Web,
+  LinkedIn, X, Reddit, Substack, Medium, Crunchbase, Pitchbook, Carta, and
+  Verified (SEC EDGAR, plus FMP market data when `FMP_API_KEY` is set).
+  Everything except the curated registry, Hacker News and SEC needs a web
+  search key (`SERPER_API_KEY` or `TAVILY_API_KEY`); the LinkedIn/X/Reddit/
+  Substack/Medium/Crunchbase/Pitchbook/Carta toggles are site-restricted web
+  searches, not platform APIs.
+- Custom URLs and uploaded files (PDF, DOCX, CSV, TXT, up to 5 files of
+  25 MB) are searched alongside the sources.
+- Date filter: any time, past month, past year, past 3 years. Undated items
+  are kept and flagged.
+- The pipeline (`src/server/search/`): the query is split into the company
+  or person, the intent (funding, competitors, team, financials, product,
+  legal) and recency; each source gets a rewritten query; results that do not
+  name the company are dropped; the rest are ranked by where the company is
+  named, intent, recency and source tier (filing > reputable press > blog >
+  forum, `src/utils/sourceTiers.js`), and syndicated duplicates are collapsed.
+- The answer is written by a free model in five sections (Summary, Key
+  Points, Detailed Analysis, Different Perspectives, Follow-up Questions) and
+  every sentence is cited with `[Source n]` against the ranked list shown on
+  the page. With no model configured, the same sections are quoted from the
+  sources instead.
+- Claim check (`src/utils/claimCheck.js`, no model needed): funding and
+  valuation figures are extracted from every source and marked
+  corroborated (2+ sites agree), single-source, or conflicting.
+- Model menu: "Auto" picks the best free model available right now
+  (`/api/llm/models`); only models each provider serves today are listed.
 
-### Founder Check
-Background brief (AI-written with checked citations, or quoted), career
-timeline, past companies, education, litigation mentions (CourtListener with a
-token), press, public profile snippets (LinkedIn/Crunchbase pages as they appear
-in web search), disambiguation when several people share a name, and
-backchannel references: people in your imported network at the founder's
-current and past companies.
+### Founder Check (`/founder`)
+Background brief on a person: career timeline, past companies, education,
+litigation mentions (CourtListener, with a free token), press, public profile
+snippets as they appear in web search, disambiguation when several people
+share a name, and backchannel references (people in your imported network at
+the founder's current and past companies). Every item is a sentence copied
+from a fetched source; the brief is AI-written with checked citations or
+quoted when no model is configured.
 
-### Network Map
-- **Import your network**: LinkedIn's own data export (`Connections.csv`) or any CSV/XLSX of contacts (LinkedIn's API does not give apps your connections)
-- **Professional Network Visualization**: interactive graph of you, companies and people, colored by source
-- **Ask your network**: "Who do I know at Google?", "Find software engineers in my network"
-- **Warm intro paths**: your contacts at a target company and at its investors
-- **Twitter/X**: following list where the X API tier allows it
+### Network Map (`/network`)
+Import LinkedIn's own data export (`Connections.csv`), any CSV/XLSX of
+contacts, or your X following list (where the X API tier allows it); see
+them as a company graph; ask "Who do I know at Google?", "Find software
+engineers in my network", "Intro paths to Stripe". Matching is deterministic
+over your contacts; contact data is never sent to an AI provider. LinkedIn's
+API does not give apps your connections, so LinkedIn sign-in only identifies
+you. Signed in, contacts are saved to your account; signed out, they stay in
+the browser tab. See `NETWORK-MAP.md`.
 
-### Verified Sources
-- **LinkedIn**: Professional network search with OAuth 2.0 authentication
-- **Twitter/X**: Social media insights with Bearer token authentication
-- **Reddit**: Community discussions with OAuth 2.0 authentication
-- **Carta**: Equity management and cap table information
+### Company profile (`/company/<name>`)
+Funding rounds, investors, key people, competitors, headcount and
+public-company data gathered from the curated registry, Hacker News, web
+search and SEC EDGAR/FMP. Purely extractive: every fact is a quoted sentence
+with a numbered source.
 
-### Market Data Sources
-- **Financial Modeling Prep (FMP)**:
-  - Real-time stock quotes and market data
-  - Visual indicators for price changes (↑/↓)
-  - Exchange information and market cap
-  - Volume and price change percentages
-- **FRED**: Economic data and indicators
-- **Bloomberg**: Financial news and market analysis
-- **Reuters**: Global financial news and data
-- **WSJ**: Market insights and financial reporting
+### Workspaces, history and notes (signed in)
+- Every search is saved to **History** (`/history`), can be re-run, and can
+  be filed under a deal **Workspace** (`/workspaces`).
+- A workspace holds its searches, analyst notes, pinned sources, data-room
+  documents and a watchlist toggle.
+- **Data-room Q&A**: upload documents to a workspace and ask questions.
+  Documents are split into passages, ranked with BM25, and the answer cites
+  `[D1]`, `[D2]`... Model answers are verified against the passages (uncited
+  sentences and numbers not in the cited passage are dropped); without a
+  model, matching sentences are quoted.
+- **Memo export** (`/workspaces/<id>/memo`): the workspace's summaries,
+  notes, sources and documents assembled into one memo with a single
+  renumbered source list, as Markdown or DOCX. Nothing is generated.
 
-### Curated Sources (default, no API key)
-Most diligence targets are private companies with no SEC filings, so the primary
-evidence base is the curated registry in `sources/registry.json`: VC and
-accelerator portfolio pages, funding and startup news, and market analysis feeds.
+### Watchlists and alerts (signed in)
+Watch a company and the app checks the curated index and Hacker News for new
+funding, people, filing, portfolio and press items that name it (last 90
+days, every item linked to its source). Checks run on add, on "Check now",
+and daily via the Vercel cron in `vercel.json`. Alerts show in the app
+(`/watchlist` and the account menu badge); with `RESEND_API_KEY` set, each
+scheduled run also emails a digest.
 
-- The **Curated sources** toggle (on by default) searches these directly. Items are
-  indexed in memory, refreshed every 3 hours, and ranked by name match, funding
-  relevance and recency. Portfolio pages show which investors list a company.
-- `npm run sourcing:health` checks every source and writes
-  `sources/registry-health.json`. Dead or broken sources are skipped, and
-  verified URL repairs are used, without editing `registry.json`.
-- `GET /api/sources/curated` shows index status; `?q=` searches it directly.
-- With no AI model configured, results are summarized as an extractive digest:
-  quoted sentences with citations and dates, never generated analysis.
+## AI providers (free first)
 
-### Open Research Sources
-- **Substack**: Newsletter and blog content
-- **Medium**: Article and publication search
-- **Crunchbase**: Company and startup information
-- **Pitchbook**: Investment and market data
+`src/server/llm/providers.js` tries, in order:
 
-### LLM Processing
-- **Free-first model chain** (`src/server/llm/providers.js`): Groq (`GROQ_API_KEY`), then OpenRouter free models (`OPENROUTER_API_KEY`), then Google Gemini free tier (`GOOGLE_AI_API_KEY`); Together only with `LLM_ALLOW_PAID=true`. Each provider's live model list is used, so retired models cannot break answers.
-- **Smart Fallback System**: Automatic fallbacks between models and providers, then quoted answers
-- **Comprehensive Error Handling**: Ensures consistent user experience even when APIs fail
-- **Source Preservation**: Maintains source attribution throughout the processing pipeline
-- **Dynamic Content Generation**: Creates summaries, insights, and follow-up questions
+| Order | Provider | Key | Cost |
+|---|---|---|---|
+| 1 | Groq | `GROQ_API_KEY` | free tier |
+| 2 | OpenRouter, `:free` models only | `OPENROUTER_API_KEY` | free |
+| 3 | Google Gemini (Flash first) | `GOOGLE_AI_API_KEY` or `GEMINI_API_KEY` | free only while the key's Google project has no billing account |
+| 4 | Together | `TOGETHER_API_KEY` **and** `LLM_ALLOW_PAID=true` | paid, off by default |
 
-### Core Functionality
-- Multi-source parallel search processing
-- Real-time results aggregation
-- Source-specific rate limiting
-- Intelligent error handling and fallbacks
-- Modern, responsive UI with Tailwind CSS
-- Smart stock symbol extraction
-- Market data visualization
-- Advanced search result scoring system
-
-### LLM Integration
-- **Auto** (default): best free model available today (e.g. gpt-oss-120b or Qwen on Groq, Nemotron or Gemma on OpenRouter, Gemini Flash)
-- The model menu lists only models that are actually available (`/api/llm/models`)
-- **Automatic Fallback**: next model, next provider, then quoted answers
-
-## Architecture
-
-### Frontend
-- **Framework**: Next.js with React
-- **Components**:
-  - `OpenSearch.js`: Open research interface
-  - `VerifiedSearch.js`: Verified sources interface
-  - `SourceSelector.js`: Source selection management
-  - `SearchResults.js`: Results display
-  - `FileUpload.js`: File processing
-  - `UrlInput.js`: Custom URL handling
-  - `MarketData.js`: Stock and financial data display
-  - `MetricsCalculator.js`: Search result scoring system
-
-### Backend
-- **API Routes** (`/src/pages/api/`):
-  - `/search/*`: Source-specific search handlers
-  - `/llm/*`: Language model processing
-  - `/middleware/*`: Request processing
-  - `/market/*`: Financial data endpoints
-
-### Utilities
-- `rateLimiter.js`: API request throttling
-- `logger.js`: Structured logging
-- `combinedSearch.js`: Multi-source search orchestration
-- `calculatorUtils.js`: Metrics calculation utilities
-- `contextDetector.js`: Query context detection
-
-## Search Components
-
-The application uses a sophisticated multi-component search architecture:
-
-### Core Components
-- **SearchResults**: Central component for displaying all search results
-- **LLMResults**: Displays AI-synthesized answers with sources
-- **TraditionalResults**: Displays web search results in a traditional format
-- **SearchResultsWrapper**: Adapter component that handles format conversion between different data structures
-
-### Recent Improvements (v0.5.0)
-- Fixed critical issues with Verified Sources search results display
-- Enhanced format conversion between chat history and search results
-- Improved error handling and content processing
-- Added comprehensive debug logging throughout search components
-
-For detailed documentation on search components, see [SEARCH_COMPONENTS.md](./docs/SEARCH_COMPONENTS.md).
-
-## Search Metrics System
-
-The application uses a sophisticated metrics system to evaluate search results:
-
-### Metrics Components
-- **MetricsCalculator**: Central component for calculating all metrics
-- **RelevanceCalculator**: Calculates how well results match the query
-- **AccuracyCalculator**: Evaluates factual correctness and reliability
-- **CredibilityCalculator**: Assesses source trustworthiness
-
-### Key Features
-- Context-aware scoring based on query type (financial, medical, etc.)
-- User preference integration for personalized results
-- Threshold-based filtering to ensure quality
-- Visual indicators for result quality (colors and labels)
-
-For detailed documentation on the metrics system, see [METRICS_SYSTEM.md](./docs/METRICS_SYSTEM.md).
+Each provider's live model list is fetched and cached, so a retired model id
+cannot break answers. A rate limit or error moves to the next provider; with
+none configured, answers are quoted from sources and the page says so.
+`PROVIDER_CAPABILITY_MATRIX.md` lists what each key unlocks.
 
 ## Setup
 
-1. **Clone and Install**:
-   ```bash
-   git clone https://github.com/yourusername/searchbar.git
-   cd searchbar
-   npm install
-   ```
+```bash
+npm install
+cp .env.local.example .env.local   # fill in the keys you have
+npm run dev                        # http://localhost:3000
+```
 
-2. **Environment Configuration**:
-   Copy `.env.local.example` (or `.env.local.sample`) to `.env.local` and fill in your API keys:
-   ```env
-   # LLM API Keys
-   TOGETHER_API_KEY=your_together_api_key
-   PERPLEXITY_API_KEY=your_perplexity_api_key
+Nothing is required to start: with an empty `.env.local` the curated
+registry, Hacker News and SEC EDGAR still work, answers are quoted, and
+saved history uses an embedded Postgres (PGlite) in `.data/`. A "Local test
+user" sign-in is offered in development so signed-in features can be tried
+without Google credentials.
 
-   # Search API Keys
-   SERPER_API_KEY=your_serper_api_key
+Environment variables (all in `.env.local.example`):
 
-   # Social Media APIs
-   TWITTER_API_KEY=your_twitter_api_key
-   LINKEDIN_CLIENT_ID=your_linkedin_client_id
-   LINKEDIN_CLIENT_SECRET=your_linkedin_client_secret
-   REDDIT_CLIENT_ID=your_reddit_client_id
-   REDDIT_CLIENT_SECRET=your_reddit_client_secret
+| Variable | Used for |
+|---|---|
+| `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GOOGLE_AI_API_KEY` | free AI answers |
+| `TOGETHER_API_KEY` + `LLM_ALLOW_PAID=true` | paid AI answers (opt-in) |
+| `SERPER_API_KEY` or `TAVILY_API_KEY` | web and news search, and every site-restricted source |
+| `FMP_API_KEY` | market data for public companies (Verified source, company profile) |
+| `COURTLISTENER_API_TOKEN` | litigation search in Founder Check (free account) |
+| `DATABASE_URL` | Neon Postgres in production (history, workspaces, notes, watchlists, contacts); omit locally to use PGlite |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL` | Google sign-in (NextAuth) |
+| `CRON_SECRET` | authorises the daily watchlist cron (`Authorization: Bearer`) |
+| `RESEND_API_KEY`, `ALERT_EMAIL_FROM` | optional watchlist email digests |
+| `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | LinkedIn sign-in on the Network Map |
+| `TWITTER_CLIENT_ID`, `TWITTER_CLIENT_SECRET` | X sign-in and following list |
+| `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_PRODUCTION_URL`, `NEXT_PUBLIC_USE_PRODUCTION_CALLBACKS`, `LINKEDIN_REDIRECT_URI`, `TWITTER_REDIRECT_URI` | OAuth callback URLs (see below) |
 
-   # Market Data APIs
-   FMP_API_KEY=your_fmp_api_key
-   FRED_API_KEY=your_fred_api_key
-   ```
+`GET /api/debug/env-check` reports which variables are set (names only,
+never values). It is open in development and requires a signed-in session in
+production.
 
-3. **Development Server**:
-   ```bash
-   npm run dev
-   ```
+### Google sign-in
+Create an OAuth client in Google Cloud with the redirect URI
+`https://<your-domain>/api/auth/callback/google` (and the localhost
+equivalent), then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+`NEXTAUTH_SECRET` (any long random string) and `NEXTAUTH_URL`. In
+development `NEXTAUTH_URL` defaults to the dev server's port.
 
-## API Integration Details
+### LinkedIn sign-in (Network Map)
+1. Create an app at https://www.linkedin.com/developers/apps and enable the
+   "Sign In with LinkedIn using OpenID Connect" product (scopes `openid`,
+   `profile`, `email`; LinkedIn no longer grants connection scopes to
+   ordinary apps).
+2. Add the redirect URL `http://localhost:3000/api/auth/linkedin/callback`
+   (and the production one).
+3. Set `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`. The callback URL
+   is derived from the request host; set `LINKEDIN_REDIRECT_URI` to
+   override it.
 
-### Financial Modeling Prep (FMP)
-- API key authentication
-- Rate limit: 300 requests/minute
-- Real-time stock quotes and market data
-- Features:
-  - Stock price and market data with visual indicators
-  - Price change percentages and volume
-  - Market cap and exchange information
-  - Company financials and ratios
-  - Smart symbol extraction from queries
-  - Fallback to web search for unknown symbols
+### X (Twitter) sign-in (Network Map)
+1. In the X developer portal create a project and app, enable OAuth 2.0
+   ("Web App", code flow with PKCE), and copy the OAuth 2.0 Client ID and
+   Secret (not the v1.1 API key).
+2. Add the redirect URL `http://localhost:3000/api/auth/twitter/callback`
+   (and the production one). Scopes requested: `tweet.read`, `users.read`,
+   `follows.read`, `offline.access`.
+3. Set `TWITTER_CLIENT_ID` and `TWITTER_CLIENT_SECRET`; set
+   `TWITTER_REDIRECT_URI` to override the derived callback URL.
+Reading who you follow needs a paid X API tier; on the free tier the page
+says so and you can import your following list as a file instead.
 
-### LinkedIn
-- OAuth 2.0 with client credentials
-- Rate limit: 100 requests/minute
-- Fallback: Serper API for search results
+To test OAuth locally against callbacks registered for production, set
+`NEXT_PUBLIC_PRODUCTION_URL` and `NEXT_PUBLIC_USE_PRODUCTION_CALLBACKS=true`.
 
-### Twitter/X
-- Bearer token authentication
-- Rate limit: 500 requests/15-minutes
-- Fallback: Serper API for search results
+### Curated sources
+`sources/registry.json` lists VC and accelerator portfolio pages, funding
+and startup news feeds and market analysis sites. They are indexed in memory
+and refreshed every 3 hours. `npm run sourcing:health` checks every source
+and writes `sources/registry-health.json`; dead sources are skipped
+automatically. `GET /api/sources/curated` shows index status and
+`?q=<query>` searches it directly. The other `npm run sourcing:*` scripts
+plan, validate and run the registry pipeline (`src/sourcing/`).
 
-### Reddit
-- OAuth 2.0 with client credentials
-- Rate limit: 60 requests/minute
-- Fallback: Serper API for search results
+## Deployment (Vercel)
 
-### Web Search (Serper)
-- API key authentication
-- Rate limit: 100 requests/minute
-- Used for general web search and fallback
-
-## Error Handling
-
-1. **API Failures**:
-   - Automatic fallback to Serper API
-   - Retry mechanism with exponential backoff
-   - Detailed error logging
-
-2. **Rate Limiting**:
-   - Per-source rate limiting
-   - Queue system for concurrent requests
-   - Clear user feedback on limits
-
-3. **Data Validation**:
-   - Input sanitization
-   - Response format verification
-   - Error recovery strategies
-
-4. **LLM Processing**:
-   - Automatic model fallback system
-   - Graceful handling of empty results
-   - Detailed error logging with response inspection
-   - Fallback to Mixtral-8x7b when other models fail
-
-## Security
-
-1. **API Key Management**:
-   - Environment variables
-   - Server-side only access
-   - Key rotation support
-
-2. **Request Validation**:
-   - Input sanitization
-   - Rate limiting
-   - CORS configuration
+Push the repo, add the environment variables above (Neon via Vercel's
+integration provides `DATABASE_URL`), and set `NEXTAUTH_URL` to the site
+URL. `vercel.json` schedules `/api/cron/watchlists` daily at 06:00 UTC; set
+`CRON_SECRET` so only Vercel can call it. Long routes (`/api/search/open`,
+`/api/founder`, `/api/company`, `/api/workspaces/[id]/ask`,
+`/api/llm/models`, `/api/cron/watchlists`) declare `maxDuration: 60`.
 
 ## Testing
 
-- **Unit Tests**: Component and utility testing
-- **Integration Tests**: API endpoint testing
-- **End-to-End Tests**: Full search flow testing
+```bash
+npm test                      # jest, tests/unit/**
+NEXT_DIST_DIR=.next-build npm run build   # production build without disturbing a running `next dev`
+npm run smoke:api             # status-code checks against a running server (API_SMOKE_BASE=http://127.0.0.1:3000)
+```
 
-## Performance Optimization
+## Code map
 
-1. **Search Optimization**:
-   - Parallel API requests
-   - Response caching
-   - Result deduplication
+```
+src/pages/            index, founder, network, signin, watchlist, company/[name],
+                      history/*, workspaces/*  (UI)
+src/pages/api/        search/open, founder, company, upload, llm/models,
+                      sources/curated, history/*, workspaces/**, watchlist, alerts,
+                      cron/watchlists, network/{contacts,query,twitter},
+                      auth/[...nextauth], auth/{linkedin,twitter}/*, debug/env-check
+src/server/           search/ (queryPlan, retrieve, rank, answer), llm/providers,
+                      founderCheck, companyProfile, dataroom, memo, watchlist,
+                      network/, store, db, auth
+src/utils/            sourceTiers, claimCheck, evidence, fallbackSynthesizer,
+                      sources/curatedIndex, sourceIntegration, fileProcessing, ...
+src/components/       OpenSearch, SourceSelector, ModelSelector, search/results,
+                      network/NetworkGraph, workspace/, watchlist/
+src/sourcing/         curated registry pipeline (used by scripts/sourcing-*.js)
+tests/unit/           jest suites (features/ covers each product feature)
+```
 
-2. **UI Performance**:
-   - Code splitting
-   - Lazy loading
-   - Debounced search
-
-## Environment Diagnostics
-
-Use this endpoint to validate configuration safely (no secret values returned):
-
-- `GET /api/debug/env-check`
-
-For provider readiness reference, see:
-
-- `PROVIDER_CAPABILITY_MATRIX.md`
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+Other documents: `USER_FLOW.md` (what happens on each page),
+`PROVIDER_CAPABILITY_MATRIX.md`, `NETWORK-MAP.md`, `docs/METRICS_SYSTEM.md`,
+`CHANGELOG.md`.
 
 ## License
 
-MIT License - See LICENSE file for details
-
-## UI Layout
-
-The application now consists of two main tabs:
-
-1. **Open Research** (Default tab)
-   - Comprehensive search across multiple sources
-   - Includes Web, Verified Sources, Academic, and News
-   - Custom URL and file upload capabilities
-   - LLM-powered insights and summaries
-
-2. **Network Map** 
-   - Visual representation of professional connections
-   - LinkedIn, Twitter, and Reddit network visualization
-   - Connection exploration and insights
-   - No search functionality - purely for network visualization
+MIT, see `LICENSE`.
