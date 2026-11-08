@@ -532,7 +532,9 @@ describe('claim check (defect 3)', () => {
     expect(funding.alternatives.map((a) => a.value)).toEqual(['$30B']);
     expect(valuation.value).toBe('$1.25T');
     expect(valuation.alternatives.map((a) => a.value)).toEqual(expect.arrayContaining(['$1.4T']));
-    expect(valuation.alternatives.find((a) => a.value === '$500B')).toEqual(expect.objectContaining({ prior: true, sameRound: false }));
+    // the whole sentence is "in talks", so $500B is part of a target, never a disagreement
+    expect(valuation.alternatives.find((a) => a.value === '$500B')).toEqual(expect.objectContaining({ speculative: true }));
+    expect(valuation.status).toBe('single-source');
   });
 
   test('a reported target ("in talks to raise $30B") never beats or conflicts with a confirmed raise', () => {
