@@ -439,6 +439,27 @@ describe('ranking: duplicates, user documents and the date filter (defects 7, 10
 });
 
 describe('claim check (defect 3)', () => {
+  test('a company with several rounds in a year: the newest corroborated figure leads, earlier ones are "earlier", no false disagreement', () => {
+    const { checkClaims } = require('../../../src/utils/claimCheck');
+    const mk = (title, content, url, date) => ({ title, content, url, publishedAt: date });
+    const out = checkClaims([
+      mk('Ramp Valued at $60 Billion Following New Funding Round', 'Ramp raised $1.85 billion at a $60 billion valuation in October 2026.', 'https://pymnts.com/1', '2026-10-20'),
+      mk('Ramp hits $60B', 'Ramp has raised $1.85 billion, valuing the company at $60 billion.', 'https://techcrunch.com/2', '2026-10-20'),
+      mk('Ramp recap', 'This is the fourth round in 2026 (after a $750m Series F in June at $44bn).', 'https://yahoo.com/3', '2026-11-01'),
+      mk('Ramp Series F', 'Ramp raised $750 million at a $44 billion valuation.', 'https://cnbc.com/4', '2026-06-15'),
+      mk('Ramp Series F', 'Ramp announced a $750M Series F at a $44B valuation.', 'https://prnewswire.com/5', '2026-06-15'),
+      mk('Ramp Series F', 'Ramp valued at $44 billion after $750M round.', 'https://finovate.com/6', '2026-06-16'),
+      mk('Ramp March', 'Ramp raised $500 million at a $32 billion valuation in March 2026.', 'https://crunchbase.com/7', '2026-03-10'),
+    ]);
+    const valuation = out.claims.find((c) => c.label === 'Valuation');
+    expect(valuation.value).toBe('$60B');
+    expect(valuation.status).toBe('corroborated');
+    expect(valuation.alternatives.map((a) => [a.value, a.prior || a.sameRound])).toEqual([['$44B', false], ['$32B', false]]);
+    const funding = out.claims.find((c) => /Funding|Series F/.test(c.label));
+    expect(funding.value).toBe('$1.85B');
+    expect(funding.status).toBe('corroborated');
+  });
+
   test('a figure of $100B or more is never a funding amount', () => {
     const { checkClaims } = require('../../../src/utils/claimCheck');
     const out = checkClaims([
