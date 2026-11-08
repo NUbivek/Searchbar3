@@ -76,8 +76,12 @@ export function extractClaims(result, sourceNumber) {
     const round = (sentence.match(ROUND_RE) || [])[1];
     const isValuation = VALUATION_RE.test(sentence);
     const isFunding = FUNDING_RE.test(sentence);
+    // In a sentence that talks about a valuation, the largest figure is the
+    // valuation ("could raise $30B at a $1.4 trillion valuation, up from $500B").
+    const parsed = monies.map(parseMoney);
+    const largest = Math.max(...parsed.map((x) => x.amount || 0));
     monies.forEach((m, idx) => {
-      const money = parseMoney(m);
+      const money = parsed[idx];
       // Look at the words between this amount and its neighbours only, so
       // "$11 billion at a $1.25 trillion valuation" reads the valuation word
       // for the second amount, not the first.
@@ -86,7 +90,14 @@ export function extractClaims(result, sourceNumber) {
       const before = sentence.slice(Math.max(prevEnd, m.index - 60), m.index);
       const after = sentence.slice(m.index + m[0].length, Math.min(nextStart, m.index + m[0].length + 40));
       const valuationHere = VALUATION_BEFORE_RE.test(before) || VALUATION_AFTER_RE.test(after);
-      const kind = valuationHere || (isValuation && !isFunding) ? 'valuation' : isFunding ? 'raise' : null;
+      const largestOfSeveral = isValuation && monies.length > 1 && money.amount === largest;
+      // In a valuation sentence a smaller figure is a raise only when a raise
+      // verb sits right before it ("raise as much as $30B"); "up from $500B"
+      // is a prior valuation and is left out.
+      const raiseNear = /\b(rais\w*|secur\w*|clos\w*|land\w*|bag\w*|nab\w*|invest\w*|funding|round|financing)\b/i.test(before);
+      let kind = null;
+      if (valuationHere || largestOfSeveral || (isValuation && !isFunding)) kind = 'valuation';
+      else if (isFunding && (!isValuation || raiseNear)) kind = 'raise';
       if (!kind) return;
       claims.push({
         key: kind === 'valuation' ? 'valuation' : `raise:${(round || 'unspecified').toLowerCase()}`,

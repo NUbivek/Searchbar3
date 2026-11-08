@@ -213,7 +213,7 @@ function cleanCompany(raw, name, host = '') {
   const glued = words[0] && words[0].match(/^([A-Z][a-z]{3,})([A-Z].+)$/);
   if (glued && host && host.toLowerCase().includes(glued[1].toLowerCase())) words[0] = glued[2];
   c = words.join(' ');
-  if (!c || COMPANY_STOP.has(words[0]) || COMPANY_GENERIC.has(c) || c.length < 2) return null;
+  if (!c || COMPANY_STOP.has(words[0]) || COMPANY_GENERIC.has(c) || COMPANY_LEADING.has(c) || c.length < 2) return null;
   if (new RegExp(`^${ROLE_WORD}$`, 'i').test(c)) return null;
   // Never treat the person themselves (or part of their name) as a company.
   const nameParts = String(name).split(/\s+/);
@@ -393,6 +393,25 @@ export function extractFounderEvidence({ name, company, results, keepAllSources 
       else mentions.push(item);
     }
   });
+
+  // "CybernewsMistral", "QuartzMistral": a web snippet glued the publisher to
+  // the company. When the tail of such a token is a company we already know
+  // (or the one the user typed), fold it into that company.
+  const known = [...companies.map((c) => c), ...(company ? [{ company, key: companyKeys(company)[0] }] : [])]
+    .map((c) => ({ ...c, key: c.key || companyKeys(c.company)[0] || c.company.toLowerCase() }))
+    .filter((c) => c.key && c.key.length >= 4);
+  for (let i = companies.length - 1; i >= 0; i -= 1) {
+    const c = companies[i];
+    const glued = c.company.match(/^([A-Z][a-z]+)([A-Z][A-Za-z]+)$/);
+    if (!glued) continue;
+    const tail = companyKeys(glued[2])[0] || glued[2].toLowerCase();
+    const target = known.find((k) => k.key === tail && k.company !== c.company);
+    if (!target) continue;
+    const kept = companies.find((x) => x.company === target.company);
+    if (kept && !kept.role && c.role) { kept.role = c.role; kept.roleQuote = c.quote; kept.roleRi = c.ri; }
+    for (const rc of roleCandidates) if (rc.company === c.company) rc.company = target.company;
+    companies.splice(i, 1);
+  }
 
   // Company-mentioning items first (stable), then the section's own order.
   const rank = (arr) => (hasCompany ? arr.map((x, i) => [x, i]).sort((a, b) => (Number(!!b[0].mentionsCompany) - Number(!!a[0].mentionsCompany)) || (a[1] - b[1])).map(([x]) => x) : arr);

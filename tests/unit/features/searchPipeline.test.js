@@ -439,6 +439,21 @@ describe('ranking: duplicates, user documents and the date filter (defects 7, 10
 });
 
 describe('claim check (defect 3)', () => {
+  test('the largest figure in a valuation sentence is the valuation, never a funding alternative', () => {
+    const { checkClaims } = require('../../../src/utils/claimCheck');
+    const out = checkClaims([
+      { title: 'OpenAI round', content: 'OpenAI raised $11 billion at a $1.25 trillion valuation.', url: 'https://a.com/1', publishedAt: '2026-11-07' },
+      { title: 'Talks', content: 'OpenAI is in talks to raise as much as $30 billion at a valuation of $1.4 trillion, up from $500 billion.', url: 'https://b.com/2', publishedAt: '2026-11-03' },
+    ]);
+    const funding = out.claims.find((c) => /Funding/.test(c.label));
+    const valuation = out.claims.find((c) => c.label === 'Valuation');
+    expect(funding.value).toBe('$11B');
+    expect(funding.alternatives.map((a) => a.value)).toEqual(['$30B']);
+    expect(valuation.value).toBe('$1.25T');
+    expect(valuation.alternatives.map((a) => a.value)).toEqual(expect.arrayContaining(['$1.4T']));
+    expect(valuation.alternatives.map((a) => a.value)).not.toContain('$500B');
+  });
+
   test('a reported target ("in talks to raise $30B") never beats or conflicts with a confirmed raise', () => {
     const { checkClaims, isSpeculativeClaim } = require('../../../src/utils/claimCheck');
     const mk = (title, content, url, date) => ({ title, content, url, publishedAt: date });
