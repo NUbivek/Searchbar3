@@ -34,7 +34,8 @@ sections), and the page says so.
 ## Accounts and storage
 - Google sign-in: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`
 - Database (history, workspaces, notes, watchlists, network contacts): `DATABASE_URL` (Neon via Vercel). Local development uses an embedded database.
-- Watchlist cron: `CRON_SECRET`
+- Watchlist cron (daily, `vercel.json`): `CRON_SECRET`
+- Watchlist email digests (optional): `RESEND_API_KEY` (Resend free tier: 3,000 emails/month) and `ALERT_EMAIL_FROM` (a sender on a domain verified in Resend; without it Resend's onboarding address is used, which only delivers to the Resend account owner). Without the key, alerts are in-app only and the Watchlist page says so.
 
 ## Network Map
 - Connections: import LinkedIn's own data export (`Connections.csv`) or any CSV/XLSX of contacts. LinkedIn's API does not give third-party apps a member's connections.

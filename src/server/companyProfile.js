@@ -68,10 +68,26 @@ function hostOf(url) {
   try { return new URL(url).hostname.toLowerCase(); } catch { return ''; }
 }
 
+// "Ramp Up", "Harvey Weinstein", "Model 3 Ramp": a one-word company name next
+// to another capitalised word is usually a phrase or someone else's name.
+const PHRASE_WORDS = /^(Up|Down|On|Off|Out|In|Over|Back|Forward|Ahead|Time|Rate|Mode|Agent|Speed|Period|Access|Metering|Ramp)$/;
+function cleanWordMatch(term, text) {
+  if (term.includes(' ')) return wordRe(term).test(text);
+  const re = new RegExp(`(^|[^A-Za-z0-9])${escapeRe(term)}($|[^A-Za-z0-9])`, 'g');
+  for (const m of text.matchAll(re)) {
+    const after = text.slice(m.index + m[0].length - 1).match(/^\s+([A-Z][a-z]+)\b/);
+    const before = text.slice(0, m.index + m[1].length).match(/\b([A-Z][a-z]+)\s+$/);
+    if (after && PHRASE_WORDS.test(after[1])) continue;
+    if (before && /^(Model|Series|Project|Operation|Team)$/.test(before[1])) continue;
+    return true;
+  }
+  return false;
+}
+
 /** Does this result really concern the company? (no false matches) */
 export function mentionsCompany(result, aliases) {
   const text = resultText(result);
-  if (wordRe(aliases.full).test(text)) return true;
+  if (cleanWordMatch(aliases.full, text)) return true;
   if (!aliases.short) return false;
   if (!wordRe(aliases.short).test(text)) return false;
   // Short form only counts when the result is the company's own (site/feed).

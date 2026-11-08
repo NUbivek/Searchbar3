@@ -1,7 +1,8 @@
 /**
  * Watchlist: companies the user follows and the alerts found for them in the
  * curated sources and Hacker News (new funding, people moves, filings,
- * portfolio listings, press). Alerts are in-app only.
+ * portfolio listings, press). Alerts are in-app, plus an email digest after
+ * each scheduled check when the server has email configured.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSession } from 'next-auth/react';
@@ -36,6 +37,7 @@ function fmtWhen(value) {
 export default function WatchlistPage() {
   const { status } = useSession();
   const [watchlist, setWatchlist] = useState([]);
+  const [emailAlerts, setEmailAlerts] = useState(null);
   const [alerts, setAlerts] = useState([]);
   const [company, setCompany] = useState('');
   const [loading, setLoading] = useState(true);
@@ -51,6 +53,7 @@ export default function WatchlistPage() {
       ]);
       if (!w.ok) throw new Error(w.d.error || 'Could not load your watchlist.');
       setWatchlist(w.d.watchlist || []);
+      setEmailAlerts(Boolean(w.d.emailAlerts));
       setAlerts(a.ok ? a.d.alerts || [] : []);
       setError(null);
     } catch (e) {
@@ -203,6 +206,13 @@ export default function WatchlistPage() {
               <button type="button" onClick={() => markSeen()} className="text-xs text-blue-600 hover:underline">Mark all seen</button>
             )}
           </div>
+          {emailAlerts !== null && (
+            <p className="text-xs text-gray-500 mb-2">
+              Watched companies are checked daily. {emailAlerts
+                ? 'New alerts are also emailed to your sign-in address as a digest.'
+                : 'Alerts are shown here; email digests are off on this server.'}
+            </p>
+          )}
           {!loading && grouped.length === 0 && (
             <div className="bg-white border border-gray-200 rounded-lg p-4 text-sm text-gray-600">
               No alerts yet. Alerts appear when a source publishes something new that names a watched company (last 90 days).

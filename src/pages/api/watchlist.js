@@ -9,7 +9,7 @@
  */
 import { withUser, isUuid } from '../../server/apiHelpers';
 import { listWatchlist, addWatch, removeWatch, recordWatchCheck } from '../../server/store';
-import { checkWatch } from '../../server/watchlist';
+import { checkWatch, emailAlertsConfigured } from '../../server/watchlist';
 
 async function runCheck(watch) {
   try {
@@ -24,7 +24,7 @@ async function runCheck(watch) {
 
 export default withUser(['GET', 'POST', 'DELETE'], async (req, res, userId) => {
   if (req.method === 'GET') {
-    return res.status(200).json({ watchlist: await listWatchlist(userId) });
+    return res.status(200).json({ watchlist: await listWatchlist(userId), emailAlerts: emailAlertsConfigured() });
   }
 
   if (req.method === 'DELETE') {

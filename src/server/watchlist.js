@@ -11,10 +11,19 @@
  *   only allowed for portfolio listings (stored once: alerts dedupe on URL);
  * - every alert links to its source;
  * - the first check of a new watch backfills at most 10 most recent items.
+ *
+ * Email digests (optional): when RESEND_API_KEY is set, each scheduled run
+ * emails every user whose watches produced new alerts one digest, sent with
+ * Resend's free tier. ALERT_EMAIL_FROM sets the sender (defaults to Resend's
+ * onboarding address, which can only deliver to the Resend account owner).
  */
 import { searchCuratedSources } from '../utils/sources/curatedIndex';
 import { searchHackerNews } from '../utils/sources/hackernewsAlgolia';
 import { dueWatches, recordWatchCheck } from './store';
+import { query } from './db';
+
+const RESEND_URL = 'https://api.resend.com/emails';
+const DIGEST_MAX_PER_COMPANY = 10;
 
 export const MAX_AGE_DAYS = 90;
 export const BACKFILL_LIMIT = 10;
@@ -143,26 +152,115 @@ export async function checkWatch(watch, { now = Date.now(), maxItems } = {}) {
   return selectAlertItems(company, items, { now, maxItems: cap });
 }
 
+export function emailAlertsConfigured() {
+  return Boolean(process.env.RESEND_API_KEY);
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/** Subject, plain text and HTML for one user's new alerts, grouped by company. */
+export function renderAlertDigest(companies, { baseUrl = '' } = {}) {
+  const groups = (companies || []).filter((c) => c && c.alerts && c.alerts.length);
+  const total = groups.reduce((n, c) => n + c.alerts.length, 0);
+  const names = groups.map((c) => c.company);
+  const subject = `${total} new alert${total === 1 ? '' : 's'}: ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}`;
+  const link = baseUrl ? `${baseUrl.replace(/\/$/, '')}/watchlist` : '/watchlist';
+  const text = [
+    ...groups.map((c) => [
+      `${c.company} (${c.alerts.length})`,
+      ...c.alerts.slice(0, DIGEST_MAX_PER_COMPANY).map((a) => `- [${ALERT_KINDS[a.kind] || a.kind}] ${a.title}${a.sourceName ? ` (${a.sourceName}${a.publishedAt ? `, ${String(a.publishedAt).slice(0, 10)}` : ''})` : ''}\n  ${a.url}`),
+      ...(c.alerts.length > DIGEST_MAX_PER_COMPANY ? [`  and ${c.alerts.length - DIGEST_MAX_PER_COMPANY} more`] : []),
+      '',
+    ].join('\n')),
+    `All alerts: ${link}`,
+    'You get this email because you watch these companies in Research Hub. Remove a company from your watchlist to stop its alerts.',
+  ].join('\n');
+  const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;color:#1f2937">
+${groups.map((c) => `<h3 style="margin:16px 0 6px">${escapeHtml(c.company)} <span style="color:#6b7280;font-weight:normal">(${c.alerts.length})</span></h3>
+<ul style="margin:0;padding-left:18px">${c.alerts.slice(0, DIGEST_MAX_PER_COMPANY).map((a) => `<li style="margin:4px 0"><span style="color:#6b7280">[${escapeHtml(ALERT_KINDS[a.kind] || a.kind)}]</span> <a href="${escapeHtml(a.url)}">${escapeHtml(a.title)}</a>${a.sourceName ? ` <span style="color:#6b7280">(${escapeHtml(a.sourceName)}${a.publishedAt ? `, ${escapeHtml(String(a.publishedAt).slice(0, 10))}` : ''})</span>` : ''}</li>`).join('')}${c.alerts.length > DIGEST_MAX_PER_COMPANY ? `<li style="color:#6b7280">and ${c.alerts.length - DIGEST_MAX_PER_COMPANY} more</li>` : ''}</ul>`).join('')}
+<p style="margin-top:16px"><a href="${escapeHtml(link)}">All alerts</a></p>
+<p style="color:#6b7280;font-size:12px">You get this email because you watch these companies in Research Hub. Remove a company from your watchlist to stop its alerts.</p>
+</div>`;
+  return { subject, text, html, total };
+}
+
+/** Send one digest with Resend. Throws on failure; never logs the key. */
+export async function sendAlertDigest({ to, companies, baseUrl }, { fetchImpl = globalThis.fetch } = {}) {
+  if (!emailAlertsConfigured()) throw new Error('Email alerts are not configured (RESEND_API_KEY).');
+  const digest = renderAlertDigest(companies, { baseUrl });
+  if (!digest.total) return false;
+  const r = await fetchImpl(RESEND_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: process.env.ALERT_EMAIL_FROM || 'Research Hub <onboarding@resend.dev>',
+      to: [to],
+      subject: digest.subject,
+      text: digest.text,
+      html: digest.html,
+    }),
+  });
+  if (!r.ok) {
+    let detail = '';
+    try { detail = String((await r.json())?.message || '').slice(0, 120); } catch { /* no body */ }
+    throw new Error(`Resend returned ${r.status}${detail ? `: ${detail}` : ''}`);
+  }
+  return true;
+}
+
+/** Alerts stored for a watch since a point in time (the ones this run created). */
+async function alertsSince(watchId, sinceMs) {
+  return query(
+    `SELECT kind, title, url, source_name AS "sourceName", published_at AS "publishedAt"
+       FROM alerts WHERE watch_id = $1 AND created_at >= $2::timestamptz
+       ORDER BY created_at DESC LIMIT 50`,
+    [watchId, new Date(sinceMs).toISOString()]
+  );
+}
+
 /**
  * Cron entry point: check the watches that are due (oldest first) and record
- * new alerts. Stops starting new checks once the time budget is used.
+ * new alerts. Stops starting new checks once the time budget is used. When
+ * email is configured, users with new alerts get one digest each.
  */
-export async function runDueWatchChecks({ limit = 25, olderThanMinutes = 360, budgetMs = 50000 } = {}) {
+export async function runDueWatchChecks({ limit = 25, olderThanMinutes = 360, budgetMs = 50000, baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_BASE_URL || '' } = {}) {
   const started = Date.now();
   const watches = await dueWatches(olderThanMinutes, limit);
-  const result = { due: watches.length, checked: 0, alertsCreated: 0, errors: 0, skipped: 0 };
+  const result = { due: watches.length, checked: 0, alertsCreated: 0, errors: 0, skipped: 0, emailsSent: 0, emailErrors: 0, emailConfigured: emailAlertsConfigured() };
+  const digests = new Map(); // user_id -> [{ company, alerts }]
   for (const watch of watches) {
     if (Date.now() - started > budgetMs) {
       result.skipped += 1;
       continue;
     }
     try {
+      const checkStarted = Date.now() - 1000;
       const alerts = await checkWatch(watch);
-      result.alertsCreated += await recordWatchCheck(watch, alerts);
+      const created = await recordWatchCheck(watch, alerts);
+      result.alertsCreated += created;
       result.checked += 1;
+      if (created > 0 && result.emailConfigured) {
+        const fresh = await alertsSince(watch.id, checkStarted);
+        if (fresh.length) {
+          if (!digests.has(watch.user_id)) digests.set(watch.user_id, []);
+          digests.get(watch.user_id).push({ company: watch.company, alerts: fresh });
+        }
+      }
     } catch (error) {
       result.errors += 1;
       console.error(`Watch check failed for ${watch.company}:`, error.message);
+    }
+  }
+  for (const [userId, companies] of digests) {
+    try {
+      const [user] = await query('SELECT email FROM users WHERE id = $1', [userId]);
+      if (!user?.email) continue;
+      if (await sendAlertDigest({ to: user.email, companies, baseUrl })) result.emailsSent += 1;
+    } catch (error) {
+      result.emailErrors += 1;
+      console.error('Alert email failed:', error.message);
     }
   }
   return result;

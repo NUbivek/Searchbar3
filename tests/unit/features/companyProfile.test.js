@@ -76,6 +76,9 @@ describe('name filtering', () => {
     expect(mentionsCompany(article('Ramp raises $500M', 'Ramp raised $500M.'), aliases)).toBe(true);
     expect(mentionsCompany(article('How teams ramp up', 'Engineers ramp up faster.'), aliases)).toBe(false);
     expect(mentionsCompany(article('Rampart Security launches', 'Rampart is new.'), aliases)).toBe(false);
+    expect(mentionsCompany(article('Tesla Announces $2B Public Offering to Accelerate Model 3 Ramp Up', 'Tesla news.'), aliases)).toBe(false);
+    expect(mentionsCompany(article('Ramp Up Your Sales', 'Tips.'), aliases)).toBe(false);
+    expect(mentionsCompany(article('Ramp Financial hits $1B', 'Ramp, the spend platform, said.'), aliases)).toBe(true);
 
     const mistral = companyAliases('Mistral AI');
     expect(mistral.short).toBe('Mistral');
