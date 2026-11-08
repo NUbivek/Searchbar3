@@ -562,7 +562,9 @@ describe('claim check (defect 3)', () => {
       mk('Ramp recap', 'Ramp, which raised $750 million in June, is growing.', 'https://f.com/6', '2026-11-05'),
       mk('Ramp recap', 'The company raised $750 million at a $44 billion valuation, its sixth round.', 'https://g.com/7', '2026-11-06'),
       mk('Ramp news', 'Expense management company Ramp said it had raised $1.85 billion in a new funding round that values it at $60 billion, just four months after raising $750 million.', 'https://h.com/8', '2026-10-20'),
+      mk('Ramp total', 'The company has now raised about $5 billion in funding.', 'https://i.com/9', '2026-10-20'),
     ]);
+    expect(out.claims.find((c) => /Funding/.test(c.label)).alternatives.find((a) => a.value === '$5B')).toEqual(expect.objectContaining({ total: true }));
     const ramp = out.claims.find((c) => /Funding/.test(c.label));
     expect(ramp.value).toBe('$1.85B');
     expect(ramp.status).toBe('corroborated');

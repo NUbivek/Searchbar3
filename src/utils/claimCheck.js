@@ -97,7 +97,7 @@ function roundDate(sentence, result) {
 
 // "after a $750m Series F in June", "up from $44bn": an earlier figure the
 // sentence mentions for context, not the figure it reports.
-const TOTAL_RE = /\b(in total|(?:a )?total of|total (?:funding|raised|capital|equity|investment|financing)|to date|so far|cumulative(?:ly)?|lifetime|all told|altogether|overall|over \d+ (?:funding )?rounds)\b/i;
+const TOTAL_RE = /\b(in total|(?:has |have |had )?now raised|brings? (?:its|the company's|the) (?:total|funding)|(?:a )?total of|total (?:funding|raised|capital|equity|investment|financing)|to date|so far|cumulative(?:ly)?|lifetime|all told|altogether|overall|over \d+ (?:funding )?rounds)\b/i;
 // A sentence often reports one figure and recaps another: "raises $11B at a
 // $1.25T valuation, up from $852B in March" or "raised $1.85B, bringing the
 // total to $5B". Each figure is dated and judged by its own clause.
