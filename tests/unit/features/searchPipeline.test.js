@@ -439,6 +439,44 @@ describe('ranking: duplicates, user documents and the date filter (defects 7, 10
 });
 
 describe('claim check (defect 3)', () => {
+  test('each figure is judged by its own clause: recaps and running totals in the same sentence', () => {
+    const { checkClaims } = require('../../../src/utils/claimCheck');
+    const mk = (title, content, url, date) => ({ title, content, url, publishedAt: date });
+    const openai = checkClaims([
+      mk('OpenAI', 'OpenAI raises $11 billion at a $1.25 trillion valuation, up from $852 billion in March.', 'https://a.com/1', '2026-11-07'),
+      mk('OpenAI', 'OpenAI has raised $11 billion, valuing it at $1.25 trillion.', 'https://b.com/2', '2026-11-07'),
+      mk('OpenAI March', 'OpenAI was valued at $852 billion in its March round.', 'https://c.com/3', '2026-03-31'),
+    ]);
+    const openaiVal = openai.claims.find((c) => c.label === 'Valuation');
+    expect(openaiVal.value).toBe('$1.25T');
+    expect(openaiVal.status).toBe('corroborated');
+    expect(openaiVal.alternatives.find((a) => a.value === '$852B')).toEqual(expect.objectContaining({ sameRound: false }));
+    const out = checkClaims([
+      mk('Ramp', 'Ramp raised $1.85 billion at a $60 billion valuation in October 2026, bringing the company\'s total capital raised to about $5 billion.', 'https://d.com/4', '2026-10-20'),
+      mk('Ramp', 'Ramp raised $1.85 billion in a round valuing it at $60 billion.', 'https://e.com/5', '2026-10-21'),
+      mk('Ramp recap', 'Ramp, which raised $750 million in June, is growing.', 'https://f.com/6', '2026-11-05'),
+      mk('Ramp recap', 'The company raised $750 million at a $44 billion valuation, its sixth round.', 'https://g.com/7', '2026-11-06'),
+      mk('Ramp news', 'Expense management company Ramp said it had raised $1.85 billion in a new funding round that values it at $60 billion, just four months after raising $750 million.', 'https://h.com/8', '2026-10-20'),
+    ]);
+    const ramp = out.claims.find((c) => /Funding/.test(c.label));
+    expect(ramp.value).toBe('$1.85B');
+    expect(ramp.status).toBe('corroborated');
+    expect(ramp.alternatives.find((a) => a.value === '$5B')).toEqual(expect.objectContaining({ total: true }));
+    expect(ramp.alternatives.find((a) => a.value === '$750M')).toEqual(expect.objectContaining({ sameRound: false }));
+  });
+
+  test('a 10x gap within one named round is not a disagreement', () => {
+    const { checkClaims } = require('../../../src/utils/claimCheck');
+    const out = checkClaims([
+      { title: 'Mistral Series A', content: 'Mistral raised $415 million in its Series A at a $2 billion valuation; it is now worth $14.4 billion.', url: 'https://a.com/1', publishedAt: '2023-12-11' },
+      { title: 'Mistral Series A', content: 'Mistral closed a $415M Series A led by a16z.', url: 'https://b.com/2', publishedAt: '2023-12-11' },
+    ]);
+    const a = out.claims.find((c) => /Series A/.test(c.label));
+    expect(a.value).toBe('$415M');
+    expect(a.status).toBe('corroborated');
+    expect(a.alternatives.filter((x) => x.sameRound && !x.speculative)).toEqual([]);
+  });
+
   test('a company with several rounds in a year: the newest corroborated figure leads, earlier ones are "earlier", no false disagreement', () => {
     const { checkClaims } = require('../../../src/utils/claimCheck');
     const mk = (title, content, url, date) => ({ title, content, url, publishedAt: date });
@@ -494,7 +532,7 @@ describe('claim check (defect 3)', () => {
     expect(funding.alternatives.map((a) => a.value)).toEqual(['$30B']);
     expect(valuation.value).toBe('$1.25T');
     expect(valuation.alternatives.map((a) => a.value)).toEqual(expect.arrayContaining(['$1.4T']));
-    expect(valuation.alternatives.map((a) => a.value)).not.toContain('$500B');
+    expect(valuation.alternatives.find((a) => a.value === '$500B')).toEqual(expect.objectContaining({ prior: true, sameRound: false }));
   });
 
   test('a reported target ("in talks to raise $30B") never beats or conflicts with a confirmed raise', () => {

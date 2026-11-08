@@ -98,6 +98,20 @@ function roundDate(sentence, result) {
 // "after a $750m Series F in June", "up from $44bn": an earlier figure the
 // sentence mentions for context, not the figure it reports.
 const TOTAL_RE = /\b(in total|total (?:funding|raised|capital)|to date|so far|cumulative(?:ly)?|lifetime|all told|altogether|overall)\b/i;
+// A sentence often reports one figure and recaps another: "raises $11B at a
+// $1.25T valuation, up from $852B in March" or "raised $1.85B, bringing the
+// total to $5B". Each figure is dated and judged by its own clause.
+const CLAUSE_BOUNDARY_RE = /\s*\(|\)|;|,\s*(?=(?:up|down)\s+from\b)|\s+(?=(?:after|following|previously|compared|while|whereas|versus|bringing|taking|which brings|which takes)\b)|,\s+(?=(?:which|bringing|taking|up|down)\b)/gi;
+function clauseAt(sentence, index) {
+  let start = 0;
+  let end = sentence.length;
+  for (const m of sentence.matchAll(CLAUSE_BOUNDARY_RE)) {
+    if (m.index < index) start = m.index + m[0].length;
+    else if (m.index >= index) { end = m.index; break; }
+  }
+  return { text: sentence.slice(start, end), start };
+}
+
 const PRIOR_RE = /\b(previous(?:ly)?|prior|earlier|last (?:round|year)|up from|after (?:a|an|its)|following (?:a|an|its)|from (?:a|an|its)|compared (?:with|to)|was valued|had raised|previously valued)\b[^$€£]{0,40}$/i;
 
 /** Extract figure claims from one result. */
@@ -111,7 +125,9 @@ export function extractClaims(result, sourceNumber) {
     const isValuation = VALUATION_RE.test(sentence) || ROUND_AT_RE.test(sentence.slice(0, monies[monies.length - 1].index));
     const isFunding = FUNDING_RE.test(sentence) || Boolean(round);
     // "after a $750m Series F in June at $44bn": everything in the clause is an earlier figure
-    const priorClause = PRIOR_RE.test(sentence.slice(0, monies[0].index));
+    const priorClause = PRIOR_RE.test(sentence.slice(0, monies[0].index)) && !CLAUSE_BOUNDARY_RE.test(sentence.slice(0, monies[0].index));
+    CLAUSE_BOUNDARY_RE.lastIndex = 0;
+    let prevKind = null;
     // In a sentence that talks about a valuation, the largest figure is the
     // valuation ("could raise $30B at a $1.4 trillion valuation, up from $500B").
     const parsed = monies.map(parseMoney);
@@ -131,14 +147,19 @@ export function extractClaims(result, sourceNumber) {
       // verb sits right before it ("raise as much as $30B"); "up from $500B"
       // is a prior valuation and is left out.
       const raiseNear = /\b(rais\w*|secur\w*|clos\w*|land\w*|bag\w*|nab\w*|invest\w*|funding|round|financing)\b/i.test(before);
+      const clause = clauseAt(sentence, m.index);
       let kind = null;
       if (valuationHere || largestOfSeveral || (isValuation && !isFunding)) kind = 'valuation';
       else if (isFunding && (!isValuation || raiseNear)) kind = 'raise';
       // "has raised $122B in total", "to date": a running total, not a round
-      const total = kind === 'raise' && TOTAL_RE.test(sentence);
+      // "up from $852 billion in March": the same kind of figure as the one before it
+      if (!kind && prevKind && /^\s*(?:up|down) from\b/i.test(clause.text)) kind = prevKind;
+      prevKind = kind || prevKind;
       if (!kind) return;
       const pub = publicationDate(result);
-      const said = sentenceDate(sentence, pub);
+      const said = sentenceDate(clause.text, pub) || null;
+      const clauseBefore = sentence.slice(clause.start, m.index);
+      const total = kind === 'raise' && TOTAL_RE.test(clause.text);
       claims.push({
         key: kind === 'valuation' ? 'valuation' : `raise:${(round || 'unspecified').toLowerCase()}`,
         label: kind === 'valuation' ? 'Valuation' : `${round ? round.replace(/\b\w/g, (c) => c.toUpperCase()) : 'Funding'} amount`,
@@ -152,7 +173,7 @@ export function extractClaims(result, sourceNumber) {
         whenKey: (said || pub || {}).key || 0,
         whenSentenceKey: said ? said.key : 0,
         whenPubKey: pub ? pub.key : 0,
-        prior: priorClause || PRIOR_RE.test(before),
+        prior: priorClause || PRIOR_RE.test(before) || /^\s*(?:after|following|previously|compared|up from|down from)\b/i.test(clause.text) || /\b(previous(?:ly)?|prior|earlier|last (?:round|year))\b/i.test(clauseBefore),
         total,
         namedRound: Boolean(round),
       });
@@ -233,7 +254,10 @@ export function checkClaims(results = []) {
     };
     const sameRound = (a, b) => (a.items[0].namedRound && b.items[0].namedRound && a.items[0].key === b.items[0].key)
       || [...dates(a)].some((d) => dates(b).has(d));
-    const conflicting = clusters.slice(1).filter((cl) => sameRound(top, cl) && !isTarget(cl) && !isPrior(cl) && !isTotal(cl) && !isTarget(top));
+    // Two figures for one round that differ 10x are a misread of one of them
+    // (a valuation taken for a raise), not a disagreement between sources.
+    const plausible = (a, b) => Math.max(a.amount, b.amount) / Math.max(1, Math.min(a.amount, b.amount)) < 10;
+    const conflicting = clusters.slice(1).filter((cl) => sameRound(top, cl) && plausible(top, cl) && !isTarget(cl) && !isPrior(cl) && !isTotal(cl) && !isTarget(top));
     const status = conflicting.length > 0 ? 'conflict' : sites.size >= 2 ? 'corroborated' : 'single-source';
     const alternatives = clusters.slice(1).map((cl) => ({
       value: formatAmount({ amount: cl.amount, currency: items[0].currency }),
