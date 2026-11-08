@@ -391,6 +391,7 @@ const CLAIM_STYLE = {
   corroborated: { label: 'Corroborated', color: '#0F9D58', background: '#E6F4EA' },
   'single-source': { label: 'Single source', color: '#B06000', background: '#FEF7E0' },
   conflict: { label: 'Sources disagree', color: '#DB4437', background: '#FCE8E6' },
+  target: { label: 'Reported target, not confirmed', color: '#5F6368', background: '#F1F3F4' },
 };
 
 const SimplifiedLLMResults = ({ 

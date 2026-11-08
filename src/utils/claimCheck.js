@@ -112,9 +112,13 @@ function clauseAt(sentence, index) {
   return { text: sentence.slice(start, end), start };
 }
 
-const PRIOR_RE = /\b(previous(?:ly)?|prior|earlier|last(?:\s+[\w-]+)?\s+(?:round|year|fundrais\w*|financing)|up from|after (?:a|an|its)|following (?:a|an|its)|from (?:a|an|its)|compared (?:with|to)|was valued|had raised|previously valued|(?:a|two|three|\d+)\s+(?:years?|months?)\s+ago)\b[^$€£]{0,40}$/i;
+const PRIOR_RE = /\b(previous(?:ly)?|prior|earlier|last(?:\s+[\w-]+)?\s+(?:round|year|fundrais\w*|financing)|up from|after (?:a|an|its|the|[A-Z][\w'’]+(?:['’]s)?)|following (?:a|an|its|the)|from (?:a|an|its)|compared (?:with|to)|was valued|had raised|previously valued|(?:a|two|three|\d+)\s+(?:years?|months?)\s+ago|(?:a|one|two|\d+)\s+years?\s+(?:to the day\s+)?after)\b[^$€£]{0,40}$/i;
 // "...its €11.7 billion valuation from its last fundraising round a year ago"
-const PRIOR_AFTER_RE = /^[^.$€£]{0,60}?\b(last(?:\s+[\w-]+)?\s+(?:round|year|fundrais\w*|financing)|(?:a|two|three|\d+)\s+(?:years?|months?)\s+ago|previous(?:ly)?|prior round|earlier round|at the time)\b/i;
+const PRIOR_AFTER_RE = /^[^.$€£]{0,60}?\b(last(?:\s+[\w-]+)?\s+(?:round|year|fundrais\w*|financing)|(?:a|two|three|\d+)\s+(?:years?|months?)\s+ago|previous(?:ly)?|prior|earlier|at the time)\b/i;
+// Undated web results: "in a new funding round", "the latest round", "said on
+// Thursday" mark current news, so the figure is treated as this month's.
+const CURRENT_NEWS_RE = /\b(new (?:funding )?round|latest (?:funding )?round|latest financing|just raised|today|this week|yesterday|on (?:monday|tuesday|wednesday|thursday|friday)|announced (?:today|on)|has raised|said it (?:had )?raised)\b/i;
+const NOW_KEY = new Date().getUTCFullYear() * 12 + new Date().getUTCMonth() + 1;
 
 /** Extract figure claims from one result. */
 // A results page is about the company, but single sentences in it may not
@@ -148,6 +152,7 @@ export function extractClaims(result, sourceNumber, { mentions = null } = {}) {
     const priorClause = PRIOR_RE.test(sentence.slice(0, monies[0].index)) && !CLAUSE_BOUNDARY_RE.test(sentence.slice(0, monies[0].index));
     CLAUSE_BOUNDARY_RE.lastIndex = 0;
     let prevKind = null;
+    let priorCarry = false;
     // In a sentence that talks about a valuation, the largest figure is the
     // valuation ("could raise $30B at a $1.4 trillion valuation, up from $500B").
     const parsed = monies.map(parseMoney);
@@ -180,6 +185,14 @@ export function extractClaims(result, sourceNumber, { mentions = null } = {}) {
       const said = sentenceDate(clause.text, pub) || null;
       const clauseBefore = sentence.slice(clause.start, m.index);
       const total = kind === 'raise' && TOTAL_RE.test(clause.text);
+      // A clause that merely continues an earlier-figure clause ("..., which
+      // valued the company at $13.7 billion") is earlier too.
+      const ownPrior = priorClause || PRIOR_RE.test(before) || PRIOR_AFTER_RE.test(sentence.slice(m.index + m[0].length))
+        || /^\s*(?:after|following|previously|compared|up from|down from)\b/i.test(clause.text)
+        || /\b(previous(?:ly)?|prior|earlier|last (?:round|year))\b/i.test(clauseBefore);
+      const continuation = /^\s*(?:which|that|valuing|valued|at|and|where)\b/i.test(clause.text);
+      const isPrior = ownPrior || (priorCarry && continuation);
+      priorCarry = isPrior;
       claims.push({
         key: kind === 'valuation' ? 'valuation' : `raise:${(round || 'unspecified').toLowerCase()}`,
         label: kind === 'valuation' ? 'Valuation' : `${round ? round.replace(/\b\w/g, (c) => c.toUpperCase()) : 'Funding'} amount`,
@@ -193,7 +206,8 @@ export function extractClaims(result, sourceNumber, { mentions = null } = {}) {
         whenKey: (said || pub || {}).key || 0,
         whenSentenceKey: said ? said.key : 0,
         whenPubKey: pub ? pub.key : 0,
-        prior: priorClause || PRIOR_RE.test(before) || PRIOR_AFTER_RE.test(sentence.slice(m.index + m[0].length)) || /^\s*(?:after|following|previously|compared|up from|down from)\b/i.test(clause.text) || /\b(previous(?:ly)?|prior|earlier|last (?:round|year))\b/i.test(clauseBefore),
+        prior: isPrior,
+        current: !said && CURRENT_NEWS_RE.test(clause.text),
         total,
         namedRound: Boolean(round),
       });
@@ -253,7 +267,10 @@ export function checkClaims(results = [], { entity = null } = {}) {
     const reporting = (cl) => (definite(cl).length ? definite(cl) : cl.items);
     const newest = (cl) => {
       const said = cl.items.map((i) => i.whenSentenceKey || 0).filter(Boolean);
-      return Math.max(0, ...(said.length ? said : reporting(cl).map((i) => i.whenPubKey || 0)));
+      if (said.length) return Math.max(...said);
+      const pub = reporting(cl).map((i) => i.whenPubKey || 0).filter(Boolean);
+      if (pub.length) return Math.max(...pub);
+      return reporting(cl).some((i) => i.current) ? NOW_KEY : 0;
     };
     const isTarget = (cl) => cl.items.every((i) => isSpeculativeClaim(i.quote));
     const isTotal = (cl) => cl.items.every((i) => i.total);
@@ -264,6 +281,9 @@ export function checkClaims(results = [], { entity = null } = {}) {
     const confirmed = clusters.filter((cl) => definite(cl).length > 0);
     const corroboratedNewest = confirmed.filter((cl) => siteCount(definite(cl)) >= 2).sort((a, b) => newest(b) - newest(a) || siteCount(definite(b)) - siteCount(definite(a)))[0];
     const mostCited = [...confirmed].sort((a, b) => siteCount(definite(b)) - siteCount(definite(a)) || newest(b) - newest(a))[0];
+    // A group with no confirmed figure is context, not a claim: earlier
+    // figures and running totals are dropped; a target is shown as one.
+    if (!confirmed.length && !clusters.some(isTarget)) continue;
     const top = corroboratedNewest || mostCited || [...clusters].sort((a, b) => siteCount(b.items) - siteCount(a.items))[0];
     clusters.sort((a, b) => (a === top ? -1 : b === top ? 1 : 0) || newest(b) - newest(a));
     const sites = new Set(top.items.map((i) => i.site));
@@ -284,7 +304,7 @@ export function checkClaims(results = [], { entity = null } = {}) {
     // (a valuation taken for a raise), not a disagreement between sources.
     const plausible = (a, b) => Math.max(a.amount, b.amount) / Math.max(1, Math.min(a.amount, b.amount)) < 10;
     const conflicting = clusters.slice(1).filter((cl) => sameRound(top, cl) && plausible(top, cl) && !isTarget(cl) && !isPrior(cl) && !isTotal(cl) && !isTarget(top));
-    const status = conflicting.length > 0 ? 'conflict' : sites.size >= 2 ? 'corroborated' : 'single-source';
+    const status = isTarget(top) ? 'target' : conflicting.length > 0 ? 'conflict' : sites.size >= 2 ? 'corroborated' : 'single-source';
     const alternatives = clusters.slice(1).map((cl) => ({
       value: formatAmount({ amount: cl.amount, currency: items[0].currency }),
       sources: [...new Set(cl.items.map((i) => i.source))],
@@ -316,7 +336,7 @@ export function checkClaims(results = [], { entity = null } = {}) {
     claim.alternatives.forEach((alt) => { alt.sourceRefs = alt.sources.map(ref); });
   }
 
-  const order = { conflict: 0, corroborated: 1, 'single-source': 2 };
+  const order = { conflict: 0, corroborated: 1, 'single-source': 2, target: 3 };
   claims.sort((a, b) => order[a.status] - order[b.status]);
   return {
     claims,

@@ -439,6 +439,43 @@ describe('ranking: duplicates, user documents and the date filter (defects 7, 10
 });
 
 describe('claim check (defect 3)', () => {
+  test('undated web results about a new round still lead over an older dated round', () => {
+    const { checkClaims } = require('../../../src/utils/claimCheck');
+    const out = checkClaims([
+      { title: 'Ramp raises', content: 'Expense management company Ramp said on Thursday that it had raised $1.85 billion in a new funding round that values it at $60 billion, just four months after raising $750 million at a $44 billion valuation.', url: 'https://techcrunch.com/1' },
+      { title: 'Ramp', content: 'The company has raised $1.85 billion in a new round, the investor said.', url: 'https://investing.com/2' },
+      { title: 'Ramp Series F', content: 'Ramp raised $750 million at a $44 billion valuation.', url: 'https://cnbc.com/3', publishedAt: '2026-06-15' },
+      { title: 'Ramp Series F', content: 'Ramp announced a $750M Series F at a $44B valuation.', url: 'https://prnewswire.com/4', publishedAt: '2026-06-15' },
+    ], { entity: 'Ramp' });
+    const funding = out.claims.find((c) => /Funding/.test(c.label));
+    expect(funding.value).toBe('$1.85B');
+    expect(funding.status).toBe('corroborated');
+    expect(funding.alternatives.find((a) => a.value === '$750M')).toEqual(expect.objectContaining({ sameRound: false }));
+  });
+
+  test('"prior commitments" and "a year to the day after X\'s $2 billion Series C, which valued the company at $13.7 billion" are earlier figures', () => {
+    const { checkClaims } = require('../../../src/utils/claimCheck');
+    const anthropic = checkClaims([
+      { title: 'Anthropic closes $30B', content: 'Anthropic has raised $30 billion in a Series H round.', url: 'https://bloomberg.com/1', publishedAt: '2026-11-07' },
+      { title: 'Anthropic round', content: 'Anthropic raised $30 billion; Altimeter, Dragoneer and Sequoia led the round, which also included $15 billion in prior commitments from hyperscalers.', url: 'https://yahoo.com/2', publishedAt: '2026-11-07' },
+    ], { entity: 'Anthropic' });
+    const a = anthropic.claims.find((c) => /Series H|Funding/.test(c.label));
+    expect(a.value).toBe('$30B');
+    expect(a.status).toBe('corroborated');
+    // "$15 billion in prior commitments" is context, not a round of its own
+    expect(anthropic.claims.map((c) => c.value)).not.toContain('$15B');
+    expect(anthropic.claims.every((c) => c.status !== 'conflict')).toBe(true);
+    const mistral = checkClaims([
+      { title: 'Mistral raises', content: 'Mistral AI raised $3.5 billion at a $24 billion valuation on Tuesday.', url: 'https://crunchbase.com/1', publishedAt: '2026-03-10' },
+      { title: 'Mistral context', content: 'The financing comes nearly one year to the day after Mistral’s $2 billion Series C, which valued the company at $13.7 billion.', url: 'https://crunchbase.com/2', publishedAt: '2026-03-10' },
+      { title: 'Mistral valuation', content: 'Mistral AI is now valued at $24 billion, the company said.', url: 'https://ft.com/3', publishedAt: '2026-03-11' },
+    ], { entity: 'Mistral AI' });
+    const v = mistral.claims.find((c) => c.label === 'Valuation');
+    expect(v.value).toBe('$24B');
+    expect(v.status).toBe('corroborated');
+    expect(v.alternatives.find((x) => x.value === '$13.7B')).toEqual(expect.objectContaining({ prior: true }));
+  });
+
   test('with the company known: market statistics, other subjects and table cells are not its claims; "last round a year ago" is earlier', () => {
     const { checkClaims } = require('../../../src/utils/claimCheck');
     const mk = (title, content, url, date) => ({ title, content, url, publishedAt: date });
