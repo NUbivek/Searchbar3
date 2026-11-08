@@ -439,6 +439,26 @@ describe('ranking: duplicates, user documents and the date filter (defects 7, 10
 });
 
 describe('claim check (defect 3)', () => {
+  test('with the company known: market statistics, other subjects and table cells are not its claims; "last round a year ago" is earlier', () => {
+    const { checkClaims } = require('../../../src/utils/claimCheck');
+    const mk = (title, content, url, date) => ({ title, content, url, publishedAt: date });
+    const out = checkClaims([
+      mk('Mistral AI Boosts Valuation to €21 Billion', 'Mistral AI has raised €3 billion at a valuation of more than €21 billion. The Paris-based startup has nearly doubled its €11.7 billion valuation from its last fundraising round a year ago.', 'https://bloomberg.com/1', '2026-09-09'),
+      mk('Mistral round', 'Mistral AI raised €3 billion in its Series D at a €21 billion valuation, the company said.', 'https://euronews.com/2', '2026-09-09'),
+      mk('Europe funding', 'All told, Europe-based startups raised $24 billion in the quarter, two-thirds higher than the $14.4 billion raised in Q2 2025.', 'https://crunchbase.com/3', '2026-10-01'),
+      mk('Mistral table', 'In December 2023, Mistral AI completed a Series A funding round raising €385 million led by Andreessen [...] | Sep 2025 | Series C | €1.7 billion | ASML, NVIDIA', 'https://multiples.vc/4', '2026-10-01'),
+    ], { entity: 'Mistral AI' });
+    const valuation = out.claims.find((c) => c.label === 'Valuation');
+    expect(valuation.value).toBe('€21B');
+    expect(valuation.status).toBe('corroborated');
+    expect(valuation.alternatives.find((a) => a.value === '€11.7B')).toEqual(expect.objectContaining({ prior: true }));
+    expect(out.claims.map((c) => c.value)).not.toContain('$24B');
+    expect(out.claims.map((c) => c.value)).not.toContain('$14.4B');
+    const seriesA = out.claims.find((c) => /Series A/.test(c.label));
+    expect(seriesA.value).toBe('€385M');
+    expect(seriesA.alternatives).toEqual([]);
+  });
+
   test('each figure is judged by its own clause: recaps and running totals in the same sentence', () => {
     const { checkClaims } = require('../../../src/utils/claimCheck');
     const mk = (title, content, url, date) => ({ title, content, url, publishedAt: date });

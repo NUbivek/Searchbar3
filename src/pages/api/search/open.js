@@ -114,7 +114,7 @@ export default async function handler(req, res) {
     const { results, droppedForRelevance, olderThanFilter } = filterAndRank(raw, plan, entity, { limit: 15, maxAgeDays });
     let claimCheck = null;
     try {
-      claimCheck = checkClaims(results);
+      claimCheck = checkClaims(results, { entity: entity.mode === 'entity' ? entity.name : null });
     } catch (claimError) {
       logger.warn('Claim check failed:', claimError.message);
     }
