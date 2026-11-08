@@ -17,7 +17,7 @@ export async function searchHackerNews(query, { limit = 10, timeoutMs = 8000 } =
       content: hit.story_text || hit.comment_text || '',
       snippet: hit.story_text || hit.comment_text || '',
       source: 'hackernews',
-      timestamp: hit.created_at || new Date().toISOString(),
+      timestamp: hit.created_at || null, // never invent a date
       score: hit.points || 0
     }));
   } finally {

@@ -12,6 +12,7 @@
 
 # next.js
 /.next/
+/.next-build/
 /out/
 
 # production
@@ -59,3 +60,7 @@ research-hub-api/
 
 # Local embedded database (PGlite) for development
 .data/
+
+# Local agent config and a key file that must never be committed
+.codex/
+env-config.txt

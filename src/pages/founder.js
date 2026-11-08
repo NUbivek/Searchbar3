@@ -18,12 +18,21 @@ function Cite({ index, sources }) {
 }
 
 function Flag({ item }) {
-  if (!item.possibleDifferentPerson) return null;
-  return (
-    <span className="ml-2 inline-block text-xs bg-yellow-100 text-yellow-800 border border-yellow-200 rounded px-1.5 py-0.5">
-      possible different person
-    </span>
-  );
+  if (item.possibleDifferentPerson) {
+    return (
+      <span className="ml-2 inline-block text-xs bg-yellow-100 text-yellow-800 border border-yellow-200 rounded px-1.5 py-0.5" title="This source does not mention the company you entered. It may describe the same person at another company, or a different person with the same name.">
+        company not mentioned
+      </span>
+    );
+  }
+  if (item.companyUnknown) {
+    return (
+      <span className="ml-2 inline-block text-xs bg-gray-100 text-gray-600 border border-gray-200 rounded px-1.5 py-0.5" title="Headline-only source: it cannot confirm the company.">
+        headline only
+      </span>
+    );
+  }
+  return null;
 }
 
 function Quote({ item, sources }) {
@@ -37,15 +46,23 @@ function Quote({ item, sources }) {
   );
 }
 
-function Section({ title, children, empty, note }) {
+function Section({ title, children, empty, note, emptyText = EMPTY }) {
   return (
     <section className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
       <h2 className="text-lg font-semibold text-gray-800 mb-2">{title}</h2>
       {note}
-      {empty ? <p className="text-sm text-gray-500 italic">{EMPTY}</p> : children}
+      {empty ? <p className="text-sm text-gray-500 italic">{emptyText}</p> : children}
     </section>
   );
 }
+
+function formatWhen(iso) {
+  const t = Date.parse(iso || '');
+  if (Number.isNaN(t)) return '';
+  return new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+const STATUS_LABEL = { current: 'current, as of the source', past: 'past', founded: 'founded' };
 
 export default function FounderPage() {
   const router = useRouter();
@@ -54,6 +71,7 @@ export default function FounderPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [run, setRun] = useState(0);
 
   const qName = typeof router.query.name === 'string' ? router.query.name : '';
   const qCompany = typeof router.query.company === 'string' ? router.query.company : '';
@@ -79,23 +97,33 @@ export default function FounderPage() {
       .catch((e) => { if (!cancelled) setError(e.message || 'Request failed'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [router.isReady, qName, qCompany]);
+  }, [router.isReady, qName, qCompany, run]);
 
   const onSubmit = (e) => {
     e.preventDefault();
     const n = name.trim();
     if (!n) { setError('Enter a full name.'); return; }
+    if (n.split(/\s+/).length < 2) { setError('Enter the full name (first and last name).'); return; }
     const query = { name: n };
     if (company.trim()) query.company = company.trim();
+    if (n === qName && (company.trim() || '') === qCompany) {
+      setRun((x) => x + 1); // same query: run it again
+      return;
+    }
     router.push({ pathname: '/founder', query }, undefined, { shallow: true });
   };
 
   const sources = data?.sources || [];
+  const noSources = data && sources.length === 0;
+  const searched = (data?.searchedSources || []).map((s) => `${s.source} (${s.results} result${s.results === 1 ? '' : 's'})`);
+  const notSearched = (data?.unavailableSources || []).map((u) => u.source);
+  const companies = data?.pastCompanies || [];
+  const mentions = data?.mentions || [];
 
   return (
     <PageShell
       title="Founder Check"
-      subtitle="Background brief, career timeline, past companies, education, litigation mentions, press and backchannel references for a person, from cited sources."
+      subtitle="Background brief, career timeline, companies and roles, education, litigation mentions, press and backchannel references for a person, every line quoted from a cited source."
     >
       <form onSubmit={onSubmit} className="bg-white border border-gray-200 rounded-lg p-4 mb-4 flex flex-col md:flex-row gap-2">
         <input
@@ -111,8 +139,8 @@ export default function FounderPage() {
           value={company}
           maxLength={120}
           onChange={(e) => setCompany(e.target.value)}
-          placeholder="Company (optional)"
-          className="md:w-64 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="Company (optional, narrows to the right person)"
+          className="md:w-72 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <button
           type="submit"
@@ -126,13 +154,28 @@ export default function FounderPage() {
       {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 mb-4 text-sm">{error}</div>}
       {loading && (
         <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4 text-sm text-gray-600">
-          Searching the web, news, public profile pages, your curated sources, Hacker News and court records for &ldquo;{qName}&rdquo;. This can take up to 30 seconds.
+          Searching curated startup news, Hacker News and, where configured, the web, public profile pages and court records for &ldquo;{qName}&rdquo;{qCompany ? ` at ${qCompany}` : ''}. This can take up to a minute.
         </div>
       )}
 
-      {data && (
+      {noSources && (
+        <section className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+          <h2 className="text-lg font-semibold text-gray-800 mb-2">No source names {data.name}</h2>
+          <p className="text-sm text-gray-700 mb-2">
+            Searched: {searched.length ? searched.join(', ') : 'no sources'}.
+            {notSearched.length ? ` Not searched: ${notSearched.join(', ')}.` : ''}
+          </p>
+          <ul className="list-disc ml-5 text-sm text-gray-700">
+            <li>Check the spelling and use the full first and last name; initials and nicknames are not matched.</li>
+            {qCompany ? <li>Try without the company, in case sources describe the person elsewhere.</li> : <li>Add the company to find mentions that only use the company name alongside the person.</li>}
+            {notSearched.some((s) => /web/i.test(s)) && <li>Web search is off on this server, so only startup-news feeds and Hacker News were checked; people outside funding news are rarely in them.</li>}
+          </ul>
+        </section>
+      )}
+
+      {data && !noSources && (
         <>
-          {data.briefInfo && (
+          {data.brief && data.briefInfo && (
             <p className="text-xs text-gray-500 mb-2">
               {data.briefInfo.mode === 'ai'
                 ? <>Brief written by <strong>{data.briefInfo.model}</strong> ({data.briefInfo.provider}) from the cited sources{data.briefInfo.confidence ? <> · Confidence: <strong>{data.briefInfo.confidence.level}</strong>{data.briefInfo.confidence.reason ? ` (${data.briefInfo.confidence.reason})` : ''}</> : null}{skippedNote(data.briefInfo.skipped)}</>
@@ -143,6 +186,12 @@ export default function FounderPage() {
           {data.brief && (
             <section className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
               <h2 className="text-lg font-semibold text-gray-800 mb-2">Background brief: {data.name}{data.company ? ` (${data.company})` : ''}</h2>
+              {data.currentRole && (
+                <p className="text-sm text-gray-700 mb-2">
+                  <span className="font-medium">Most recent role found:</span> {data.currentRole.role} at {data.currentRole.company}
+                  <Cite index={data.currentRole.sourceIndex} sources={sources} />
+                </p>
+              )}
               <div
                 className="text-sm text-gray-800 founder-brief space-y-2"
                 dangerouslySetInnerHTML={{ __html: renderSafeHtml(String(data.brief).replace(/\[Source (\d+)\]/g, '[[$1]](#source-$1)')) }}
@@ -177,11 +226,14 @@ export default function FounderPage() {
                 </p>
               ) : data.references.contacts.length === 0 ? (
                 <p className="text-sm text-gray-600">
-                  Nobody in your imported network works or worked at {data.references.companies.length ? data.references.companies.join(', ') : 'the companies found'}.
+                  {data.references.reason
+                    || `Checked your ${Number(data.references.checked || 0).toLocaleString()} saved contacts against ${data.references.companies.join(', ')}: nobody in your network works or worked there.`}
                 </p>
               ) : (
                 <>
-                  <p className="text-xs text-gray-500 mb-2">People in your network at companies linked to {data.name}: potential reference checks. Your network data stays on this site.</p>
+                  <p className="text-xs text-gray-500 mb-2">
+                    People in your network at companies linked to {data.name} ({data.references.companies.join(', ')}): potential reference checks. Checked {Number(data.references.checked || 0).toLocaleString()} saved contacts; your network data stays on this site.
+                  </p>
                   <ul className="divide-y divide-gray-100">
                     {data.references.contacts.map((c, i) => (
                       <li key={i} className="py-2 text-sm">
@@ -215,22 +267,27 @@ export default function FounderPage() {
             </div>
           )}
 
-          <Section title="Career timeline" empty={!data.timeline.length}>
+          <Section title="Career timeline" empty={!data.timeline.length} note={data.timeline.some((t) => t.yearFrom === 'source') ? <p className="text-xs text-gray-500 mb-2">Years marked &ldquo;source date&rdquo; come from when the source was published, not from the sentence.</p> : null}>
             <ol className="space-y-2">
               {data.timeline.map((t, i) => (
                 <li key={i} className="flex gap-3">
-                  <span className="font-semibold text-blue-700 w-12 shrink-0">{t.year}</span>
+                  <span className="font-semibold text-blue-700 w-24 shrink-0">{t.year}{t.yearFrom === 'source' && <span className="block text-[10px] font-normal text-gray-500">source date</span>}</span>
                   <Quote item={t} sources={sources} />
                 </li>
               ))}
             </ol>
           </Section>
 
-          <Section title="Past companies" empty={!data.pastCompanies.length}>
+          <Section title="Companies and roles" empty={!companies.length}>
             <ul className="space-y-2">
-              {data.pastCompanies.map((c, i) => (
+              {companies.map((c, i) => (
                 <li key={i}>
                   <span className="font-medium text-gray-800">{c.company}</span>
+                  {(c.role || c.status) && (
+                    <span className="text-xs text-gray-500 ml-2">
+                      {[c.role, STATUS_LABEL[c.status]].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
                   <Quote item={c} sources={sources} />
                 </li>
               ))}
@@ -251,6 +308,7 @@ export default function FounderPage() {
           <Section
             title="Litigation and regulatory mentions"
             empty={!data.litigation.length}
+            emptyText="No litigation or regulatory mentions in the available sources."
             note={<p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 mb-2">{data.litigationDisclaimer}</p>}
           >
             <ul className="space-y-2">
@@ -258,7 +316,7 @@ export default function FounderPage() {
             </ul>
           </Section>
 
-          <Section title="Press" empty={!data.press.length}>
+          <Section title={`Press about ${data.name}`} empty={!data.press.length} emptyText="No headline names this person in the available sources.">
             <ul className="space-y-3">
               {data.press.map((p, i) => (
                 <li key={i}>
@@ -269,24 +327,42 @@ export default function FounderPage() {
             </ul>
           </Section>
 
-          <section className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-            <h2 className="text-lg font-semibold text-gray-800 mb-2">Sources</h2>
-            {sources.length === 0 ? (
-              <p className="text-sm text-gray-500 italic">{EMPTY}</p>
-            ) : (
-              <ol className="text-sm space-y-1">
-                {sources.map((s) => (
-                  <li key={s.n} id={`source-${s.n}`}>
-                    <span className="text-gray-500 mr-1">[{s.n}]</span>
-                    <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{s.title}</a>
-                    <span className="text-gray-500"> · {s.sourceName}{s.date ? ` · ${s.date}` : ''}</span>
+          {mentions.length > 0 && (
+            <Section title="Other mentions" empty={false} note={<p className="text-xs text-gray-500 mb-2">Articles that mention the name in the text but are about something else.</p>}>
+              <ul className="space-y-3">
+                {mentions.map((p, i) => (
+                  <li key={i}>
+                    <p className="text-sm font-medium text-gray-800">{p.title}</p>
+                    <Quote item={p} sources={sources} />
                   </li>
                 ))}
-              </ol>
-            )}
-            <p className="text-xs text-gray-400 mt-3">Generated {data.generatedAt}</p>
-          </section>
+              </ul>
+            </Section>
+          )}
         </>
+      )}
+
+      {data && (
+        <section className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+          <h2 className="text-lg font-semibold text-gray-800 mb-2">Sources</h2>
+          {sources.length === 0 ? (
+            <p className="text-sm text-gray-500 italic">{EMPTY}</p>
+          ) : (
+            <ol className="text-sm space-y-1">
+              {sources.map((s) => (
+                <li key={s.n} id={`source-${s.n}`}>
+                  <span className="text-gray-500 mr-1">[{s.n}]</span>
+                  <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{s.title}</a>
+                  <span className="text-gray-500"> · {s.sourceName}{s.via && s.via !== s.sourceName ? ` (${s.via})` : ''}{s.date ? ` · ${s.dateLabel === 'posted' ? 'posted ' : ''}${s.date}` : ''}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+          {noSources && searched.length > 0 && (
+            <p className="text-xs text-gray-500 mt-2">Searched: {searched.join(', ')}.</p>
+          )}
+          <p className="text-xs text-gray-400 mt-3">Generated {formatWhen(data.generatedAt)}</p>
+        </section>
       )}
     </PageShell>
   );
