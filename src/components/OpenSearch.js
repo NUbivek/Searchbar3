@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import ModelSelector from './ModelSelector';
 import SourceSelector from './SourceSelector';
 import SimplifiedLLMResults, { FollowUpChat } from './search/results/SimplifiedLLMResults';
-import { isLLMResult } from '../utils/isLLMResult';
 import DegradedBanner from './search/DegradedBanner';
 import { postSearchRequest } from '../utils/clientApi';
 import { useRouter } from 'next/router';
@@ -43,24 +42,6 @@ function normalizeClientError(error) {
   return message;
 }
 
-function buildClientFallbackContent(query, results) {
-  const top = Array.isArray(results) ? results.slice(0, 5) : [];
-  if (top.length === 0) {
-    return `No synthesized summary available for "${query}".`;
-  }
-
-  const bullets = top
-    .map((item, index) => {
-      const title = item?.title || `Result ${index + 1}`;
-      const snippet = item?.snippet || item?.content || '';
-      const url = item?.url || '';
-      return `${index + 1}. ${title}${snippet ? ` - ${snippet}` : ''}${url ? ` (${url})` : ''}`;
-    })
-    .join('\n');
-
-  return `## Summary\nSearch returned results, but the LLM provider is unavailable. This is a free fallback synthesis based on raw results.\n\n## Top Findings\n${bullets}`;
-}
-
 export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -70,7 +51,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [customUrls, setCustomUrls] = useState([]);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [results, setResults] = useState([]);
-  const [apiMeta, setApiMeta] = useState({ status: null, degradedSources: [], failSoftContent: null, queryPlan: null, answerInfo: null });
+  const [apiMeta, setApiMeta] = useState({ status: null, degradedSources: [], failSoftContent: null, queryPlan: null, answerInfo: null, sourceStatuses: [], olderThanFilter: 0 });
   const [hasSearched, setHasSearched] = useState(false);
   const resultsContainerRef = useRef(null);
   const router = useRouter();
@@ -104,18 +85,12 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.isReady]);
 
-  // Scroll to bottom of results when new results are loaded
-  const scrollToBottom = () => {
-    if (resultsContainerRef.current) {
+  // Scroll to the results when a search completes (not while typing)
+  useEffect(() => {
+    if (hasSearched && !loading && resultsContainerRef.current && typeof resultsContainerRef.current.scrollIntoView === 'function') {
       resultsContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-  };
-
-  useEffect(() => {
-    if (query) {
-      scrollToBottom();
-    }
-  }, [query]);
+  }, [results, hasSearched, loading]);
 
   // Start warming the curated source index so the first search is fast.
   useEffect(() => {
@@ -172,20 +147,16 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
     handleSearch(followUpQuery);
   };
 
-  const handleSearch = async (searchQuery = query, workspaceOverride) => {
+  const handleSearch = async (searchQuery = query, workspaceOverride, maxAgeOverride) => {
     if (!searchQuery.trim()) return;
 
     setLoading(true);
     setError(null);
     setSavedHistoryId(null);
     const activeWorkspace = workspaceOverride !== undefined ? workspaceOverride : workspaceId;
+    const activeMaxAge = maxAgeOverride !== undefined ? maxAgeOverride : maxAgeDays;
 
     try {
-      console.log('Performing search for query:', searchQuery);
-      console.log('Selected sources:', selectedSources);
-      console.log('Using model:', selectedModel);
-      
-      // Make actual API call to the search endpoint
       const data = await postSearchRequest({
         query: searchQuery,
         mode: 'open',
@@ -195,99 +166,54 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         files: uploadedFiles,
         useLLM: true,
         workspaceId: activeWorkspace || undefined,
-        maxAgeDays: maxAgeDays || undefined
+        maxAgeDays: activeMaxAge || undefined
       });
       setSavedHistoryId(data?.historyId || null);
-      
+
       setApiMeta({
         status: data?.status || null,
         degradedSources: Array.isArray(data?.degradedSources) ? data.degradedSources : [],
         failSoftContent: data?.failSoftContent || null,
         queryPlan: data?.queryPlan || null,
         answerInfo: data?.answerInfo || null,
-        sourceStatuses: Array.isArray(data?.sourceStatuses) ? data.sourceStatuses : []
+        sourceStatuses: Array.isArray(data?.sourceStatuses) ? data.sourceStatuses : [],
+        olderThanFilter: Number(data?.olderThanFilter) || 0
       });
 
-      // Log the response for debugging
-      console.log('Search API response structure:', {
-        hasLLMResults: !!data.llmResults,
-        hasContent: !!data.content,
-        topLevelKeys: Object.keys(data).slice(0, 8),
-        llmFlags: data.isLLMResults || data.isLLMResult || data.__isImmutableLLMResult
-      });
-      
-      // Enhanced LLM detection using utility function
-      console.log('Performing LLM result detection on response data');
-
-      if (data?.errorType === 'auth_error' && Array.isArray(data?.results) && data.results.length > 0) {
-        console.warn('LLM auth failed; using client-side synthesized fallback');
+      // Response contract (/api/search/open): an answer is a string in
+      // `content` with the ranked `results`; a fail-soft response has no
+      // answer (content null, results []). Never render the raw payload.
+      const hasAnswer = typeof data?.content === 'string' && data.content.trim().length > 0;
+      if (data?.status === 'fail-soft' || !hasAnswer) {
+        if (data?.error) setError(typeof data.message === 'string' && data.message ? data.message : String(data.error));
+        setResults([]);
+      } else {
         setResults({
-          content: buildClientFallbackContent(searchQuery, data.results),
-          isLLMResult: true,
+          ...data,
           __isImmutableLLMResult: true,
-          query: searchQuery,
-          metadata: { fallback: 'client-synthesizer' }
-        });
-        setHasSearched(true);
-        return;
-      }
-      
-      if (isLLMResult(data)) {
-        console.log('✅ Successfully detected LLM-formatted results');
-        
-        // Determine if we should use a property or the whole object
-        if (data.llmResults && isLLMResult(data.llmResults)) {
-          console.log('Using nested llmResults from response');
-          setResults({
-            ...data.llmResults,
-            __isImmutableLLMResult: true,
-            isLLMResult: true,
-            query: searchQuery
-          });
-        } else {
-          // Use the whole response when it's the LLM result itself
-          console.log('Using entire response as LLM result');
-          setResults({
-            ...data,
-            __isImmutableLLMResult: true,
-            isLLMResult: true,
-            query: searchQuery
-          });
-        }
-      } else if (data.content && typeof data.content === 'string') {
-        // Explicitly format as LLM result when content is present
-        console.log('Formatting content property as LLM result');
-        setResults({
-          content: data.content,
           isLLMResult: true,
-          __isImmutableLLMResult: true,
           query: searchQuery
         });
-      } else if (data.results) {
-        // Fallback to regular results
-        console.log('Using regular search results array');
-        setResults(data.results);
-      } else if (typeof data === 'string') {
-        // Handle case where response might be a plain string
-        console.log('Handling string response');
-        setResults([data]);
-      } else {
-        // Create empty result if nothing found
-        console.log('No recognizable results format');
-        setResults([]);
       }
-      
+
       setHasSearched(true);
-      
     } catch (err) {
-      console.error('Search error:', err.response?.data || err.message);
       setError(normalizeClientError(err));
-      // Set empty results
       setResults([]);
+      setHasSearched(true);
     } finally {
       setLoading(false);
     }
   };
+
+  // Changing the date filter re-runs the current search
+  const handleMaxAgeChange = (value) => {
+    setMaxAgeDays(value);
+    if (hasSearched && query.trim()) handleSearch(query, undefined, value);
+  };
+
+  const hasAnswer = Boolean(results && !Array.isArray(results) && typeof results.content === 'string');
+  const webNotConfigured = (apiMeta.sourceStatuses || []).some((s) => s.status === 'not_configured');
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-6">
@@ -329,7 +255,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
             Published
             <select
               value={maxAgeDays}
-              onChange={(e) => setMaxAgeDays(e.target.value)}
+              onChange={(e) => handleMaxAgeChange(e.target.value)}
               className="border border-gray-300 rounded-md px-2 py-1 bg-white"
             >
               {DATE_FILTERS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -401,16 +327,18 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         </div>
       ) : (
         <div ref={resultsContainerRef}>
-          {hasSearched && apiMeta.degradedSources.length > 0 && (
+          {hasSearched && (apiMeta.degradedSources.length > 0 || webNotConfigured) && (
             <DegradedBanner degradedSources={apiMeta.degradedSources} status={apiMeta.status} sourceStatuses={apiMeta.sourceStatuses} />
           )}
 
-          {hasSearched && apiMeta.answerInfo && (
+          {hasSearched && hasAnswer && apiMeta.answerInfo && (
             <div className="text-xs text-gray-500 mb-2">
               {apiMeta.answerInfo.mode === 'ai'
                 ? <>Answer written by <strong>{apiMeta.answerInfo.model}</strong> ({apiMeta.answerInfo.provider}) from the cited sources{apiMeta.answerInfo.confidence ? <> · Confidence: <strong>{apiMeta.answerInfo.confidence.level}</strong>{apiMeta.answerInfo.confidence.reason ? ` (${apiMeta.answerInfo.confidence.reason})` : ''}</> : null}{skippedNote(apiMeta.answerInfo.skipped)}</>
                 : <>Answer quoted directly from sources ({apiMeta.answerInfo.reason || 'no AI model'}). Add a free model key (Groq, OpenRouter or Gemini) for written analysis.</>}
-              {apiMeta.queryPlan?.entity && <> · About <strong>{apiMeta.queryPlan.entity}</strong>{apiMeta.queryPlan.droppedForRelevance ? ` (${apiMeta.queryPlan.droppedForRelevance} unrelated results removed)` : ''}</>}
+              {apiMeta.answerInfo.modelNote && <> · {apiMeta.answerInfo.modelNote}</>}
+              {apiMeta.queryPlan?.entity && <> · About <strong>{apiMeta.queryPlan.entity}</strong>{apiMeta.queryPlan.confidence === 'low' ? ' (low confidence: no source clearly matches this name and your question)' : ''}{apiMeta.queryPlan.droppedForRelevance ? ` (${apiMeta.queryPlan.droppedForRelevance} unrelated results removed)` : ''}</>}
+              {apiMeta.olderThanFilter > 0 && <> · {apiMeta.olderThanFilter} result{apiMeta.olderThanFilter === 1 ? ' was' : 's were'} older than the filter</>}
             </div>
           )}
           {hasSearched && query && (
@@ -425,13 +353,15 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
               {Array.isArray(results) && results.length === 0 && (
                 <div className="mt-4 border rounded-md p-4 bg-amber-50 border-amber-200 text-amber-900">
                   <div className="font-semibold mb-1">No direct results yet</div>
-                  <p className="text-sm mb-2">Try refining your query or enabling additional sources. The system is in fail-soft mode, so it will keep returning a safe response.</p>
+                  <p className="text-sm mb-2">
+                    {apiMeta.failSoftContent?.message || 'No source returned results for this search.'}
+                    {apiMeta.olderThanFilter > 0 && !/older than the filter/.test(apiMeta.failSoftContent?.message || '') ? ` ${apiMeta.olderThanFilter} result${apiMeta.olderThanFilter === 1 ? ' was' : 's were'} older than the filter.` : ''}
+                  </p>
                   <ul className="list-disc ml-5 text-sm">
-                    {(apiMeta.failSoftContent?.exampleQueries || [
-                      'AI infrastructure Series B deals 2024',
-                      'SaaS ARR multiples Q4 2024',
-                      'Robotics logistics startup funding'
-                    ]).map((q) => <li key={q}>{q}</li>)}
+                    {(Array.isArray(apiMeta.failSoftContent?.suggestions) && apiMeta.failSoftContent.suggestions.length > 0
+                      ? apiMeta.failSoftContent.suggestions
+                      : ['Check the spelling of the company or person', 'Try fewer words, e.g. just the company name', 'Enable more sources']
+                    ).map((q) => <li key={q}>{q}</li>)}
                   </ul>
                 </div>
               )}

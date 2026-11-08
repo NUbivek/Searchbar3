@@ -12,6 +12,7 @@ import searchResultScorer from '../../../utils/scoring/SearchResultScorer';
 import { detectQueryContext } from '../utils/contextDetector';
 import { scoreSourceReputation, getSourceBadge } from '../sources/SourceReputationScorer';
 import { describeMetric } from '../metrics/MeasuredMetrics';
+import { isVerifiedSource } from '../../../utils/sourceTiers';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -77,9 +78,10 @@ const ExpandableContent = ({ content }) => {
     const timer = setTimeout(() => {
       if (contentRef.current) {
         const contentHeight = contentRef.current.scrollHeight;
-        // Only set needs expansion if content is significantly longer
-        const paragraphCount = (processContent().match(/<p/g) || []).length;
-        setNeedsExpansion(contentHeight > maxCollapsedHeight && paragraphCount >= 2);
+        // Only offer "See more" when the rendered content is long and has
+        // more than one block (paragraph, heading, list item)
+        const blockCount = contentRef.current.querySelectorAll('p, li, h1, h2, h3, h4').length;
+        setNeedsExpansion(contentHeight > maxCollapsedHeight && blockCount >= 2);
       }
     }, 200);
     return () => clearTimeout(timer);
@@ -99,17 +101,11 @@ const ExpandableContent = ({ content }) => {
     
     // If content is an object with text or html property, use that
     if (typeof content === 'object') {
-      if (content.text) return content.text;
-      if (content.html) return content.html;
-      if (content.content) return content.content;
-      
-      // Try to stringify the object
-      try {
-        return JSON.stringify(content, null, 2);
-      } catch (e) {
-        console.error('Failed to stringify content:', e);
-        return 'Unable to display content';
-      }
+      if (typeof content.text === 'string') return content.text;
+      if (typeof content.html === 'string') return content.html;
+      if (typeof content.content === 'string') return content.content;
+      // An object with no readable text is never dumped as JSON
+      return '';
     }
     
     // For any other type, convert to string
@@ -203,8 +199,16 @@ export const FollowUpChat = ({ onSubmit }) => {
  */
 const debugLog = () => {};
 
-// Create concise descriptions for each source - max 5 words, complete thoughts
+// The article's own headline is the row label (publisher is secondary text)
+const createArticleTitle = (result, index) => {
+  const title = String(result.title || '').replace(/^File Source:\s*/, '').replace(/\s+/g, ' ').trim();
+  if (title) return title.length > 110 ? `${title.slice(0, 107).trim()}…` : title;
+  return createDescriptiveTitle(result, index);
+};
+
+// Publisher / site label for a source ("Sifted", "techcrunch.com")
 const createDescriptiveTitle = (result, index) => {
+  if (result.source === 'file') return 'Your file';
   // Curated registry results carry the source's own name ("Sifted Funding Feed")
   if (result.sourceName) {
     return String(result.sourceName).replace(/\s+(Feed|RSS)$/i, '');
@@ -398,6 +402,7 @@ const SimplifiedLLMResults = ({
   const [savedUrls, setSavedUrls] = useState({});
   const [showLowerSources, setShowLowerSources] = useState(false);
   const claimCheck = results && !Array.isArray(results) ? results.claimCheck : null;
+  const queryPlan = results && !Array.isArray(results) ? results.queryPlan : null;
   const handleSave = async (source) => {
     if (!onSaveSource) return;
     setSavedUrls((prev) => ({ ...prev, [source.url]: 'saving' }));
@@ -426,7 +431,6 @@ const SimplifiedLLMResults = ({
   const hasErrorResults = useMemo(() => {
     // Check if the entire results object is an error
     if (isErrorPayload(results)) {
-      console.log('Detected LLM error result:', results.error || results.content || 'Unknown error');
       return true;
     }
     
@@ -448,21 +452,12 @@ const SimplifiedLLMResults = ({
 
   // Process results into valid format with improved detection
   const validResults = useMemo(() => {
-    console.log('Processing LLM results in SimplifiedLLMResults:', {
-      resultsType: typeof results,
-      isArray: Array.isArray(results),
-      contentLength: results && results.content ? results.content.length : 'N/A',
-      hasLLMResults: results && results.llmResults ? true : false,
-      llmFlags: results ? {
-        isLLMResult: results.isLLMResult,
-        isLLMResults: results.isLLMResults,
-        __isImmutableLLMResult: results.__isImmutableLLMResult,
-        llmProcessed: results.llmProcessed
-      } : {},
-      topLevelKeys: results ? Object.keys(results).slice(0, 8) : []
-    });
-    
     if (!results) return [];
+    // Response contract: an answer is a string in `content`; a fail-soft
+    // or error payload has none and shows as "no results", never as JSON.
+    if (!Array.isArray(results) && typeof results === 'object' && typeof results.content !== 'string' && typeof results.text !== 'string' && !results.llmResults) {
+      return [];
+    }
     
     // Check if this is a raw search result that needs formatting
     const isRawSearchResult = 
@@ -475,7 +470,6 @@ const SimplifiedLLMResults = ({
     
     // If it's a raw search result, format it for display
     if (isRawSearchResult) {
-      console.log('Detected raw search result, formatting for display');
       if (Array.isArray(results)) {
         // Format each result
         return results.map(item => ({
@@ -503,7 +497,6 @@ const SimplifiedLLMResults = ({
     
     // Check for nested llmResults property, which is common in API responses
     if (results.llmResults) {
-      console.log('Found llmResults property, using it directly');
       const llmContent = results.llmResults;
       // Ensure it has the right flags
       if (typeof llmContent === 'object' && !Array.isArray(llmContent)) {
@@ -515,11 +508,9 @@ const SimplifiedLLMResults = ({
     
     // Check for content property at the top level
     if ((results.content || typeof results.text === 'string') && !Array.isArray(results)) {
-      console.log('Found content or text property at top level');
       
       // If content doesn't exist but text does, use text as content
       if (!results.content && results.text) {
-        console.log('Using text property as content');
         results.content = results.text;
       }
       
@@ -531,7 +522,6 @@ const SimplifiedLLMResults = ({
     
     // If results is a plain array
     if (Array.isArray(results)) {
-      console.log('Processing array of results');
       const filtered = results.filter(r => r !== null && r !== undefined);
       
       // Ensure each item has proper flags
@@ -544,14 +534,8 @@ const SimplifiedLLMResults = ({
       }).filter((item) => !isErrorPayload(item));
     }
     
-    // Default case: treat the whole object as a single result
-    console.log('Treating object as single result');
-    // Add flags if missing
-    if (typeof results === 'object') {
-      results.isLLMResult = true;
-      results.__isImmutableLLMResult = true;  
-    }
-    return sanitizeResults([results]);
+    // Anything else has no readable answer
+    return [];
   }, [results]);
 
   // Score every real source once with the project's scoring engine
@@ -573,15 +557,24 @@ const SimplifiedLLMResults = ({
         let reputation = null;
         let badge = null;
         try {
-          // Curated registry sources are vetted, so they carry the verified
-          // badge (.planning/PROJECT.md: "Curated source prioritization +
-          // verified badge"); registry tier A/B/C sets the reputation.
-          const curatedTier = result.source === 'curated' ? (result.metadata?.tier || 'B') : null;
-          const rep = curatedTier
-            ? { score: { A: 85, B: 80, C: 75 }[curatedTier] || 80, tier: 'standard', category: 'curated' }
+          // Only filings, official records and market data are "Verified";
+          // curated blogs and feeds are scored like any other site.
+          const rep = isVerifiedSource(result)
+            ? { score: 95, tier: 'standard', category: 'official' }
             : scoreSourceReputation({ url: result.url, title: result.title });
           reputation = rep?.score ?? rep?.reputation ?? null;
           badge = getSourceBadge(rep);
+          if (badge && badge.label === 'Verified Source' && !isVerifiedSource(result)) {
+            badge = { ...badge, icon: '✓', label: 'Reputable Source' };
+          }
+          // Keep the badge consistent with the source tier shown next to it:
+          // a "Reputable press" site is never a "Basic Source".
+          const tier = result.sourceTier || null;
+          if (badge && /Basic/i.test(badge.label)) {
+            if (tier === 'press') badge = { ...badge, icon: '✓', label: 'Reputable Source' };
+            else if (tier === 'forum') badge = { ...badge, icon: '⚠️', label: 'Community Source' };
+            else badge = { ...badge, icon: '•', label: 'Unrated Source' };
+          }
         } catch {
           badge = null;
         }
@@ -594,7 +587,8 @@ const SimplifiedLLMResults = ({
           combinedScore: overall,
           reputation,
           badge,
-          displayTitle: createDescriptiveTitle(result, index)
+          displayTitle: createArticleTitle(result, index),
+          displayPublisher: createDescriptiveTitle(result, index)
         };
       });
     const unique = enhanced.filter((item, index, self) => index === self.findIndex((t) => t.url === item.url));
@@ -706,10 +700,9 @@ const SimplifiedLLMResults = ({
         
         
         // Extract content
-        const resultContent = typeof result === 'string' ? result : 
-                            (result.content || result.text || result.summary || 
-                             (result.insights ? JSON.stringify(result.insights) : JSON.stringify(result)));
-        allContent += resultContent + ' ';
+        const resultContent = typeof result === 'string' ? result
+          : [result.content, result.text, result.summary].find((v) => typeof v === 'string') || '';
+        allContent += resultContent + '\n';
       });
       
       // Calculate averages - ensure values are between 0 and 1
@@ -724,10 +717,12 @@ const SimplifiedLLMResults = ({
       
       // Not using text-based quality metrics anymore - quality metrics are now shown only in the progress bar visualization
       
-      // Detect query type for context-aware visualization
-      const isFinancialQuery = query.toLowerCase().match(/financ|revenue|profit|stock|market|growth|investor|economic|business|company/i);
-      const isTechnicalQuery = query.toLowerCase().match(/tech|software|hardware|code|program|develop|algorithm|data|compute|ai|ml|api/i);
-      const isHealthQuery = query.toLowerCase().match(/health|medical|doctor|patient|disease|treatment|symptom|therapy|wellness/i);
+      // The header follows what the query asked for (the API's query plan),
+      // not substrings of the query ("ai" inside "open ai" is not "technical")
+      const intents = Array.isArray(queryPlan?.intents) ? queryPlan.intents : [];
+      const isFinancialQuery = intents.includes('funding') || intents.includes('financials');
+      const isTechnicalQuery = intents.includes('product');
+      const isHealthQuery = /\b(health|medical|doctor|patient|disease|treatment|symptom|therapy|wellness)\b/i.test(query);
       
       // Format content for dashboard appearance
       let formattedHTML = '';
@@ -738,8 +733,14 @@ const SimplifiedLLMResults = ({
       // Add appropriate header based on context
       if (isFinancialQuery) {
         formattedHTML += `<h2>📈 Financial Analysis</h2>`;
+      } else if (intents.includes('competitors')) {
+        formattedHTML += `<h2>🏁 Competitive Landscape</h2>`;
+      } else if (intents.includes('team')) {
+        formattedHTML += `<h2>👥 Team and Leadership</h2>`;
+      } else if (intents.includes('legal')) {
+        formattedHTML += `<h2>⚖️ Legal and Regulatory</h2>`;
       } else if (isTechnicalQuery) {
-        formattedHTML += `<h2>🔧 Technical Overview</h2>`;
+        formattedHTML += `<h2>🔧 Product Overview</h2>`;
       } else if (isHealthQuery) {
         formattedHTML += `<h2>🧪 Health Assessment</h2>`;
       } else {
@@ -755,18 +756,21 @@ const SimplifiedLLMResults = ({
         .replace(/\[([^\]]+)\]\((?:[^)]+)\)/g, '$1')
         .replace(/^\s*(?:[-•*]|\d+\.)\s+/gm, '')
         .replace(/[*_`]+/g, '');
-      const sentences = plainContent.match(/[^.!?\n]+[.!?]+(?:\s*\([^)]*\))?(?:\s*\[Source[^\]]*\])?/g) || [];
+      // Split on line breaks and on sentence ends followed by a capital or a
+      // bullet, so "$1.25 trillion" and "Inc." never split a sentence
+      const sentences = plainContent.split(/\n+|(?<=[.!?])\s+(?=[\p{Lu}•]|\d)/u);
       const cleanedSentences = sentences
         .map(s => s.trim())
         .filter(s => s.length > 25 && s.length < 500) // Filter out very short or very long sentences
-        .filter(s => !/No AI model is configured|Each point below is quoted|Verify claims in the original|contain no further detail|Only one kind of source/i.test(s))
+        .filter(s => !/^Based on \d+ sources?\b/i.test(s)) // coverage line, not an insight
+        .filter(s => !/^(\*?Note:|Results synthesized from \d+ sources|---)/i.test(s)) // digest footer
+        .filter(s => !/verify (claims )?(with|in) (the )?original sources|so every statement above is quoted|contain no further detail|Only one kind of source covers|Add sources \(Web, Verified/i.test(s))
         .filter(s => !/\?\s*$/.test(s)) // questions belong to FOLLOW-UP, not insights
-        .filter(s => !/^Based on \d+ sources? for /.test(s)) // coverage line, not an insight
         // Drop perspective labels ("Company Announcements: ...") before comparing
         .map(s => s.replace(/^(Company Announcements|Investor View|Press Coverage|Analyst Commentary|Community Discussion|Your Documents):\s*/, ''))
-        // Remove duplicates by core sentence (ignore citations and dates)
+        // Remove duplicates by core sentence (ignore citations, dates and end punctuation)
         .filter((s, i, arr) => {
-          const core = (x) => x.replace(/\s*\([^)]*\)\s*(\[Source[^\]]*\])?\s*$/, '').trim().toLowerCase();
+          const core = (x) => x.replace(/\s*\([^)]*\)\s*(\[Source[^\]]*\])?[.!?]*\s*$/, '').replace(/[.!?]+$/, '').trim().toLowerCase();
           return arr.findIndex(t => core(t) === core(s)) === i;
         });
       
@@ -853,7 +857,7 @@ const SimplifiedLLMResults = ({
         </div>
       `];
     }
-  }, [validResults, query]);
+  }, [validResults, query, queryPlan]);
 
   // Handle follow-up search
   const handleFollowUpSearch = (followUpQuery) => {
@@ -879,7 +883,7 @@ const SimplifiedLLMResults = ({
                 <ExpandableContent content={
                   typeof result === 'string' ? result : 
                   typeof result.content === 'string' ? result.content :
-                  JSON.stringify(result)
+                  typeof result.text === 'string' ? result.text : ''
                 } />
               </div>
             </div>
@@ -950,7 +954,8 @@ const SimplifiedLLMResults = ({
                             </div>
                             <div style={{ fontSize: 11, color: '#6b7280' }}>
                               {(claim.sourceRefs || []).map((ref) => ref.site).join(', ')}
-                              {(claim.alternatives || []).map((alt) => ` · vs ${alt.value} (${(alt.sourceRefs || []).map((r) => r.site).join(', ')})`).join('')}
+                              {(claim.alternatives || []).map((alt) => ` · ${claim.status === 'conflict' && alt.sameRound !== false ? 'vs' : 'also reported'} ${alt.value} (${(alt.sourceRefs || []).map((r) => r.site).join(', ')})`).join('')}
+                              {claim.note ? ` · ${claim.note}` : ''}
                             </div>
                           </div>
                         );
@@ -971,9 +976,15 @@ const SimplifiedLLMResults = ({
                         if (isLower && !showLowerSources) return null;
                         return (
                           <div key={`source-${index}`} className={styles.sourceItem} style={isLower ? { opacity: 0.75 } : undefined}>
-                            <a href={result.url} target="_blank" rel="noopener noreferrer" className={styles.sourceLink}>
+                            <a href={result.url} target="_blank" rel="noopener noreferrer" className={styles.sourceLink} title={result.title || result.displayTitle}>
                               {result.displayTitle}
                             </a>
+                            {result.displayPublisher && result.displayPublisher !== result.displayTitle && (
+                              <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 6, whiteSpace: 'nowrap' }}>{result.displayPublisher}</span>
+                            )}
+                            {result.undated && (
+                              <span title="This source has no publication date, so the date filter could not be applied to it" style={{ fontSize: 11, color: '#92400e', backgroundColor: '#FEF3C7', padding: '1px 6px', borderRadius: 10, marginLeft: 6, whiteSpace: 'nowrap' }}>undated</span>
+                            )}
                             {result.badge && (
                               <span
                                 title={`${result.badge.label}${result.reputation ? ` (reputation ${result.reputation}/100)` : ''}`}
@@ -1121,7 +1132,9 @@ const SimplifiedLLMResults = ({
           <span className={styles.statusLabel}>{query ? `"${query}"` : 'Results'}</span>
         </div>
         <div className={styles.resultCount}>
-          {validResults?.length || 0} result(s) available
+          {scoredSources.length > 0
+            ? `${scoredSources.length} source${scoredSources.length === 1 ? '' : 's'}`
+            : `${validResults?.length || 0} result${validResults?.length === 1 ? '' : 's'}`}
         </div>
       </div>
       
@@ -1130,8 +1143,8 @@ const SimplifiedLLMResults = ({
         <div className={styles.errorAlert}>
           <h4 className={styles.errorTitle}>API Error</h4>
           <p className={styles.errorMessage}>
-            An error occurred with the Together API. This may be due to an invalid API key.
-            Please check your API key configuration or try again later.
+            The search service returned an error and no answer could be shown.
+            Please try again; if it keeps failing, check the server logs and provider configuration.
           </p>
         </div>
       )}
@@ -1139,7 +1152,7 @@ const SimplifiedLLMResults = ({
         <div className={styles.errorAlert}>
           <h4 className={styles.errorTitle}>Provider Warning</h4>
           <p className={styles.errorMessage}>
-            The LLM provider returned an authentication warning. Showing available search results with fallback synthesis.
+            The AI provider rejected the request. Showing the available search results with a quoted digest instead.
           </p>
         </div>
       )}
@@ -1148,7 +1161,7 @@ const SimplifiedLLMResults = ({
       <TabNavigation 
         tabs={tabsToShow} 
         defaultTabId="all-results"
-        onTabChange={(tabId) => console.log('Tab changed to:', tabId)}
+        onTabChange={null}
         containerStyle={{ 
           margin: '10px 0 0 0',
           border: '1px solid #e5e7eb',

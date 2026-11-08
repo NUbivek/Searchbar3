@@ -8,7 +8,9 @@ import { chatComplete, PROVIDERS, providerEnabled } from '../llm/providers';
 import { synthesizeFromResults } from '../../utils/fallbackSynthesizer';
 import { INTENTS, entityRegex, mentionMatches } from './queryPlan';
 
-const MAX_SOURCES_FOR_LLM = 12;
+// One numbering everywhere: the answer cites the ranked list the UI shows
+// (15 ranked results plus the user's own documents), never a shorter copy.
+const MAX_SOURCES_FOR_LLM = 25;
 const SECTIONS = ['## SUMMARY', '## KEY POINTS', '## DETAILED ANALYSIS', '## DIFFERENT PERSPECTIVES', '## FOLLOW-UP QUESTIONS'];
 const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
 const dateOf = (r) => { const t = Date.parse(r.publishedAt || r.date || r.timestamp || ''); return Number.isNaN(t) ? null : new Date(t).toISOString().slice(0, 10); };
@@ -106,6 +108,13 @@ export async function generateAnswer(plan, entity, results, { model = 'auto', us
   const top = results.slice(0, MAX_SOURCES_FOR_LLM);
   const sourceMap = Object.fromEntries(top.map((r, i) => [String(i + 1), { title: r.title, url: r.url, sourceName: r.sourceName || hostOf(r.url), date: dateOf(r), type: r.type || r.source }]));
   let reason = 'No AI model is configured';
+  // "provider:model" from the model menu; anything else is ignored, and the
+  // answer says so instead of silently using another model.
+  const requested = typeof model === 'string' && model && model !== 'auto' ? model : null;
+  const requestedModel = requested ? requested.split(':').slice(1).join(':') : null;
+  const modelNote = (used) => (requested && (!requestedModel || used !== requestedModel)
+    ? `Requested model "${requested}" is not available${used ? `; used ${used} instead` : ''}`
+    : null);
 
   if (useLLM && top.length > 0 && llmConfigured()) {
     const today = new Date().toISOString().slice(0, 10);
@@ -121,7 +130,7 @@ ${sourcesBlock(top)}`;
         return {
           content: checked.content,
           sourceMap,
-          llm: { provider: out.provider, providerLabel: out.providerLabel, model: out.model, confidence: checked.confidence, removedCitations: checked.removedCitations, skipped: out.skipped || [] },
+          llm: { provider: out.provider, providerLabel: out.providerLabel, model: out.model, confidence: checked.confidence, removedCitations: checked.removedCitations, skipped: out.skipped || [], modelNote: modelNote(out.model) },
         };
       }
       reason = `The AI answer failed validation (${checked.reason})`;
@@ -137,10 +146,11 @@ ${sourcesBlock(top)}`;
     entityName: entity.mode === 'entity' ? entity.name : null,
     entityTest: regex ? (sentence) => mentionMatches(sentence, new RegExp(regex.source, regex.flags)).length > 0 : null,
     intentRes: plan.intents.map((i) => INTENTS[i]),
+    intents: plan.intents,
     recency: plan.recency,
     termsQuery: plan.entityCandidate || plan.query,
     reason,
   };
   const synthesized = synthesizeFromResults(plan.query, top, ctx);
-  return { content: synthesized.content, sourceMap: synthesized.sourceMap, categories: synthesized.categories, llm: null, fallbackReason: reason };
+  return { content: synthesized.content, sourceMap: synthesized.sourceMap, categories: synthesized.categories, llm: null, fallbackReason: reason, modelNote: modelNote(null) };
 }

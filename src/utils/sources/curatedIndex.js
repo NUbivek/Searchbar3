@@ -21,6 +21,16 @@ import registryHealth from '../../../sources/registry-health.json';
 
 const { RssAdapter } = require('../../sourcing/adapters/rssAdapter');
 const { HtmlListAdapter } = require('../../sourcing/adapters/htmlListAdapter');
+const { FEED_BOILERPLATE } = require('../evidence');
+
+const CONTENT_LIMIT = 600;
+
+/** Strip feed footers in any language and cut at a word boundary, never mid-word. */
+function cleanContent(raw) {
+  const text = stripHtml(raw).replace(FEED_BOILERPLATE, ' ').replace(/\s+/g, ' ').trim();
+  if (text.length <= CONTENT_LIMIT) return text;
+  return text.slice(0, CONTENT_LIMIT).replace(/\s+\S*$/, '').trim();
+}
 
 const TTL_MS = 3 * 60 * 60 * 1000; // refresh every 3 hours
 const FETCH_TIMEOUT_MS = 8000;
@@ -89,7 +99,7 @@ function toItem(source, raw) {
   return {
     title,
     url: raw.url,
-    content: stripHtml(raw.content).replace(/The post .{3,300}? appeared first on [^.]{2,80}\.?/gi, ' ').replace(/\s*(\[…\]|\[\.\.\.\]|Continue reading.*)$/i, '').replace(/\s+/g, ' ').trim().slice(0, 600),
+    content: cleanContent(raw.content),
     publishedAt: isPortfolio || Number.isNaN(published) ? null : new Date(published).toISOString(),
     kind: isPortfolio ? 'portfolio' : 'article',
     companyWebsite: raw.company_website || null,
@@ -326,9 +336,11 @@ export async function searchCuratedSources(query, { limit = 15, waitMs = 12000 }
  * Used when the query is about a specific company or person, so generic
  * word matches ("open" + "ai" for "open ai") never qualify.
  * @param {(text: string) => boolean} isMention
- * @param {{ intentRes?: RegExp[], recency?: boolean, limit?: number, waitMs?: number }} options
+ * @param {{ intentRes?: RegExp[], recency?: boolean, limit?: number, waitMs?: number, includeSourceName?: boolean }} options
+ *   includeSourceName: also match the publishing source's name, so "a16z
+ *   portfolio" finds the companies listed on the a16z portfolio page
  */
-export async function searchCuratedForEntity(isMention, { intentRes = [], recency = false, limit = 20, waitMs = 12000 } = {}) {
+export async function searchCuratedForEntity(isMention, { intentRes = [], recency = false, limit = 20, waitMs = 12000, includeSourceName = false } = {}) {
   warmCuratedIndex();
   if (!state.builtAt && state.building) {
     await Promise.race([state.building, new Promise((r) => setTimeout(r, waitMs))]);
@@ -336,8 +348,9 @@ export async function searchCuratedForEntity(isMention, { intentRes = [], recenc
   const scored = [];
   for (const item of state.items) {
     const inTitle = isMention(item.title);
-    if (!inTitle && !isMention(item.content)) continue;
-    let score = inTitle ? 3 : 1;
+    const inSource = includeSourceName && item.kind === 'portfolio' && isMention(item.sourceName);
+    if (!inTitle && !inSource && !isMention(item.content)) continue;
+    let score = inTitle ? 3 : inSource ? 2 : 1;
     for (const re of intentRes) {
       if (re.test(item.title)) score += 2;
       else if (re.test(item.content)) score += 1;

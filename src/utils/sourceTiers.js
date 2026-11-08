@@ -2,6 +2,10 @@
  * Source quality tiers for diligence: filings > reputable press > blogs >
  * forums. Uses the project's reputation table (SourceReputationScorer) for
  * press, the curated registry's own categories, and known domains.
+ *
+ * The host decides first: a sec.gov filing or a TechCrunch article found
+ * through Hacker News is a filing or press, not "forum". The retrieving
+ * source only decides when the host says nothing.
  */
 import { SOURCE_REPUTATION_DB } from '../components/search/sources/SourceReputationScorer';
 
@@ -14,8 +18,10 @@ export const TIERS = {
 };
 
 const FILING_DOMAINS = /(^|\.)(sec\.gov|gov|europa\.eu|companieshouse\.gov\.uk|find-and-update\.company-information\.service\.gov\.uk)$/;
-const FORUM_DOMAINS = /(^|\.)(reddit\.com|news\.ycombinator\.com|twitter\.com|x\.com|quora\.com|stocktwits\.com|facebook\.com|linkedin\.com)$/;
+const FORUM_DOMAINS = /(^|\.)(reddit\.com|news\.ycombinator\.com|twitter\.com|x\.com|bsky\.app|quora\.com|stocktwits\.com|facebook\.com|linkedin\.com)$/;
 const BLOG_DOMAINS = /(^|\.)(medium\.com|substack\.com|wordpress\.com|blogspot\.com|ghost\.io|beehiiv\.com)$/;
+const FILING_SOURCES = ['sec', 'edgar', 'fmp', 'fred'];
+const FORUM_SOURCES = ['hackernews', 'reddit', 'twitter', 'x', 'linkedin'];
 
 function hostOf(url) {
   try {
@@ -28,28 +34,36 @@ function hostOf(url) {
 /** @returns {'filing'|'press'|'blog'|'forum'|'other'} */
 export function sourceTier(result = {}) {
   const source = String(result.source || '').toLowerCase();
-  if (['sec', 'edgar', 'fmp', 'fred'].includes(source)) return 'filing';
-  if (['hackernews', 'reddit', 'twitter', 'x', 'linkedin'].includes(source)) return 'forum';
-  if (source === 'file' || source === 'custom') return 'other';
+  if (source === 'file') return 'other';
 
+  // 1. The host of the page itself
   const host = hostOf(result.url || result.link);
-  if (FILING_DOMAINS.test(host)) return 'filing';
-  if (FORUM_DOMAINS.test(host)) return 'forum';
-  if (BLOG_DOMAINS.test(host)) return 'blog';
+  if (host) {
+    if (FILING_DOMAINS.test(host)) return 'filing';
+    if (FORUM_DOMAINS.test(host)) return 'forum';
+    if (BLOG_DOMAINS.test(host)) return 'blog';
+    const rep = SOURCE_REPUTATION_DB[host];
+    if (rep && ['news', 'business', 'tech', 'educational', 'government'].includes(rep.category)) {
+      return rep.category === 'government' ? 'filing' : 'press';
+    }
+    if (rep && rep.category === 'blog') return 'blog';
+  }
 
+  // 2. What the retrieving source knows about it
+  if (FILING_SOURCES.includes(source)) return 'filing';
   if (source === 'curated') {
     const category = String(result.sourceCategory || result.metadata?.category || '');
     if (/news|funding/.test(category)) return 'press';
     if (/portfolio|investor|accelerator/.test(category)) return 'press'; // first-party investor listings
     return 'blog'; // market analysis, engineering and company blogs
   }
-
-  const rep = SOURCE_REPUTATION_DB[host];
-  if (rep && ['news', 'business', 'tech', 'educational', 'government'].includes(rep.category)) {
-    return rep.category === 'government' ? 'filing' : 'press';
-  }
-  if (rep && rep.category === 'blog') return 'blog';
+  if (FORUM_SOURCES.includes(source)) return 'forum';
   return 'other';
+}
+
+/** Only filings, official records and market data count as verified. */
+export function isVerifiedSource(result = {}) {
+  return sourceTier(result) === 'filing';
 }
 
 export function tierInfo(result) {

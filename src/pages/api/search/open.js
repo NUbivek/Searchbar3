@@ -5,9 +5,10 @@
  *   1. understandQuery  - entity ("open ai"), intent ("funding"), recency ("latest")
  *   2. retrieve         - every selected source, query rewritten per source
  *   3. resolveEntity    - confirm the entity from how sources write it ("OpenAI")
- *   4. filterAndRank    - drop results not about it; rank by entity, intent,
- *                         recency and source tier; collapse duplicates
- *   5. date filter, claim check (cross-source figures)
+ *   4. filterAndRank    - drop results not about it; date filter; rank by
+ *                         entity, intent, recency and source tier; collapse
+ *                         duplicates; the user's own documents always kept
+ *   5. claim check (cross-source figures, same numbering as the results)
  *   6. generateAnswer   - free LLM chain with citation checks, else quoted digest
  * The response contract (results, status, degradedSources, content,
  * sourceMap, categories, ...) is unchanged for the UI.
@@ -16,7 +17,6 @@ import { logger } from '../../../utils/logger';
 import { processCategories } from '../../../components/search/categories/processors/CategoryProcessor';
 import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
 import { getUserId } from '../../../server/auth';
-import { filterByAge } from '../../../utils/sourceTiers';
 import { checkClaims } from '../../../utils/claimCheck';
 import { recordSearch } from '../../../server/store';
 import { understandQuery, resolveEntity } from '../../../server/search/queryPlan';
@@ -106,12 +106,12 @@ export default async function handler(req, res) {
     logger.info('Open search:', { query, sources, entity: plan.entityCandidate, intents: plan.intents, recency: plan.recency });
     const { results: raw, statuses } = await retrieve(plan, sources, { customUrls, files });
 
-    // 3-4. Resolve the entity and keep only relevant, ranked results
+    // 3-5. Resolve the entity; keep only relevant results in the date range
+    // (undated kept and flagged), ranked and capped; the user's own
+    // documents are always kept. Then the cross-source claim check, numbered
+    // by the same list the UI shows.
     const entity = resolveEntity(plan, raw);
-    const { results: ranked, droppedForRelevance } = filterAndRank(raw, plan, entity, { limit: 15 });
-
-    // 5. Date filter (undated kept and flagged) and cross-source claim check
-    const results = filterByAge(ranked, maxAgeDays);
+    const { results, droppedForRelevance, olderThanFilter } = filterAndRank(raw, plan, entity, { limit: 15, maxAgeDays });
     let claimCheck = null;
     try {
       claimCheck = checkClaims(results);
@@ -119,8 +119,8 @@ export default async function handler(req, res) {
       logger.warn('Claim check failed:', claimError.message);
     }
 
-    // Degraded = a selected source failed or is not configured. A source
-    // that worked but had nothing about this query is not degraded.
+    // Degraded = a selected source failed. A source that is not configured
+    // (no web search key) or that worked but had nothing is not degraded.
     const degradedSources = statuses.filter((s) => s.status === 'error').map((s) => s.source);
 
     // 6. Answer
@@ -152,12 +152,15 @@ export default async function handler(req, res) {
       queryPlan: {
         entity: entity.mode === 'entity' ? entity.name : null,
         mode: entity.mode,
+        confidence: entity.confidence || null,
         intents: plan.intents,
         recency: plan.recency,
         droppedForRelevance,
+        olderThanFilter,
       },
       claimCheck,
       maxAgeDays: maxAgeDays || null,
+      olderThanFilter,
       content: answer.content,
       sourceMap: answer.sourceMap,
       isLLMResult: Boolean(answer.content),
@@ -170,18 +173,23 @@ export default async function handler(req, res) {
         content: null,
       },
       answerInfo: answer.llm
-        ? { mode: 'ai', provider: answer.llm.providerLabel, model: answer.llm.model, confidence: answer.llm.confidence, skipped: answer.llm.skipped || [] }
-        : { mode: 'quoted', reason: answer.fallbackReason || null },
+        ? { mode: 'ai', provider: answer.llm.providerLabel, model: answer.llm.model, confidence: answer.llm.confidence, skipped: answer.llm.skipped || [], ...(answer.llm.modelNote ? { modelNote: answer.llm.modelNote } : {}) }
+        : results.length > 0
+          ? { mode: 'quoted', reason: answer.fallbackReason || null, ...(answer.modelNote ? { modelNote: answer.modelNote } : {}) }
+          : null,
       metadata: { generatedAt: new Date().toISOString(), totalSources: results.length },
       categories,
       ...(results.length === 0 ? {
         failSoftContent: {
-          message: entity.mode === 'entity' || plan.entityCandidate
-            ? `No source returned results about "${plan.entityCandidate || query}".`
-            : 'No live sources returned results right now.',
+          message: olderThanFilter > 0
+            ? `No results within the selected date range: ${olderThanFilter} result${olderThanFilter === 1 ? ' was' : 's were'} older than the filter.`
+            : entity.mode === 'entity' || plan.entityCandidate
+              ? `No source returned results about "${entity.name || plan.entityCandidate || query}".`
+              : 'No live sources returned results right now.',
           suggestions: [
+            ...(olderThanFilter > 0 ? ['Widen the Published filter to see older results'] : []),
             'Check the spelling of the company or person',
-            'Enable Web (needs a search API key) for broader coverage',
+            ...(statuses.some((s) => s.source === 'web' && s.status === 'not_configured') ? ['Add a SERPER_API_KEY or TAVILY_API_KEY to enable web search for broader coverage'] : []),
             'Try fewer words, e.g. just the company name'
           ]
         }

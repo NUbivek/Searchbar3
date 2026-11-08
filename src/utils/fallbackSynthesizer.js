@@ -14,8 +14,21 @@
 const resultDetector = require('./llm/resultDetector');
 const { FUNDING_RE, FACT_RE, cleanText, formatDate, sourceLabel } = require('./evidence');
 
-const MAX_SOURCES = 12;
+// Same numbering as the ranked list the UI shows (15 results plus the
+// user's own documents); the caller already capped it.
+const MAX_SOURCES = 25;
 const MAX_POINTS = 8;
+
+// What the user asked, detected from the query when the caller gives no plan
+const INTENT_RES = {
+  funding: /\b(funding|fundraise|fundraising|raise[sd]?|raising|round|valuation|valued|investors?|investments?|backers?|series\s?[a-h]|seed|pre-seed|capital)\b/i,
+  competitors: /\b(competitors?|competition|competitive|rivals?|alternatives?|versus|vs\.?|compared?|comparison|landscape)\b/i,
+  team: /\b(founders?|co-?founders?|founded|ceo|cto|cfo|team|leadership|executives?|management|hires?|hired|people)\b/i,
+  financials: /\b(revenue|arr|mrr|profit|profitable|margin|burn|growth|financials?|earnings|ebitda|customers?|users)\b/i,
+  product: /\b(products?|launch(?:es|ed)?|features?|platform|technology|roadmap|releases?)\b/i,
+  legal: /\b(lawsuits?|sued|litigation|regulators?|regulatory|fines?|investigation|antitrust)\b/i,
+};
+const detectIntents = (query) => Object.entries(INTENT_RES).filter(([, re]) => re.test(String(query || ''))).map(([name]) => name);
 const STOPWORDS = new Set('a an and are as at be by for from has have how in into is it its of on or that the this to was were what when where which who why will with about vs'.split(' '));
 function queryTerms(query) {
   return (String(query || '').toLowerCase().match(/[a-z0-9][a-z0-9.+&'-]*/g) || [])
@@ -67,14 +80,65 @@ function primaryEntity(query) {
   return names[0] || null;
 }
 
-function generateFollowUpQuestions(query, entityName = null) {
+/**
+ * Diligence questions that go one step past what the user asked: a funding
+ * query gets valuation / investors / use of proceeds, a competitor query
+ * gets positioning and pricing, a team query gets key hires. The user's own
+ * question is never asked back. Each topic's questions are tagged so the
+ * generic set skips the topics already asked about.
+ */
+const FOLLOW_UPS = {
+  funding: (e) => [
+    `Who led ${e}'s most recent round, and at what valuation?`,
+    `What will ${e} use the new capital for, and how long is its runway?`,
+    `Which existing investors took part, and did any insiders sell shares?`,
+    `When is ${e}'s next round or liquidity event expected?`,
+  ],
+  competitors: (e) => [
+    `How does ${e} position itself against those competitors on product and pricing?`,
+    `Which customers has ${e} recently won from, or lost to, its rivals?`,
+    `How does ${e}'s growth compare with its closest competitors?`,
+  ],
+  team: (e) => [
+    `Who are ${e}'s key recent hires and departures?`,
+    `What did ${e}'s founders build before, and who sits on its board?`,
+    `How is ${e}'s leadership team compensated and how is equity split?`,
+  ],
+  financials: (e) => [
+    `What are ${e}'s current revenue growth and burn rate?`,
+    `How concentrated is ${e}'s revenue among its largest customers?`,
+    `When does ${e} expect to reach profitability?`,
+  ],
+  product: (e) => [
+    `What do customers say about ${e}'s product, and how is retention trending?`,
+    `How does ${e}'s roadmap compare with what competitors are shipping?`,
+    `Which usage metrics has ${e} disclosed?`,
+  ],
+  legal: (e) => [
+    `What is the status and potential financial exposure of ${e}'s legal matters?`,
+    `Which regulators are involved, and what remedies are sought?`,
+    `How has ${e} responded publicly, and has it changed its practices?`,
+  ],
+};
+// Generic questions, tagged by the topic they would repeat
+const GENERIC_FOLLOW_UPS = [
+  { topic: 'funding', q: (e) => `Who led ${e}'s most recent round, and at what valuation?` },
+  { topic: 'competitors', q: (e) => `Who are ${e}'s closest competitors, and how do they compare?` },
+  { topic: 'team', q: (e) => `What is known about ${e}'s founders and leadership team?` },
+  { topic: 'financials', q: (e) => `What is ${e}'s revenue, and how fast is it growing?` },
+];
+
+function generateFollowUpQuestions(query, entityName = null, intents = null) {
   const entity = entityName || primaryEntity(query);
+  const asked = Array.isArray(intents) ? intents : detectIntents(query);
   if (entity) {
-    return [
-      `Who led ${entity}'s most recent round, and at what valuation?`,
-      `Who are ${entity}'s closest competitors, and how do they compare?`,
-      `What is known about ${entity}'s founders and leadership team?`,
-    ];
+    const out = [];
+    const add = (q) => { if (q && !out.includes(q)) out.push(q); };
+    // Deeper questions on the asked topics first (two per topic)
+    for (const topic of asked) (FOLLOW_UPS[topic] ? FOLLOW_UPS[topic](entity) : []).slice(0, 2).forEach(add);
+    // Then other topics the user did not ask about
+    for (const g of GENERIC_FOLLOW_UPS) if (!asked.includes(g.topic)) add(g.q(entity));
+    return out.slice(0, 4);
   }
   return [
     `Which companies in this space raised money in the last 12 months?`,
@@ -109,6 +173,17 @@ function cite(result, index) {
 }
 
 /**
+ * A quoted sentence for running prose: "Sentence (Publisher, date) [Source n]."
+ * The sentence's own full stop moves after the citation so that joined
+ * sentences read as sentences; a headline with no punctuation gets one.
+ */
+function prose(sentence, result, index) {
+  const trimmed = String(sentence).trim();
+  const end = (trimmed.match(/[.!?]+$/) || ['.'])[0];
+  return `${trimmed.replace(/[.!?]+$/, '')} ${cite(result, index)}${end}`;
+}
+
+/**
  * Original section structure (SUMMARY, KEY POINTS, DETAILED ANALYSIS,
  * DIFFERENT PERSPECTIVES, FOLLOW-UP QUESTIONS), filled only with sentences
  * quoted from the results and cited to them.
@@ -137,14 +212,14 @@ function createSynthesizedContent(query, results, ctx = {}) {
     const s = r.sentences.find((x) => unused(x.sentence));
     if (s) {
       summarySources.add(r.index);
-      summaryLines.push(`${take(s.sentence)} ${cite(r.result, r.index)}`);
+      summaryLines.push(prose(take(s.sentence), r.result, r.index));
     }
   }
   const curatedCount = results.filter((r) => r.source === 'curated').length;
   const dated = results.map((r) => formatDate(r.publishedAt || r.date || r.timestamp)).filter(Boolean).sort();
   const coverage = `Based on ${results.length} source${results.length === 1 ? '' : 's'} ${entity ? `about ${entity}` : `for "${query}"`}` +
     `${curatedCount ? ` (${curatedCount} from your curated sources)` : ''}` +
-    `${dated.length ? `, dated ${dated[0]} to ${dated[dated.length - 1]}` : ''}:`;
+    `${dated.length ? `, dated ${dated[0]} to ${dated[dated.length - 1]}` : ''}.`;
 
   // KEY POINTS: the core facts, so they may repeat what the summary quoted
   used.clear();
@@ -169,7 +244,7 @@ function createSynthesizedContent(query, results, ctx = {}) {
     for (const { result, index, sentences } of ranked) {
       for (const s of sentences) {
         if (lines.length >= 3) break;
-        if (theme.pattern.test(s.sentence) && unused(s.sentence)) lines.push(`${take(s.sentence)} ${cite(result, index)}`);
+        if (theme.pattern.test(s.sentence) && unused(s.sentence)) lines.push(prose(take(s.sentence), result, index));
       }
     }
     return lines.length ? `### ${theme.title}\n\n${lines.join(' ')}` : null;
@@ -194,7 +269,9 @@ function createSynthesizedContent(query, results, ctx = {}) {
 
   return [
     '## SUMMARY',
-    `${coverage} ${summaryLines.join(' ')}`.trim(),
+    coverage,
+    '',
+    summaryLines.join(' '),
     '',
     '## KEY POINTS',
     keyPoints.join('\n'),
@@ -206,7 +283,7 @@ function createSynthesizedContent(query, results, ctx = {}) {
     perspectives,
     '',
     '## FOLLOW-UP QUESTIONS',
-    generateFollowUpQuestions(query, entity).map((q) => `• ${q}`).join('\n'),
+    generateFollowUpQuestions(query, entity, ctx.intents).map((q) => `• ${q}`).join('\n'),
     '',
     '---',
     `*Results synthesized from ${results.length} sources on ${dateStr}*`,
@@ -266,17 +343,18 @@ function synthesizeFromResults(query, results, ctx = {}) {
     return createEmptyResponse(query);
   }
 
+  // Keep every result in its position: Source n in the digest is result n
+  // in the list the UI shows (and in the claim check).
   const validResults = results
+    .slice(0, MAX_SOURCES)
     .map((result) => ({
       ...result,
       title: cleanText(result?.title) || 'Untitled',
       snippet: cleanText(result?.snippet || result?.content || result?.description),
       url: result?.url || result?.link || '#',
-    }))
-    .filter((result) => result.title && (result.snippet || result.title !== 'Untitled'))
-    .slice(0, MAX_SOURCES);
+    }));
 
-  if (validResults.length === 0) {
+  if (validResults.every((result) => !result.snippet && result.title === 'Untitled')) {
     return createEmptyResponse(query);
   }
 
@@ -294,7 +372,7 @@ function synthesizeFromResults(query, results, ctx = {}) {
   return resultDetector.addLLMFlags({
     content: createSynthesizedContent(query, validResults, ctx),
     query,
-    followUpQuestions: generateFollowUpQuestions(query, ctx.entityName),
+    followUpQuestions: generateFollowUpQuestions(query, ctx.entityName, ctx.intents),
     sourceMap,
     categories: generateCategories(validResults),
     metadata: {

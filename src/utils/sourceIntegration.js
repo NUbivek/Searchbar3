@@ -533,11 +533,28 @@ const sourceHandlers = {
         }))
       );
 
-      return settled
-        .filter(item => item.status === 'fulfilled')
-        .map(item => buildUrlSearchResult(item.value))
-        .filter(Boolean);
+      // A URL that could not be fetched or had no readable text is reported
+      // (results.errors) instead of silently dropped; when every URL failed
+      // the handler fails so the source shows as an error with the reason.
+      const errors = [];
+      const results = [];
+      settled.forEach((item, index) => {
+        const url = customUrls[index];
+        if (item.status !== 'fulfilled') {
+          errors.push(`${url}: ${item.reason?.message || item.reason || 'fetch failed'}`);
+          return;
+        }
+        const built = buildUrlSearchResult(item.value);
+        if (built) results.push(built);
+        else errors.push(`${url}: ${item.value?.error || (item.value?.status === 'empty' ? 'no readable text on the page' : 'could not be read')}`);
+      });
+      if (results.length === 0 && errors.length > 0) {
+        throw Object.assign(new Error(errors.join('; ')), { customUrlsFailed: true });
+      }
+      if (errors.length) results.errors = errors;
+      return results;
     } catch (error) {
+      if (error.customUrlsFailed) throw error;
       logger.error(`Error processing custom URLs:`, error);
       return [];
     }
@@ -717,11 +734,15 @@ const normalizeProviderResponse = (source, rawResults, errorMessage = null) => {
     };
   }
 
+  // Per-item failures a handler reported alongside its results (custom URLs
+  // that could not be fetched) travel with the provider as warnings.
+  const warnings = Array.isArray(rawResults?.errors) ? rawResults.errors.map(String) : [];
   return {
     source,
     status: results.length > 0 ? 'ok' : 'empty',
     results,
-    error: null
+    error: null,
+    ...(warnings.length ? { warnings } : {})
   };
 };
 

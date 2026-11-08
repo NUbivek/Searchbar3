@@ -2,12 +2,11 @@
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import axios from 'axios';
 import OpenSearch from '../../src/components/OpenSearch';
 
-jest.mock('axios', () => ({
-  post: jest.fn(),
-}));
+jest.mock('next/router', () => ({ useRouter: () => ({ isReady: true, query: {} }) }));
+jest.mock('next-auth/react', () => ({ useSession: () => ({ status: 'unauthenticated' }) }));
+jest.mock('next/link', () => ({ __esModule: true, default: ({ href, children }) => <a href={href}>{children}</a> }));
 
 jest.mock('../../src/components/ModelSelector', () => function MockModelSelector() {
   return <div data-testid="model-selector">model-selector</div>;
@@ -33,7 +32,7 @@ jest.mock('../../src/components/SourceSelector', () => function MockSourceSelect
 
 jest.mock('../../src/components/search/results/SimplifiedLLMResults', () => {
   const MockSimplifiedLLMResults = ({ results }) => (
-    <div data-testid="llm-results">{Array.isArray(results) ? results.length : 'llm'}</div>
+    <div data-testid="llm-results">{Array.isArray(results) ? `array:${results.length}` : `answer:${String(results.content).slice(0, 20)}`}</div>
   );
 
   return {
@@ -45,86 +44,117 @@ jest.mock('../../src/components/search/results/SimplifiedLLMResults', () => {
   };
 });
 
-jest.mock('../../src/utils/isLLMResult', () => ({
-  isLLMResult: jest.fn(() => false),
-}));
+const jsonResponse = (data, status = 200) => ({
+  ok: status < 400,
+  status,
+  headers: { get: () => 'application/json' },
+  json: async () => data,
+  text: async () => JSON.stringify(data),
+});
+
+const searchCalls = () => global.fetch.mock.calls.filter(([url]) => url === '/api/search/open');
+const lastBody = () => new URLSearchParams(searchCalls().slice(-1)[0][1].body);
 
 describe('OpenSearch', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     window.HTMLElement.prototype.scrollIntoView = jest.fn();
+    global.fetch = jest.fn(async (url) => (url === '/api/search/open' ? jsonResponse({ results: [], status: 'fail-soft' }) : jsonResponse({})));
+  });
+  afterEach(() => { delete global.fetch; });
+
+  const search = (text) => {
+    fireEvent.change(screen.getByPlaceholderText('Search across sources...'), { target: { value: text } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+  };
+
+  it('shows the fail-soft message and suggestions from the API on a no-result search, never the raw payload', async () => {
+    global.fetch.mockImplementation(async (url) => (url === '/api/search/open'
+      ? jsonResponse({
+        status: 'fail-soft', results: [], content: null, categories: [], degradedSources: [], answerInfo: null,
+        sourceStatuses: [{ source: 'curated', status: 'empty' }, { source: 'web', status: 'not_configured', error: 'Web search is off' }],
+        queryPlan: { entity: null, mode: 'topic', intents: [] },
+        failSoftContent: { message: 'No source returned results about "asdkjhasd".', suggestions: ['Check the spelling of the company or person', 'Try fewer words'] },
+      })
+      : jsonResponse({})));
+
+    render(<OpenSearch selectedModel="auto" setSelectedModel={jest.fn()} />);
+    search('asdkjhasd');
+
+    await waitFor(() => expect(searchCalls()).toHaveLength(1));
+    expect(lastBody().get('query')).toBe('asdkjhasd');
+    expect(lastBody().get('useLLM')).toBe('true');
+    expect(await screen.findByText('No direct results yet')).toBeTruthy();
+    expect(screen.getByText('No source returned results about "asdkjhasd".')).toBeTruthy();
+    expect(screen.getByText('Try fewer words')).toBeTruthy();
+    expect(screen.getByTestId('llm-results').textContent).toBe('array:0');
+    expect(screen.getByTestId('not-configured-note')).toBeTruthy();
+    expect(screen.queryByText('Some sources unavailable')).toBeNull();
+    expect(screen.queryByText(/Answer quoted directly/)).toBeNull();
+    expect(document.body.textContent).not.toMatch(/"status":/);
   });
 
-  it('renders degraded banner and fail-soft empty state after a degraded empty response', async () => {
-    axios.post.mockResolvedValue({
-      data: {
-        status: 'degraded',
-        degradedSources: ['Web', 'Custom URL'],
-        results: [],
-        failSoftContent: {
-          exampleQueries: ['Example query one', 'Example query two'],
-        },
-      },
-    });
+  it('passes a real answer through as the answer object with its provenance line', async () => {
+    global.fetch.mockImplementation(async (url) => (url === '/api/search/open'
+      ? jsonResponse({
+        status: 'ok', results: [{ title: 'OpenAI raises $11B', url: 'https://a.test' }], content: '## SUMMARY\nOpenAI raised $11B [Source 1].',
+        answerInfo: { mode: 'quoted', reason: 'No AI model is configured' }, queryPlan: { entity: 'OpenAI', mode: 'entity', intents: ['funding'], droppedForRelevance: 2 },
+        sourceStatuses: [{ source: 'curated', status: 'ok' }], degradedSources: [], olderThanFilter: 3,
+      })
+      : jsonResponse({})));
 
-    render(
-      <OpenSearch
-        selectedModel="gpt-4"
-        setSelectedModel={jest.fn()}
-      />
-    );
+    render(<OpenSearch selectedModel="auto" setSelectedModel={jest.fn()} />);
+    search('open ai latest funding');
 
-    fireEvent.change(screen.getByPlaceholderText('Search across sources...'), {
-      target: { value: 'operator workflows' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-
-    await waitFor(() => {
-      expect(axios.post).toHaveBeenCalledWith('/api/search', expect.objectContaining({
-        query: 'operator workflows',
-        mode: 'open',
-        useLLM: true,
-      }));
-    });
-
-    expect(await screen.findByText('Degraded mode active')).toBeTruthy();
-    expect(screen.getByText('No direct results yet')).toBeTruthy();
-    expect(screen.getByText('Example query one')).toBeTruthy();
-    expect(screen.getByTestId('llm-results')).toBeTruthy();
+    expect((await screen.findByTestId('llm-results')).textContent).toBe('answer:## SUMMARY\nOpenAI ra');
+    expect(screen.getByText(/Answer quoted directly from sources/)).toBeTruthy();
+    expect(screen.getByText(/3 results were older than the filter/)).toBeTruthy();
+    expect(screen.queryByText('No direct results yet')).toBeNull();
+    expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
   });
 
   it('includes custom urls and uploaded files in open search requests', async () => {
-    axios.post.mockResolvedValue({
-      data: {
-        results: [{ title: 'Result 1' }],
-      },
-    });
-
-    render(
-      <OpenSearch
-        selectedModel="gpt-4"
-        setSelectedModel={jest.fn()}
-      />
-    );
+    render(<OpenSearch selectedModel="gpt-4" setSelectedModel={jest.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'add-custom' }));
     fireEvent.click(screen.getByRole('button', { name: 'add-file' }));
+    search('operator sourcing');
 
-    fireEvent.change(screen.getByPlaceholderText('Search across sources...'), {
-      target: { value: 'operator sourcing' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(searchCalls()).toHaveLength(1));
+    const body = lastBody();
+    expect(body.get('query')).toBe('operator sourcing');
+    expect(body.get('mode')).toBe('open');
+    expect(body.get('model')).toBe('gpt-4');
+    expect(body.getAll('sources')).toEqual(['Curated', 'Web']);
+    expect(body.getAll('customUrls')).toEqual(['https://example.com']);
+    expect(body.getAll('files')).toEqual([JSON.stringify({ name: 'brief.pdf', content: 'brief body' })]);
+  });
 
-    await waitFor(() => {
-      expect(axios.post).toHaveBeenCalledWith('/api/search', expect.objectContaining({
-        query: 'operator sourcing',
-        mode: 'open',
-        model: 'gpt-4',
-        sources: ['Web'],
-        customUrls: ['https://example.com'],
-        files: [{ name: 'brief.pdf', content: 'brief body' }],
-        useLLM: true,
-      }));
-    });
+  it('does not scroll while typing, and re-runs the search when the date filter changes', async () => {
+    render(<OpenSearch selectedModel="auto" setSelectedModel={jest.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText('Search across sources...'), { target: { value: 'typing' } });
+    expect(window.HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText(/Published/), { target: { value: '365' } });
+    expect(searchCalls()).toHaveLength(0); // no search yet, nothing to re-run
+
+    search('Ramp');
+    await waitFor(() => expect(searchCalls()).toHaveLength(1));
+    expect(lastBody().get('maxAgeDays')).toBe('365');
+
+    fireEvent.change(screen.getByLabelText(/Published/), { target: { value: '30' } });
+    await waitFor(() => expect(searchCalls()).toHaveLength(2));
+    expect(lastBody().get('maxAgeDays')).toBe('30');
+  });
+
+  it('shows the service error message when the API fails soft with an error', async () => {
+    global.fetch.mockImplementation(async (url) => (url === '/api/search/open'
+      ? jsonResponse({ status: 'fail-soft', results: [], content: null, error: 'An error occurred during search', message: 'boom', degradedSources: ['open-search'] })
+      : jsonResponse({})));
+    render(<OpenSearch selectedModel="auto" setSelectedModel={jest.fn()} />);
+    search('Ramp');
+    expect(await screen.findByText('boom')).toBeTruthy();
+    expect(screen.getByTestId('llm-results').textContent).toBe('array:0');
+    expect(screen.getByText('Some sources unavailable')).toBeTruthy();
   });
 });

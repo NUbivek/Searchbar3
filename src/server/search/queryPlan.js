@@ -17,10 +17,14 @@ export const INTENTS = {
   financials: /\b(revenue|arr|mrr|profit|profitable|margin|burn|growth|financials?|earnings|ebitda|customers?|users)\b/i,
   product: /\b(products?|launch(?:es|ed)?|features?|platform|technology|roadmap|releases?)\b/i,
   legal: /\b(lawsuits?|sued|litigation|regulators?|regulatory|fines?|investigation|antitrust)\b/i,
+  // "a16z portfolio", "companies backed by Sequoia": what an investor holds
+  portfolio: /\b(portfolio|portfolio companies|backed by|invested in|investments? (?:of|by|from))\b/i,
 };
 
 const RECENCY_RE = /\b(latest|recent|recently|newest|new|current|currently|this\s+(?:year|month|week|quarter)|today|now)\b/i;
 const YEAR_RE = /\b(20[12]\d)\b/;
+// "series f", "Series A" is a funding intent, never part of the name
+const ROUND_PHRASE_RE = /\b(?:series\s?[a-h]|pre-seed|seed)(?![\p{L}])/giu;
 
 // Words that describe what the user wants, not who it is about
 const QUERY_STOPWORDS = new Set((
@@ -33,7 +37,10 @@ const QUERY_STOPWORDS = new Set((
   'revenue arr mrr profit profitable margin burn growth financial financials earnings ebitda customers users ' +
   'product products launch launches launched feature features platform technology roadmap release releases ' +
   'lawsuit lawsuits sued litigation regulator regulators regulatory fine fines investigation antitrust ' +
-  'series year month week quarter company startup'
+  'series year month week quarter company startup ' +
+  // list / ranking / portfolio queries are about a topic, not a company
+  'best top portfolio lists startups companies ranking rankings leading biggest largest hottest emerging promising notable ' +
+  'examples example guide most popular upcoming fastest-growing backed invested'
 ).split(/\s+/));
 
 // Topical words: a query made only of these is a topic search, not a company
@@ -59,7 +66,8 @@ function detectIntents(query) {
  */
 export function understandQuery(rawQuery) {
   const query = String(rawQuery || '').trim().replace(/\s+/g, ' ');
-  const words = query.match(/[\p{L}\p{N}][\p{L}\p{N}.&'+-]*/gu) || [];
+  // "anthropic series f" -> name tokens "anthropic" (the round is an intent)
+  const words = query.replace(ROUND_PHRASE_RE, ' ').match(/[\p{L}\p{N}][\p{L}\p{N}.&'+-]*/gu) || [];
   const entityTokens = [];
   for (const w of words) {
     const lower = w.toLowerCase().replace(/'s$/, '');
@@ -90,13 +98,46 @@ export function entityRegex(tokens) {
   return new RegExp(`(?<![\\p{L}\\p{N}-])${body}(?![\\p{L}\\p{N}]|-[\\p{L}])`, 'giu');
 }
 
+// A word with a digit in it ("a16z", "23andMe") is name-like whatever its case
+const nameLike = (w) => /^[\p{Lu}\p{N}]/u.test(w) || /\p{N}/u.test(w);
+
 /** Mentions of the entity written as a proper name (each word capitalized). */
 export function mentionMatches(text, regex) {
   if (!regex) return [];
   const out = [];
   for (const m of String(text || '').matchAll(regex)) {
     const words = m[0].split(/[\s-]+/);
-    if (words.every((w) => /^[\p{Lu}\p{N}]/u.test(w))) out.push(m[0]);
+    if (words.every(nameLike)) out.push(m[0]);
+  }
+  return out;
+}
+
+// Function words that may precede a name at the start of a sentence or headline
+const LEADING_WORDS = /^(the|a|an|of|for|and|or|how|why|what|when|where|who|is|as|at|in|on|to|with|by|from|inside|meet|introducing|about)$/i;
+
+/**
+ * Single-word names are ambiguous ("Harvey"): a mention glued to another
+ * capitalised word is a different name ("Larry Harvey", "Harvey Weinstein",
+ * "Harvey OS"). Keep only mentions whose neighbours are lowercase words,
+ * punctuation, a descriptor before ("Startup Harvey") or a news verb after
+ * ("Harvey Raises").
+ */
+export function strictMentions(text, regex) {
+  if (!regex) return [];
+  const t = String(text || '');
+  const out = [];
+  for (const m of t.matchAll(regex)) {
+    if (!m[0].split(/[\s-]+/).every(nameLike)) continue;
+    const before = t.slice(0, m.index);
+    const after = t.slice(m.index + m[0].length).replace(/^['’]s\b/, '');
+    const prev = (before.match(/(\S+)\s+$/) || [])[1] || '';
+    const next = (after.match(/^\s+(\S+)/) || [])[1] || '';
+    const prevWord = prev.replace(/^[("'“‘]+/, '');
+    const nextWord = next.replace(/[)"'”’,.:;!?]+$/, '');
+    const prevCapped = /^\p{Lu}/u.test(prevWord) && !/[,:;|–—-]$/.test(prevWord) && !LEADING_WORDS.test(prevWord) && !new RegExp(`^(${DESCRIPTORS})$`, 'i').test(prevWord);
+    const nextCapped = /^\p{Lu}/u.test(nextWord) && !new RegExp(`^(${NEWS_VERBS})$`, 'i').test(nextWord) && !/^(Inc|Ltd|LLC|Corp|AI|Labs)\.?$/.test(nextWord);
+    if (prevCapped || nextCapped) continue;
+    out.push(m[0]);
   }
   return out;
 }
@@ -135,7 +176,12 @@ function nameLikeInTitleCase(title, regex) {
   return false;
 }
 
-function candidateSubsequences(tokens, raw) {
+/**
+ * Name candidates to try, most specific first: the whole candidate, the
+ * words the user capitalized, then shorter sub-phrases. Shared with curated
+ * retrieval so the index is searched for the same variants.
+ */
+export function candidateSubsequences(tokens, raw) {
   const out = [];
   const seen = new Set();
   const push = (arr) => { const k = arr.join(' '); if (arr.length && !seen.has(k)) { seen.add(k); out.push(arr); } };
@@ -149,26 +195,34 @@ function candidateSubsequences(tokens, raw) {
   return out;
 }
 
+const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return String(url || ''); } };
+
 function evaluateCandidate(tokens, results) {
   const regex = entityRegex(tokens);
+  const strict = tokens.length === 1;
+  const mentions = strict ? strictMentions : mentionMatches;
   const forms = new Map();
+  const hosts = new Set(); // independent sources with a mention
   let sentenceCase = 0; // mentions outside Title Case headlines
   let lowercaseUses = 0; // the same word used as an ordinary word
   const plain = new RegExp(regex.source, 'giu');
   for (const r of results) {
-    const titleMentions = mentionMatches(r.title, regex);
-    const bodyMentions = mentionMatches(r.content || r.snippet, regex);
+    const titleMentions = mentions(r.title, regex);
+    const bodyMentions = mentions(r.content || r.snippet, regex);
     for (const m of [...titleMentions, ...bodyMentions]) forms.set(m, (forms.get(m) || 0) + 1);
+    if (titleMentions.length || bodyMentions.length) hosts.add(hostOf(r.url || r.link) || r.source || String(hosts.size));
     if (bodyMentions.length || (titleMentions.length && !isTitleCase(r.title))) sentenceCase += 1;
-    for (const m of `${r.title} ${r.content || r.snippet || ''}`.matchAll(plain)) if (/^\p{Ll}/u.test(m[0])) lowercaseUses += 1;
+    for (const m of `${r.title} ${r.content || r.snippet || ''}`.matchAll(plain)) if (/^\p{Ll}/u.test(m[0]) && !/\p{N}/u.test(m[0])) lowercaseUses += 1;
   }
   const ranked = [...forms.entries()].sort((a, b) => b[1] - a[1]);
   const joinedUsed = tokens.length > 1 && ranked.some(([form]) => !/[\s-]/.test(form));
   const generic = tokens.every((t) => GENERIC_WORDS.has(t.toLowerCase()));
   // Single-word names are checked strictly in Title Case headlines; multi-word
   // and joined names ("Mistral AI", "OpenAI") are distinctive enough.
-  return { regex, ranked, joinedUsed, generic, sentenceCase, strict: tokens.length === 1, ambiguousWord: tokens.length === 1 && lowercaseUses > 0 };
+  return { regex, ranked, joinedUsed, generic, sentenceCase, hosts: hosts.size, strict, ambiguousWord: strict && lowercaseUses > 0 };
 }
+
+const DESCRIPTOR_RE = new RegExp(`\\b(${DESCRIPTORS})\\b`, 'i');
 
 /**
  * Decide whether the query is about a specific entity, using how the
@@ -183,29 +237,38 @@ function evaluateCandidate(tokens, results) {
  */
 export function resolveEntity(plan, results = []) {
   const tokens = plan.entityTokens || [];
-  if (tokens.length === 0) return { mode: 'topic', name: null, tokens: [], matcher: null };
+  const topic = { mode: 'topic', name: null, tokens: [], matcher: null, confidence: null };
+  if (tokens.length === 0) return topic;
+  const intentRes = (plan.intents || []).map((i) => INTENTS[i]).filter(Boolean);
   for (const cand of candidateSubsequences(tokens, plan.query)) {
     const ev = evaluateCandidate(cand, results);
     if (ev.ranked.length === 0) continue;
     if (ev.generic && !ev.joinedUsed) continue;
     if (ev.ambiguousWord && ev.sentenceCase === 0) continue;
+    // A multi-word phrase seen only in Title Case headlines ("Best FinTech
+    // Startup") needs two independent sources before it counts as a name.
+    if (!ev.strict && !ev.joinedUsed && ev.sentenceCase === 0 && ev.hosts < 2) continue;
     const name = (ev.joinedUsed ? ev.ranked.find(([form]) => !/[\s-]/.test(form)) : ev.ranked[0])[0];
     const fresh = () => new RegExp(ev.regex.source, ev.regex.flags);
-    const inBody = (r) => mentionMatches(r.content || r.snippet, fresh()).length > 0;
+    const mentions = ev.strict ? strictMentions : mentionMatches;
+    const inBody = (r) => mentions(r.content || r.snippet, fresh()).length > 0;
     const inTitle = (r) => {
-      if (mentionMatches(String(r.title || ''), fresh()).length === 0) return false;
+      if (mentions(String(r.title || ''), fresh()).length === 0) return false;
       if (!ev.strict || !isTitleCase(r.title)) return true;
       return nameLikeInTitleCase(r.title, ev.regex);
     };
-    return {
-      mode: 'entity',
-      name,
-      tokens: cand,
-      matcher: (r) => inBody(r) || inTitle(r),
-      inTitle,
-    };
+    const matcher = (r) => inBody(r) || inTitle(r);
+    // Low confidence: a single-word name whose clean mentions never appear
+    // with the asked intent or a company descriptor ("Harvey" the OS when
+    // the user asked about founders).
+    let confidence = 'high';
+    if (ev.strict) {
+      const inContext = results.some((r) => matcher(r) && (DESCRIPTOR_RE.test(resultText(r)) || intentRes.some((re) => re.test(resultText(r)))));
+      if (!inContext) confidence = 'low';
+    }
+    return { mode: 'entity', name, tokens: cand, matcher, inTitle, confidence };
   }
-  return { mode: 'topic', name: null, tokens: [], matcher: null };
+  return topic;
 }
 
 const INTENT_PHRASE = {
@@ -215,6 +278,7 @@ const INTENT_PHRASE = {
   financials: 'revenue',
   product: 'product launch',
   legal: 'lawsuit',
+  portfolio: 'portfolio companies',
 };
 
 /** Query text for web and site-specific search engines. */

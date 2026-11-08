@@ -4,7 +4,7 @@
  * per-source status so the UI can show which sources were unavailable.
  */
 import axios from 'axios';
-import { webQuery, entityRegex, mentionMatches, INTENTS, GENERIC_WORDS } from './queryPlan';
+import { webQuery, entityRegex, mentionMatches, strictMentions, candidateSubsequences, INTENTS, GENERIC_WORDS } from './queryPlan';
 
 const SITE_SOURCES = ['linkedin', 'twitter', 'reddit', 'substack', 'medium', 'crunchbase', 'pitchbook', 'carta'];
 const TIMEOUT_MS = 20000;
@@ -84,23 +84,40 @@ async function webSearch(plan) {
   return settled.flatMap((x) => (x.status === 'fulfilled' ? x.value : []));
 }
 
+const MAX_CURATED_VARIANTS = 6;
+
 async function curatedSearch(plan) {
   const curated = await import('../../utils/sources/curatedIndex');
   const regex = entityRegex(plan.entityTokens);
   const intentRes = plan.intents.map((i) => INTENTS[i]);
   const tasks = [];
-  // The full phrase, plus the words the user capitalized ("Harvey legal AI" -> "Harvey")
-  const capped = plan.entityTokens.filter((t) => /^\p{Lu}/u.test(t) && !GENERIC_WORDS.has(t.toLowerCase()));
-  const variants = [plan.entityTokens, capped.length && capped.length < plan.entityTokens.length ? capped : null].filter((v) => v && v.length);
+  // The same name variants resolveEntity() tries ("Harvey legal AI" ->
+  // "Harvey legal AI", "Harvey", "Harvey legal", "legal AI", ...). The full
+  // phrase is always searched ("open ai" finds "OpenAI" written as a name);
+  // shorter variants made only of generic words ("AI") are skipped.
+  const variants = candidateSubsequences(plan.entityTokens, plan.query)
+    .filter((tokens, i) => i === 0 || !tokens.every((t) => GENERIC_WORDS.has(t.toLowerCase())))
+    .slice(0, MAX_CURATED_VARIANTS);
   for (const tokens of variants) {
     const re = entityRegex(tokens);
-    const isMention = (text) => mentionMatches(text, new RegExp(re.source, re.flags)).length > 0;
-    tasks.push(curated.searchCuratedForEntity(isMention, { intentRes, recency: plan.recency, limit: 20 }));
+    const mentions = tokens.length === 1 ? strictMentions : mentionMatches;
+    const isMention = (text) => mentions(text, new RegExp(re.source, re.flags)).length > 0;
+    tasks.push(curated.searchCuratedForEntity(isMention, {
+      intentRes, recency: plan.recency, limit: 20,
+      // "a16z portfolio": the investor is the source, not the headline
+      includeSourceName: plan.intents.includes('portfolio'),
+    }));
   }
   // Topic queries ("seed round ai agents") also use the keyword search
   if (!regex || plan.isGenericCandidate) tasks.push(curated.searchCuratedSources(plan.query, { limit: 15 }));
   const settled = await Promise.allSettled(tasks);
-  return settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
+  const seen = new Set();
+  return settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : [])).filter((r) => {
+    const key = `${r.url}|${r.title}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function hackerNewsSearch(plan) {
@@ -124,34 +141,59 @@ async function integrationSearch(sources, query, options = {}) {
  * @param {{ customUrls?: string[], files?: Object[] }} options
  * @returns {Promise<{ results: Object[], statuses: Array<{source, status, count, error}> }>}
  */
+export const WEB_NOT_CONFIGURED = 'Web search is off (no SERPER_API_KEY or TAVILY_API_KEY); searching curated sources and Hacker News';
+
+/**
+ * Custom URLs: a page that could not be fetched is reported, not silently
+ * dropped. All URLs failing is an error; some failing is a warning on an
+ * otherwise successful source.
+ */
+async function customUrlSearch(plan, customUrls) {
+  const detailed = await integrationSearch(['custom'], plan.query, { customUrls });
+  const provider = (detailed.providers || [])[0] || {};
+  if (provider.status === 'error') throw new Error(provider.error || 'Custom URLs could not be fetched');
+  const found = provider.results || detailed.results || [];
+  if (Array.isArray(provider.warnings) && provider.warnings.length) found.warning = provider.warnings.join('; ');
+  return found;
+}
+
 export async function retrieve(plan, sources, { customUrls = [], files = [] } = {}) {
   const jobs = [];
+  const statuses = [];
   const add = (name, fn) => jobs.push({ name, run: () => withTimeout(fn(), TIMEOUT_MS, name) });
+  // A source that needs a key the deployment does not have is "not
+  // configured": the UI shows a quiet note, not a failure banner.
+  const webOff = !webSearchConfigured();
+  const notConfigured = (name) => statuses.push({ source: name, status: 'not_configured', count: 0, error: WEB_NOT_CONFIGURED });
 
   if (sources.includes('curated')) add('curated', () => curatedSearch(plan));
-  if (sources.includes('web')) add('web', () => webSearch(plan));
+  if (sources.includes('web')) {
+    if (webOff) notConfigured('web');
+    else add('web', () => webSearch(plan));
+  }
   // Hacker News adds community coverage for tech companies; it is always
   // searched for entity queries because it needs no key.
   if (sources.includes('web') || sources.includes('curated')) add('hackernews', () => hackerNewsSearch(plan));
   const sites = sources.filter((s) => SITE_SOURCES.includes(s));
   for (const site of sites) {
-    add(site, async () => (await integrationSearch([site], webQuery(plan))).results || []);
+    if (webOff) notConfigured(site);
+    else add(site, async () => (await integrationSearch([site], webQuery(plan))).results || []);
   }
   if (sources.includes('verified')) {
     add('verified', async () => (await integrationSearch(['sec', 'fmp'], plan.entityCandidate || plan.query)).results || []);
   }
-  if (customUrls.length) add('custom', async () => (await integrationSearch(['custom'], plan.query, { customUrls })).results || []);
+  if (customUrls.length) add('custom', () => customUrlSearch(plan, customUrls));
   if (files.length) add('file', async () => (await integrationSearch(['file'], plan.query, { files })).results || []);
 
   const settled = await Promise.allSettled(jobs.map((j) => j.run()));
   const results = [];
-  const statuses = [];
   settled.forEach((s, i) => {
     const name = jobs[i].name;
     if (s.status === 'fulfilled') {
       const found = (s.value || []).map((r) => ({ ...r, url: r.url || r.link, retrievedBy: name }));
       results.push(...found);
-      statuses.push({ source: name, status: found.length ? 'ok' : 'empty', count: found.length, error: null });
+      const warning = s.value && s.value.warning ? String(s.value.warning) : null;
+      statuses.push({ source: name, status: found.length ? 'ok' : 'empty', count: found.length, error: warning });
     } else {
       statuses.push({ source: name, status: 'error', count: 0, error: String(s.reason?.message || s.reason) });
     }

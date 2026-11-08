@@ -20,50 +20,28 @@ const TabNavigation = ({
   onTabChange = null,
   containerStyle = {}
 }) => {
-  // ENHANCED: More aggressive debugging logs for tab rendering
-  console.log('🔄 TabNavigation RENDERING with:', {
-    tabsLength: tabs?.length || 0,
-    defaultTabId: defaultTabId || 'none',
-    hasTabs: Array.isArray(tabs) && tabs.length > 0,
-    firstTabId: Array.isArray(tabs) && tabs.length > 0 ? tabs[0].id : 'none',
-    tabIds: Array.isArray(tabs) ? tabs.map(tab => tab.id) : [],
-    tabLabels: Array.isArray(tabs) ? tabs.map(tab => tab.label) : [],
-  });
-
   // Initialize with first tab or specified default
   const [activeTabId, setActiveTabId] = useState(
     defaultTabId || (tabs && tabs.length > 0 ? tabs[0].id : null)
   );
 
-  // ENHANCED: Add effect to update active tab ID if needed
+  // Keep the active tab valid when the tab list changes
   useEffect(() => {
-    console.log('🔍 TabNavigation useEffect checking active tab ID:', {
-      currentActiveTabId: activeTabId,
-      defaultTabId: defaultTabId,
-      firstTabId: tabs && tabs.length > 0 ? tabs[0].id : null,
-      tabsCount: tabs?.length || 0
-    });
-    
     if (!activeTabId && tabs && tabs.length > 0) {
-      console.log('⚠️ Active tab ID was null, setting to default or first tab');
       setActiveTabId(defaultTabId || tabs[0].id);
     } else if (activeTabId && tabs && !tabs.find(tab => tab.id === activeTabId)) {
-      console.log('⚠️ Active tab ID not found in tabs, resetting to first tab');
       setActiveTabId(tabs[0].id);
     }
   }, [tabs, defaultTabId, activeTabId]);
 
   // Handle tab click
   const handleTabClick = (tabId) => {
-    console.log('👆 Tab clicked:', tabId);
     setActiveTabId(tabId);
     if (onTabChange) onTabChange(tabId);
   };
 
   // If no tabs, create a default error tab
   if (!tabs || tabs.length === 0) {
-    console.log('⚠️ TabNavigation: No tabs available, creating default error tab');
-    
     // Create a default tab with error information
     tabs = [{
       id: 'error-tab',
@@ -82,28 +60,9 @@ const TabNavigation = ({
     }];
   }
 
-  // Get active tab content
+  // Get active tab content (the tab header is always shown, even for one tab)
   const activeTab = tabs.find(tab => tab.id === activeTabId) || tabs[0];
-  console.log('🎯 Active tab selected:', activeTab ? activeTab.label : 'none found');
 
-  // MODIFIED: Now we always show the tab header, even with a single tab
-  // Check if we only have one tab and log it
-  if (tabs.length === 1) {
-    console.log('🔍 TabNavigation: Single tab detected, but ALWAYS showing tab header for:', tabs[0].label);
-  }
-  
-  // Multiple tabs, show the tab headers and content
-  console.log('🔢 TabNavigation: Multiple tabs detected, rendering tab navigation with', tabs.length, 'tabs');
-  console.log('🎯 Active tab ID:', activeTabId);
-  
-  // Add mandatory debug info for UI visibility issues
-  console.log('🔍 Tab render data:', {
-    activeTabId,
-    tabsAvailable: tabs.length,
-    tabIds: tabs.map(t => t.id),
-    tabLabels: tabs.map(t => t.label),
-  });
-  
   return (
     <div 
       className={`${styles.tabContainer} ${styles.visibilityHelper}`} 

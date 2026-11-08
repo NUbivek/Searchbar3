@@ -322,3 +322,267 @@ describe('reasoning models', () => {
     expect(out.text).toBe('## SUMMARY ok');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Audit fixes (Open Research tab)
+// ---------------------------------------------------------------------------
+jest.mock('../../../src/utils/sources/curatedIndex', () => ({ searchCuratedForEntity: jest.fn(async () => []), searchCuratedSources: jest.fn(async () => []) }));
+jest.mock('../../../src/utils/sources/hackernewsAlgolia', () => ({ searchHackerNews: jest.fn(async () => []) }));
+jest.mock('../../../src/utils/urlExtraction', () => ({
+  fetchUrlContent: jest.fn(),
+  buildUrlSearchResult: jest.fn((p) => (!p || p.status === 'error' || !p.content ? null : { title: p.title || p.url, content: p.content, url: p.url, source: 'custom', type: 'custom_url' })),
+}));
+
+describe('query understanding: topic, portfolio and round words (defects 4, 6)', () => {
+  test('"best fintech startups 2026" is a topic, not a company called "Best FinTech"', () => {
+    const p = understandQuery('best fintech startups 2026');
+    expect(p.entityTokens).toEqual(['fintech']);
+    expect(p.isGenericCandidate).toBe(true);
+    const e = resolveEntity(p, [r('Best FinTech Startup 2015', '', { url: 'http://sdk.finance/x', source: 'hackernews' })]);
+    expect(e.mode).toBe('topic');
+  });
+  test('"Y Combinator portfolio" keeps the investor as the entity and reads a portfolio intent', () => {
+    const p = understandQuery('Y Combinator portfolio');
+    expect(p.entityCandidate).toBe('Y Combinator');
+    expect(p.intents).toContain('portfolio');
+    expect(webQuery(p)).toBe('Y Combinator portfolio companies');
+  });
+  test('"a16z portfolio": a name with digits is accepted in lowercase', () => {
+    const p = understandQuery('a16z portfolio');
+    expect(p.entityCandidate).toBe('a16z');
+    const e = resolveEntity(p, [r('Phaze raises $8.75M seed led by a16z', 'The round was led by a16z.')]);
+    expect(e.mode).toBe('entity');
+    expect(e.name).toBe('a16z');
+  });
+  test('"anthropic series f" strips the round from the name and keeps the funding intent', () => {
+    const p = understandQuery('anthropic series f');
+    expect(p.entityCandidate).toBe('anthropic');
+    expect(p.intents).toEqual(['funding']);
+    expect(resolveEntity(p, [r('Anthropic raises Series F', 'Anthropic closed its Series F.')]).name).toBe('Anthropic');
+  });
+  test('a multi-word phrase seen only in one Title Case headline is not a name; two sources make it one', () => {
+    const p = understandQuery('Acme Robotics');
+    const one = [r('Acme Robotics Startup 2015 Awards', '', { url: 'https://a.test/1' })];
+    expect(resolveEntity(p, one).mode).toBe('topic');
+    const two = [...one, r('Why Acme Robotics Matters Now', '', { url: 'https://b.test/2' })];
+    expect(resolveEntity(p, two).mode).toBe('entity');
+    expect(resolveEntity(p, [r('Funding news', 'Acme Robotics raised a seed round.', { url: 'https://c.test/3' })]).mode).toBe('entity');
+  });
+});
+
+describe('single-word names reject other people and products (defect 5)', () => {
+  const plan = understandQuery('who are the founders of Harvey');
+  const wrong = [
+    r('Larry Harvey, co-founder of Burning Man, has died', '', { source: 'hackernews', url: 'https://nyt.test/1' }),
+    r('Harvey OS – A Fresh Take on Plan 9', '', { source: 'hackernews', url: 'https://harvey-os.test/' }),
+    r('Harvey Weinstein Is My Monster Too', '', { source: 'hackernews', url: 'https://nyt.test/2' }),
+    r('Brian Harvey: Why SICP matters', '', { source: 'hackernews', url: 'https://berkeley.test/' }),
+    r('Harvey’s Casino Bomb', '', { source: 'hackernews', url: 'https://fbi.test/' }),
+    r('Harvey Friedman bringing incompleteness out of quarantine', '', { source: 'hackernews', url: 'https://nautil.test/' }),
+  ];
+  test('with no clean mention the query falls back to topic mode', () => {
+    expect(resolveEntity(plan, wrong).mode).toBe('topic');
+  });
+  test('a clean mention wins and the wrong ones are filtered out', () => {
+    const right = r('Legal AI Startup Harvey Raises $300M Series D', 'Harvey, the legal AI startup, was founded by Winston Weinberg.', { url: 'https://techcrunch.test/harvey' });
+    const e = resolveEntity(plan, [...wrong, right]);
+    expect(e.mode).toBe('entity');
+    expect(e.name).toBe('Harvey');
+    expect(e.confidence).toBe('high');
+    expect(wrong.map((x) => e.matcher(x))).toEqual([false, false, false, false, false, false]);
+    expect(e.matcher(right)).toBe(true);
+    const { results } = filterAndRank([...wrong, right], plan, e);
+    expect(results.map((x) => x.title)).toEqual([right.title]);
+  });
+  test('a clean mention without the asked intent or a descriptor is flagged low confidence', () => {
+    const e = resolveEntity(plan, [r('Harvey – An effort to provide a modern 64-bit operating system', '', { source: 'hackernews', url: 'https://harvey-os.test/' })]);
+    expect(e.mode).toBe('entity');
+    expect(e.confidence).toBe('low');
+  });
+});
+
+describe('ranking: duplicates, user documents and the date filter (defects 7, 10, 12)', () => {
+  const plan = understandQuery('a16z portfolio');
+  test('the same page under http/https, query string or trailing slash is one result', () => {
+    const results = [
+      r('Defending A16z: Noam Scheiber mistakes a VC portfolio for his 401K', 'a16z portfolio', { url: 'http://blog.garrytan.com/defending-a16z-noam-sheiber' }),
+      r('Defending A16Z', 'Noam Scheiber on the a16z portfolio.', { url: 'https://www.blog.garrytan.com/defending-a16z-noam-sheiber/?utm_source=hn#top' }),
+    ];
+    const e = resolveEntity(plan, results);
+    const { results: ranked } = filterAndRank(results, plan, e);
+    expect(ranked).toHaveLength(1);
+  });
+  test('uploaded files and custom URLs are never capped out and rank first', () => {
+    const plan2 = understandQuery('OpenAI latest funding');
+    const many = Array.from({ length: 20 }, (_, i) => r(`OpenAI story ${i}`, `OpenAI raised money ${i}.`, { url: `https://news.test/${i}`, publishedAt: daysAgo(i + 1) }));
+    const file = { title: 'File Source: memo.txt', content: 'Our internal notes on the deal.', url: '#', source: 'file', type: 'uploaded_file' };
+    const custom = { title: 'Investor update', content: 'Board update text.', url: 'https://mysite.test/update', source: 'custom', type: 'custom_url' };
+    const e = resolveEntity(plan2, many);
+    const { results } = filterAndRank([...many, file, custom], plan2, e, { limit: 15 });
+    expect(results).toHaveLength(17);
+    expect(results.slice(0, 2).map((x) => x.source).sort()).toEqual(['custom', 'file']);
+    expect(results.filter((x) => x.source === 'curated')).toHaveLength(15);
+  });
+  test('the date filter runs before the cap and reports how many were older; undated items are flagged', () => {
+    const plan2 = understandQuery('OpenAI latest funding');
+    const fresh = Array.from({ length: 18 }, (_, i) => r(`OpenAI update ${i}`, `OpenAI news ${i}.`, { url: `https://fresh.test/${i}`, publishedAt: daysAgo(i + 1) }));
+    const old = Array.from({ length: 5 }, (_, i) => r(`OpenAI archive ${i}`, `OpenAI old news ${i}.`, { url: `https://old.test/${i}`, publishedAt: daysAgo(800 + i) }));
+    const undated = r('OpenAI timeline', 'OpenAI milestones.', { url: 'https://undated.test/x' });
+    const e = resolveEntity(plan2, [...fresh, ...old, undated]);
+    const { results, olderThanFilter } = filterAndRank([...old, ...fresh, undated], plan2, e, { limit: 15, maxAgeDays: 365 });
+    expect(olderThanFilter).toBe(5);
+    expect(results).toHaveLength(15);
+    expect(results.some((x) => /archive/.test(x.title))).toBe(false);
+    const all = filterAndRank([...old, ...fresh, undated], plan2, e, { limit: 30, maxAgeDays: 365 }).results;
+    expect(all.find((x) => x.title === 'OpenAI timeline').undated).toBe(true);
+  });
+});
+
+describe('claim check (defect 3)', () => {
+  const { checkClaims, formatAmount } = require('../../../src/utils/claimCheck');
+  test('"$11 billion at a $1.25 trillion valuation" is a raise and a valuation, not a conflict', () => {
+    const results = [
+      r('OpenAI reportedly raises an additional $11 billion at a $1.25 trillion valuation', 'OpenAI has raised $11 billion so far in a new funding round that values the company at $1.25 trillion.', { url: 'https://startupwiredaily.test/a', publishedAt: '2026-11-07T00:00:00Z' }),
+      r('OpenAI Raises $11 Billion At a $1.25 Trillion Valuation', 'In a new funding round, OpenAI raises $11 billion to hit a valuation of $1.25 trillion.', { url: 'https://ventureburn.test/b', publishedAt: '2026-11-07T00:00:00Z' }),
+    ];
+    const { claims, summary } = checkClaims(results);
+    const raise = claims.find((c) => c.label === 'Funding amount');
+    const valuation = claims.find((c) => c.label === 'Valuation');
+    expect(raise.value).toBe('$11B');
+    expect(raise.status).toBe('corroborated');
+    expect(valuation.value).toBe('$1.25T');
+    expect(valuation.status).toBe('corroborated');
+    expect(summary.conflicts).toBe(0);
+    expect(formatAmount({ amount: 1.25e12, currency: 'USD' })).toBe('$1.25T');
+  });
+  test('two different rounds are "different figures reported", not a conflict; same month is a conflict', () => {
+    const rounds = [
+      r('OpenAI raises $11 billion', 'OpenAI raises $11 billion in November 2026.', { url: 'https://a.test/1', publishedAt: '2026-11-07T00:00:00Z' }),
+      r('OpenAI raised $6.6 billion in 2024', 'OpenAI raised $6.6 billion in October 2024.', { url: 'https://b.test/2', publishedAt: '2024-10-02T00:00:00Z' }),
+    ];
+    const { claims } = checkClaims(rounds);
+    expect(claims[0].status).toBe('single-source');
+    expect(claims[0].note).toBe('different figures reported');
+    expect(claims[0].alternatives[0]).toEqual(expect.objectContaining({ value: '$6.6B', sameRound: false }));
+
+    const same = [
+      r('OpenAI raises $11 billion', 'OpenAI raises $11 billion in November 2026.', { url: 'https://a.test/1', publishedAt: '2026-11-07T00:00:00Z' }),
+      r('OpenAI raises $8 billion', 'OpenAI raises $8 billion in November 2026, sources say.', { url: 'https://b.test/2', publishedAt: '2026-11-06T00:00:00Z' }),
+    ];
+    expect(checkClaims(same).claims[0].status).toBe('conflict');
+  });
+});
+
+describe('source tiers and verified badge (defect 9)', () => {
+  const { sourceTier, isVerifiedSource } = require('../../../src/utils/sourceTiers');
+  test('the host decides before the retrieving source', () => {
+    expect(sourceTier({ source: 'hackernews', url: 'https://www.sec.gov/Archives/edgar/data/1/s1.htm' })).toBe('filing');
+    expect(sourceTier({ source: 'hackernews', url: 'https://techcrunch.com/2026/11/06/x' })).toBe('press');
+    expect(sourceTier({ source: 'hackernews', url: 'https://news.ycombinator.com/item?id=1' })).toBe('forum');
+    expect(sourceTier({ source: 'curated', url: 'https://openai.com/index/x', sourceCategory: 'company_blog' })).toBe('blog');
+  });
+  test('only filings, official records and market data are verified', () => {
+    expect(isVerifiedSource({ source: 'sec', url: 'https://www.sec.gov/x' })).toBe(true);
+    expect(isVerifiedSource({ source: 'fmp', url: 'https://apple.com' })).toBe(true);
+    expect(isVerifiedSource({ source: 'curated', url: 'https://www.saastr.com/x', sourceCategory: 'market_analysis' })).toBe(false);
+  });
+});
+
+describe('quoted digest (defects 8, 18)', () => {
+  const { synthesizeFromResults } = require('../../../src/utils/fallbackSynthesizer');
+  const { cleanText } = require('../../../src/utils/evidence');
+  const results = [
+    r('OpenAI reportedly raises an additional $11 billion at a $1.25 trillion valuation', 'OpenAI has raised $11 billion so far in a new funding round that values the company at $1.25 trillion.', { url: 'https://startupwiredaily.test/a', sourceName: 'StartupWire Daily', publishedAt: '2026-11-07T00:00:00Z' }),
+    r('OpenAI looks to make data centers more palatable', 'OpenAI said it would avoid nondisclosure agreements in data center deals.', { url: 'https://semafor.test/b', sourceName: 'Semafor', publishedAt: '2026-11-05T00:00:00Z' }),
+  ];
+  test('summary sentences are joined with punctuation, one citation per sentence, coverage on its own line', () => {
+    const { content } = synthesizeFromResults('open ai latest funding', results, { entityName: 'OpenAI', intents: ['funding'], recency: true });
+    const summary = content.split('## SUMMARY')[1].split('## KEY POINTS')[0];
+    expect(summary).toMatch(/^\nBased on 2 sources about OpenAI \(2 from your curated sources\), dated 2026-11-05 to 2026-11-07\.\n\n/);
+    expect(summary).toMatch(/\$1\.25 trillion \(StartupWire Daily, 2026-11-07\) \[Source 1\]\. OpenAI /);
+    expect(summary).not.toMatch(/\[Source \d\] [A-Z]/);
+  });
+  test('follow-up questions depend on the intent and do not repeat the question', () => {
+    const funding = synthesizeFromResults('open ai latest funding', results, { entityName: 'OpenAI', intents: ['funding'] }).followUpQuestions;
+    expect(funding[0]).toMatch(/led OpenAI's most recent round, and at what valuation/);
+    expect(funding.join(' ')).toMatch(/use the new capital/);
+    expect(funding.join(' ')).not.toMatch(/latest funding/i);
+    const team = synthesizeFromResults('who are the founders of OpenAI', results, { entityName: 'OpenAI', intents: ['team'] }).followUpQuestions;
+    expect(team[0]).toMatch(/key recent hires/);
+    expect(team.join(' ')).not.toMatch(/known about OpenAI's founders and leadership team/);
+    const comp = synthesizeFromResults('OpenAI competitors', results, { entityName: 'OpenAI', intents: ['competitors'] }).followUpQuestions;
+    expect(comp[0]).toMatch(/position itself against those competitors on product and pricing/);
+    expect(comp.join(' ')).not.toMatch(/closest competitors, and how do they compare/);
+  });
+  test('source numbering follows the full ranked list (no 12-source cap)', () => {
+    const many = Array.from({ length: 16 }, (_, i) => r(`OpenAI story ${i + 1}`, `OpenAI announced item number ${i + 1} today.`, { url: `https://n.test/${i}` }));
+    const { sourceMap } = synthesizeFromResults('OpenAI', many, { entityName: 'OpenAI' });
+    expect(Object.keys(sourceMap)).toHaveLength(16);
+    expect(sourceMap['16'].url).toBe('https://n.test/15');
+  });
+  test('feed footers in French are removed, including a truncated one', () => {
+    expect(cleanText("Mistral a été mis L’article Mistral s'offre une cinquième acquisition est apparu en premier sur Maddyness - Le média pour comprendre l'économie de demain .")).toBe('Mistral a été mis');
+    expect(cleanText('Kabilio lève 10M€ pour ses agents. L’article Kabilio lève 10M€ est apparu en premier su')).toBe('Kabilio lève 10M€ pour ses agents.');
+    expect(cleanText('The post-money valuation was $2B. Great news.')).toBe('The post-money valuation was $2B. Great news.');
+  });
+});
+
+describe('retrieval statuses (defects 11, 20)', () => {
+  const env = { ...process.env };
+  const handler = require('../../../src/pages/api/search/open').default;
+  const { retrieve } = require('../../../src/server/search/retrieve');
+  afterEach(() => { process.env = { ...env }; jest.resetModules(); });
+  test('web without a key is "not_configured", not an error, and is not searched', async () => {
+    delete process.env.SERPER_API_KEY; delete process.env.TAVILY_API_KEY;
+    const { retrieve: realRetrieve } = jest.requireActual('../../../src/server/search/retrieve');
+    const { statuses } = await realRetrieve(understandQuery('OpenAI'), ['curated', 'web']);
+    expect(statuses.find((s) => s.source === 'web')).toEqual(expect.objectContaining({ status: 'not_configured' }));
+    expect(statuses.find((s) => s.source === 'web').error).toMatch(/SERPER_API_KEY/);
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+  test('curated retrieval always searches the full name, even when its words are generic ("open ai" -> "OpenAI")', async () => {
+    const curated = require('../../../src/utils/sources/curatedIndex');
+    curated.searchCuratedForEntity.mockClear();
+    const { retrieve: realRetrieve } = jest.requireActual('../../../src/server/search/retrieve');
+    await realRetrieve(understandQuery('open ai latest funding'), ['curated']);
+    const matchers = curated.searchCuratedForEntity.mock.calls.map(([isMention]) => isMention);
+    expect(matchers.length).toBeGreaterThan(0);
+    expect(matchers.some((isMention) => isMention('OpenAI raises $11 billion'))).toBe(true);
+    expect(matchers.some((isMention) => isMention('open source AI is winning'))).toBe(false);
+  });
+  test('the API keeps not-configured sources out of degradedSources and reports olderThanFilter', async () => {
+    retrieve.mockResolvedValue({
+      results: [{ ...r('OpenAI raises $11 billion', 'OpenAI raised $11 billion.', { publishedAt: daysAgo(1) }), retrievedBy: 'curated' }, { ...r('OpenAI raised $6.6 billion in 2024', 'Older round.', { publishedAt: daysAgo(700) }), retrievedBy: 'curated' }],
+      statuses: [{ source: 'curated', status: 'ok', count: 2 }, { source: 'web', status: 'not_configured', count: 0, error: 'Web search is off' }],
+    });
+    const res = createMockRes();
+    await handler(createMockReq({ method: 'POST', body: { query: 'open ai latest funding', maxAgeDays: 365, model: 'bogus:model' } }), res);
+    expect(res.body.status).toBe('ok');
+    expect(res.body.degradedSources).toEqual([]);
+    expect(res.body.olderThanFilter).toBe(1);
+    expect(res.body.results).toHaveLength(1);
+    expect(res.body.answerInfo.modelNote).toMatch(/Requested model "bogus:model" is not available/);
+  });
+  test('no results: content null, answerInfo null, fail-soft message and suggestions', async () => {
+    retrieve.mockResolvedValue({ results: [{ ...r('Unrelated', 'nothing here'), retrievedBy: 'hackernews' }], statuses: [{ source: 'curated', status: 'empty', count: 0 }] });
+    const res = createMockRes();
+    await handler(createMockReq({ method: 'POST', body: { query: 'asdkjhasd' } }), res);
+    expect(res.body.status).toBe('fail-soft');
+    expect(res.body.content).toBeNull();
+    expect(res.body.answerInfo).toBeNull();
+    expect(res.body.failSoftContent.message).toMatch(/asdkjhasd/);
+    expect(res.body.failSoftContent.suggestions.length).toBeGreaterThan(1);
+  });
+  test('custom URL failures are surfaced with the reason', async () => {
+    const { fetchUrlContent } = require('../../../src/utils/urlExtraction');
+    const { sourceHandlers } = require('../../../src/utils/sourceIntegration');
+    fetchUrlContent.mockResolvedValueOnce({ status: 'error', url: 'https://x.test/a', content: '', error: 'Unsupported content type: application/pdf' });
+    await expect(sourceHandlers.custom('q', ['https://x.test/a'])).rejects.toThrow(/x\.test\/a: Unsupported content type/);
+    fetchUrlContent
+      .mockResolvedValueOnce({ status: 'ok', url: 'https://x.test/b', title: 'B', content: 'Body text' })
+      .mockResolvedValueOnce({ status: 'empty', url: 'https://x.test/c', title: 'C', content: '' });
+    const partial = await sourceHandlers.custom('q', ['https://x.test/b', 'https://x.test/c']);
+    expect(partial).toHaveLength(1);
+    expect(partial.errors).toEqual(['https://x.test/c: no readable text on the page']);
+  });
+});

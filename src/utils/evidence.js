@@ -8,8 +8,24 @@
 const FUNDING_RE = /\b(rais(e|es|ed|ing)|funding|series [a-e]|seed|pre-seed|round|valuation|valued|investors?|led by|backed)\b/i;
 const FACT_RE = /(\$|€|£)\s?\d|\d+(\.\d+)?\s?(%|percent|[mbk]\b|million|billion)|\b(arr|revenue|margin|burn|runway|customers|employees|headcount|valuation)\b/i;
 
-// RSS footers such as "The post X appeared first on Y." or "Continue reading"
-const FEED_BOILERPLATE = /(The post .{3,300}? appeared first on [^.]{2,80}\.?|Continue reading\b.*$|Read more\b.*$|\[…\]|\[\.\.\.\]|\[&#8230;\])/gi;
+// RSS footers such as "The post X appeared first on Y." or "Continue reading",
+// and their French ("L’article X est apparu en premier sur Y."), German
+// ("Der Beitrag X erschien zuerst auf Y.") and Spanish ("La entrada X se
+// publicó primero en Y.") equivalents. A footer cut off by a feed's length
+// limit ("... L’article Kabilio lève 10M€ est apparu en premier su") is
+// removed too.
+const FEED_BOILERPLATE = new RegExp([
+  'The post .{3,300}? appeared first on [^.]{2,80}\\.?',
+  "(?:L['’]article|Cet article) .{3,300}? est apparu en premier sur [^.]{2,80}\\.?",
+  'Der Beitrag .{3,300}? erschien zuerst auf [^.]{2,80}\\.?',
+  'La entrada .{3,300}? se publicó primero en [^.]{2,80}\\.?',
+  "(?:The post|L['’]article|Cet article|Der Beitrag|La entrada) (?:(?!\\. )[^]){3,300}$",
+  'Continue reading\\b.*$',
+  'Read more\\b.*$',
+  '\\[…\\]',
+  '\\[\\.\\.\\.\\]',
+  '\\[&#8230;\\]',
+].join('|'), 'gi');
 
 function cleanText(value) {
   return String(value || '').replace(/<[^>]+>/g, ' ').replace(FEED_BOILERPLATE, ' ').replace(/\s+/g, ' ').trim();
@@ -75,6 +91,7 @@ function extractMatching(results, pattern, limit = 8) {
 module.exports = {
   FUNDING_RE,
   FACT_RE,
+  FEED_BOILERPLATE,
   cleanText,
   formatDate,
   resultDate,

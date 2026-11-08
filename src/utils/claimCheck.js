@@ -38,10 +38,32 @@ function hostOf(url) {
 
 export function formatAmount({ amount, currency }) {
   const symbol = { USD: '$', EUR: '€', GBP: '£' }[currency] || `${currency} `;
+  if (amount >= 1e12) return `${symbol}${+(amount / 1e12).toFixed(2)}T`;
   if (amount >= 1e9) return `${symbol}${+(amount / 1e9).toFixed(2)}B`;
   if (amount >= 1e6) return `${symbol}${+(amount / 1e6).toFixed(1)}M`;
   if (amount >= 1e3) return `${symbol}${+(amount / 1e3).toFixed(0)}K`;
   return `${symbol}${amount}`;
+}
+
+// "valuation" right after the amount ("at a $1.25 trillion valuation",
+// "$2B post-money") or right before it ("valued at $2B", "valuing it at $2B")
+const VALUATION_AFTER_RE = /^\s*(?:valuation|post-money|pre-money)\b/i;
+const VALUATION_BEFORE_RE = /\b(valuation(?: of)?|valued(?: it| the company)? at|values (?:it|the company) at|valuing (?:it|the company) at|post-money(?: valuation)?(?: of)?|pre-money(?: valuation)?(?: of)?)\s*(?:of\s*)?$/i;
+
+const MONTHS = 'jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec';
+const MONTH_YEAR_RE = new RegExp(`\\b(${MONTHS})[a-z]*\\.?\\s+(20\\d\\d)\\b`, 'i');
+const YEAR_ONLY_RE = /\b(20\d\d)\b/;
+
+/** "Nov 2026" from the sentence, else the publication month, else null. */
+function roundDate(sentence, result) {
+  const my = sentence.match(MONTH_YEAR_RE);
+  if (my) return `${my[2]}-${my[1].slice(0, 3).toLowerCase()}`;
+  const y = sentence.match(YEAR_ONLY_RE);
+  if (y) return y[1];
+  const t = Date.parse(result.publishedAt || result.date || result.timestamp || '');
+  if (Number.isNaN(t)) return null;
+  const d = new Date(t);
+  return `${d.getUTCFullYear()}-${['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'][d.getUTCMonth()]}`;
 }
 
 /** Extract figure claims from one result. */
@@ -54,12 +76,17 @@ export function extractClaims(result, sourceNumber) {
     const round = (sentence.match(ROUND_RE) || [])[1];
     const isValuation = VALUATION_RE.test(sentence);
     const isFunding = FUNDING_RE.test(sentence);
-    monies.forEach((m) => {
+    monies.forEach((m, idx) => {
       const money = parseMoney(m);
-      // Money right after "valuation of"/"valued at" is the valuation;
-      // otherwise the first amount in a funding sentence is the raise.
-      const before = sentence.slice(Math.max(0, m.index - 40), m.index);
-      const kind = VALUATION_RE.test(before) || (isValuation && !isFunding) ? 'valuation' : isFunding ? 'raise' : null;
+      // Look at the words between this amount and its neighbours only, so
+      // "$11 billion at a $1.25 trillion valuation" reads the valuation word
+      // for the second amount, not the first.
+      const prevEnd = idx > 0 ? monies[idx - 1].index + monies[idx - 1][0].length : 0;
+      const nextStart = idx + 1 < monies.length ? monies[idx + 1].index : sentence.length;
+      const before = sentence.slice(Math.max(prevEnd, m.index - 60), m.index);
+      const after = sentence.slice(m.index + m[0].length, Math.min(nextStart, m.index + m[0].length + 40));
+      const valuationHere = VALUATION_BEFORE_RE.test(before) || VALUATION_AFTER_RE.test(after);
+      const kind = valuationHere || (isValuation && !isFunding) ? 'valuation' : isFunding ? 'raise' : null;
       if (!kind) return;
       claims.push({
         key: kind === 'valuation' ? 'valuation' : `raise:${(round || 'unspecified').toLowerCase()}`,
@@ -68,6 +95,8 @@ export function extractClaims(result, sourceNumber) {
         quote: sentence.trim(),
         source: sourceNumber,
         site: hostOf(result.url || result.link),
+        when: roundDate(sentence, result),
+        namedRound: Boolean(round),
       });
     });
   }
@@ -86,7 +115,7 @@ export function checkClaims(results = []) {
   for (const c of all) {
     if (c.key !== 'raise:unspecified') continue;
     const match = named.find((n) => n.currency === c.currency && Math.abs(n.amount - c.amount) / Math.max(n.amount, c.amount) <= 0.05);
-    if (match) { c.key = match.key; c.label = match.label; }
+    if (match) { c.key = match.key; c.label = match.label; c.namedRound = true; }
   }
   const groups = new Map();
   for (const c of all) {
@@ -108,18 +137,29 @@ export function checkClaims(results = []) {
     clusters.sort((a, b) => new Set(b.items.map((i) => i.site)).size - new Set(a.items.map((i) => i.site)).size);
     const top = clusters[0];
     const sites = new Set(top.items.map((i) => i.site));
-    const status = clusters.length > 1 ? 'conflict' : sites.size >= 2 ? 'corroborated' : 'single-source';
+    // Two figures are a conflict only when they describe the same round: the
+    // same named round, or the same month/year. Otherwise they are most
+    // likely different rounds ("raised $6.6B in 2024", "raises $11B") and
+    // are listed as different figures, not a disagreement.
+    const dates = (cl) => new Set(cl.items.map((i) => i.when).filter(Boolean));
+    const sameRound = (a, b) => (a.items[0].namedRound && b.items[0].namedRound && a.items[0].key === b.items[0].key)
+      || [...dates(a)].some((d) => dates(b).has(d));
+    const conflicting = clusters.slice(1).filter((cl) => sameRound(top, cl));
+    const status = conflicting.length > 0 ? 'conflict' : sites.size >= 2 ? 'corroborated' : 'single-source';
+    const alternatives = clusters.slice(1).map((cl) => ({
+      value: formatAmount({ amount: cl.amount, currency: items[0].currency }),
+      sources: [...new Set(cl.items.map((i) => i.source))],
+      quote: cl.items[0].quote,
+      sameRound: sameRound(top, cl),
+    }));
     claims.push({
       label: items[0].label,
       value: formatAmount({ amount: top.amount, currency: items[0].currency }),
       status,
       sources: [...new Set(top.items.map((i) => i.source))],
       quote: top.items[0].quote,
-      alternatives: clusters.slice(1).map((cl) => ({
-        value: formatAmount({ amount: cl.amount, currency: items[0].currency }),
-        sources: [...new Set(cl.items.map((i) => i.source))],
-        quote: cl.items[0].quote,
-      })),
+      alternatives,
+      ...(status !== 'conflict' && alternatives.length ? { note: 'different figures reported' } : {}),
     });
   }
 
