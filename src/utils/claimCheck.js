@@ -47,7 +47,7 @@ export function formatAmount({ amount, currency }) {
 
 // "valuation" right after the amount ("at a $1.25 trillion valuation",
 // "$2B post-money") or right before it ("valued at $2B", "valuing it at $2B")
-const VALUATION_AFTER_RE = /^\s*(?:valuation|post-money|pre-money)\b/i;
+const VALUATION_AFTER_RE = /^\s*(?:valuation|post-money|pre-money|value\b|worth\b)/i;
 const VALUATION_BEFORE_RE = /\b(valuation(?: of)?|valued(?: it| the company)? at|values (?:it|the company) at|valuing (?:it|the company) at|post-money(?: valuation)?(?: of)?|pre-money(?: valuation)?(?: of)?)\s*(?:of\s*)?$/i;
 // "a $750m Series F in June at $44bn", "closed its round at $5B": "at" after a
 // round word names the valuation even without the word itself.
@@ -97,6 +97,7 @@ function roundDate(sentence, result) {
 
 // "after a $750m Series F in June", "up from $44bn": an earlier figure the
 // sentence mentions for context, not the figure it reports.
+const TOTAL_RE = /\b(in total|total (?:funding|raised|capital)|to date|so far|cumulative(?:ly)?|lifetime|all told|altogether|overall)\b/i;
 const PRIOR_RE = /\b(previous(?:ly)?|prior|earlier|last (?:round|year)|up from|after (?:a|an|its)|following (?:a|an|its)|from (?:a|an|its)|compared (?:with|to)|was valued|had raised|previously valued)\b[^$€£]{0,40}$/i;
 
 /** Extract figure claims from one result. */
@@ -133,9 +134,8 @@ export function extractClaims(result, sourceNumber) {
       let kind = null;
       if (valuationHere || largestOfSeveral || (isValuation && !isFunding)) kind = 'valuation';
       else if (isFunding && (!isValuation || raiseNear)) kind = 'raise';
-      // No funding round has reached $100B: a figure that large is a
-      // valuation (or a total, which is not a round) however it is phrased.
-      if (kind === 'raise' && money.amount >= 1e11) kind = isValuation ? 'valuation' : null;
+      // "has raised $122B in total", "to date": a running total, not a round
+      const total = kind === 'raise' && TOTAL_RE.test(sentence);
       if (!kind) return;
       const pub = publicationDate(result);
       const said = sentenceDate(sentence, pub);
@@ -150,7 +150,10 @@ export function extractClaims(result, sourceNumber) {
         whenSentence: said ? said.label : null,
         whenPub: pub ? pub.label : null,
         whenKey: (said || pub || {}).key || 0,
+        whenSentenceKey: said ? said.key : 0,
+        whenPubKey: pub ? pub.key : 0,
         prior: priorClause || PRIOR_RE.test(before),
+        total,
         namedRound: Boolean(round),
       });
     });
@@ -197,11 +200,17 @@ export function checkClaims(results = []) {
       if (hit) hit.items.push(c);
       else clusters.push({ amount: c.amount, items: [c] });
     }
-    const definite = (cl) => cl.items.filter((i) => !isSpeculativeClaim(i.quote) && !i.prior);
+    const definite = (cl) => cl.items.filter((i) => !isSpeculativeClaim(i.quote) && !i.prior && !i.total);
     const siteCount = (list) => new Set(list.map((i) => i.site)).size;
-    const newest = (cl) => Math.max(0, ...cl.items.map((i) => i.whenKey || 0));
+    // A cluster's age follows the same rule as its dates: what the sentences
+    // say, and only when none says anything, when the articles were published.
+    const newest = (cl) => {
+      const said = cl.items.map((i) => i.whenSentenceKey || 0).filter(Boolean);
+      return Math.max(0, ...(said.length ? said : cl.items.map((i) => i.whenPubKey || 0)));
+    };
     const isTarget = (cl) => cl.items.every((i) => isSpeculativeClaim(i.quote));
-    const isPrior = (cl) => !isTarget(cl) && definite(cl).length === 0;
+    const isTotal = (cl) => cl.items.every((i) => i.total);
+    const isPrior = (cl) => !isTarget(cl) && !isTotal(cl) && definite(cl).length === 0;
     // The headline figure is the newest confirmed figure that at least two
     // independent sites report; otherwise the most-reported confirmed one.
     // Targets and figures only mentioned as "earlier" never lead.
@@ -217,13 +226,14 @@ export function checkClaims(results = []) {
     // are listed as different figures, not a disagreement.
     // A cluster is dated by what its sentences say; only when none of them
     // names a date does the publication month stand in.
+    // A bare year ("in 2026") is too coarse to say two figures are the same round.
     const dates = (cl) => {
-      const said = new Set(cl.items.map((i) => i.whenSentence).filter(Boolean));
+      const said = new Set(cl.items.map((i) => i.whenSentence).filter((d) => d && d.includes('-')));
       return said.size ? said : new Set(cl.items.map((i) => i.whenPub).filter(Boolean));
     };
     const sameRound = (a, b) => (a.items[0].namedRound && b.items[0].namedRound && a.items[0].key === b.items[0].key)
       || [...dates(a)].some((d) => dates(b).has(d));
-    const conflicting = clusters.slice(1).filter((cl) => sameRound(top, cl) && !isTarget(cl) && !isPrior(cl) && !isTarget(top));
+    const conflicting = clusters.slice(1).filter((cl) => sameRound(top, cl) && !isTarget(cl) && !isPrior(cl) && !isTotal(cl) && !isTarget(top));
     const status = conflicting.length > 0 ? 'conflict' : sites.size >= 2 ? 'corroborated' : 'single-source';
     const alternatives = clusters.slice(1).map((cl) => ({
       value: formatAmount({ amount: cl.amount, currency: items[0].currency }),
@@ -232,6 +242,7 @@ export function checkClaims(results = []) {
       sameRound: sameRound(top, cl),
       speculative: isTarget(cl),
       prior: isPrior(cl),
+      total: isTotal(cl),
       when: [...dates(cl)][0] || null,
     }));
     claims.push({

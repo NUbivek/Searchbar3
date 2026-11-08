@@ -954,7 +954,7 @@ const SimplifiedLLMResults = ({
                             </div>
                             <div style={{ fontSize: 11, color: '#6b7280' }}>
                               {(claim.sourceRefs || []).map((ref) => ref.site).join(', ')}
-                              {(claim.alternatives || []).slice(0, 3).map((alt) => ` · ${alt.speculative ? 'reported target' : alt.prior ? 'earlier' : claim.status === 'conflict' && alt.sameRound !== false ? 'vs' : 'also reported'} ${alt.value}${alt.when ? ` (${alt.when})` : ''} (${(alt.sourceRefs || []).map((r) => r.site).join(', ')})`).join('')}{(claim.alternatives || []).length > 3 ? ` · +${claim.alternatives.length - 3} more` : ''}
+                              {(claim.alternatives || []).slice(0, 3).map((alt) => ` · ${alt.speculative ? 'reported target' : alt.total ? 'total raised' : alt.prior ? 'earlier' : claim.status === 'conflict' && alt.sameRound !== false ? 'vs' : 'also reported'} ${alt.value}${alt.when ? ` (${alt.when})` : ''} (${(alt.sourceRefs || []).map((r) => r.site).join(', ')})`).join('')}{(claim.alternatives || []).length > 3 ? ` · +${claim.alternatives.length - 3} more` : ''}
                               {claim.note ? ` · ${claim.note}` : ''}
                             </div>
                           </div>

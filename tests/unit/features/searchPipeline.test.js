@@ -450,6 +450,9 @@ describe('claim check (defect 3)', () => {
       mk('Ramp Series F', 'Ramp announced a $750M Series F at a $44B valuation.', 'https://prnewswire.com/5', '2026-06-15'),
       mk('Ramp Series F', 'Ramp valued at $44 billion after $750M round.', 'https://finovate.com/6', '2026-06-16'),
       mk('Ramp March', 'Ramp raised $500 million at a $32 billion valuation in March 2026.', 'https://crunchbase.com/7', '2026-03-10'),
+      // November recaps of the June round carry no date of their own
+      mk('Ramp explained', 'Ramp raised $750 million in its Series F at a $44 billion valuation.', 'https://axios.com/8', '2026-11-05'),
+      mk('Ramp profile', 'The company raised $750 million at a $44 billion valuation, its sixth round.', 'https://forbes.com/9', '2026-11-06'),
     ]);
     const valuation = out.claims.find((c) => c.label === 'Valuation');
     expect(valuation.value).toBe('$60B');
@@ -460,16 +463,23 @@ describe('claim check (defect 3)', () => {
     expect(funding.status).toBe('corroborated');
   });
 
-  test('a figure of $100B or more is never a funding amount', () => {
+  test('"value"/"worth" mark valuations; running totals and earlier rounds never conflict with the latest round', () => {
     const { checkClaims } = require('../../../src/utils/claimCheck');
     const out = checkClaims([
       { title: 'OpenAI round', content: 'OpenAI raised $11 billion at a $1.25 trillion valuation.', url: 'https://a.com/1', publishedAt: '2026-11-07' },
+      { title: 'OpenAI round', content: 'OpenAI has raised $11 billion in a round valuing it at $1.25 trillion.', url: 'https://d.com/4', publishedAt: '2026-11-07' },
       { title: 'Talks', content: 'OpenAI is in early talks for funding at up to a $1.5 trillion value.', url: 'https://b.com/2', publishedAt: '2026-11-03' },
       { title: 'Total', content: 'OpenAI has raised $122 billion in total funding since 2015.', url: 'https://c.com/3', publishedAt: '2026-11-04' },
+      { title: 'Recap', content: 'The company previously raised $122 billion in March at an $852 billion valuation.', url: 'https://e.com/5', publishedAt: '2026-11-06' },
     ]);
     const funding = out.claims.find((c) => /Funding/.test(c.label));
     expect(funding.value).toBe('$11B');
-    expect(funding.alternatives).toEqual([]);
+    expect(funding.status).toBe('corroborated');
+    expect(funding.alternatives.map((a) => [a.value, a.total || a.prior, a.sameRound])).toEqual([['$122B', true, false]]);
+    const valuation = out.claims.find((c) => c.label === 'Valuation');
+    expect(valuation.value).toBe('$1.25T');
+    expect(valuation.status).toBe('corroborated');
+    expect(valuation.alternatives.map((a) => [a.value, a.speculative, a.prior])).toEqual(expect.arrayContaining([['$1.5T', true, false], ['$852B', false, true]]));
   });
 
   test('the largest figure in a valuation sentence is the valuation, never a funding alternative', () => {
