@@ -439,6 +439,30 @@ describe('ranking: duplicates, user documents and the date filter (defects 7, 10
 });
 
 describe('claim check (defect 3)', () => {
+  test('JSON snippets, another company\'s round and "a total of" are not the company\'s claims', () => {
+    const { checkClaims } = require('../../../src/utils/claimCheck');
+    const out = checkClaims([
+      { title: 'Stripe data', content: '{ "status": "completed", "output": { "company": "Stripe", "seed": "...", "totalRaised": "Stripe has raised a total of approximately $9.81 billion over 24 funding rounds" } }', url: 'https://api.example.com/1' },
+      { title: 'Stripe news', content: 'In September, it launched a joint crypto venture called Tempo, which reportedly raised $500m at a $5bn valuation a little more than a month after coming out from stealth.', url: 'https://news.example.com/2', publishedAt: '2026-10-01' },
+      { title: 'Stripe tender', content: 'Stripe has raised a total of $9.81 billion to date; its latest tender offer valued the company at $159 billion.', url: 'https://techcrunch.com/3', publishedAt: '2026-02-20' },
+      { title: 'Stripe tender', content: 'Stripe was valued at $159 billion in a February tender offer.', url: 'https://reuters.com/4', publishedAt: '2026-02-21' },
+    ], { entity: 'Stripe' });
+    expect(out.claims.map((c) => c.value)).not.toContain('$9.81B');
+    expect(out.claims.map((c) => c.value)).not.toContain('$500M');
+    expect(out.claims.map((c) => c.value)).not.toContain('$5B');
+    const v = out.claims.find((c) => c.label === 'Valuation');
+    expect(v.value).toBe('$159B');
+    expect(v.status).toBe('corroborated');
+  });
+
+  test('"said it had raised" is current news, "at today\'s exchange rate" is not', () => {
+    const { extractClaims } = require('../../../src/utils/claimCheck');
+    const now = extractClaims({ title: 'Ramp', content: 'Ramp said on Thursday that it had raised $1.85 billion in a new funding round.', url: 'https://techcrunch.com/1' }, 1);
+    expect(now[0]).toEqual(expect.objectContaining({ amount: 1.85e9, prior: false, current: true }));
+    const old = extractClaims({ title: 'Mistral', content: 'The company has raised €385 million, or $415 million at today\'s exchange rate, and it values the company at roughly $2 billion.', url: 'https://yahoo.com/2' }, 2);
+    expect(old.every((c) => !c.current && !c.prior)).toBe(true);
+  });
+
   test('undated web results about a new round still lead over an older dated round', () => {
     const { checkClaims } = require('../../../src/utils/claimCheck');
     const out = checkClaims([
@@ -484,7 +508,12 @@ describe('claim check (defect 3)', () => {
       mk('Mistral round', 'Mistral AI raised €3 billion in its Series D at a €21 billion valuation, the company said.', 'https://euronews.com/2', '2026-09-09'),
       mk('Europe funding', 'All told, Europe-based startups raised $24 billion in the quarter, two-thirds higher than the $14.4 billion raised in Q2 2025.', 'https://crunchbase.com/3', '2026-10-01'),
       mk('Mistral table', 'In December 2023, Mistral AI completed a Series A funding round raising €385 million led by Andreessen [...] | Sep 2025 | Series C | €1.7 billion | ASML, NVIDIA', 'https://multiples.vc/4', '2026-10-01'),
+      mk('Mistral Series B', "The Paris-based outfit raised $640 million in its 'series B' funding round, which was led by General Catalyst, taking its total investment to $1 billion in its first year.", 'https://investing.com/5', '2024-06-11'),
+      mk('Mistral Series B', 'Mistral AI has raised 600 million euros ($643.7 million) in a funding round led by General Catalyst, it said on Tuesday.', 'https://reuters.com/6', '2024-06-11'),
     ], { entity: 'Mistral AI' });
+    const seriesB = out.claims.find((c) => /Series B/.test(c.label));
+    expect(seriesB.status).toBe('corroborated');
+    expect(seriesB.alternatives.find((a) => a.value === '$1B')).toEqual(expect.objectContaining({ total: true }));
     const valuation = out.claims.find((c) => c.label === 'Valuation');
     expect(valuation.value).toBe('€21B');
     expect(valuation.status).toBe('corroborated');

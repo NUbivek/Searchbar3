@@ -97,7 +97,7 @@ function roundDate(sentence, result) {
 
 // "after a $750m Series F in June", "up from $44bn": an earlier figure the
 // sentence mentions for context, not the figure it reports.
-const TOTAL_RE = /\b(in total|total (?:funding|raised|capital)|to date|so far|cumulative(?:ly)?|lifetime|all told|altogether|overall)\b/i;
+const TOTAL_RE = /\b(in total|(?:a )?total of|total (?:funding|raised|capital|equity|investment|financing)|to date|so far|cumulative(?:ly)?|lifetime|all told|altogether|overall|over \d+ (?:funding )?rounds)\b/i;
 // A sentence often reports one figure and recaps another: "raises $11B at a
 // $1.25T valuation, up from $852B in March" or "raised $1.85B, bringing the
 // total to $5B". Each figure is dated and judged by its own clause.
@@ -112,12 +112,12 @@ function clauseAt(sentence, index) {
   return { text: sentence.slice(start, end), start };
 }
 
-const PRIOR_RE = /\b(previous(?:ly)?|prior|earlier|last(?:\s+[\w-]+)?\s+(?:round|year|fundrais\w*|financing)|up from|after (?:a|an|its|the|[A-Z][\w'’]+(?:['’]s)?)|following (?:a|an|its|the)|from (?:a|an|its)|compared (?:with|to)|was valued|had raised|previously valued|(?:a|two|three|\d+)\s+(?:years?|months?)\s+ago|(?:a|one|two|\d+)\s+years?\s+(?:to the day\s+)?after)\b[^$€£]{0,40}$/i;
+const PRIOR_RE = /\b(previous(?:ly)?|prior|earlier|last(?:\s+[\w-]+)?\s+(?:round|year|fundrais\w*|financing)|up from|after (?:a|an|its|the|[A-Z][\w'’]+(?:['’]s)?)|following (?:a|an|its|the)|from (?:a|an|its)|compared (?:with|to)|previously valued|(?:a|two|three|\d+)\s+(?:years?|months?)\s+ago|(?:a|one|two|\d+)\s+years?\s+(?:to the day\s+)?after)\b[^$€£]{0,40}$/i;
 // "...its €11.7 billion valuation from its last fundraising round a year ago"
 const PRIOR_AFTER_RE = /^[^.$€£]{0,60}?\b(last(?:\s+[\w-]+)?\s+(?:round|year|fundrais\w*|financing)|(?:a|two|three|\d+)\s+(?:years?|months?)\s+ago|previous(?:ly)?|prior|earlier|at the time)\b/i;
 // Undated web results: "in a new funding round", "the latest round", "said on
 // Thursday" mark current news, so the figure is treated as this month's.
-const CURRENT_NEWS_RE = /\b(new (?:funding )?round|latest (?:funding )?round|latest financing|just raised|today|this week|yesterday|on (?:monday|tuesday|wednesday|thursday|friday)|announced (?:today|on)|has raised|said it (?:had )?raised)\b/i;
+const CURRENT_NEWS_RE = /\b(in (?:a |its )?new (?:funding |financing )?round|(?:the |its )?latest (?:funding |financing )?round|latest financing|just raised|announced (?:today|this week|on (?:monday|tuesday|wednesday|thursday|friday))|said (?:on (?:monday|tuesday|wednesday|thursday|friday) )?(?:that )?it (?:had |has )?raised|raised (?:today|this week|on (?:monday|tuesday|wednesday|thursday|friday)))\b/i;
 const NOW_KEY = new Date().getUTCFullYear() * 12 + new Date().getUTCMonth() + 1;
 
 /** Extract figure claims from one result. */
@@ -140,8 +140,14 @@ export function extractClaims(result, sourceNumber, { mentions = null } = {}) {
   // Table cells and elisions in snippets are separate statements
   const text = `${result.title || ''}. ${result.content || result.snippet || ''}`.replace(/\s*\|\s*|\[\.\.\.\]|\[…\]|\s+·\s+/g, '. ');
   for (const sentence of sentencesOf(text)) {
-    if (mentions && !mentions(sentence)) {
-      if (MARKET_STATS_RE.test(sentence) || !GENERIC_SUBJECT_RE.test(sentence)) continue;
+    // Raw JSON or code in a snippet is not prose
+    if (/[{}]|"\s*:\s*["\[{]/.test(sentence)) continue;
+    if (mentions) {
+      if (!mentions(sentence) && (MARKET_STATS_RE.test(sentence) || !GENERIC_SUBJECT_RE.test(sentence))) continue;
+      // "its crypto venture called Tempo, which raised $500m": another company's round
+      const other = sentence.match(/\b(?:venture|subsidiary|unit|spin-?off|startup|company|firm|rival|competitor)\s+(?:called|named)\s+([A-Z][\w.-]*)|\b([A-Z][\w.-]+), which (?:reportedly |recently |also )?(?:raised|closed|secured|landed)\b/);
+      const otherName = other && (other[1] || other[2]);
+      if (otherName && !mentions(otherName)) continue;
     }
     const monies = [...sentence.matchAll(MONEY_RE)];
     if (monies.length === 0) continue;
