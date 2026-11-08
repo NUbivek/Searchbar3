@@ -116,9 +116,10 @@ npm run dev                        # http://localhost:3000
 
 Nothing is required to start: with an empty `.env.local` the curated
 registry, Hacker News and SEC EDGAR still work, answers are quoted, and
-saved history uses an embedded Postgres (PGlite) in `.data/`. A "Local test
-user" sign-in is offered in development so signed-in features can be tried
-without Google credentials.
+saved history uses an embedded Postgres (PGlite) in `.data/`. Sign-in is
+Google only; set `ALLOW_DEV_LOGIN=true` in development to also get a "Local
+test user" sign-in on localhost so signed-in features can be tried without
+Google credentials.
 
 Environment variables (all in `.env.local.example`):
 

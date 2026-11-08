@@ -195,7 +195,7 @@ describe('LLM provider chain', () => {
     expect(geminiCall[2].headers.Authorization).toBe('Bearer ga');
     expect(out.skipped).toEqual([
       { provider: 'Groq', model: 'openai/gpt-oss-120b', why: 'rate limited or out of free quota' },
-      { provider: 'OpenRouter (free)', model: 'google/gemma-4-31b-it:free', why: 'rate limited or out of free quota' },
+      { provider: 'OpenRouter', model: 'google/gemma-4-31b-it:free', why: 'rate limited or out of free quota' },
     ]);
     const { skippedNote } = require('../../../src/utils/skippedNote');
     expect(skippedNote(out.skipped)).toBe(' · Skipped: gpt-oss-120b (rate limited or out of free quota), gemma-4-31b-it (rate limited or out of free quota)');
@@ -264,7 +264,7 @@ describe('/api/search/open contract', () => {
     expect(res.body.results.map((x) => x.title)).toEqual(['OpenAI raises $11 billion at a $1.25 trillion valuation']);
     expect(res.body.degradedSources).toEqual(['web']);
     expect(res.body.status).toBe('degraded');
-    expect(res.body.answerInfo).toEqual({ mode: 'quoted', reason: 'No AI model is configured' });
+    expect(res.body.answerInfo).toEqual({ mode: 'quoted', reason: 'AI answers are not enabled on this deployment' });
     expect(res.body.content).toMatch(/## SUMMARY[\s\S]*about OpenAI[\s\S]*\$11 billion/);
     expect(res.body.content).not.toMatch(/SenseTime/);
   });
@@ -435,6 +435,13 @@ describe('ranking: duplicates, user documents and the date filter (defects 7, 10
     expect(results.some((x) => /archive/.test(x.title))).toBe(false);
     const all = filterAndRank([...old, ...fresh, undated], plan2, e, { limit: 30, maxAgeDays: 365 }).results;
     expect(all.find((x) => x.title === 'OpenAI timeline').undated).toBe(true);
+  });
+});
+
+describe('evidence text', () => {
+  test('HTML entities in snippets are decoded', () => {
+    const { cleanText } = require('../../../src/utils/evidence');
+    expect(cleanText('OpenAI &amp; partners at https:&#x2F;&#x2F;openai.com&#x2F;news &quot;today&quot;')).toBe('OpenAI & partners at https://openai.com/news "today"');
   });
 });
 
@@ -760,7 +767,7 @@ describe('retrieval statuses (defects 11, 20)', () => {
     const { retrieve: realRetrieve } = jest.requireActual('../../../src/server/search/retrieve');
     const { statuses } = await realRetrieve(understandQuery('OpenAI'), ['curated', 'web']);
     expect(statuses.find((s) => s.source === 'web')).toEqual(expect.objectContaining({ status: 'not_configured' }));
-    expect(statuses.find((s) => s.source === 'web').error).toMatch(/SERPER_API_KEY/);
+    expect(statuses.find((s) => s.source === 'web').error).toMatch(/not enabled on this deployment/);
     expect(axios.post).not.toHaveBeenCalled();
   });
   test('curated retrieval always searches the full name, even when its words are generic ("open ai" -> "OpenAI")', async () => {

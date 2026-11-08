@@ -2,23 +2,96 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Base Styles */
+/*
+ * Design tokens (see DESIGN.md). Light, airy canvas with a soft indigo/violet
+ * accent; one card style; one primary button; AI output framed by a gradient
+ * edge and a sparkle, never by colour blocks.
+ */
 :root {
-  --primary: #4BA3F5;
-  --primary-hover: #3994e8;
-  --primary-active: #2d87db;
-  --surface: #ffffff;
-  --text: #334155;
+  --ink: #0F172A;
+  --muted: #64748B;
+  --line: #E6E8EF;
+  --canvas: #F6F7FB;
+  --surface: #FFFFFF;
+  --brand: #6366F1;
+  --brand-strong: #4F46E5;
+  --accent: #8B5CF6;
+  --grad: linear-gradient(135deg, #6366F1 0%, #8B5CF6 55%, #D946EF 100%);
+  /* legacy aliases still referenced by older rules */
+  --primary: #6366F1;
+  --primary-hover: #4F46E5;
+  --primary-active: #4338CA;
+  --text: #0F172A;
   --text-light: #64748B;
-  --border: #e5e7eb;
-  --hover: #f8fafc;
+  --border: #E6E8EF;
+  --hover: #F6F7FB;
 }
 
 @layer base {
+  html { scroll-behavior: smooth; }
   body {
-    @apply text-gray-700 bg-white;
+    @apply text-ink bg-canvas font-sans;
     -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(900px 420px at 15% -10%, rgba(99, 102, 241, 0.10), transparent 60%),
+      radial-gradient(800px 380px at 90% -20%, rgba(217, 70, 239, 0.08), transparent 60%);
+    background-attachment: fixed;
   }
+  ::selection { background: rgba(99, 102, 241, 0.18); }
+  h1, h2, h3 { letter-spacing: -0.01em; }
+}
+
+@layer components {
+  .card { @apply bg-white border border-line rounded-2xl shadow-card; }
+  .card-pad { @apply p-5; }
+  .section-title { @apply text-base font-semibold text-ink; }
+  .muted { @apply text-sm text-muted; }
+  .eyebrow { @apply text-[11px] font-semibold uppercase tracking-wider text-muted; }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed;
+    background-image: var(--grad);
+  }
+  .btn-primary:hover { filter: brightness(1.05); box-shadow: 0 12px 40px -12px rgba(79, 70, 229, 0.35); }
+  .btn-secondary { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium text-ink bg-white border border-line hover:bg-slate-50 transition disabled:opacity-50; }
+  .btn-ghost { @apply inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted hover:text-ink hover:bg-slate-100 transition; }
+  .btn-danger { @apply inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-rose-600 hover:bg-rose-50 transition; }
+
+  .chip { @apply inline-flex items-center gap-1 rounded-full border border-line bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition; }
+  .chip-active { @apply border-brand-200 bg-brand-50 text-brand-700; }
+  .chip-good { @apply border-emerald-200 bg-emerald-50 text-emerald-700; }
+  .chip-warn { @apply border-amber-200 bg-amber-50 text-amber-800; }
+  .chip-bad { @apply border-rose-200 bg-rose-50 text-rose-700; }
+
+  .input { @apply w-full rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-slate-400 focus:outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/15 transition; }
+  .select { @apply rounded-xl border border-line bg-white px-3 py-2 text-sm text-ink focus:outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/15; }
+
+  /* AI output: a hairline gradient edge, no coloured fill */
+  .ai-card { @apply relative bg-white rounded-2xl shadow-card; }
+  .ai-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: var(--grad);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0.6;
+    pointer-events: none;
+  }
+  .ai-badge { @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold text-white; background-image: var(--grad); }
+  .gradient-text { background-image: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  .skeleton {
+    @apply rounded-md;
+    background: linear-gradient(90deg, #EEF0F5 25%, #F8F9FC 50%, #EEF0F5 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+  .glass { background: rgba(255, 255, 255, 0.72); backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px); }
+  .cite { @apply inline-flex items-center rounded-md bg-brand-50 px-1.5 py-0.5 text-[11px] font-semibold text-brand-700 align-baseline no-underline hover:bg-brand-100; }
 }
 
 /* Modern Scrollbar */

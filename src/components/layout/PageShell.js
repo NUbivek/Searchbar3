@@ -1,59 +1,93 @@
 /**
- * Layout for secondary pages (history, workspaces, company profile, founder
- * check, watchlist), matching the home page: gray background, centered
- * "Research Hub" heading, blue accents, account menu top right.
+ * App shell: a sticky, translucent top bar with the wordmark, the five
+ * sections and the account menu; an optional page header; a centred column.
+ * Every page uses it so navigation and spacing are identical everywhere.
  */
 import React from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { HiOutlineSparkles, HiOutlineMagnifyingGlass, HiOutlineShare, HiOutlineFolder, HiOutlineBell, HiOutlineUserCircle } from 'react-icons/hi2';
 import AccountMenu from '../account/AccountMenu';
 
-const NAV = [
-  { href: '/', label: 'Open Research' },
-  { href: '/network', label: 'Network Map' },
-  { href: '/workspaces', label: 'Workspaces' },
-  { href: '/watchlist', label: 'Watchlist' },
-  { href: '/founder', label: 'Founder Check' },
+export const NAV = [
+  { href: '/', label: 'Research', Icon: HiOutlineMagnifyingGlass },
+  { href: '/founder', label: 'Founder Check', Icon: HiOutlineUserCircle },
+  { href: '/network', label: 'Network', Icon: HiOutlineShare },
+  { href: '/workspaces', label: 'Workspaces', Icon: HiOutlineFolder },
+  { href: '/watchlist', label: 'Watchlist', Icon: HiOutlineBell },
 ];
 
-export default function PageShell({ title, subtitle, children, actions = null }) {
+export function Wordmark({ className = '' }) {
+  return (
+    <Link href="/" className={`inline-flex items-center gap-2 ${className}`} aria-label="Research Hub home">
+      <span className="grid h-8 w-8 place-items-center rounded-xl text-white shadow-sm" style={{ backgroundImage: 'var(--grad)' }}>
+        <HiOutlineSparkles className="h-4.5 w-4.5" style={{ width: 18, height: 18 }} />
+      </span>
+      <span className="text-[15px] font-semibold tracking-tight text-ink">Research Hub</span>
+    </Link>
+  );
+}
+
+export function TopBar() {
   const router = useRouter();
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Head>
-        <title>{title ? `${title} · Research Hub` : 'Research Hub'}</title>
-      </Head>
-      <main className="container mx-auto px-4 py-6">
-        <div className="flex justify-end mb-2"><AccountMenu /></div>
-        <div className="text-center mb-4">
-          <Link href="/" className="text-2xl font-bold text-gray-800 hover:text-blue-700">Research Hub</Link>
-        </div>
-        <nav className="flex flex-wrap justify-center gap-1 rounded-xl bg-blue-100 p-1 mb-6 max-w-2xl mx-auto">
-          {NAV.map((n) => {
-            const active = n.href === '/' ? router.pathname === '/' : router.pathname.startsWith(n.href);
+    <header className="sticky top-0 z-40 border-b border-line/80 glass">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-2.5">
+        <Wordmark />
+        <nav className="hidden md:flex items-center gap-1 rounded-full border border-line bg-white/70 p-1" aria-label="Sections">
+          {NAV.map(({ href, label, Icon }) => {
+            const active = href === '/' ? router.pathname === '/' : router.pathname.startsWith(href);
             return (
               <Link
-                key={n.href}
-                href={n.href}
-                className={`flex-1 text-center rounded-lg py-2 px-2 text-sm font-medium ${active ? 'bg-white text-blue-700 shadow' : 'text-blue-500 hover:text-blue-700'}`}
+                key={href}
+                href={href}
+                aria-current={active ? 'page' : undefined}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition ${active ? 'bg-ink text-white shadow-sm' : 'text-muted hover:text-ink hover:bg-slate-100'}`}
               >
-                {n.label}
+                <Icon style={{ width: 15, height: 15 }} />
+                {label}
               </Link>
             );
           })}
         </nav>
+        <AccountMenu />
+      </div>
+      <nav className="md:hidden flex gap-1 overflow-x-auto px-3 pb-2" aria-label="Sections">
+        {NAV.map(({ href, label }) => {
+          const active = href === '/' ? router.pathname === '/' : router.pathname.startsWith(href);
+          return (
+            <Link key={href} href={href} className={`chip whitespace-nowrap ${active ? 'chip-active' : ''}`}>{label}</Link>
+          );
+        })}
+      </nav>
+    </header>
+  );
+}
+
+export default function PageShell({ title, subtitle, children, actions = null, wide = false, headTitle = null }) {
+  return (
+    <div className="min-h-screen">
+      <Head>
+        <title>{headTitle || (title ? `${title} · Research Hub` : 'Research Hub')}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </Head>
+      <TopBar />
+      <main className={`mx-auto px-4 py-8 ${wide ? 'max-w-6xl' : 'max-w-5xl'}`}>
         {(title || actions) && (
-          <div className="max-w-5xl mx-auto flex items-start justify-between gap-4 mb-4">
+          <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
-              {title && <h1 className="text-xl font-semibold text-gray-800">{title}</h1>}
-              {subtitle && <p className="text-gray-600 text-sm mt-1">{subtitle}</p>}
+              {title && <h1 className="text-2xl font-semibold tracking-tight text-ink">{title}</h1>}
+              {subtitle && <p className="mt-1 max-w-2xl text-sm text-muted">{subtitle}</p>}
             </div>
-            {actions}
+            {actions && <div className="flex items-center gap-2">{actions}</div>}
           </div>
         )}
-        <div className="max-w-5xl mx-auto">{children}</div>
+        <div>{children}</div>
       </main>
+      <footer className="mx-auto max-w-5xl px-4 pb-8 pt-4 text-xs text-muted">
+        Every statement is quoted from, or cited to, a numbered source. Contact data never leaves this app.
+      </footer>
     </div>
   );
 }
@@ -61,9 +95,13 @@ export default function PageShell({ title, subtitle, children, actions = null })
 /** Shown on pages that need sign-in. */
 export function SignInPrompt({ what = 'this' }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6 text-center">
-      <p className="text-gray-700 mb-3">Sign in with Google to use {what}. Your history, workspaces and watchlists are saved to your account.</p>
-      <Link href="/signin" className="inline-block bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md text-sm">Sign in</Link>
+    <div className="card card-pad text-center">
+      <div className="mx-auto mb-3 grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600">
+        <HiOutlineUserCircle style={{ width: 22, height: 22 }} />
+      </div>
+      <p className="text-sm text-ink">Sign in with Google to use {what}.</p>
+      <p className="muted mt-1">Your history, workspaces, notes and watchlists are saved to your account.</p>
+      <Link href="/signin" className="btn-primary mt-4">Sign in with Google</Link>
     </div>
   );
 }

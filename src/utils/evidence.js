@@ -27,8 +27,17 @@ const FEED_BOILERPLATE = new RegExp([
   '\\[&#8230;\\]',
 ].join('|'), 'gi');
 
+const NAMED_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', hellip: '…', mdash: '—', ndash: '–', rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“' };
+/** Web snippets sometimes arrive HTML-escaped ("&#x2F;", "&amp;"); show real characters. */
+function decodeEntities(text) {
+  return String(text || '')
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&([a-z]+);/gi, (m, name) => NAMED_ENTITIES[name.toLowerCase()] ?? m);
+}
+
 function cleanText(value) {
-  return String(value || '').replace(/<[^>]+>/g, ' ').replace(FEED_BOILERPLATE, ' ').replace(/\s+/g, ' ').trim();
+  return decodeEntities(String(value || '').replace(/<[^>]+>/g, ' ')).replace(FEED_BOILERPLATE, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function formatDate(value) {
@@ -89,6 +98,7 @@ function extractMatching(results, pattern, limit = 8) {
 }
 
 module.exports = {
+  decodeEntities,
   FUNDING_RE,
   FACT_RE,
   FEED_BOILERPLATE,

@@ -365,7 +365,7 @@ function processSpecialResults(result) {
       // Create user-friendly error message based on error type
       let userFriendlyMessage = '';
       if (isAuthError) {
-        userFriendlyMessage = 'There was an issue with the API authentication. Please check your API key configuration.';
+        userFriendlyMessage = 'The answer service could not be reached. Please try again.';
       } else if (errorDetails.status === 429) {
         userFriendlyMessage = 'The API rate limit was exceeded. Please try again in a few moments.';
       } else if (errorDetails.status >= 500) {
@@ -380,8 +380,8 @@ function processSpecialResults(result) {
         <p>${userFriendlyMessage}</p>
         <p>Troubleshooting:</p>
         <ul>
-          ${isAuthError ? '<li>Check your API key configuration in .env.local</li>' : ''}
-          ${isAuthError ? '<li>Ensure your Together API key is valid and has sufficient credits</li>' : ''}
+          
+          
           ${errorDetails.status >= 500 ? '<li>The service might be temporarily unavailable</li>' : ''}
           ${errorDetails.status === 429 ? '<li>Wait a moment and try again</li>' : ''}
           <li>Try a simpler search query</li>

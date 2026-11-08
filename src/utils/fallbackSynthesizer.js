@@ -288,7 +288,7 @@ function createSynthesizedContent(query, results, ctx = {}) {
     '---',
     `*Results synthesized from ${results.length} sources on ${dateStr}*`,
     '',
-    `*Note: ${ctx.reason || 'No AI model is configured'}, so every statement above is quoted from the cited source. For most accurate information, please verify with original sources.*`,
+    `*Note: ${ctx.reason || 'AI answers are not enabled on this deployment'}, so every statement above is quoted from the cited source. For most accurate information, please verify with original sources.*`,
   ].join('\n');
 }
 
@@ -319,7 +319,7 @@ function createEmptyResponse(query) {
       'There is no source material to analyze for this query.',
       '',
       '## DIFFERENT PERSPECTIVES',
-      '• Web and site-specific sources (Crunchbase, PitchBook, LinkedIn, X) need a search API key; Verified covers public companies only.',
+      '• Web and site-specific sources (Crunchbase, PitchBook, LinkedIn, X) are not enabled on this deployment; Verified covers public companies only.',
       '',
       '## FOLLOW-UP QUESTIONS',
       ...generateFollowUpQuestions(query).map((q) => `• ${q}`),

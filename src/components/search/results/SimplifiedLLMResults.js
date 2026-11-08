@@ -1,11 +1,11 @@
 /**
  * SimplifiedLLMResults.js
- * A simplified version of the LLM results display with just two tabs:
- * "All Results" and "Key Insights"
- * For now, focusing on displaying raw LLM results in the All Results tab
+ * The answer card: two tabs, "All Results" (the written answer) and
+ * "Key Insights" (quality scores, claim check, top sources).
  */
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { HiOutlineSparkles, HiOutlineArrowRight, HiOutlineChevronDown, HiOutlineChevronUp } from 'react-icons/hi2';
 import TabNavigation from './TabNavigation';
 import styles from './SimplifiedLLMResults.module.css';
 import searchResultScorer from '../../../utils/scoring/SearchResultScorer';
@@ -47,6 +47,38 @@ export const renderSafeHtml = (text) => {
 const escapeHtml = (text) => String(text || '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/**
+ * Render the answer with every "[Source n]" citation as a `.cite` pill that
+ * links to the cited source (sanitized first; the pill markup is added to the
+ * sanitized output using escaped URLs only).
+ */
+const citeText = (sanitizedHtml, sourceMap) => String(sanitizedHtml || '').replace(/\[Source (\d+)\]/g, (m, n) => {
+  const src = sourceMap && sourceMap[n];
+  const url = src && typeof src.url === 'string' && /^https?:\/\//i.test(src.url) ? src.url : null;
+  const title = escapeHtml(src?.title ? `Source ${n}: ${src.title}` : `Source ${n}`);
+  return url
+    ? `<a class="cite" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" title="${title}">${n}</a>`
+    : `<span class="cite" title="${title}">${n}</span>`;
+});
+const renderAnswerHtml = (text, sourceMap) => citeText(renderSafeHtml(text), sourceMap);
+
+/**
+ * Split the "## FOLLOW-UP QUESTIONS" section out of the answer so the
+ * questions can be rendered as clickable chips under the answer.
+ */
+const splitFollowUps = (content) => {
+  const text = String(content || '').replace(/\\n/g, '\n');
+  const match = text.match(/^(#{1,6}\s*FOLLOW[- ]UP QUESTIONS\s*:?\s*\n)([\s\S]*?)(?=^#{1,6}\s|^---\s*$|(?![\s\S]))/im);
+  if (!match) return { body: text, questions: [] };
+  const questions = match[2]
+    .split('\n')
+    .map((line) => line.replace(/^\s*(?:[-•*]|\d+[.)])\s*/, '').replace(/\*\*/g, '').trim())
+    .filter((line) => line.length > 3);
+  if (questions.length === 0) return { body: text, questions: [] };
+  const body = text.replace(match[0], '').replace(/\n{3,}/g, '\n\n');
+  return { body, questions };
+};
+
 // Same highlight style as categories/display/NumberHighlighter.js
 const NUMBER_PATTERN = /((?:[$€£]\s?)?\d[\d,.]*\s?(?:%|percent|[MBK]\b|million|billion|x\b)?)/g;
 // Highlight figures but not dates ("2026-10-21") or source citations.
@@ -55,23 +87,22 @@ const highlightNumbers = (sentence) => escapeHtml(sentence)
   .split(DATE_OR_CITATION)
   .map((part, i) => (i % 2 === 1 ? part : part.replace(NUMBER_PATTERN, (m) => (
     /\d/.test(m) && m.trim().length > 1
-      ? `<span style="font-weight:bold;color:#0066cc;background-color:#0066cc15;padding:2px 4px;border-radius:3px">${m}</span>`
+      ? `<span class="figure">${m}</span>`
       : m
   ))))
   .join('');
 
 /**
  * ExpandableContent Component
- * Handles expandable content with show more/less functionality
- * Enhanced to show full content by default with collapsing option
+ * Long answers are collapsed behind a fade with a "See more" ghost button.
  */
-const ExpandableContent = ({ content }) => {
+const ExpandableContent = ({ content, sourceMap = null }) => {
   // Default to collapsed state
   const [expanded, setExpanded] = useState(false);
   const contentRef = useRef(null);
   const [needsExpansion, setNeedsExpansion] = useState(false);
   const maxCollapsedHeight = 300; // Increased height to show at least two paragraphs
-  
+
   // Set up expansion detection on mount and content change
   useEffect(() => {
     // Force recheck after render to ensure accurate height measurement
@@ -86,19 +117,19 @@ const ExpandableContent = ({ content }) => {
     }, 200);
     return () => clearTimeout(timer);
   }, [content]);
-  
+
   // Handle different content types to ensure consistent handling
   const processContent = () => {
     // If content is null or undefined, return empty string
     if (content === null || content === undefined) {
       return '';
     }
-    
+
     // If content is already a string, use it directly
     if (typeof content === 'string') {
       return content;
     }
-    
+
     // If content is an object with text or html property, use that
     if (typeof content === 'object') {
       if (typeof content.text === 'string') return content.text;
@@ -107,42 +138,41 @@ const ExpandableContent = ({ content }) => {
       // An object with no readable text is never dumped as JSON
       return '';
     }
-    
+
     // For any other type, convert to string
     return String(content);
   };
-  
+
   const processedContent = processContent();
-  
+  const collapsed = !expanded && needsExpansion;
+
   // Toggle expanded state
   const toggleExpansion = () => {
     setExpanded(!expanded);
   }
-  
+
   return (
-    <div className={styles.expandableContent}>
-      <div 
+    <div className={styles.expandable}>
+      <div
         ref={contentRef}
-        className={`${styles.fullContent} ${!expanded && needsExpansion ? styles.contentCollapsed : ''}`}
-        style={{
-          maxHeight: expanded || !needsExpansion ? 'none' : `${maxCollapsedHeight}px`,
-          overflowY: expanded || !needsExpansion ? 'auto' : 'hidden',
-        }}
-        dangerouslySetInnerHTML={{ __html: renderSafeHtml(processedContent) }} 
+        className={`${styles.prose} ${collapsed ? styles.collapsed : ''}`}
+        style={{ maxHeight: collapsed ? `${maxCollapsedHeight}px` : 'none' }}
+        dangerouslySetInnerHTML={{ __html: renderAnswerHtml(processedContent, sourceMap) }}
       />
-      
+
       {needsExpansion && (
-        <div className={styles.expandButtonContainer}>
-          <button 
-            className={styles.expandButton}
+        <div className={styles.expandRow}>
+          <button
+            type="button"
+            className="btn-ghost"
             onClick={toggleExpansion}
             aria-expanded={expanded}
           >
             {expanded ? 'See less' : 'See more'}
+            {expanded
+              ? <HiOutlineChevronUp style={{ width: 15, height: 15 }} />
+              : <HiOutlineChevronDown style={{ width: 15, height: 15 }} />}
           </button>
-          <span className={styles.contentIndicator}>
-            {expanded ? 'Showing all content' : 'Content truncated'}
-          </span>
         </div>
       )}
     </div>
@@ -154,34 +184,40 @@ const ExpandableContent = ({ content }) => {
  */
 export const FollowUpChat = ({ onSubmit }) => {
   const [input, setInput] = useState('');
-  
+
   const handleSubmit = () => {
     if (!input.trim()) return;
     onSubmit(input);
     setInput('');
   };
-  
+
   const handleKeyPress = (e) => {
     if (e.key === 'Enter') {
       handleSubmit();
     }
   };
-  
+
   return (
-    <div className={styles.followupContainer}>
-      <input
-        type="text"
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-        onKeyPress={handleKeyPress}
-        className={styles.followupInput}
-        placeholder="Ask a follow-up question..."
-      />
-      <button 
-        onClick={handleSubmit} 
-        className={styles.followupButton}
+    <div className={styles.followupForm}>
+      <div className={styles.followupField}>
+        <HiOutlineSparkles className={styles.followupIcon} style={{ width: 16, height: 16 }} />
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyPress={handleKeyPress}
+          className="input pl-9"
+          placeholder="Ask a follow-up question..."
+          aria-label="Ask a follow-up question"
+        />
+      </div>
+      <button
+        type="button"
+        onClick={handleSubmit}
+        className="btn-primary"
       >
-        Chat
+        Ask
+        <HiOutlineArrowRight style={{ width: 15, height: 15 }} />
       </button>
     </div>
   );
@@ -191,7 +227,7 @@ export const FollowUpChat = ({ onSubmit }) => {
  * SimplifiedLLMResults Component
  * Displays LLM search results with a clean tab interface with exactly two tabs:
  * "All Results" and "Key Insights"
- * 
+ *
  * @param {Object} props Component props
  * @param {Array} props.results - Array of search result items
  * @param {string} props.query - The search query
@@ -224,49 +260,49 @@ const createDescriptiveTitle = (result, index) => {
       return siteName.charAt(0).toUpperCase() + siteName.slice(1);
     } catch {}
   }
-  
+
   // If title exists, extract a clean, short phrase
   if (result.title) {
     const title = String(result.title);
     // Clean up title
     const cleaned = title.replace(/^(https?:\/\/)?([\w\.-]+\.[a-z]{2,})(\/.*)?(\s|\||-|:)/, '');
-    
+
     // For short titles, just return as is
     if (cleaned.length < 20) return cleaned;
-    
+
     // Filter out common words for a more meaningful phrase
     const words = cleaned.split(/\s+/).filter(word => {
-      return word.length > 2 && 
+      return word.length > 2 &&
             !['and', 'the', 'for', 'with', 'that', 'this', 'from', 'to'].includes(word.toLowerCase());
     });
-    
+
     // Create a 3-5 word phrase that makes sense
     if (words.length >= 2) {
       return words.slice(0, Math.min(5, words.length)).join(' ');
     }
-    
+
     // If no good phrase, use first 20 chars
     return cleaned.substring(0, 20);
   }
-  
+
   // If snippet exists, extract a meaningful phrase
   if (result.snippet) {
     const snippet = String(result.snippet);
-    
+
     // For short snippets, use as is
     if (snippet.length < 20) return snippet;
-    
+
     // Try to find the most meaningful phrase
     const cleanWords = snippet.split(/\s+/).filter(word => {
-      return word.length > 2 && 
+      return word.length > 2 &&
             !['and', 'the', 'for', 'with', 'that', 'this', 'from', 'to'].includes(word.toLowerCase());
     });
-    
+
     if (cleanWords.length >= 2) {
       return cleanWords.slice(0, Math.min(5, cleanWords.length)).join(' ');
     }
   }
-  
+
   // Last resort - use the raw URL if available
   if (result.url) {
     const rawUrl = String(result.url);
@@ -278,11 +314,11 @@ const createDescriptiveTitle = (result, index) => {
       const displayUrl = domain + (pathSegment ? '/' + pathSegment : '');
       return displayUrl.length > 25 ? displayUrl.substring(0, 25) : displayUrl;
     } catch {}
-    
+
     // If URL parsing fails, use raw URL (shortened)
     return rawUrl.length > 25 ? rawUrl.substring(0, 25) : rawUrl;
   }
-  
+
   // Absolute last resort - generic source reference
   return 'Source ' + (index + 1);
 };
@@ -298,17 +334,17 @@ const collectSources = (results, validResults) => {
     if (direct.length > 0) return direct.map((r) => ({ ...r, url: r.url || r.link }));
   }
     let allPossibleSources = [];
-    
+
     // Function to recursively search for sources in objects
     const extractSourcesFromObject = (obj) => {
       // Guard clause for non-objects
       if (!obj || typeof obj !== 'object') return;
-      
+
       // Direct source objects have URL and title or snippet
       if (obj.url && (obj.title || obj.snippet)) {
         allPossibleSources.push(obj);
       }
-      
+
       // Check for sources array property
       if (obj.sources && Array.isArray(obj.sources)) {
         obj.sources.forEach(source => {
@@ -317,7 +353,7 @@ const collectSources = (results, validResults) => {
           }
         });
       }
-      
+
       // Check for data.sources path
       if (obj.data && obj.data.sources && Array.isArray(obj.data.sources)) {
         obj.data.sources.forEach(source => {
@@ -326,7 +362,7 @@ const collectSources = (results, validResults) => {
           }
         });
       }
-      
+
       // Special case: check for references/citations section
       if (obj.references && Array.isArray(obj.references)) {
         obj.references.forEach(ref => {
@@ -335,7 +371,7 @@ const collectSources = (results, validResults) => {
           }
         });
       }
-      
+
       // Recursively search nested objects but not arrays
       Object.keys(obj).forEach(key => {
         if (obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
@@ -343,13 +379,13 @@ const collectSources = (results, validResults) => {
         }
       });
     };
-    
+
     // First check direct source arrays
     if (results && results.sources && Array.isArray(results.sources)) {
       debugLog('Found sources array at top level');
       allPossibleSources = [...results.sources.filter(s => s && s.url)];
     }
-    
+
     // Extract sources from raw results
     if (Array.isArray(results)) {
       debugLog('Searching array results for sources');
@@ -358,7 +394,7 @@ const collectSources = (results, validResults) => {
         if (result && typeof result === 'object' && result.url && !result.isLLMResults) {
           allPossibleSources.push(result);
         }
-        
+
         // Recursively search in objects
         if (result && typeof result === 'object') {
           extractSourcesFromObject(result);
@@ -369,7 +405,7 @@ const collectSources = (results, validResults) => {
       debugLog('Searching single result object for sources');
       extractSourcesFromObject(results);
     }
-    
+
     // Also check validResults
     if (validResults && validResults.length > 0) {
       debugLog('Searching validResults for sources');
@@ -382,19 +418,49 @@ const collectSources = (results, validResults) => {
         }
       });
     }
-    
+
 
   return allPossibleSources.filter((source) => source.url && source.url !== '#' || source.source === 'file');
 };
 
 const CLAIM_STYLE = {
-  corroborated: { label: 'Corroborated', color: '#0F9D58', background: '#E6F4EA' },
-  'single-source': { label: 'Single source', color: '#B06000', background: '#FEF7E0' },
-  conflict: { label: 'Sources disagree', color: '#DB4437', background: '#FCE8E6' },
-  target: { label: 'Reported target, not confirmed', color: '#5F6368', background: '#F1F3F4' },
+  corroborated: { label: 'Corroborated', chip: 'chip chip-good' },
+  'single-source': { label: 'Single source', chip: 'chip chip-warn' },
+  conflict: { label: 'Sources disagree', chip: 'chip chip-bad' },
+  target: { label: 'Reported target, not confirmed', chip: 'chip' },
 };
 
-const SimplifiedLLMResults = ({ 
+// Score bands: >=80 good, >=60 brand, >=40 warn, else bad
+const scoreColor = (v) => (v == null ? '#CBD5E1' : v >= 0.8 ? '#10B981' : v >= 0.6 ? '#6366F1' : v >= 0.4 ? '#F59E0B' : '#F43F5E');
+
+const hostOf = (url) => {
+  try { return new URL(String(url)).hostname.replace(/^www\./, ''); } catch { return ''; }
+};
+
+/** Small ring showing a 0–1 score. */
+const ScoreRing = ({ value, size = 22 }) => {
+  const r = (size - 4) / 2;
+  const c = 2 * Math.PI * r;
+  const v = Math.max(0, Math.min(1, Number(value) || 0));
+  return (
+    <svg className={styles.ring} width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#EEF0F5" strokeWidth="3" />
+      <circle
+        cx={size / 2} cy={size / 2} r={r} fill="none"
+        stroke={scoreColor(value)} strokeWidth="3" strokeLinecap="round"
+        strokeDasharray={`${c * v} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`}
+      />
+    </svg>
+  );
+};
+
+const badgeChipClass = (label) => {
+  if (/Verified|Reputable/i.test(label)) return 'chip chip-good';
+  if (/Community/i.test(label)) return 'chip chip-warn';
+  return 'chip';
+};
+
+const SimplifiedLLMResults = ({
   results = [],
   query = '',
   onFollowUpSearch = null,
@@ -404,6 +470,7 @@ const SimplifiedLLMResults = ({
   const [showLowerSources, setShowLowerSources] = useState(false);
   const claimCheck = results && !Array.isArray(results) ? results.claimCheck : null;
   const queryPlan = results && !Array.isArray(results) ? results.queryPlan : null;
+  const sourceMap = results && !Array.isArray(results) && results.sourceMap && typeof results.sourceMap === 'object' ? results.sourceMap : null;
   const handleSave = async (source) => {
     if (!onSaveSource) return;
     setSavedUrls((prev) => ({ ...prev, [source.url]: 'saving' }));
@@ -411,7 +478,7 @@ const SimplifiedLLMResults = ({
     setSavedUrls((prev) => ({ ...prev, [source.url]: ok ? 'saved' : 'error' }));
   };
   const [followUpQueries, setFollowUpQueries] = useState([]);
-  
+
   const isErrorPayload = (item) => Boolean(
     item &&
     (
@@ -426,7 +493,7 @@ const SimplifiedLLMResults = ({
     item !== undefined &&
     !isErrorPayload(item)
   ));
-  
+
 
   // Detect if results contain errors
   const hasErrorResults = useMemo(() => {
@@ -434,12 +501,12 @@ const SimplifiedLLMResults = ({
     if (isErrorPayload(results)) {
       return true;
     }
-    
+
     // Check array items for errors
     if (Array.isArray(results)) {
       return results.some(item => isErrorPayload(item));
     }
-    
+
     return false;
   }, [results]);
 
@@ -459,16 +526,16 @@ const SimplifiedLLMResults = ({
     if (!Array.isArray(results) && typeof results === 'object' && typeof results.content !== 'string' && typeof results.text !== 'string' && !results.llmResults) {
       return [];
     }
-    
+
     // Check if this is a raw search result that needs formatting
-    const isRawSearchResult = 
-      !results.isLLMResult && 
-      !results.isLLMResults && 
-      !results.__isImmutableLLMResult && 
+    const isRawSearchResult =
+      !results.isLLMResult &&
+      !results.isLLMResults &&
+      !results.__isImmutableLLMResult &&
       !results.llmProcessed &&
       typeof results === 'object' &&
       (results.title || results.url || results.snippet);
-    
+
     // If it's a raw search result, format it for display
     if (isRawSearchResult) {
       if (Array.isArray(results)) {
@@ -495,7 +562,7 @@ const SimplifiedLLMResults = ({
         }];
       }
     }
-    
+
     // Check for nested llmResults property, which is common in API responses
     if (results.llmResults) {
       const llmContent = results.llmResults;
@@ -506,25 +573,25 @@ const SimplifiedLLMResults = ({
       }
       return sanitizeResults(Array.isArray(llmContent) ? llmContent : [llmContent]);
     }
-    
+
     // Check for content property at the top level
     if ((results.content || typeof results.text === 'string') && !Array.isArray(results)) {
-      
+
       // If content doesn't exist but text does, use text as content
       if (!results.content && results.text) {
         results.content = results.text;
       }
-      
+
       // Ensure proper flags
       results.isLLMResult = true;
       results.__isImmutableLLMResult = true;
       return sanitizeResults([results]);
     }
-    
+
     // If results is a plain array
     if (Array.isArray(results)) {
       const filtered = results.filter(r => r !== null && r !== undefined);
-      
+
       // Ensure each item has proper flags
       return filtered.map(item => {
         if (typeof item === 'object') {
@@ -534,7 +601,7 @@ const SimplifiedLLMResults = ({
         return item;
       }).filter((item) => !isErrorPayload(item));
     }
-    
+
     // Anything else has no readable answer
     return [];
   }, [results]);
@@ -636,8 +703,6 @@ const SimplifiedLLMResults = ({
   const aggregateTitle = (metric) => (qualityMetrics
     ? `${METRIC_HELP[metric]}\nMeasured on ${qualityMetrics.n[metric]} of ${qualityMetrics.sources} sources. Components with no evidence are not counted (no default values).`
     : 'No measurable sources');
-  // ScoreVisualizer bands: >=80 green, >=60 blue, >=40 amber, else red
-  const scoreColor = (v) => (v == null ? '#9CA3AF' : v >= 0.8 ? '#10B981' : v >= 0.6 ? '#3B82F6' : v >= 0.4 ? '#F59E0B' : '#EF4444');
   const sourceTitle = (src) => [
     `Overall ${Math.round(src.combinedScore * 100)}% · ${src.metrics?.coverage?.measuredComponents}/${src.metrics?.coverage?.totalComponents} components measured`,
     '', 'RELEVANCE', describeMetric(src.metrics, 'relevance'),
@@ -649,16 +714,16 @@ const SimplifiedLLMResults = ({
   // Process results to create comprehensive, visually appealing Key Insights
   const keyInsightsContent = useMemo(() => {
     if (validResults.length === 0) return [];
-    
+
     try {
       // Calculate average scores across all sources
       const aggregateScores = {
         relevance: 0,
-        accuracy: 0, 
+        accuracy: 0,
         credibility: 0,
         count: 0
       };
-      
+
       // Extract all content and scores from validResults
       let allContent = '';
       validResults.forEach(result => {
@@ -698,56 +763,56 @@ const SimplifiedLLMResults = ({
             }
           });
         }
-        
-        
+
+
         // Extract content
         const resultContent = typeof result === 'string' ? result
           : [result.content, result.text, result.summary].find((v) => typeof v === 'string') || '';
         allContent += resultContent + '\n';
       });
-      
+
       // Calculate averages - ensure values are between 0 and 1
       const avgScores = {
-        relevance: aggregateScores.count ? 
+        relevance: aggregateScores.count ?
           Math.min(Math.max(aggregateScores.relevance / aggregateScores.count, 0), 1) : 0.75,
-        accuracy: aggregateScores.count ? 
+        accuracy: aggregateScores.count ?
           Math.min(Math.max(aggregateScores.accuracy / aggregateScores.count, 0), 1) : 0.8,
-        credibility: aggregateScores.count ? 
+        credibility: aggregateScores.count ?
           Math.min(Math.max(aggregateScores.credibility / aggregateScores.count, 0), 1) : 0.85
       };
-      
+
       // Not using text-based quality metrics anymore - quality metrics are now shown only in the progress bar visualization
-      
+
       // The header follows what the query asked for (the API's query plan),
       // not substrings of the query ("ai" inside "open ai" is not "technical")
       const intents = Array.isArray(queryPlan?.intents) ? queryPlan.intents : [];
       const isFinancialQuery = intents.includes('funding') || intents.includes('financials');
       const isTechnicalQuery = intents.includes('product');
       const isHealthQuery = /\b(health|medical|doctor|patient|disease|treatment|symptom|therapy|wellness)\b/i.test(query);
-      
+
       // Format content for dashboard appearance
       let formattedHTML = '';
-      
+
       // Create a summary section with appropriate styling
       formattedHTML += `<div class="insight-summary">`;
-      
+
       // Add appropriate header based on context
       if (isFinancialQuery) {
-        formattedHTML += `<h2>📈 Financial Analysis</h2>`;
+        formattedHTML += `<h2>Financial analysis</h2>`;
       } else if (intents.includes('competitors')) {
-        formattedHTML += `<h2>🏁 Competitive Landscape</h2>`;
+        formattedHTML += `<h2>Competitive landscape</h2>`;
       } else if (intents.includes('team')) {
-        formattedHTML += `<h2>👥 Team and Leadership</h2>`;
+        formattedHTML += `<h2>Team and leadership</h2>`;
       } else if (intents.includes('legal')) {
-        formattedHTML += `<h2>⚖️ Legal and Regulatory</h2>`;
+        formattedHTML += `<h2>Legal and regulatory</h2>`;
       } else if (isTechnicalQuery) {
-        formattedHTML += `<h2>🔧 Product Overview</h2>`;
+        formattedHTML += `<h2>Product overview</h2>`;
       } else if (isHealthQuery) {
-        formattedHTML += `<h2>🧪 Health Assessment</h2>`;
+        formattedHTML += `<h2>Health assessment</h2>`;
       } else {
-        formattedHTML += `<h2>🔍 Key Insights</h2>`;
+        formattedHTML += `<h2>Key insights</h2>`;
       }
-      
+
       // Extract and clean sentences for insights
       // Strip markdown so sentences read cleanly: headings, bullets,
       // emphasis, and [title](url) links (keep the title).
@@ -774,78 +839,33 @@ const SimplifiedLLMResults = ({
           const core = (x) => x.replace(/\s*\([^)]*\)\s*(\[Source[^\]]*\])?[.!?]*\s*$/, '').replace(/[.!?]+$/, '').trim().toLowerCase();
           return arr.findIndex(t => core(t) === core(s)) === i;
         });
-      
+
       // Sentences with figures or funding facts first (stable order otherwise)
       const isFactual = (s) => /[$€£]\s?\d|\d+(\.\d+)?\s?(%|million|billion|[MBK]\b)|\b(raised|funding|series [a-e]|seed|valuation|led by|ARR|revenue)\b/i.test(s);
       const keyPoints = [...cleanedSentences.filter(isFactual), ...cleanedSentences.filter(s => !isFactual(s))].slice(0, 12);
-      
+
       // Create an attractive bullet point list of key insights
       formattedHTML += `<ul class="key-points">`;
       keyPoints.slice(0, 5).forEach(point => {
         formattedHTML += `<li>${highlightNumbers(point.trim())}</li>`;
       });
       formattedHTML += `</ul>`;
-      
+
       // No longer displaying quality metrics in the text content area
-      
+
       // Add detailed analysis section if we have more points
       if (keyPoints.length > 5) {
-        formattedHTML += `<h3>Additional Context</h3><p class="detailed-analysis">`;
+        formattedHTML += `<h3>Additional context</h3><p class="detailed-analysis">`;
         keyPoints.slice(5).forEach(point => {
           formattedHTML += highlightNumbers(point.trim()) + ' ';
         });
         formattedHTML += `</p>`;
       }
-      
-      // Add context-specific visualizations
-      if (isFinancialQuery) {
-        // Financial dashboard components
-        formattedHTML += `
-          <h3>Financial Indicators</h3>
-          <div class="financial-indicators">
-            <div class="indicator">
-              <div class="indicator-icon growth">📈</div>
-              <div class="indicator-label">Growth Potential</div>
-            </div>
-            <div class="indicator">
-              <div class="indicator-icon market">🌐</div>
-              <div class="indicator-label">Market Presence</div>
-            </div>
-            <div class="indicator">
-              <div class="indicator-icon risk">⚖️</div>
-              <div class="indicator-label">Risk Assessment</div>
-            </div>
-          </div>
-        `;
-      } else if (isTechnicalQuery) {
-        // Technical overview - no header needed as it's handled by the TabNavigation component
-        formattedHTML += `
-          <div class="business-focused-content">
-          </div>
-        `;
-      } else if (isHealthQuery) {
-        // Health dashboard components
-        formattedHTML += `
-          <h3>Health Indicators</h3>
-          <div class="tech-stack">
-            <div class="stack-component">
-              <div class="stack-icon">🩺</div>
-              <div class="stack-label">Diagnosis</div>
-            </div>
-            <div class="stack-component">
-              <div class="stack-icon">💊</div>
-              <div class="stack-label">Treatment</div>
-            </div>
-            <div class="stack-component">
-              <div class="stack-icon">🧠</div>
-              <div class="stack-label">Wellness</div>
-            </div>
-          </div>
-        `;
-      }
-      
+
+      // (Decorative "indicator" chips removed: they carried no data.)
+
       formattedHTML += `</div>`; // Close insight-summary div
-      
+
       return [formattedHTML];
     } catch (e) {
       console.error('Error creating key insights:', e);
@@ -853,7 +873,7 @@ const SimplifiedLLMResults = ({
       // Return a minimal dashboard with error info
       return [`
         <div class="insight-summary">
-          <h2>🔍 Key Insights</h2>
+          <h2>Key insights</h2>
           <p class="detailed-analysis">Unable to generate insights for this query. Please try a different search term.</p>
         </div>
       `];
@@ -864,7 +884,7 @@ const SimplifiedLLMResults = ({
   const handleFollowUpSearch = (followUpQuery) => {
     // Add to the list of follow-up queries
     setFollowUpQueries(prev => [...prev, followUpQuery]);
-    
+
     // Call the parent handler if available
     if (onFollowUpSearch) {
       onFollowUpSearch(followUpQuery);
@@ -876,21 +896,47 @@ const SimplifiedLLMResults = ({
     id: 'all-results',
     label: 'All Results',
     content: (
-      <div className={styles.tabContentContainer}>
+      <div>
         {validResults.length > 0 ? (
-          validResults.map((result, index) => (
-            <div key={`result-${index}`} className={styles.resultItem}>
-              <div className={styles.resultContent}>
-                <ExpandableContent content={
-                  typeof result === 'string' ? result : 
-                  typeof result.content === 'string' ? result.content :
-                  typeof result.text === 'string' ? result.text : ''
-                } />
+          validResults.map((result, index) => {
+            const raw = typeof result === 'string' ? result :
+              typeof result.content === 'string' ? result.content :
+              typeof result.text === 'string' ? result.text : '';
+            const { body, questions } = splitFollowUps(raw);
+            const followUps = questions.length > 0
+              ? questions
+              : (Array.isArray(result?.followUpQuestions) ? result.followUpQuestions.filter((q) => typeof q === 'string' && q.trim()) : []);
+            return (
+              <div key={`result-${index}`} className={styles.resultItem}>
+                <ExpandableContent content={body} sourceMap={sourceMap} />
+                {followUps.length > 0 && (
+                  <div className={styles.followups}>
+                    <div className={`eyebrow ${styles.followupsLabel}`}>Follow-up questions</div>
+                    <div className={styles.followupChips}>
+                      {followUps.map((q) => (
+                        onFollowUpSearch ? (
+                          <button
+                            key={q}
+                            type="button"
+                            className={`chip ${styles.followupChip}`}
+                            onClick={() => handleFollowUpSearch(q)}
+                            title="Run this follow-up search"
+                          >
+                            <HiOutlineSparkles className="shrink-0 text-brand-500" style={{ width: 13, height: 13 }} />
+                            {q}
+                          </button>
+                        ) : (
+                          <span key={q} className={`chip ${styles.followupChip}`}>{q}</span>
+                        )
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          ))
+            );
+          })
         ) : (
-          <div className={styles.noResultsMessage}>
+          <div className={styles.empty}>
             No results available for this search.
           </div>
         )}
@@ -898,220 +944,190 @@ const SimplifiedLLMResults = ({
     )
   };
 
+  const qualityPanel = (
+    <div className={styles.panel}>
+      <h3 className={styles.panelTitle}>
+        Quality assessment
+        {qualityMetrics && <span className="chip">{qualityMetrics.sources} source{qualityMetrics.sources === 1 ? '' : 's'}</span>}
+      </h3>
+      {['relevance', 'accuracy', 'credibility'].map((metric) => {
+        const value = qualityMetrics ? qualityMetrics[metric] : null;
+        return (
+          <div key={metric} className={styles.metricRow} title={aggregateTitle(metric)}>
+            <div className={styles.metricLabel}>{metric.charAt(0).toUpperCase() + metric.slice(1)}</div>
+            <div className={styles.metricTrack}>
+              <div className={styles.metricFill} style={{ width: `${pct(value) ?? 0}%` }} />
+            </div>
+            <div className={styles.metricValue} style={{ color: value == null ? '#94A3B8' : scoreColor(value) }}>
+              {value == null ? 'N/A' : `${pct(value)}%`}
+            </div>
+          </div>
+        );
+      })}
+      <div
+        className={styles.overallRow}
+        title={qualityMetrics ? `Overall = context-weighted average of relevance, accuracy and credibility per source (weights from docs/METRICS_SYSTEM.md), averaged over ${qualityMetrics.n.overall} measured sources.` : 'No measurable sources'}
+      >
+        <div className={styles.overallLabel}>Overall</div>
+        <div className={styles.overallValue} style={{ color: qualityMetrics?.overall == null ? '#94A3B8' : scoreColor(qualityMetrics.overall) }}>
+          {qualityMetrics?.overall == null ? 'N/A' : `${pct(qualityMetrics.overall)}%`}
+        </div>
+      </div>
+    </div>
+  );
+
   // Create the Key Insights tab - make sure it's always populated
   const keyInsightsTab = {
     id: 'key-insights',
     label: 'Key Insights',
     content: (
-      <div className={styles.tabContentContainer}>
-        {keyInsightsContent && keyInsightsContent.length > 0 ? (
-          <div className={styles.keyInsightsContainer}>
-            <div className={styles.responsiveLayout}>
-              {/* Right column with metrics - Always at the top */}
-              <div className={styles.metricsColumn}>
-                <div className={styles.metricsCard}>
-                  <h3>Quality Assessment</h3>
-                  <div className={styles.metricItem} title={aggregateTitle('relevance')}>
-                    <div className={styles.metricLabel}>Relevance</div>
-                    <div className={styles.metricBarContainer}>
-                      <div className={styles.metricBar} style={{width: `${pct(qualityMetrics?.relevance) ?? 0}%`, backgroundColor: scoreColor(qualityMetrics?.relevance)}}></div>
-                    </div>
-                    <div className={styles.metricValue}>{qualityMetrics ? `${pct(qualityMetrics.relevance)}%` : 'N/A'}</div>
-                  </div>
-                  <div className={styles.metricItem} title={aggregateTitle('accuracy')}>
-                    <div className={styles.metricLabel}>Accuracy</div>
-                    <div className={styles.metricBarContainer}>
-                      <div className={styles.metricBar} style={{width: `${pct(qualityMetrics?.accuracy) ?? 0}%`, backgroundColor: scoreColor(qualityMetrics?.accuracy)}}></div>
-                    </div>
-                    <div className={styles.metricValue}>{qualityMetrics ? `${pct(qualityMetrics.accuracy)}%` : 'N/A'}</div>
-                  </div>
-                  <div className={styles.metricItem} title={aggregateTitle('credibility')}>
-                    <div className={styles.metricLabel}>Credibility</div>
-                    <div className={styles.metricBarContainer}>
-                      <div className={styles.metricBar} style={{width: `${pct(qualityMetrics?.credibility) ?? 0}%`, backgroundColor: scoreColor(qualityMetrics?.credibility)}}></div>
-                    </div>
-                    <div className={styles.metricValue}>{qualityMetrics ? `${pct(qualityMetrics.credibility)}%` : 'N/A'}</div>
-                  </div>
-                  <div className={styles.overallMetric} title={qualityMetrics ? `Overall = context-weighted average of relevance, accuracy and credibility per source (weights from docs/METRICS_SYSTEM.md), averaged over ${qualityMetrics.n.overall} measured sources.` : 'No measurable sources'}>
-                    <div className={styles.overallLabel}>Overall</div>
-                    <div className={styles.overallScore}>
-                      {qualityMetrics ? `${pct(qualityMetrics.overall)}%` : 'N/A'}
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Claim check: do independent sources agree on the figures? */}
-                {claimCheck && claimCheck.claims && claimCheck.claims.length > 0 && (
-                  <div className={styles.sourcesCard}>
-                    <h3>Claim Check</h3>
-                    <div className={styles.sourcesList}>
-                      {claimCheck.claims.slice(0, 6).map((claim, index) => {
-                        const st = CLAIM_STYLE[claim.status] || CLAIM_STYLE['single-source'];
-                        return (
-                          <div key={`claim-${index}`} className={styles.sourceItem} style={{ display: 'block' }} title={claim.quote}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
-                              <span>{claim.label}: <strong style={{ color: '#0066cc' }}>{claim.value}</strong></span>
-                              <span style={{ fontSize: 11, color: st.color, backgroundColor: st.background, padding: '1px 6px', borderRadius: 10, whiteSpace: 'nowrap' }}>{st.label}</span>
-                            </div>
-                            <div style={{ fontSize: 11, color: '#6b7280' }}>
-                              {(claim.sourceRefs || []).map((ref) => ref.site).join(', ')}
-                              {(claim.alternatives || []).slice(0, 3).map((alt) => ` · ${alt.speculative ? 'reported target' : alt.total ? 'total raised' : alt.prior ? 'earlier' : claim.status === 'conflict' && alt.sameRound !== false ? 'vs' : 'also reported'} ${alt.value}${alt.when ? ` (${alt.when})` : ''} (${(alt.sourceRefs || []).map((r) => r.site).join(', ')})`).join('')}{(claim.alternatives || []).length > 3 ? ` · +${claim.alternatives.length - 3} more` : ''}
-                              {claim.note ? ` · ${claim.note}` : ''}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+      <div className={styles.insightsStack}>
+        <div className={styles.insightsGrid}>
+          {/* Insight text */}
+          <div className={styles.panel}>
+            {keyInsightsContent && keyInsightsContent.length > 0 ? (
+              !Array.isArray(keyInsightsContent) ? (
+                <div
+                  className={styles.insights}
+                  dangerouslySetInnerHTML={{ __html: renderAnswerHtml(keyInsightsContent, sourceMap) }}
+                />
+              ) : (
+                keyInsightsContent.map((item, index) => (
+                  <div
+                    key={`insight-${index}`}
+                    className={styles.insights}
+                    dangerouslySetInnerHTML={{ __html: renderAnswerHtml(item, sourceMap) }}
+                  />
+                ))
+              )
+            ) : (
+              <>
+                <h3 className={styles.panelTitle}>Key insights</h3>
+                <div className={styles.empty}>Nothing to analyse yet. Run a search that returns sources.</div>
+              </>
+            )}
+          </div>
 
-                {/* Top Performing Sources Section */}
-                <div className={styles.sourcesCard}>
-                  <h3>Top Sources</h3>
-                  <div className={styles.sourcesList}>
-                    {/* Extract and sort sources by score */}
-                    {scoredSources.length > 0 ? (
-                      [...topSources, ...lowerSources].map((result, index) => {
-                        const score = Math.round(result.combinedScore * 100);
-                        const isLower = index >= topSources.length;
-                        if (isLower && !showLowerSources) return null;
-                        return (
-                          <div key={`source-${index}`} className={styles.sourceItem} style={isLower ? { opacity: 0.75 } : undefined}>
-                            <a href={result.url} target="_blank" rel="noopener noreferrer" className={styles.sourceLink} title={result.title || result.displayTitle}>
-                              {result.displayTitle}
-                            </a>
-                            {result.displayPublisher && result.displayPublisher !== result.displayTitle && (
-                              <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 6, whiteSpace: 'nowrap' }}>{result.displayPublisher}</span>
-                            )}
-                            {result.undated && (
-                              <span title="This source has no publication date, so the date filter could not be applied to it" style={{ fontSize: 11, color: '#92400e', backgroundColor: '#FEF3C7', padding: '1px 6px', borderRadius: 10, marginLeft: 6, whiteSpace: 'nowrap' }}>undated</span>
-                            )}
-                            {result.badge && (
-                              <span
-                                title={`${result.badge.label}${result.reputation ? ` (reputation ${result.reputation}/100)` : ''}`}
-                                style={{ color: result.badge.color, backgroundColor: result.badge.background || result.badge.backgroundColor, fontSize: 11, padding: '1px 6px', borderRadius: 10, marginLeft: 6, whiteSpace: 'nowrap' }}
-                              >
-                                {result.badge.icon} {result.badge.label}
-                              </span>
-                            )}
-                            {result.sourceTierLabel && (
-                              <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 6, whiteSpace: 'nowrap' }}>{result.sourceTierLabel}</span>
-                            )}
-                            <span className={styles.sourceScore} title={sourceTitle(result)} style={{ color: scoreColor(result.combinedScore), cursor: 'help' }}>{score}%</span>
-                            {onSaveSource && result.url && result.url !== '#' && (
-                              <button
-                                type="button"
-                                onClick={() => handleSave(result)}
-                                disabled={savedUrls[result.url] === 'saving' || savedUrls[result.url] === 'saved'}
-                                title="Save this source to the selected workspace"
-                                style={{ fontSize: 11, marginLeft: 6, color: savedUrls[result.url] === 'error' ? '#DB4437' : '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}
-                              >
-                                {savedUrls[result.url] === 'saved' ? '✓ Saved' : savedUrls[result.url] === 'error' ? 'Retry' : savedUrls[result.url] === 'saving' ? '…' : '+ Save'}
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })
-                    ) : (
-                      // No placeholders - only show real sources
-                      <div className={styles.noSourcesMessage}>
-                        No sources available for this search.
-                      </div>
-                    )}
-                    {lowerSources.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setShowLowerSources((v) => !v)}
-                        style={{ fontSize: 12, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0' }}
-                      >
-                        {showLowerSources ? 'Hide' : 'Show'} {lowerSources.length} lower-scoring source{lowerSources.length === 1 ? '' : 's'} (60% or below)
-                      </button>
-                    )}
-                    {qualityMetrics && (
-                      <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
-                        Scores are measured from each source's evidence ({Math.round(qualityMetrics.componentCoverage * 100)}% of scoring components had evidence). Hover a score for the breakdown.
-                      </div>
-                    )}
+          {/* Quality scores (always shown, N/A when nothing was measured) */}
+          {qualityPanel}
+        </div>
+
+        {/* Claim check: do independent sources agree on the figures? */}
+        {keyInsightsContent && keyInsightsContent.length > 0 && claimCheck && claimCheck.claims && claimCheck.claims.length > 0 && (
+          <div className={styles.panel}>
+            <h3 className={styles.panelTitle}>Claim check</h3>
+            <div>
+              {claimCheck.claims.slice(0, 6).map((claim, index) => {
+                const st = CLAIM_STYLE[claim.status] || CLAIM_STYLE['single-source'];
+                return (
+                  <div key={`claim-${index}`} className={styles.claimRow} title={claim.quote}>
+                    <div className={styles.claimMain}>
+                      <span><span className={styles.claimLabel}>{claim.label}: </span><span className={styles.claimValue}>{claim.value}</span></span>
+                      <span className={st.chip} style={{ whiteSpace: 'nowrap' }}>{st.label}</span>
+                    </div>
+                    <div className={styles.claimMeta}>
+                      {(claim.sourceRefs || []).map((ref) => ref.site).join(', ')}
+                      {(claim.alternatives || []).slice(0, 3).map((alt) => ` · ${alt.speculative ? 'reported target' : alt.total ? 'total raised' : alt.prior ? 'earlier' : claim.status === 'conflict' && alt.sameRound !== false ? 'vs' : 'also reported'} ${alt.value}${alt.when ? ` (${alt.when})` : ''} (${(alt.sourceRefs || []).map((r) => r.site).join(', ')})`).join('')}{(claim.alternatives || []).length > 3 ? ` · +${claim.alternatives.length - 3} more` : ''}
+                      {claim.note ? ` · ${claim.note}` : ''}
+                    </div>
                   </div>
-                </div>
-              </div>
-              
-              {/* Main content area - Flexible based on content */}
-              <div className={styles.mainInsightColumn}>
-                {!Array.isArray(keyInsightsContent) ? (
-                  <div className={styles.insightContainer}>
-                    <div 
-                      className={styles.formattedKeyInsights} 
-                      dangerouslySetInnerHTML={{ __html: renderSafeHtml(keyInsightsContent) }} 
-                    />
-                  </div>
-                ) : (
-                  <div className={styles.multiInsightContainer}>
-                    {keyInsightsContent.map((item, index) => {
-                      // Determine layout pattern based on content length and position
-                      const insightClass = index === 0 ? styles.primaryInsight : 
-                                           (index % 3 === 0) ? styles.fullWidthInsight : styles.standardInsight;
-                      return (
-                        <div key={`insight-${index}`} className={`${styles.insightItem} ${insightClass}`}>
-                          <div 
-                            className={styles.formattedKeyInsights} 
-                            dangerouslySetInnerHTML={{ __html: renderSafeHtml(item) }} 
-                          />
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+                );
+              })}
             </div>
           </div>
-        ) : (
-          <div className={styles.keyInsightsContainer}>
-            <div className={styles.responsiveLayout}>
-              {/* Right column with metrics - Always at the top */}
-              <div className={styles.metricsColumn}>
-                <div className={styles.metricsCard}>
-                  <h3>Quality Assessment</h3>
-                  <div className={styles.metricItem}>
-                    <div className={styles.metricLabel}>Relevance</div>
-                    <div className={styles.metricBarContainer}>
-                      <div className={styles.metricBar} style={{width: '0%'}}></div>
+        )}
+
+        {/* Top Performing Sources Section */}
+        {keyInsightsContent && keyInsightsContent.length > 0 && (
+          <div className={styles.panel}>
+            <h3 className={styles.panelTitle}>Top sources</h3>
+            <div>
+              {scoredSources.length > 0 ? (
+                [...topSources, ...lowerSources].map((result, index) => {
+                  const score = Math.round(result.combinedScore * 100);
+                  const isLower = index >= topSources.length;
+                  if (isLower && !showLowerSources) return null;
+                  const host = hostOf(result.url);
+                  const saveState = savedUrls[result.url];
+                  return (
+                    <div key={`source-${index}`} className={`${styles.sourceRow} ${isLower ? styles.sourceLower : ''}`}>
+                      <div className={styles.favicon} aria-hidden="true">
+                        {host ? (
+                          <img src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`} alt="" loading="lazy" />
+                        ) : (
+                          <HiOutlineSparkles className="text-muted" style={{ width: 14, height: 14 }} />
+                        )}
+                      </div>
+                      <div className={styles.sourceMain}>
+                        <a href={result.url} target="_blank" rel="noopener noreferrer" className={styles.sourceTitle} title={result.title || result.displayTitle}>
+                          {result.displayTitle}
+                        </a>
+                        <div className={styles.sourceMeta}>
+                          {result.displayPublisher && result.displayPublisher !== result.displayTitle && (
+                            <span>{result.displayPublisher}{result.sourceTierLabel ? ` · ${result.sourceTierLabel}` : ''}</span>
+                          )}
+                          {(!result.displayPublisher || result.displayPublisher === result.displayTitle) && result.sourceTierLabel && (
+                            <span>{result.sourceTierLabel}</span>
+                          )}
+                          {result.badge && (
+                            <span
+                              className={badgeChipClass(result.badge.label)}
+                              title={`${result.badge.label}${result.reputation ? ` (reputation ${result.reputation}/100)` : ''}`}
+                            >
+                              {result.badge.label}
+                            </span>
+                          )}
+                          {result.undated && (
+                            <span className="chip chip-warn" title="This source has no publication date, so the date filter could not be applied to it">undated</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className={styles.sourceAside}>
+                        <span className={styles.score} title={sourceTitle(result)} style={{ color: scoreColor(result.combinedScore) }}>
+                          <ScoreRing value={result.combinedScore} />
+                          {score}%
+                        </span>
+                        {onSaveSource && result.url && result.url !== '#' && (
+                          <button
+                            type="button"
+                            onClick={() => handleSave(result)}
+                            disabled={saveState === 'saving' || saveState === 'saved'}
+                            title="Save this source to the selected workspace"
+                            className={saveState === 'error' ? 'btn-danger' : 'btn-ghost'}
+                            style={{ fontSize: 12, padding: '4px 8px' }}
+                          >
+                            {saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Retry' : saveState === 'saving' ? 'Saving…' : 'Save'}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className={styles.metricValue}>N/A</div>
-                  </div>
-                  <div className={styles.metricItem}>
-                    <div className={styles.metricLabel}>Accuracy</div>
-                    <div className={styles.metricBarContainer}>
-                      <div className={styles.metricBar} style={{width: '0%'}}></div>
-                    </div>
-                    <div className={styles.metricValue}>N/A</div>
-                  </div>
-                  <div className={styles.metricItem}>
-                    <div className={styles.metricLabel}>Credibility</div>
-                    <div className={styles.metricBarContainer}>
-                      <div className={styles.metricBar} style={{width: '0%'}}></div>
-                    </div>
-                    <div className={styles.metricValue}>N/A</div>
-                  </div>
-                  <div className={styles.overallMetric}>
-                    <div className={styles.overallLabel}>Overall</div>
-                    <div className={styles.overallScore}>N/A</div>
-                  </div>
+                  );
+                })
+              ) : (
+                // No placeholders - only show real sources
+                <div className={styles.empty}>
+                  No sources available for this search.
                 </div>
-              </div>
-              
-              {/* Main content area */}
-              <div className={styles.mainInsightColumn}>
-                <div className={styles.placeholderInsight}>
-                  <h2><span className={styles.insightIcon}>🔍</span> Key Insights</h2>
-                  <p className={styles.analysisMessage}>
-                    Analyzing search results to generate insights...
-                  </p>
-                  <div className={styles.insightLoading}>
-                    <div className={styles.loadingBar}></div>
-                  </div>
+              )}
+              {lowerSources.length > 0 && (
+                <div className={styles.lowerToggle}>
+                  <button
+                    type="button"
+                    onClick={() => setShowLowerSources((v) => !v)}
+                    className="btn-ghost"
+                  >
+                    {showLowerSources ? 'Hide' : 'Show'} {lowerSources.length} lower-scoring source{lowerSources.length === 1 ? '' : 's'} (60% or below)
+                    {showLowerSources
+                      ? <HiOutlineChevronUp style={{ width: 14, height: 14 }} />
+                      : <HiOutlineChevronDown style={{ width: 14, height: 14 }} />}
+                  </button>
                 </div>
-              </div>
+              )}
+              {qualityMetrics && (
+                <div className={styles.scoreNote}>
+                  Scores are measured from each source's evidence ({Math.round(qualityMetrics.componentCoverage * 100)}% of scoring components had evidence). Hover a score for the breakdown.
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1123,63 +1139,54 @@ const SimplifiedLLMResults = ({
   const tabsToShow = [allResultsTab, keyInsightsTab];
 
   return (
-    <div 
-      className={styles.simplifiedContainer} 
+    <div
+      className={`ai-card animate-fadeIn ${styles.container}`}
       data-testid="simplified-llm-results"
     >
-      {/* Status bar with query info */}
-      <div className={styles.statusBar}>
-        <div className={styles.queryInfo}>
-          <span className={styles.statusLabel}>{query ? `"${query}"` : 'Results'}</span>
+      {/* Header with the query and the source count */}
+      <div className={styles.header}>
+        <div className={styles.headerQuery}>
+          <HiOutlineSparkles className="shrink-0 text-brand-500" style={{ width: 16, height: 16 }} />
+          <span>{query ? `“${query}”` : 'Results'}</span>
         </div>
-        <div className={styles.resultCount}>
+        <span className={`chip ${styles.headerCount}`}>
           {scoredSources.length > 0
             ? `${scoredSources.length} source${scoredSources.length === 1 ? '' : 's'}`
             : `${validResults?.length || 0} result${validResults?.length === 1 ? '' : 's'}`}
-        </div>
+        </span>
       </div>
-      
-      {/* Alert box for API errors if detected */}
+
+      {/* Alert box for service errors if detected */}
       {hasErrorResults && validResults.length === 0 && (
-        <div className={styles.errorAlert}>
-          <h4 className={styles.errorTitle}>API Error</h4>
-          <p className={styles.errorMessage}>
-            The search service returned an error and no answer could be shown.
-            Please try again; if it keeps failing, check the server logs and provider configuration.
+        <div className={styles.alert} role="alert">
+          <h4 className={styles.alertTitle}>Answer unavailable</h4>
+          <p className={styles.alertText}>
+            The search service returned an error and no answer could be shown. Run the search again in a moment.
           </p>
         </div>
       )}
       {hasAuthError && validResults.length > 0 && (
-        <div className={styles.errorAlert}>
-          <h4 className={styles.errorTitle}>Provider Warning</h4>
-          <p className={styles.errorMessage}>
-            The AI provider rejected the request. Showing the available search results with a quoted digest instead.
+        <div className={styles.alert} role="alert">
+          <h4 className={styles.alertTitle}>Answer quoted from sources</h4>
+          <p className={styles.alertText}>
+            The AI model could not be used for this search, so the answer is quoted from the sources instead.
           </p>
         </div>
       )}
 
-      {/* Tab Navigation - moved outside of scrollable area */}
-      <TabNavigation 
-        tabs={tabsToShow} 
+      {/* Tab Navigation */}
+      <TabNavigation
+        tabs={tabsToShow}
         defaultTabId="all-results"
         onTabChange={null}
-        containerStyle={{ 
-          margin: '10px 0 0 0',
-          border: '1px solid #e5e7eb',
-          borderRadius: '8px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column'
-        }}
       />
 
-      {/* Follow-up chat input - fixed at bottom */}
-      <div className={styles.followupWrapper}>
-        {onFollowUpSearch && (
+      {/* Follow-up input at the bottom */}
+      {onFollowUpSearch && (
+        <div className={styles.followupWrapper}>
           <FollowUpChat onSubmit={handleFollowUpSearch} />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

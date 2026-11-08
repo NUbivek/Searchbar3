@@ -593,7 +593,7 @@ function withTimeout(promise, ms, label) {
 async function searchCourtListener(name, { timeoutMs = 12000 } = {}) {
   const token = process.env.COURTLISTENER_API_TOKEN;
   if (!token) {
-    const err = new Error('CourtListener skipped: requires COURTLISTENER_API_TOKEN (free account; anonymous API requests return 401).');
+    const err = new Error('Court records are not enabled on this deployment.');
     err.skipped = true;
     throw err;
   }
@@ -658,7 +658,7 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
   const warnings = [];
   const unavailableSources = [];
   const webOn = searchers.webConfigured();
-  if (!webOn) unavailableSources.push({ source: 'Web search', reason: 'No SERPER_API_KEY or TAVILY_API_KEY configured.' });
+  if (!webOn) unavailableSources.push({ source: 'Web search', reason: 'Web search is not enabled on this deployment.' });
 
   const webQueriesFor = (n) => [
     [`"${n}"`, {}],
@@ -749,13 +749,13 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
   if (!evidence.sources.length) {
     const webMissing = unavailableSources.some((u) => /web/i.test(u.source));
     warnings.push(webMissing
-      ? `No source mentions "${displayName}" by full name. Without web search, only the curated startup-news feeds and Hacker News are searched, and they rarely cover individuals who have not been in funding news. Add a web search key (SERPER_API_KEY or TAVILY_API_KEY) to search the wider web.`
+      ? `No source mentions "${displayName}" by full name. Without web search, only the curated startup-news feeds and Hacker News are searched, and they rarely cover individuals who have not been in funding news. Enable web search to cover the wider web.`
       : `No source mentions "${displayName}" by full name.`);
   }
 
   // Brief: AI (free chain) with checked citations, else quoted
   let brief = null;
-  let briefInfo = { mode: 'quoted', reason: 'No AI model is configured' };
+  let briefInfo = { mode: 'quoted', reason: 'AI answers are not enabled on this deployment' };
   if (ranked.length > 0 && useLLM && PROVIDERS.some(providerEnabled)) {
     const user = `Today's date: ${new Date().toISOString().slice(0, 10)}\nPerson: ${displayName}${co ? `\nCompany (to disambiguate): ${co}` : ''}\n\nSources:\n${sourcesBlock(ranked)}`;
     const out = await chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], { preferred: model, maxTokens: 3000, deadline });

@@ -64,7 +64,7 @@ describe('OpenSearch', () => {
   afterEach(() => { delete global.fetch; });
 
   const search = (text) => {
-    fireEvent.change(screen.getByPlaceholderText('Search across sources...'), { target: { value: text } });
+    fireEvent.change(screen.getByPlaceholderText('Ask about a company, founder or market…'), { target: { value: text } });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
   };
 
@@ -90,7 +90,7 @@ describe('OpenSearch', () => {
     expect(screen.getByTestId('llm-results').textContent).toBe('array:0');
     expect(screen.getByTestId('not-configured-note')).toBeTruthy();
     expect(screen.queryByText('Some sources unavailable')).toBeNull();
-    expect(screen.queryByText(/Answer quoted directly/)).toBeNull();
+    expect(screen.queryByText(/Quoted from sources/)).toBeNull();
     expect(document.body.textContent).not.toMatch(/"status":/);
   });
 
@@ -98,7 +98,7 @@ describe('OpenSearch', () => {
     global.fetch.mockImplementation(async (url) => (url === '/api/search/open'
       ? jsonResponse({
         status: 'ok', results: [{ title: 'OpenAI raises $11B', url: 'https://a.test' }], content: '## SUMMARY\nOpenAI raised $11B [Source 1].',
-        answerInfo: { mode: 'quoted', reason: 'No AI model is configured' }, queryPlan: { entity: 'OpenAI', mode: 'entity', intents: ['funding'], droppedForRelevance: 2 },
+        answerInfo: { mode: 'quoted', reason: 'AI answers are not enabled on this deployment' }, queryPlan: { entity: 'OpenAI', mode: 'entity', intents: ['funding'], droppedForRelevance: 2 },
         sourceStatuses: [{ source: 'curated', status: 'ok' }], degradedSources: [], olderThanFilter: 3,
       })
       : jsonResponse({})));
@@ -107,7 +107,7 @@ describe('OpenSearch', () => {
     search('open ai latest funding');
 
     expect((await screen.findByTestId('llm-results')).textContent).toBe('answer:## SUMMARY\nOpenAI ra');
-    expect(screen.getByText(/Answer quoted directly from sources/)).toBeTruthy();
+    expect(screen.getByText(/Quoted from sources/)).toBeTruthy();
     expect(screen.getByText(/3 results were older than the filter/)).toBeTruthy();
     expect(screen.queryByText('No direct results yet')).toBeNull();
     expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
@@ -132,7 +132,7 @@ describe('OpenSearch', () => {
 
   it('does not scroll while typing, and re-runs the search when the date filter changes', async () => {
     render(<OpenSearch selectedModel="auto" setSelectedModel={jest.fn()} />);
-    fireEvent.change(screen.getByPlaceholderText('Search across sources...'), { target: { value: 'typing' } });
+    fireEvent.change(screen.getByPlaceholderText('Ask about a company, founder or market…'), { target: { value: 'typing' } });
     expect(window.HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText(/Published/), { target: { value: '365' } });

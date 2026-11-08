@@ -189,7 +189,7 @@ export default async function handler(req, res) {
           suggestions: [
             ...(olderThanFilter > 0 ? ['Widen the Published filter to see older results'] : []),
             'Check the spelling of the company or person',
-            ...(statuses.some((s) => s.source === 'web' && s.status === 'not_configured') ? ['Add a SERPER_API_KEY or TAVILY_API_KEY to enable web search for broader coverage'] : []),
+            ...(statuses.some((s) => s.source === 'web' && s.status === 'not_configured') ? ['Enable web search for broader coverage'] : []),
             'Try fewer words, e.g. just the company name'
           ]
         }

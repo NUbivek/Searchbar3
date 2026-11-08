@@ -31,7 +31,7 @@ describe('DegradedBanner', () => {
     render(<DegradedBanner degradedSources={[]} status="ok" sourceStatuses={[{ source: 'web', status: 'not_configured', error: 'Web search is off' }, { source: 'curated', status: 'ok' }]} />);
 
     expect(screen.queryByText('Some sources unavailable')).toBeNull();
-    expect(screen.getByTestId('not-configured-note').textContent).toBe('Web search is off (no SERPER_API_KEY/TAVILY_API_KEY); searching curated sources and Hacker News');
+    expect(screen.getByTestId('not-configured-note').textContent).toBe('Web search is not enabled on this deployment; showing curated sources and Hacker News');
   });
 
   it('keeps real failures in the banner alongside the not-configured note', () => {
@@ -39,6 +39,6 @@ describe('DegradedBanner', () => {
 
     expect(screen.getByText('Some sources unavailable')).toBeTruthy();
     expect(screen.getByText(/Your URLs is unavailable/)).toBeTruthy();
-    expect(screen.getByText(/Web search is off/)).toBeTruthy();
+    expect(screen.getByText(/Web search is not enabled on this deployment/)).toBeTruthy();
   });
 });

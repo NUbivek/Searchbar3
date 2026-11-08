@@ -223,7 +223,7 @@ describe('alert digest', () => {
     delete process.env.RESEND_API_KEY;
     try {
       expect(emailAlertsConfigured()).toBe(false);
-      await expect(sendAlertDigest({ to: 'a@b.c', companies: [] })).rejects.toThrow(/not configured/);
+      await expect(sendAlertDigest({ to: 'a@b.c', companies: [] })).rejects.toThrow(/not enabled/);
       process.env.RESEND_API_KEY = 'x';
       const f = jest.fn();
       expect(await sendAlertDigest({ to: 'a@b.c', companies: [{ company: 'A', alerts: [] }] }, { fetchImpl: f })).toBe(false);

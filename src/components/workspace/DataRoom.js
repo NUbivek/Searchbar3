@@ -8,7 +8,10 @@
  * through /api/workspaces/:id/documents.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { HiOutlineArrowUpTray, HiOutlineSparkles, HiOutlineDocumentText, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { uploadFiles } from '../../utils/fileHandlers';
+
+const ICON = { width: 15, height: 15 };
 
 const ACCEPT = '.pdf,.docx,.csv,.txt,.md,.markdown';
 const SERVER_PARSED = /\.(pdf|docx|csv)$/i;
@@ -39,7 +42,7 @@ function formatDate(value) {
 function highlightNumbers(text, keyPrefix) {
   const parts = String(text).split(/(\$?\d[\d,]*(?:\.\d+)?\s?(?:%|[kKmMbB]\b|million|billion)?)/g);
   return parts.map((part, i) => (i % 2 === 1
-    ? <span key={`${keyPrefix}-n${i}`} style={{ fontWeight: 700, color: '#0066cc', backgroundColor: '#0066cc15', borderRadius: 3, padding: '0 2px' }}>{part}</span>
+    ? <span key={`${keyPrefix}-n${i}`} className="rounded bg-brand-50 px-1 font-semibold text-brand-700">{part}</span>
     : <React.Fragment key={`${keyPrefix}-t${i}`}>{part}</React.Fragment>));
 }
 
@@ -49,9 +52,7 @@ function CitationChip({ label, active, onClick, missing }) {
       type="button"
       onClick={onClick}
       disabled={missing}
-      className={`inline-flex items-center mx-0.5 px-1.5 rounded text-xs font-semibold align-baseline border ${
-        active ? 'bg-blue-500 text-white border-blue-500' : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-      }`}
+      className={`cite mx-0.5 disabled:cursor-not-allowed disabled:opacity-50 ${active ? '!bg-brand-600 !text-white' : ''}`}
       aria-expanded={active}
       title={missing ? 'Passage unavailable' : 'Show passage'}
     >
@@ -63,7 +64,7 @@ function CitationChip({ label, active, onClick, missing }) {
 function AnswerText({ text, citationsByLabel, openLabel, onToggle }) {
   const lines = String(text || '').split('\n');
   return (
-    <div className="space-y-2 text-gray-800 text-sm leading-relaxed">
+    <div className="space-y-2 text-sm leading-relaxed text-slate-700">
       {lines.map((line, li) => {
         const pieces = line.split(/(\[[DS]\d+\])/g);
         return (
@@ -93,22 +94,22 @@ function AnswerText({ text, citationsByLabel, openLabel, onToggle }) {
 function PassageCard({ citation }) {
   const isSource = Boolean(citation.sourceName && !citation.docName);
   return (
-    <div className="mt-3 border-l-4 border-blue-300 bg-gray-50 rounded p-3 text-sm">
-      <div className="text-xs text-gray-500 mb-1">
-        <span className="font-semibold text-blue-700 mr-2">[{citation.label}]</span>
+    <div className="mt-3 rounded-xl border border-line bg-slate-50/70 px-3.5 py-3 text-sm">
+      <div className="mb-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+        <span className="cite">[{citation.label}]</span>
         {isSource ? (
           <>
             {citation.sourceName}
             {citation.title ? ` · ${citation.title}` : ''}
             {citation.url && (
-              <a href={citation.url} target="_blank" rel="noopener noreferrer" className="ml-2 text-blue-600 hover:underline">open</a>
+              <a href={citation.url} target="_blank" rel="noopener noreferrer" className="ml-1 inline-flex items-center gap-1 font-medium text-brand-600 hover:underline">open <HiOutlineArrowTopRightOnSquare style={{ width: 11, height: 11 }} /></a>
             )}
           </>
         ) : (
           <>{citation.docName} · passage {Number(citation.passageIndex) + 1}</>
         )}
       </div>
-      <p className="text-gray-700 whitespace-pre-wrap">{highlightNumbers(citation.text, `pc-${citation.label}`)}</p>
+      <p className="whitespace-pre-wrap text-slate-700">{highlightNumbers(citation.text, `pc-${citation.label}`)}</p>
     </div>
   );
 }
@@ -248,14 +249,14 @@ export default function DataRoom({ workspaceId }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-800">Data room</h2>
-            <p className="text-sm text-gray-500">Upload a deck, financials or memos (PDF, DOCX, CSV, TXT, MD) and ask questions answered from them.</p>
+      <div className="card card-pad">
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-center gap-2">
+            <h2 className="section-title">Data room</h2>
+            {documents.length > 0 && <span className="chip">{documents.length}</span>}
           </div>
-          <label className={`shrink-0 px-4 py-2 rounded text-sm font-medium text-white ${uploading ? 'bg-blue-300 cursor-wait' : 'bg-blue-500 hover:bg-blue-600 cursor-pointer'}`}>
-            {uploading ? 'Uploading...' : 'Upload documents'}
+          <label className={`btn-primary shrink-0 ${uploading ? 'cursor-wait opacity-60' : 'cursor-pointer'}`}>
+            <HiOutlineArrowUpTray style={ICON} /> {uploading ? 'Uploading…' : 'Upload documents'}
             <input
               ref={fileInput}
               type="file"
@@ -267,36 +268,48 @@ export default function DataRoom({ workspaceId }) {
             />
           </label>
         </div>
+        <p className="muted mb-3">Upload a deck, financials or memos (PDF, DOCX, CSV, TXT, MD) and ask questions answered from them.</p>
         {uploading && progress > 0 && (
-          <div className="w-full bg-gray-100 rounded h-1.5 mb-3">
-            <div className="bg-blue-500 h-1.5 rounded" style={{ width: `${progress}%` }} />
+          <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+            <div className="h-1.5 rounded-full transition-all" style={{ width: `${progress}%`, backgroundImage: 'var(--grad)' }} />
           </div>
         )}
-        {uploadMessage && <p className="text-sm text-green-700 mb-2">{uploadMessage}</p>}
-        {docError && <p className="text-sm text-red-600 mb-2" role="alert">{docError}</p>}
+        {uploadMessage && <p className="mb-2 text-sm text-emerald-700" role="status">{uploadMessage}</p>}
+        {docError && <p className="mb-2 text-sm text-rose-600" role="alert">{docError}</p>}
         {loadingDocs ? (
-          <p className="text-sm text-gray-500">Loading documents...</p>
+          <div className="space-y-2" aria-busy="true">
+            <div className="skeleton h-4 w-1/2" />
+            <div className="skeleton h-4 w-1/3" />
+          </div>
         ) : noDocs ? (
-          <p className="text-sm text-gray-500">No documents yet.</p>
+          <div className="rounded-xl border border-dashed border-line px-4 py-6 text-center">
+            <p className="muted">No documents yet. Upload the first one to ask questions about it.</p>
+            <button type="button" className="btn-secondary mt-3" disabled={uploading} onClick={() => fileInput.current?.click()}>
+              <HiOutlineArrowUpTray style={ICON} /> Upload documents
+            </button>
+          </div>
         ) : (
-          <ul className="divide-y divide-gray-100">
+          <ul className="divide-y divide-line">
             {documents.map((doc) => (
-              <li key={doc.id} className="flex items-center justify-between py-2 text-sm">
-                <div className="min-w-0">
-                  <span className="font-medium text-gray-800 truncate">{doc.name}</span>
-                  <span className="text-gray-400 ml-2">{formatSize(doc.size)}{doc.created_at ? ` · ${formatDate(doc.created_at)}` : ''}</span>
+              <li key={doc.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600"><HiOutlineDocumentText style={{ width: 16, height: 16 }} /></span>
+                  <div className="min-w-0">
+                    <span className="block truncate font-medium text-ink">{doc.name}</span>
+                    <span className="block text-xs text-muted">{formatSize(doc.size)}{doc.created_at ? ` · ${formatDate(doc.created_at)}` : ''}</span>
+                  </div>
                 </div>
-                <button type="button" onClick={() => removeDocument(doc)} className="text-gray-400 hover:text-red-600 text-xs ml-3">Remove</button>
+                <button type="button" onClick={() => removeDocument(doc)} className="btn-danger shrink-0 px-2 py-1 text-xs">Remove</button>
               </li>
             ))}
           </ul>
         )}
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className="card card-pad">
         <form onSubmit={ask} className="space-y-3">
-          <label htmlFor="dataroom-question" className="block text-sm font-medium text-gray-700">Ask the data room</label>
-          <div className="flex gap-2">
+          <label htmlFor="dataroom-question" className="section-title block">Ask the data room</label>
+          <div className="flex flex-col gap-2 sm:flex-row">
             <input
               id="dataroom-question"
               type="text"
@@ -304,35 +317,47 @@ export default function DataRoom({ workspaceId }) {
               maxLength={2000}
               onChange={(e) => setQuestion(e.target.value)}
               placeholder="e.g. What is the monthly burn and runway?"
-              className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="input"
             />
             <button
               type="submit"
               disabled={asking || !question.trim() || (noDocs && !includeSources)}
-              className="px-4 py-2 rounded text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300"
+              className="btn-primary shrink-0"
             >
-              {asking ? 'Searching...' : 'Ask'}
+              <HiOutlineSparkles style={ICON} /> {asking ? 'Searching…' : 'Ask'}
             </button>
           </div>
-          <label className="inline-flex items-center gap-2 text-sm text-gray-600">
-            <input type="checkbox" checked={includeSources} onChange={(e) => setIncludeSources(e.target.checked)} />
+          <label className="inline-flex items-center gap-2 text-sm text-slate-600">
+            <input type="checkbox" className="h-4 w-4 rounded border-line text-brand-600 focus:ring-brand-500/30" checked={includeSources} onChange={(e) => setIncludeSources(e.target.checked)} />
             Also search curated sources
           </label>
         </form>
 
-        {asking && <p className="text-sm text-gray-500 mt-3">Reading the documents...</p>}
-        {askError && <p className="text-sm text-red-600 mt-3" role="alert">{askError}</p>}
+        {asking && (
+          <div className="mt-4" aria-busy="true" aria-live="polite">
+            <p className="flex items-center gap-2 text-sm text-ink">
+              <HiOutlineSparkles className="text-brand-500 animate-glow" style={{ width: 16, height: 16 }} />
+              Reading the documents…
+            </p>
+            <div className="mt-3 space-y-2">
+              <div className="skeleton h-3 w-full" />
+              <div className="skeleton h-3 w-5/6" />
+              <div className="skeleton h-3 w-2/3" />
+            </div>
+          </div>
+        )}
+        {askError && <p className="mt-3 text-sm text-rose-600" role="alert">{askError}</p>}
 
         {result && (
-          <div className="mt-4 border-t border-gray-100 pt-4">
-            <div className="flex items-center gap-2 mb-2 text-xs">
-              <span className={`px-2 py-0.5 rounded-full font-medium ${result.mode === 'ai' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>
-                {result.mode === 'ai' ? 'AI answer, citations verified' : 'Extractive'}
-              </span>
-              {result.note && <span className="text-gray-500">{result.note}</span>}
+          <div className="ai-card mt-4 p-4">
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+              {result.mode === 'ai'
+                ? <span className="ai-badge"><HiOutlineSparkles style={{ width: 13, height: 13 }} /> AI answer, citations verified</span>
+                : <span className="chip chip-active">Quoted from the documents</span>}
+              {result.note && <span className="text-muted">{result.note}</span>}
             </div>
             {result.notFound ? (
-              <p className="text-sm text-gray-700">Not found in the documents.</p>
+              <p className="text-sm text-slate-700">Not found in the documents.</p>
             ) : (
               <AnswerText
                 text={result.answer}
@@ -345,7 +370,7 @@ export default function DataRoom({ workspaceId }) {
 
             {(result.passages || []).length > 0 && (
               <div className="mt-4">
-                <button type="button" onClick={() => setShowAllPassages((v) => !v)} className="text-xs text-blue-600 hover:underline">
+                <button type="button" onClick={() => setShowAllPassages((v) => !v)} className="btn-ghost -ml-2.5 text-xs">
                   {showAllPassages ? 'Hide' : 'Show'} the {result.passages.length} passage{result.passages.length === 1 ? '' : 's'} searched
                 </button>
                 {showAllPassages && result.passages.map((p) => <PassageCard key={p.label} citation={p} />)}

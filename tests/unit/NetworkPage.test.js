@@ -3,7 +3,7 @@
  * Network Map page: shell, empty states, sign-in notice, no sample data.
  */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import NetworkPage from '../../src/pages/network';
 
 jest.mock('next/head', () => function Head({ children }) { return <>{children}</>; });
@@ -22,7 +22,8 @@ const { useSession } = require('next-auth/react');
 
 describe('NetworkPage', () => {
   beforeEach(() => {
-    useRouter.mockReturnValue({ isReady: true, query: {}, replace: jest.fn() });
+    // PageShell's TopBar reads router.pathname to mark the active section.
+    useRouter.mockReturnValue({ isReady: true, pathname: '/network', query: {}, replace: jest.fn() });
     global.fetch = jest.fn(async (url) => ({
       ok: true,
       status: 200,
@@ -38,9 +39,12 @@ describe('NetworkPage', () => {
   it('signed out: shell, import options, sign-in notice and empty states', async () => {
     useSession.mockReturnValue({ data: null, status: 'unauthenticated' });
     render(<NetworkPage />);
-    expect(screen.getByRole('heading', { name: 'Research Hub' })).toBeTruthy();
-    expect(screen.getByText('Open Research')).toBeTruthy();
-    expect(screen.getByText('Founder Check')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Network Map' })).toBeTruthy();
+    // The shell's section links (desktop and mobile nav)
+    expect(screen.getAllByText('Research')[0].closest('a').getAttribute('href')).toBe('/');
+    expect(screen.getAllByText('Founder Check')[0].closest('a').getAttribute('href')).toBe('/founder');
+    expect(screen.getByText('Connect LinkedIn')).toBeTruthy();
+    expect(screen.getByText('Connect X')).toBeTruthy();
     expect(screen.getByText('Upload LinkedIn Connections.csv')).toBeTruthy();
     expect(screen.getByText('Upload CSV/XLSX contacts')).toBeTruthy();
     expect(screen.getByText('Sign in to save your network')).toBeTruthy();
@@ -70,5 +74,23 @@ describe('NetworkPage', () => {
     await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
     expect(screen.getByText('Saved to your account')).toBeTruthy();
     expect(screen.getByText('Remove all my network data')).toBeTruthy();
+  });
+
+  it('offers Connect LinkedIn / Connect X even when not configured: an inline note, no redirect', async () => {
+    useSession.mockReturnValue({ data: null, status: 'unauthenticated' });
+    global.fetch = jest.fn(async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (String(url).includes('linkedin')
+        ? { isAuthenticated: false, configured: false }
+        : { authenticated: false, configured: false }),
+    }));
+    render(<NetworkPage />);
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/auth/twitter/token'));
+    fireEvent.click(screen.getByText('Connect LinkedIn'));
+    fireEvent.click(screen.getByText('Connect X'));
+    expect(screen.getByText("LinkedIn connection isn't available on this deployment yet.")).toBeTruthy();
+    expect(screen.getByText("X connection isn't available on this deployment yet.")).toBeTruthy();
+    expect(screen.queryByText(/paid|tier|API/)).toBeNull();
   });
 });

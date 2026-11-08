@@ -27,7 +27,7 @@ export const PROVIDERS = [
   },
   {
     id: 'openrouter',
-    label: 'OpenRouter (free)',
+    label: 'OpenRouter',
     free: true,
     keyEnv: 'OPENROUTER_API_KEY',
     baseUrl: 'https://openrouter.ai/api/v1',
@@ -50,7 +50,7 @@ export const PROVIDERS = [
   },
   {
     id: 'together',
-    label: 'Together (paid)',
+    label: 'Together',
     free: false,
     keyEnv: 'TOGETHER_API_KEY',
     baseUrl: 'https://api.together.xyz/v1',

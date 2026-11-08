@@ -8,6 +8,8 @@ jest.mock('../../src/components/account/AccountMenu', () => function MockAccount
   return <a href="/signin">Sign in</a>;
 });
 
+jest.mock('next/router', () => ({ useRouter: () => ({ pathname: '/', query: {}, isReady: true, push: jest.fn() }) }));
+
 jest.mock('next/head', () => function MockHead({ children }) {
   return <>{children}</>;
 });
@@ -61,12 +63,14 @@ describe('Home page', () => {
   it('renders the app shell and wires OpenSearch with the default model', () => {
     render(<Home />);
 
-    const networkLink = screen.getByText('Network Map').closest('a');
+    const networkLink = screen.getAllByText('Network')[0].closest('a');
     const openSearch = screen.getByTestId('open-search');
 
-    expect(screen.getByRole('heading', { name: 'Research Hub' })).toBeTruthy();
-    expect(screen.getByText('Search across web, academic sources, and more.')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Research any company, founder or market' })).toBeTruthy();
+    expect(screen.getByText(/written from cited sources/)).toBeTruthy();
+    expect(screen.getByText('Research Hub', { selector: 'span' }).closest('a').getAttribute('href')).toBe('/');
     expect(networkLink?.getAttribute('href')).toBe('/network');
+    expect(screen.getAllByText('Founder Check')[0].closest('a').getAttribute('href')).toBe('/founder');
     expect(openSearch.textContent).toContain('model:auto'); // best available free model
     expect(openSearch.textContent).toContain('setter:function');
   });

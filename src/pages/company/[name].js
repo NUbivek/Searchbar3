@@ -5,18 +5,38 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { HiOutlineMagnifyingGlass, HiOutlineSparkles } from 'react-icons/hi2';
 import PageShell from '../../components/layout/PageShell';
 
 const NOT_FOUND = 'Not found in available sources';
-const NUMBER_STYLE = { fontWeight: 'bold', color: '#0066cc', background: '#0066cc15', padding: '2px 4px', borderRadius: '3px' };
 const NUMBER_RE = /((?:[$€£]\s?)?\d+(?:[.,]\d+)*(?:\s?(?:%|percent|billion|million|bn|mn|[BMK]\b)[€$£]?)?)/g;
+const NUM_CLASS = 'rounded bg-brand-50 px-1 font-semibold text-brand-700';
+
+function hostOf(url) {
+  try { return new URL(url).hostname; } catch { return ''; }
+}
+
+function Favicon({ url }) {
+  const host = hostOf(url);
+  if (!host) return <span className="inline-block h-4 w-4 rounded bg-slate-100" aria-hidden="true" />;
+  return (
+    <img
+      src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`}
+      alt=""
+      width={16}
+      height={16}
+      loading="lazy"
+      className="inline-block h-4 w-4 rounded"
+    />
+  );
+}
 
 function Highlight({ text }) {
   const parts = String(text || '').split(NUMBER_RE);
   return (
     <>
       {parts.map((part, i) => (i % 2 === 1
-        ? <span key={i} style={NUMBER_STYLE}>{part}</span>
+        ? <span key={i} className={NUM_CLASS}>{part}</span>
         : <React.Fragment key={i}>{part}</React.Fragment>))}
     </>
   );
@@ -26,96 +46,97 @@ function Cite({ n, sources }) {
   const s = sources[n - 1];
   if (!s) return null;
   return (
-    <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700 text-xs whitespace-nowrap" title={`${s.sourceName}${s.date ? `, ${s.date}` : ''}: ${s.title}`}>
-      [{n}] {s.sourceName}{s.date ? `, ${s.date}` : ''}
+    <a href={s.url} target="_blank" rel="noopener noreferrer" className="cite" title={`${s.sourceName}${s.date ? `, ${s.date}` : ''}: ${s.title}`}>
+      [{n}]
     </a>
   );
 }
 
 function Card({ title, count, children }) {
   return (
-    <section className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
-      <h2 className="text-lg font-semibold text-gray-800 mb-3">
-        {title}
-        {typeof count === 'number' && count > 0 && <span className="ml-2 text-sm font-normal text-gray-500">({count})</span>}
-      </h2>
+    <section className="card card-pad">
+      <div className="mb-3 flex items-center gap-2">
+        <h2 className="section-title">{title}</h2>
+        {typeof count === 'number' && count > 0 && <span className="chip">{count}</span>}
+      </div>
       {children}
     </section>
   );
 }
 
-const Empty = () => <p className="text-sm text-gray-500 italic">{NOT_FOUND}</p>;
+const Empty = () => <p className="muted">{NOT_FOUND}</p>;
 
 function QuoteList({ items, sources, label }) {
   if (!items?.length) return <Empty />;
   return (
-    <ul className="space-y-3">
+    <ul className="divide-y divide-line">
       {items.map((item, i) => (
-        <li key={i} className="text-sm text-gray-700">
+        <li key={i} className="py-3 text-sm first:pt-0 last:pb-0">
           {label && label(item)}
-          <blockquote className="border-l-2 border-gray-200 pl-3">&ldquo;<Highlight text={item.quote} />&rdquo;</blockquote>
-          <div className="pl-3 mt-1"><Cite n={item.sourceIndex} sources={sources} /></div>
+          <p className="leading-relaxed text-slate-700">
+            &ldquo;<Highlight text={item.quote} />&rdquo;
+            <span className="ml-1"><Cite n={item.sourceIndex} sources={sources} /></span>
+          </p>
         </li>
       ))}
     </ul>
   );
 }
 
-function FundingTable({ rounds, sources }) {
+const NotStated = ({ children = 'Not stated' }) => <span className="text-slate-400">{children}</span>;
+
+function FundingRounds({ rounds, sources }) {
   if (!rounds?.length) return <Empty />;
   return (
-    <div className="overflow-x-auto">
-      <table className="min-w-full text-sm">
-        <thead>
-          <tr className="text-left text-gray-500 border-b border-gray-200">
-            <th className="py-2 pr-4 font-medium">Round</th>
-            <th className="py-2 pr-4 font-medium">Amount</th>
-            <th className="py-2 pr-4 font-medium" title="Publication date of the source reporting the round">Reported</th>
-            <th className="py-2 pr-4 font-medium">Lead investors</th>
-            <th className="py-2 font-medium">Source</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rounds.map((r, i) => (
-            <React.Fragment key={i}>
-              <tr className="border-t border-gray-100 align-top">
-                <td className="py-2 pr-4 text-gray-800">{r.round || <span className="text-gray-400">Not stated</span>}</td>
-                <td className="py-2 pr-4">{r.amount ? <span style={NUMBER_STYLE}>{r.amount}</span> : <span className="text-gray-400">Not stated</span>}</td>
-                <td className="py-2 pr-4 text-gray-700 whitespace-nowrap">{r.date || <span className="text-gray-400">Unknown</span>}</td>
-                <td className="py-2 pr-4 text-gray-700">{r.leadInvestors?.length ? r.leadInvestors.join(', ') : <span className="text-gray-400">Not stated</span>}</td>
-                <td className="py-2">
-                  <Cite n={r.sourceIndex} sources={sources} />
-                  {(r.otherSources || []).map((o, j) => o.sourceIndex !== r.sourceIndex && (
-                    <div key={j}><Cite n={o.sourceIndex} sources={sources} /></div>
-                  ))}
-                </td>
-              </tr>
-              <tr>
-                <td colSpan={5} className="pb-3 text-xs text-gray-600">
-                  &ldquo;<Highlight text={r.quote} />&rdquo;
-                  {(r.otherSources || []).map((o, j) => (
-                    <div key={j} className="mt-1">&ldquo;<Highlight text={o.quote} />&rdquo; <span className="text-gray-400">[{o.sourceIndex}]</span></div>
-                  ))}
-                </td>
-              </tr>
-            </React.Fragment>
+    <ul className="divide-y divide-line">
+      {rounds.map((r, i) => (
+        <li key={i} className="py-3 first:pt-0 last:pb-0">
+          <div className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[minmax(0,8rem)_minmax(0,8rem)_minmax(0,7rem)_1fr]">
+            <div>
+              <div className="eyebrow sm:hidden">Round</div>
+              <span className="font-medium text-ink">{r.round || <NotStated />}</span>
+            </div>
+            <div>
+              <div className="eyebrow sm:hidden">Amount</div>
+              {r.amount ? <span className={NUM_CLASS}>{r.amount}</span> : <NotStated />}
+            </div>
+            <div title="Publication date of the source reporting the round">
+              <div className="eyebrow sm:hidden">Reported</div>
+              <span className="whitespace-nowrap text-slate-700">{r.date || <NotStated>Unknown</NotStated>}</span>
+            </div>
+            <div>
+              <div className="eyebrow sm:hidden">Lead investors</div>
+              <span className="text-slate-700">{r.leadInvestors?.length ? r.leadInvestors.join(', ') : <NotStated />}</span>
+            </div>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-muted">
+            &ldquo;<Highlight text={r.quote} />&rdquo; <Cite n={r.sourceIndex} sources={sources} />
+          </p>
+          {(r.otherSources || []).map((o, j) => (
+            <p key={j} className="mt-1 text-xs leading-relaxed text-muted">
+              &ldquo;<Highlight text={o.quote} />&rdquo; <Cite n={o.sourceIndex} sources={sources} />
+            </p>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 
 const EVIDENCE_LABEL = { 'portfolio listing': 'Listed in portfolio', 'led round': 'Led a round', participated: 'Participated in a round' };
+const EVIDENCE_CHIP = { 'led round': 'chip chip-active', participated: 'chip', 'portfolio listing': 'chip' };
 
 function Investors({ investors, sources }) {
   if (!investors?.length) return <Empty />;
   return (
-    <ul className="divide-y divide-gray-100">
+    <ul className="divide-y divide-line">
       {investors.map((inv, i) => (
-        <li key={i} className="py-2 flex flex-wrap items-baseline justify-between gap-2 text-sm">
-          <span className="text-gray-800 font-medium">{inv.name}</span>
-          <span className="text-gray-500">{EVIDENCE_LABEL[inv.evidence] || inv.evidence} · <Cite n={inv.sourceIndex} sources={sources} /></span>
+        <li key={i} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-sm first:pt-0 last:pb-0">
+          <span className="font-medium text-ink">{inv.name}</span>
+          <span className="flex items-center gap-2">
+            <span className={EVIDENCE_CHIP[inv.evidence] || 'chip'}>{EVIDENCE_LABEL[inv.evidence] || inv.evidence}</span>
+            <Cite n={inv.sourceIndex} sources={sources} />
+          </span>
         </li>
       ))}
     </ul>
@@ -128,19 +149,19 @@ function PublicData({ data, sources }) {
     <div className="space-y-4 text-sm">
       {sec && (
         <div>
-          <p className="text-gray-800 font-medium">{sec.name} <span className="text-gray-500 font-normal">(CIK {sec.cik})</span></p>
-          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 mt-2 text-gray-700">
-            {sec.tickers?.length > 0 && <><dt className="text-gray-500">Tickers</dt><dd>{sec.tickers.join(', ')}{sec.exchanges?.length ? ` (${sec.exchanges.join(', ')})` : ''}</dd></>}
-            {sec.sicDescription && <><dt className="text-gray-500">Industry (SIC)</dt><dd>{sec.sicDescription}</dd></>}
-            {sec.stateOfIncorporation && <><dt className="text-gray-500">State of incorporation</dt><dd>{sec.stateOfIncorporation}</dd></>}
-            {sec.fiscalYearEnd && <><dt className="text-gray-500">Fiscal year end (MMDD)</dt><dd>{sec.fiscalYearEnd}</dd></>}
+          <p className="font-medium text-ink">{sec.name} <span className="font-normal text-muted">(CIK {sec.cik})</span></p>
+          <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-slate-700 sm:grid-cols-[auto,1fr]">
+            {sec.tickers?.length > 0 && <><dt className="text-muted">Tickers</dt><dd>{sec.tickers.join(', ')}{sec.exchanges?.length ? ` (${sec.exchanges.join(', ')})` : ''}</dd></>}
+            {sec.sicDescription && <><dt className="text-muted">Industry (SIC)</dt><dd>{sec.sicDescription}</dd></>}
+            {sec.stateOfIncorporation && <><dt className="text-muted">State of incorporation</dt><dd>{sec.stateOfIncorporation}</dd></>}
+            {sec.fiscalYearEnd && <><dt className="text-muted">Fiscal year end (MMDD)</dt><dd>{sec.fiscalYearEnd}</dd></>}
           </dl>
           {sec.filings?.length > 0 && (
             <ul className="mt-3 space-y-1">
               {sec.filings.map((f, i) => (
                 <li key={i}>
-                  <a href={f.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">{f.form}</a>
-                  <span className="text-gray-500"> filed {f.filingDate}{f.reportDate ? `, period ${f.reportDate}` : ''}</span>
+                  <a href={f.url} target="_blank" rel="noopener noreferrer" className="font-medium text-brand-600 hover:underline">{f.form}</a>
+                  <span className="text-muted"> filed {f.filingDate}{f.reportDate ? `, period ${f.reportDate}` : ''}</span>
                 </li>
               ))}
             </ul>
@@ -148,7 +169,28 @@ function PublicData({ data, sources }) {
           <div className="mt-2"><Cite n={sec.sourceIndex} sources={sources} /></div>
         </div>
       )}
-      {data?.market?.length > 0 && <QuoteList items={data.market} sources={sources} label={(m) => <p className="text-gray-800 font-medium mb-1">{m.title}</p>} />}
+      {data?.market?.length > 0 && <QuoteList items={data.market} sources={sources} label={(m) => <p className="mb-1 font-medium text-ink">{m.title}</p>} />}
+    </div>
+  );
+}
+
+function ProfileSkeleton({ name }) {
+  return (
+    <div className="space-y-4" aria-busy="true" aria-live="polite">
+      <p className="flex items-center gap-2 text-sm text-ink">
+        <HiOutlineSparkles className="text-brand-500 animate-glow" style={{ width: 16, height: 16 }} />
+        Gathering sources{name ? ` for ${name}` : ''}… this can take up to 20 seconds.
+      </p>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="card card-pad">
+          <div className="skeleton mb-3 h-4 w-1/4" />
+          <div className="space-y-2">
+            <div className="skeleton h-3 w-full" />
+            <div className="skeleton h-3 w-5/6" />
+            <div className="skeleton h-3 w-2/3" />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -185,35 +227,30 @@ export default function CompanyProfilePage() {
       title={name || 'Company profile'}
       subtitle="Company profile. Every fact below is quoted from a numbered source."
       actions={name ? (
-        <Link href={`/?q=${encodeURIComponent(name)}`} className="inline-block bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md text-sm whitespace-nowrap">
-          Search this company
+        <Link href={`/?q=${encodeURIComponent(name)}`} className="btn-primary whitespace-nowrap">
+          <HiOutlineMagnifyingGlass style={{ width: 15, height: 15 }} /> Search this company
         </Link>
       ) : null}
     >
-      {loading && (
-        <div className="bg-white border border-gray-200 rounded-lg p-6 text-center text-gray-600">
-          <div className="inline-block h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-2" />
-          <p>Gathering sources for {name}… this can take up to 20 seconds.</p>
-        </div>
-      )}
+      {loading && <ProfileSkeleton name={name} />}
 
       {error && (
-        <div className="bg-white border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">
           {error}
         </div>
       )}
 
       {profile && (
-        <>
-          <p className="text-xs text-gray-500 mb-4">
-            {profile.coverage.total} source{profile.coverage.total === 1 ? '' : 's'} mention {profile.name}
-            {' '}(curated registry {profile.coverage.curated}, web {profile.coverage.web}, Hacker News {profile.coverage.hn}).
-            {' '}Generated {new Date(profile.generatedAt).toLocaleString()}.
-            {' '}&ldquo;Reported&rdquo; dates are the source&apos;s publication date.
-          </p>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+            <span className="chip">{profile.coverage.total} source{profile.coverage.total === 1 ? '' : 's'}</span>
+            <span>curated registry {profile.coverage.curated} · web {profile.coverage.web} · Hacker News {profile.coverage.hn}</span>
+            <span>· Generated {new Date(profile.generatedAt).toLocaleString()}</span>
+            <span>· &ldquo;Reported&rdquo; dates are the source&apos;s publication date.</span>
+          </div>
 
           <Card title="Funding rounds" count={profile.fundingRounds.length}>
-            <FundingTable rounds={profile.fundingRounds} sources={sources} />
+            <FundingRounds rounds={profile.fundingRounds} sources={sources} />
           </Card>
 
           <Card title="Investors" count={profile.investors.length}>
@@ -225,7 +262,10 @@ export default function CompanyProfilePage() {
               items={profile.keyPeople}
               sources={sources}
               label={(p) => (p.name || p.role) && (
-                <p className="text-gray-800 font-medium mb-1">{p.name}{p.name && p.role ? ' · ' : ''}{p.role && <span className="text-gray-500 font-normal">{p.role}</span>}</p>
+                <p className="mb-1 flex flex-wrap items-center gap-2">
+                  {p.name && <span className="font-medium text-ink">{p.name}</span>}
+                  {p.role && <span className="chip">{p.role}</span>}
+                </p>
               )}
             />
           </Card>
@@ -250,20 +290,21 @@ export default function CompanyProfilePage() {
 
           <Card title="Sources" count={sources.length}>
             {sources.length === 0 ? <Empty /> : (
-              <ol className="space-y-1 text-sm">
+              <ol className="space-y-2 text-sm">
                 {sources.map((s) => (
-                  <li key={s.n} className="flex gap-2">
-                    <span className="text-gray-500 w-8 shrink-0 text-right">[{s.n}]</span>
-                    <span>
-                      <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700">{s.title}</a>
-                      <span className="text-gray-500"> · {s.sourceName}{s.date ? ` · ${s.date}` : ''}</span>
+                  <li key={s.n} className="flex items-start gap-2.5">
+                    <span className="cite mt-0.5 shrink-0">[{s.n}]</span>
+                    <span className="mt-0.5 shrink-0"><Favicon url={s.url} /></span>
+                    <span className="min-w-0">
+                      <a href={s.url} target="_blank" rel="noopener noreferrer" className="font-medium text-ink hover:text-brand-600 hover:underline">{s.title}</a>
+                      <span className="block text-xs text-muted">{s.sourceName}{s.date ? ` · ${s.date}` : ''}</span>
                     </span>
                   </li>
                 ))}
               </ol>
             )}
           </Card>
-        </>
+        </div>
       )}
     </PageShell>
   );

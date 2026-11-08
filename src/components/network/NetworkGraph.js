@@ -9,6 +9,7 @@
  * client-side, on first render.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { HiOutlineArrowsPointingOut } from 'react-icons/hi2';
 
 const METHOD_NAMES = [
   'emitParticle', 'd3Force', 'd3ReheatSimulation', 'stopAnimation', 'pauseAnimation', 'resumeAnimation',
@@ -38,10 +39,15 @@ function loadForceGraph2D() {
   return forceGraphPromise;
 }
 
-export const SOURCE_COLORS = { linkedin: '#0077B5', x: '#000000', csv: '#6B7280' };
-const ME_COLOR = '#2563EB';
-const COMPANY_COLOR = '#93C5FD';
+// Design tokens (DESIGN.md): brand indigo for you/companies, amber for highlights, rose for the selection.
+export const SOURCE_COLORS = { linkedin: '#0077B5', x: '#0F172A', csv: '#64748B' };
+const ME_COLOR = '#4F46E5';
+const COMPANY_COLOR = '#C7D2FE';
+const COMPANY_STROKE = '#6366F1';
 const HIGHLIGHT = '#F59E0B';
+const SELECTED = '#E11D48';
+const LINK = '#E6E8EF';
+const LABEL = '#0F172A';
 
 export default function NetworkGraph({
   graphData, width, height = 560, highlightIds, selectedId, onNodeClick, onBackgroundClick,
@@ -125,12 +131,19 @@ export default function NetworkGraph({
   }, [data, ForceGraph2D]);
 
   if (loadError) {
-    return <div className="flex items-center justify-center text-sm text-red-600" style={{ height }}>Could not load the graph: {loadError}</div>;
+    return <div className="flex items-center justify-center px-4 text-center text-sm text-rose-600" style={{ height }}>Could not load the graph: {loadError}</div>;
   }
   if (!ForceGraph2D || !width) {
     return (
-      <div className="flex items-center justify-center text-sm text-gray-500" style={{ height }}>
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mr-3" /> Loading graph…
+      <div className="flex flex-col items-center justify-center gap-3 text-sm text-muted" style={{ height }} aria-busy="true" aria-live="polite">
+        <div className="relative h-24 w-40">
+          <div className="skeleton absolute left-1/2 top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full" />
+          <div className="skeleton absolute left-2 top-2 h-4 w-4 rounded-full" />
+          <div className="skeleton absolute right-3 top-5 h-5 w-5 rounded-full" />
+          <div className="skeleton absolute bottom-2 left-8 h-3 w-3 rounded-full" />
+          <div className="skeleton absolute bottom-4 right-8 h-4 w-4 rounded-full" />
+        </div>
+        Drawing your network…
       </div>
     );
   }
@@ -148,14 +161,14 @@ export default function NetworkGraph({
     ctx.fill();
     if (node.type === 'company') {
       ctx.lineWidth = 1 / scale;
-      ctx.strokeStyle = '#3B82F6';
+      ctx.strokeStyle = COMPANY_STROKE;
       ctx.stroke();
     }
     if (lit || node.id === selectedId) {
       ctx.beginPath();
       ctx.arc(node.x, node.y, r + 2.5 / scale + 1, 0, 2 * Math.PI);
       ctx.lineWidth = 2 / scale;
-      ctx.strokeStyle = node.id === selectedId ? '#DC2626' : HIGHLIGHT;
+      ctx.strokeStyle = node.id === selectedId ? SELECTED : HIGHLIGHT;
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -185,7 +198,7 @@ export default function NetworkGraph({
       const w = ctx.measureText(label).width;
       ctx.fillStyle = 'rgba(255,255,255,0.8)';
       ctx.fillRect(node.x - w / 2 - 1 / scale, node.y + r + 1 / scale, w + 2 / scale, fontSize + 1 / scale);
-      ctx.fillStyle = '#1F2937';
+      ctx.fillStyle = LABEL;
       ctx.fillText(label, node.x, node.y + r + 1.5 / scale);
       ctx.globalAlpha = 1;
     }
@@ -211,7 +224,7 @@ export default function NetworkGraph({
         nodeCanvasObject={drawNode}
         nodePointerAreaPaint={paintArea}
         onRenderFramePost={drawLabels}
-        linkColor={(l) => (hasHighlight && highlightIds.has(typeof l.target === 'object' ? l.target.id : l.target) ? '#F59E0B' : '#E5E7EB')}
+        linkColor={(l) => (hasHighlight && highlightIds.has(typeof l.target === 'object' ? l.target.id : l.target) ? HIGHLIGHT : LINK)}
         linkWidth={(l) => (l.kind === 'me' ? 0.6 : 0.4)}
         cooldownTicks={150}
         onEngineStop={() => {
@@ -232,9 +245,9 @@ export default function NetworkGraph({
       <button
         type="button"
         onClick={() => fgRef.current && fgRef.current.zoomToFit(400, 40)}
-        className="absolute top-2 right-2 text-xs bg-white/90 border border-gray-200 text-gray-700 hover:bg-gray-50 px-2 py-1 rounded"
+        className="btn-secondary absolute right-2 top-2 gap-1 px-2.5 py-1 text-xs shadow-none"
       >
-        Fit to view
+        <HiOutlineArrowsPointingOut style={{ width: 13, height: 13 }} /> Fit to view
       </button>
     </div>
   );

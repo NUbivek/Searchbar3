@@ -15,7 +15,7 @@ import { parse } from 'cookie';
 const TWITTER_NETWORK_TIMEOUT_MS = 10000;
 const MAX_PAGES = 5; // 5 x 1000 accounts
 
-const PAID_TIER_NOTE = 'X only shares who you follow with apps on a paid X API tier, and this app does not have that access. '
+const PAID_TIER_NOTE = 'X does not share who you follow with this app yet. '
   + 'You can still upload your X following list as a JSON file in the X API format, or add the people to a CSV.';
 
 async function fetchFollowing(userId, accessToken) {

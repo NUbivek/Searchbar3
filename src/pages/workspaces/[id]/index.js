@@ -6,13 +6,53 @@ import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useSession } from 'next-auth/react';
+import { HiOutlineMagnifyingGlass, HiOutlineTrash, HiOutlineBuildingOffice2, HiOutlineUserCircle } from 'react-icons/hi2';
 import PageShell, { SignInPrompt } from '../../../components/layout/PageShell';
 import WatchButton from '../../../components/watchlist/WatchButton';
 import MemoExportButtons from '../../../components/workspace/MemoExportButtons';
 import DataRoom from '../../../components/workspace/DataRoom';
 
 const fmt = (d) => new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-const card = 'bg-white border border-gray-200 rounded-lg p-4 mb-4';
+const ICON = { width: 15, height: 15 };
+
+function hostOf(url) {
+  try { return new URL(url).hostname; } catch { return ''; }
+}
+
+function Favicon({ url }) {
+  const host = hostOf(url);
+  if (!host) return <span className="inline-block h-4 w-4 rounded bg-slate-100" aria-hidden="true" />;
+  return <img src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`} alt="" width={16} height={16} loading="lazy" className="inline-block h-4 w-4 rounded" />;
+}
+
+function SectionCard({ title, count, children }) {
+  return (
+    <section className="card card-pad">
+      <div className="mb-3 flex items-center gap-2">
+        <h2 className="section-title">{title}</h2>
+        {typeof count === 'number' && count > 0 && <span className="chip">{count}</span>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function DetailSkeleton() {
+  return (
+    <div className="space-y-4" aria-busy="true" aria-live="polite">
+      <p className="muted">Loading workspace…</p>
+      <div className="grid gap-4 md:grid-cols-2">
+        {[0, 1].map((i) => (
+          <div key={i} className="card card-pad">
+            <div className="skeleton h-4 w-1/3" />
+            <div className="skeleton mt-3 h-3 w-full" />
+            <div className="skeleton mt-2 h-3 w-2/3" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function WorkspacePage() {
   const router = useRouter();
@@ -61,41 +101,43 @@ export default function WorkspacePage() {
       title={ws ? ws.name : 'Workspace'}
       subtitle={ws ? `Created ${fmt(ws.created_at)} · last updated ${fmt(ws.updated_at)}` : null}
       actions={ws && (
-        <div className="flex flex-wrap gap-2 justify-end items-center">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <WatchButton company={company} workspaceId={ws.id} />
           <MemoExportButtons workspaceId={ws.id} />
         </div>
       )}
     >
       {status === 'unauthenticated' && <SignInPrompt what="deal workspaces" />}
-      {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">{error}</div>}
-      {status === 'authenticated' && !detail && !error && <p className="text-gray-600">Loading…</p>}
+      {error && <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">{error}</div>}
+      {status === 'authenticated' && !detail && !error && <DetailSkeleton />}
 
       {ws && (
-        <>
-          <div className={`${card} flex flex-wrap gap-3 items-center`}>
-            <Link href={`/?q=${encodeURIComponent(company)}&workspace=${ws.id}`} className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md text-sm">Search {company} into this workspace</Link>
-            <Link href={`/company/${encodeURIComponent(company)}`} className="text-sm text-blue-600 hover:underline">Company profile</Link>
-            <Link href={`/founder?company=${encodeURIComponent(company)}`} className="text-sm text-blue-600 hover:underline">Founder check</Link>
-            <button type="button" onClick={removeWorkspace} className="ml-auto text-sm text-red-600 hover:underline">Delete workspace</button>
+        <div className="space-y-4">
+          <div className="card card-pad flex flex-wrap items-center gap-2">
+            <Link href={`/?q=${encodeURIComponent(company)}&workspace=${ws.id}`} className="btn-primary">
+              <HiOutlineMagnifyingGlass style={ICON} /> Search {company} into this workspace
+            </Link>
+            <Link href={`/company/${encodeURIComponent(company)}`} className="btn-secondary"><HiOutlineBuildingOffice2 style={ICON} /> Company profile</Link>
+            <Link href={`/founder?company=${encodeURIComponent(company)}`} className="btn-secondary"><HiOutlineUserCircle style={ICON} /> Founder check</Link>
+            <button type="button" onClick={removeWorkspace} className="btn-danger sm:ml-auto"><HiOutlineTrash style={{ width: 14, height: 14 }} /> Delete workspace</button>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <section className={card}>
-              <h2 className="font-semibold text-gray-800 mb-2">Searches ({detail.searches.length})</h2>
-              {detail.searches.length === 0 && <p className="text-sm text-gray-600">No searches yet. Choose this workspace in "Save to" on the search page.</p>}
-              <ul className="divide-y divide-gray-100">
+            <SectionCard title="Searches" count={detail.searches.length}>
+              {detail.searches.length === 0 && (
+                <p className="muted">No searches yet. Choose this workspace in &ldquo;Save to&rdquo; on the search page.</p>
+              )}
+              <ul className="divide-y divide-line">
                 {detail.searches.map((s) => (
-                  <li key={s.id} className="py-2">
-                    <Link href={`/history/${s.id}`} className="text-blue-700 hover:underline">{s.query}</Link>
-                    <div className="text-xs text-gray-500">{fmt(s.created_at)} · {s.result_count} sources</div>
+                  <li key={s.id} className="py-2.5 first:pt-0 last:pb-0">
+                    <Link href={`/history/${s.id}`} className="text-sm font-medium text-ink hover:text-brand-600 hover:underline">{s.query}</Link>
+                    <div className="text-xs text-muted">{fmt(s.created_at)} · {s.result_count} sources</div>
                   </li>
                 ))}
               </ul>
-            </section>
+            </SectionCard>
 
-            <section className={card}>
-              <h2 className="font-semibold text-gray-800 mb-2">Analyst notes ({detail.notes.length})</h2>
+            <SectionCard title="Analyst notes" count={detail.notes.length}>
               <form onSubmit={addNote} className="mb-3">
                 <textarea
                   value={note}
@@ -103,40 +145,46 @@ export default function WorkspacePage() {
                   rows={3}
                   maxLength={10000}
                   placeholder="Add a note (open question, call notes, red flag…)"
-                  className="w-full p-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  aria-label="New note"
+                  className="input resize-y"
                 />
-                <button type="submit" disabled={busy || !note.trim()} className="mt-2 bg-blue-500 hover:bg-blue-600 text-white px-3 py-1.5 rounded-md text-sm disabled:opacity-50">Add note</button>
+                <button type="submit" disabled={busy || !note.trim()} className="btn-primary mt-2 px-3 py-2 text-xs">Add note</button>
               </form>
-              <ul className="space-y-2">
+              <ul className="space-y-3">
                 {detail.notes.map((n) => (
-                  <li key={n.id} className="text-sm border-l-2 border-blue-200 pl-3">
-                    <div className="whitespace-pre-wrap text-gray-800">{n.body}</div>
-                    <div className="text-xs text-gray-500 mt-1">{fmt(n.created_at)} · <button type="button" onClick={() => deleteNote(n.id)} className="text-red-600 hover:underline">Delete</button></div>
+                  <li key={n.id} className="rounded-xl border border-line bg-slate-50/60 px-3.5 py-3 text-sm">
+                    <div className="whitespace-pre-wrap text-slate-700">{n.body}</div>
+                    <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted">
+                      <span>{fmt(n.created_at)}</span>
+                      <button type="button" onClick={() => deleteNote(n.id)} className="btn-danger px-2 py-1 text-xs">Delete</button>
+                    </div>
                   </li>
                 ))}
               </ul>
-            </section>
+            </SectionCard>
           </div>
 
-          <section className={card}>
-            <h2 className="font-semibold text-gray-800 mb-2">Saved sources ({detail.sources.length})</h2>
-            {detail.sources.length === 0 && <p className="text-sm text-gray-600">Use "+ Save" next to a source in Key Insights → Top Sources to pin it here.</p>}
-            <ul className="divide-y divide-gray-100">
+          <SectionCard title="Saved sources" count={detail.sources.length}>
+            {detail.sources.length === 0 && (
+              <p className="muted">Use &ldquo;+ Save&rdquo; next to a source in Key Insights → Top Sources to pin it here.</p>
+            )}
+            <ul className="divide-y divide-line">
               {detail.sources.map((s) => (
-                <li key={s.id} className="py-2 text-sm">
-                  <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-blue-700 hover:underline">{s.title}</a>
-                  <span className="text-xs text-gray-500"> · {s.source_name || new URL(s.url).hostname}{s.published_at ? ` · ${String(s.published_at).slice(0, 10)}` : ''}</span>
-                  {s.excerpt && <p className="text-gray-600 mt-1">{s.excerpt}</p>}
-                  <button type="button" onClick={() => removeSource(s.id)} className="ml-2 text-xs text-red-600 hover:underline">Remove</button>
+                <li key={s.id} className="flex items-start gap-2.5 py-3 text-sm first:pt-0 last:pb-0">
+                  <span className="mt-0.5 shrink-0"><Favicon url={s.url} /></span>
+                  <div className="min-w-0 flex-1">
+                    <a href={s.url} target="_blank" rel="noopener noreferrer" className="font-medium text-ink hover:text-brand-600 hover:underline">{s.title}</a>
+                    <span className="block text-xs text-muted">{s.source_name || hostOf(s.url)}{s.published_at ? ` · ${String(s.published_at).slice(0, 10)}` : ''}</span>
+                    {s.excerpt && <p className="mt-1 text-slate-600">{s.excerpt}</p>}
+                  </div>
+                  <button type="button" onClick={() => removeSource(s.id)} className="btn-danger shrink-0 px-2 py-1 text-xs">Remove</button>
                 </li>
               ))}
             </ul>
-          </section>
+          </SectionCard>
 
-          <section className="mb-4">
-            <DataRoom workspaceId={ws.id} />
-          </section>
-        </>
+          <DataRoom workspaceId={ws.id} />
+        </div>
       )}
     </PageShell>
   );

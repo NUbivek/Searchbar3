@@ -58,7 +58,7 @@ describe('/api/network/twitter', () => {
     expect(res.body.networksData.nodes).toHaveLength(1);
   });
 
-  test('reports honestly when following lists need a paid X API tier', async () => {
+  test('reports honestly when X does not share following lists with this app', async () => {
     const forbidden = new Error('Forbidden');
     forbidden.response = { status: 403 };
     axios.get
@@ -72,7 +72,7 @@ describe('/api/network/twitter', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.followingAvailable).toBe(false);
     expect(res.body.following).toEqual([]);
-    expect(res.body.note).toMatch(/paid X API tier/);
+    expect(res.body.note).toMatch(/does not share who you follow/);
   });
 
   test('returns 401 when twitter reports an expired token', async () => {

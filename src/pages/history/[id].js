@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useSession } from 'next-auth/react';
+import { HiOutlineArrowPath } from 'react-icons/hi2';
 import PageShell, { SignInPrompt } from '../../components/layout/PageShell';
 import SimplifiedLLMResults from '../../components/search/results/SimplifiedLLMResults';
 
@@ -35,11 +36,21 @@ export default function SavedSearchPage() {
       title={search ? search.query : 'Saved search'}
       subtitle={search ? `Saved ${new Date(search.created_at).toLocaleString()}` : null}
       actions={search && (
-        <Link href={`/?q=${encodeURIComponent(search.query)}${search.workspace_id ? `&workspace=${search.workspace_id}` : ''}`} className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md text-sm">Run again</Link>
+        <Link href={`/?q=${encodeURIComponent(search.query)}${search.workspace_id ? `&workspace=${search.workspace_id}` : ''}`} className="btn-primary"><HiOutlineArrowPath style={{ width: 15, height: 15 }} /> Run again</Link>
       )}
     >
       {status === 'unauthenticated' && <SignInPrompt what="search history" />}
-      {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">{error}</div>}
+      {error && <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">{error}</div>}
+      {status === 'authenticated' && !search && !error && (
+        <div className="card card-pad" aria-busy="true" aria-live="polite">
+          <p className="muted">Opening the saved search…</p>
+          <div className="mt-4 space-y-2">
+            <div className="skeleton h-4 w-1/3" />
+            <div className="skeleton h-3 w-full" />
+            <div className="skeleton h-3 w-5/6" />
+          </div>
+        </div>
+      )}
       {results && <SimplifiedLLMResults query={search.query} results={results} />}
     </PageShell>
   );

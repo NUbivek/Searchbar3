@@ -2,10 +2,10 @@ import React, { useEffect, useState } from 'react';
 
 /**
  * AI model menu. Lists only models that are available right now (from
- * /api/llm/models): "Auto" picks the best free model and falls back down the
- * chain. With no model configured, answers are quoted summaries.
+ * /api/llm/models): "Auto" picks the best available model and falls back down
+ * the chain. With no model available, answers are quoted summaries.
  */
-const ModelSelector = ({ selectedModel, onChange }) => {
+const ModelSelector = ({ selectedModel, onChange, className = '' }) => {
   const [models, setModels] = useState(null);
 
   useEffect(() => {
@@ -28,11 +28,11 @@ const ModelSelector = ({ selectedModel, onChange }) => {
       id="model-selector"
       value={models && models.some((m) => m.id === selectedModel) ? selectedModel : 'auto'}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full h-full px-2 py-2 bg-transparent border-none focus:outline-none focus:ring-0 text-gray-700 text-sm"
+      className={`select ${className}`}
       aria-label="Select AI model"
-      title={none ? 'No AI model is configured: answers are quoted from sources. Add a free GROQ_API_KEY or OPENROUTER_API_KEY.' : 'AI model used to write the answer'}
+      title={none ? 'Answers are quoted directly from sources on this deployment.' : 'AI model used to write the answer'}
     >
-      <option value="auto">{models === null ? 'AI: loading…' : none ? 'AI: quoted only' : 'AI: Auto (best free)'}</option>
+      <option value="auto">{models === null ? 'AI: loading…' : none ? 'Quoted from sources' : 'AI: Auto'}</option>
       {(models || []).map((m) => (
         <option key={m.id} value={m.id}>{m.label}</option>
       ))}

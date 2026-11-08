@@ -2,19 +2,25 @@
  * Watchlist: companies the user follows and the alerts found for them in the
  * curated sources and Hacker News (new funding, people moves, filings,
  * portfolio listings, press). Alerts are in-app, plus an email digest after
- * each scheduled check when the server has email configured.
+ * each scheduled check when the server has email enabled.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { HiOutlineBell, HiOutlineArrowPath, HiOutlineTrash, HiOutlineFolder, HiOutlinePlus } from 'react-icons/hi2';
 import PageShell, { SignInPrompt } from '../components/layout/PageShell';
 
 const KIND_STYLE = {
-  funding: { label: 'Funding', cls: 'bg-green-100 text-green-800' },
-  people: { label: 'People', cls: 'bg-purple-100 text-purple-800' },
-  filing: { label: 'Filing', cls: 'bg-amber-100 text-amber-800' },
-  portfolio: { label: 'Portfolio', cls: 'bg-blue-100 text-blue-800' },
-  press: { label: 'Press', cls: 'bg-gray-100 text-gray-700' },
+  funding: { label: 'Funding', cls: 'chip chip-good' },
+  people: { label: 'People', cls: 'chip chip-active' },
+  filing: { label: 'Filing', cls: 'chip chip-warn' },
+  portfolio: { label: 'Portfolio', cls: 'chip' },
+  press: { label: 'Press', cls: 'chip' },
 };
+const ICON = { width: 14, height: 14 };
+
+function NewDot({ title = 'New' }) {
+  return <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-brand-500" title={title} aria-label={title} role="img" />;
+}
 
 function fmtDate(value) {
   if (!value) return null;
@@ -44,6 +50,7 @@ export default function WatchlistPage() {
   const [busy, setBusy] = useState(null);
   const [message, setMessage] = useState(null);
   const [error, setError] = useState(null);
+  const companyInput = useRef(null);
 
   const load = useCallback(async () => {
     try {
@@ -143,7 +150,7 @@ export default function WatchlistPage() {
 
   const unseenTotal = alerts.filter((a) => !a.seen).length;
 
-  if (status === 'loading') return <PageShell title="Watchlist"><div className="text-gray-500 text-sm">Loading…</div></PageShell>;
+  if (status === 'loading') return <PageShell title="Watchlist"><p className="muted">Loading…</p></PageShell>;
   if (status !== 'authenticated') {
     return <PageShell title="Watchlist"><SignInPrompt what="watchlists and alerts" /></PageShell>;
   }
@@ -153,107 +160,143 @@ export default function WatchlistPage() {
       title="Watchlist"
       subtitle="Alerts for new funding rounds, people moves, filings, portfolio listings and press about the companies you follow. Checked once a day from the curated sources and Hacker News, or on demand with “Check now”."
     >
-      <form onSubmit={add} className="bg-white border border-gray-200 rounded-lg p-4 mb-4 flex flex-col sm:flex-row gap-2">
-        <input
-          value={company}
-          onChange={(e) => setCompany(e.target.value)}
-          placeholder="Company name, e.g. Mistral"
-          maxLength={200}
-          className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"
-        />
-        <button type="submit" disabled={busy === 'add' || !company.trim()} className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md text-sm disabled:opacity-60">
-          {busy === 'add' ? 'Adding and checking…' : 'Watch company'}
-        </button>
-      </form>
-      <p className="text-xs text-gray-500 -mt-2 mb-4">Names are matched with exact capitalization (e.g. “Ramp”, not “ramp up”).</p>
-
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg p-3 mb-4">{error}</div>}
-      {message && <div className="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-lg p-3 mb-4">{message}</div>}
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <section className="md:col-span-1">
-          <h2 className="text-sm font-semibold text-gray-700 mb-2">Watching ({watchlist.length})</h2>
-          {loading ? (
-            <div className="text-gray-500 text-sm">Loading…</div>
-          ) : watchlist.length === 0 ? (
-            <div className="bg-white border border-gray-200 rounded-lg p-4 text-sm text-gray-600">No companies yet. Add one above, or use “Watch” on a workspace.</div>
-          ) : (
-            <ul className="space-y-2">
-              {watchlist.map((w) => (
-                <li key={w.id} className="bg-white border border-gray-200 rounded-lg p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-gray-800 truncate">{w.company}</span>
-                    {w.unseen > 0 && <span className="text-xs bg-blue-500 text-white rounded-full px-2 py-0.5">{w.unseen} new</span>}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">{fmtWhen(w.last_checked_at)}</div>
-                  <div className="flex gap-3 mt-2 text-xs">
-                    <button type="button" onClick={() => checkNow(w)} disabled={busy === w.id} className="text-blue-600 hover:underline disabled:opacity-60">
-                      {busy === w.id ? 'Checking…' : 'Check now'}
-                    </button>
-                    {w.workspace_id && <a href={`/workspaces/${w.workspace_id}`} className="text-blue-600 hover:underline">Workspace</a>}
-                    <button type="button" onClick={() => remove(w)} disabled={busy === w.id} className="text-red-600 hover:underline ml-auto disabled:opacity-60">Remove</button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="md:col-span-2">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-semibold text-gray-700">Alerts{unseenTotal ? ` (${unseenTotal} new)` : ''}</h2>
-            {unseenTotal > 0 && (
-              <button type="button" onClick={() => markSeen()} className="text-xs text-blue-600 hover:underline">Mark all seen</button>
-            )}
+      <div className="space-y-4">
+        <form onSubmit={add} className="card card-pad">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              ref={companyInput}
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+              placeholder="Company name, e.g. Mistral"
+              aria-label="Company name"
+              maxLength={200}
+              className="input"
+            />
+            <button type="submit" disabled={busy === 'add' || !company.trim()} className="btn-primary shrink-0">
+              <HiOutlineBell style={ICON} /> {busy === 'add' ? 'Adding and checking…' : 'Watch company'}
+            </button>
           </div>
-          {emailAlerts !== null && (
-            <p className="text-xs text-gray-500 mb-2">
-              Watched companies are checked daily. {emailAlerts
-                ? 'New alerts are also emailed to your sign-in address as a digest.'
-                : 'Alerts are shown here; email digests are off on this server.'}
-            </p>
-          )}
-          {!loading && grouped.length === 0 && (
-            <div className="bg-white border border-gray-200 rounded-lg p-4 text-sm text-gray-600">
-              No alerts yet. Alerts appear when a source publishes something new that names a watched company (last 90 days).
+          <p className="muted mt-2 text-xs">Names are matched with exact capitalization (e.g. “Ramp”, not “ramp up”).</p>
+        </form>
+
+        {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">{error}</div>}
+        {message && <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-700" role="status">{message}</div>}
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <section className="md:col-span-1">
+            <div className="mb-2 flex items-center gap-2">
+              <h2 className="section-title">Watching</h2>
+              {watchlist.length > 0 && <span className="chip">{watchlist.length}</span>}
             </div>
-          )}
-          <div className="space-y-4">
-            {grouped.map(([name, list]) => {
-              const unseenIds = list.filter((a) => !a.seen).map((a) => a.id);
-              return (
-                <div key={name} className="bg-white border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold text-gray-800">{name}</h3>
-                    {unseenIds.length > 0 && (
-                      <button type="button" onClick={() => markSeen(unseenIds)} className="text-xs text-blue-600 hover:underline">Mark seen</button>
-                    )}
+            {loading ? (
+              <div className="space-y-2" aria-busy="true">
+                {[0, 1].map((i) => (
+                  <div key={i} className="card p-3">
+                    <div className="skeleton h-4 w-2/3" />
+                    <div className="skeleton mt-2 h-3 w-1/3" />
                   </div>
-                  <ul className="divide-y divide-gray-100">
-                    {list.map((a) => {
-                      const k = KIND_STYLE[a.kind] || KIND_STYLE.press;
-                      return (
-                        <li key={a.id} className="py-2 flex items-start gap-2">
-                          <span className={`shrink-0 text-xs font-medium rounded px-2 py-0.5 mt-0.5 ${k.cls}`}>{k.label}</span>
-                          <div className="min-w-0">
-                            <a href={a.url} target="_blank" rel="noopener noreferrer" className={`text-sm hover:underline ${a.seen ? 'text-gray-700' : 'text-blue-700 font-medium'}`}>
-                              {a.title}
-                            </a>
-                            <div className="text-xs text-gray-500 mt-0.5">
-                              {a.source_name || 'Source'}
-                              {fmtDate(a.published_at) ? ` · ${fmtDate(a.published_at)}` : ' · undated listing'}
-                              {!a.seen && <span className="ml-2 text-blue-600">new</span>}
+                ))}
+              </div>
+            ) : watchlist.length === 0 ? (
+              <div className="card card-pad text-center">
+                <p className="muted">No companies yet. Add one here, or use “Watch” on a workspace.</p>
+                <button type="button" className="btn-secondary mt-3" onClick={() => companyInput.current?.focus()}><HiOutlinePlus style={ICON} /> Watch a company</button>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {watchlist.map((w) => (
+                  <li key={w.id} className="card p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-2">
+                        {w.unseen > 0 && <NewDot title={`${w.unseen} new`} />}
+                        <span className="truncate text-sm font-medium text-ink">{w.company}</span>
+                      </span>
+                      {w.unseen > 0 && <span className="chip chip-active">{w.unseen} new</span>}
+                    </div>
+                    <div className="mt-1 text-xs text-muted">{fmtWhen(w.last_checked_at)}</div>
+                    <div className="mt-2 flex items-center gap-1">
+                      <button type="button" onClick={() => checkNow(w)} disabled={busy === w.id} className="btn-ghost -ml-1 px-2 py-1 text-xs disabled:opacity-60">
+                        <HiOutlineArrowPath style={{ width: 13, height: 13 }} /> {busy === w.id ? 'Checking…' : 'Check now'}
+                      </button>
+                      {w.workspace_id && <a href={`/workspaces/${w.workspace_id}`} className="btn-ghost px-2 py-1 text-xs"><HiOutlineFolder style={{ width: 13, height: 13 }} /> Workspace</a>}
+                      <button type="button" onClick={() => remove(w)} disabled={busy === w.id} className="btn-danger ml-auto px-2 py-1 text-xs disabled:opacity-60"><HiOutlineTrash style={{ width: 13, height: 13 }} /> Remove</button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="md:col-span-2">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <h2 className="section-title">Alerts</h2>
+                {unseenTotal > 0 && <span className="chip chip-active">{unseenTotal} new</span>}
+              </div>
+              {unseenTotal > 0 && (
+                <button type="button" onClick={() => markSeen()} className="btn-ghost text-xs">Mark all seen</button>
+              )}
+            </div>
+            {emailAlerts !== null && (
+              <p className="muted mb-2 text-xs">
+                Watched companies are checked daily. {emailAlerts
+                  ? 'New alerts are also emailed to your sign-in address as a digest.'
+                  : 'Alerts are shown here; email digests are not enabled on this deployment.'}
+              </p>
+            )}
+            {!loading && grouped.length === 0 && (
+              <div className="card card-pad text-center">
+                <span className="mx-auto mb-3 grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600"><HiOutlineBell style={{ width: 20, height: 20 }} /></span>
+                <p className="muted">No alerts yet. Alerts appear when a source publishes something new that names a watched company (last 90 days).</p>
+                {watchlist.length === 0 ? (
+                  <button type="button" className="btn-secondary mt-4" onClick={() => companyInput.current?.focus()}>Watch a company</button>
+                ) : (
+                  <button type="button" className="btn-secondary mt-4" disabled={Boolean(busy)} onClick={() => checkNow(watchlist[0])}>
+                    <HiOutlineArrowPath style={ICON} /> Check {watchlist[0].company} now
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="space-y-4">
+              {grouped.map(([name, list]) => {
+                const unseenIds = list.filter((a) => !a.seen).map((a) => a.id);
+                return (
+                  <div key={name} className="card card-pad">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <h3 className="flex items-center gap-2 text-sm font-semibold text-ink">
+                        {name}
+                        {unseenIds.length > 0 && <span className="chip chip-active">{unseenIds.length} new</span>}
+                      </h3>
+                      {unseenIds.length > 0 && (
+                        <button type="button" onClick={() => markSeen(unseenIds)} className="btn-ghost text-xs">Mark seen</button>
+                      )}
+                    </div>
+                    <ul className="divide-y divide-line">
+                      {list.map((a) => {
+                        const k = KIND_STYLE[a.kind] || KIND_STYLE.press;
+                        return (
+                          <li key={a.id} className="flex items-start gap-2.5 py-2.5">
+                            <span className="mt-1.5 w-2 shrink-0">{!a.seen && <NewDot />}</span>
+                            <span className={`${k.cls} mt-0.5 shrink-0`}>{k.label}</span>
+                            <div className="min-w-0">
+                              <a href={a.url} target="_blank" rel="noopener noreferrer" className={`text-sm hover:underline ${a.seen ? 'text-slate-700' : 'font-medium text-ink'}`}>
+                                {a.title}
+                              </a>
+                              <div className="mt-0.5 text-xs text-muted">
+                                {a.source_name || 'Source'}
+                                {fmtDate(a.published_at) ? ` · ${fmtDate(a.published_at)}` : ' · undated listing'}
+                              </div>
                             </div>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              );
-            })}
-          </div>
-        </section>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        </div>
       </div>
     </PageShell>
   );

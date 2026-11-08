@@ -1,5 +1,18 @@
 {
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
-  "/_document": "pages/_document.js"
+  "/_document": "pages/_document.js",
+  "/signin": "pages/signin.js",
+  "/api/auth/[...nextauth]": "pages/api/auth/[...nextauth].js",
+  "/api/alerts": "pages/api/alerts.js",
+  "/workspaces": "pages/workspaces.js",
+  "/api/workspaces": "pages/api/workspaces.js",
+  "/api/auth/linkedin/token": "pages/api/auth/linkedin/token.js",
+  "/network": "pages/network.js",
+  "/founder": "pages/founder.js",
+  "/api/auth/twitter/token": "pages/api/auth/twitter/token.js",
+  "/api/network/contacts": "pages/api/network/contacts.js",
+  "/api/founder": "pages/api/founder.js",
+  "/watchlist": "pages/watchlist.js",
+  "/api/watchlist": "pages/api/watchlist.js"
 }

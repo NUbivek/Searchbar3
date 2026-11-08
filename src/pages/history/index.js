@@ -5,9 +5,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
+import { HiOutlineClock, HiOutlineArrowPath, HiOutlineTrash, HiOutlineMagnifyingGlass } from 'react-icons/hi2';
 import PageShell, { SignInPrompt } from '../../components/layout/PageShell';
 
 const fmt = (d) => new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const ICON = { width: 14, height: 14 };
 
 export default function HistoryPage() {
   const { status } = useSession();
@@ -42,33 +44,46 @@ export default function HistoryPage() {
   return (
     <PageShell title="Search history" subtitle="Every search you run while signed in is saved here.">
       {status === 'unauthenticated' && <SignInPrompt what="search history" />}
-      {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">{error}</div>}
-      {status === 'authenticated' && searches === null && !error && <p className="text-gray-600">Loading…</p>}
+      {error && <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">{error}</div>}
+      {status === 'authenticated' && searches === null && !error && (
+        <div className="card divide-y divide-line" aria-busy="true" aria-live="polite">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="p-4">
+              <div className="skeleton h-4 w-1/2" />
+              <div className="skeleton mt-2 h-3 w-1/4" />
+            </div>
+          ))}
+        </div>
+      )}
       {searches && searches.length === 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-6 text-gray-700">No searches yet. <Link href="/" className="text-blue-600 underline">Run a search</Link>.</div>
+        <div className="card card-pad text-center">
+          <span className="mx-auto mb-3 grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600"><HiOutlineClock style={{ width: 20, height: 20 }} /></span>
+          <p className="text-sm text-ink">No searches yet. Run a search and it will be saved here.</p>
+          <Link href="/" className="btn-primary mt-4"><HiOutlineMagnifyingGlass style={ICON} /> Run a search</Link>
+        </div>
       )}
       {searches && searches.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg divide-y divide-gray-100">
+        <div className="card divide-y divide-line">
           {searches.map((s) => (
-            <div key={s.id} className="p-4 flex flex-wrap items-center gap-3">
-              <div className="flex-1 min-w-[12rem]">
-                <Link href={`/history/${s.id}`} className="font-medium text-blue-700 hover:underline">{s.query}</Link>
-                <div className="text-xs text-gray-500 mt-1">
-                  {fmt(s.created_at)} · {s.result_count} source{s.result_count === 1 ? '' : 's'}
-                  {s.workspace_name ? <> · in <Link className="underline" href={`/workspaces/${s.workspace_id}`}>{s.workspace_name}</Link></> : null}
+            <div key={s.id} className="flex flex-wrap items-center gap-3 p-4">
+              <div className="min-w-[12rem] flex-1">
+                <Link href={`/history/${s.id}`} className="text-sm font-medium text-ink hover:text-brand-600 hover:underline">{s.query}</Link>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+                  <span>{fmt(s.created_at)} · {s.result_count} source{s.result_count === 1 ? '' : 's'}</span>
+                  {s.workspace_name ? <Link className="chip chip-active" href={`/workspaces/${s.workspace_id}`}>{s.workspace_name}</Link> : null}
                 </div>
               </div>
               <select
                 aria-label="File under workspace"
-                className="text-sm border border-gray-300 rounded-md px-2 py-1"
+                className="select py-1.5 text-xs"
                 value={s.workspace_id || ''}
                 onChange={(e) => move(s.id, e.target.value)}
               >
                 <option value="">No workspace</option>
                 {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
-              <Link href={`/?q=${encodeURIComponent(s.query)}${s.workspace_id ? `&workspace=${s.workspace_id}` : ''}`} className="text-sm text-blue-600 hover:underline">Run again</Link>
-              <button type="button" onClick={() => remove(s.id)} className="text-sm text-red-600 hover:underline">Delete</button>
+              <Link href={`/?q=${encodeURIComponent(s.query)}${s.workspace_id ? `&workspace=${s.workspace_id}` : ''}`} className="btn-ghost text-xs"><HiOutlineArrowPath style={ICON} /> Run again</Link>
+              <button type="button" onClick={() => remove(s.id)} className="btn-danger text-xs"><HiOutlineTrash style={ICON} /> Delete</button>
             </div>
           ))}
         </div>

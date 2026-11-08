@@ -1,10 +1,13 @@
 /**
- * "Watch" / "Watching ✓" toggle for a company. Signed-in users only; renders
+ * "Watch" / "Watching" toggle for a company. Signed-in users only; renders
  * nothing when signed out. Adding a watch also runs a first check, so new
  * alerts show up on /watchlist right away.
  */
 import React, { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { HiOutlineBell, HiOutlineCheck } from 'react-icons/hi2';
+
+const ICON = { width: 14, height: 14 };
 
 export default function WatchButton({ company, workspaceId = null, className = '' }) {
   const { status } = useSession();
@@ -60,13 +63,15 @@ export default function WatchButton({ company, workspaceId = null, className = '
         onClick={toggle}
         disabled={busy}
         title={watch ? 'Stop watching this company' : 'Get alerts about new funding, hires, filings and press'}
+        aria-pressed={Boolean(watch)}
         className={watch
-          ? 'text-sm px-3 py-1.5 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-60'
-          : 'text-sm px-3 py-1.5 rounded-md bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-60'}
+          ? 'btn-secondary border-brand-200 bg-brand-50 px-3 py-2 text-xs text-brand-700 hover:bg-brand-100'
+          : 'btn-secondary px-3 py-2 text-xs'}
       >
-        {busy ? (watch ? 'Removing…' : 'Adding…') : watch ? 'Watching ✓' : 'Watch'}
+        {watch ? <HiOutlineCheck style={ICON} /> : <HiOutlineBell style={ICON} />}
+        {busy ? (watch ? 'Removing…' : 'Adding…') : watch ? 'Watching' : 'Watch'}
       </button>
-      {error && <span className="text-xs text-red-600">{error}</span>}
+      {error && <span className="text-xs text-rose-600">{error}</span>}
     </span>
   );
 }

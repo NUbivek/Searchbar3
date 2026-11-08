@@ -6,7 +6,7 @@ Next.js pages under `src/pages/`; API routes are under `src/pages/api/`.
 ## Signed out vs signed in
 
 Open Research, Founder Check, the Network Map and company profiles work
-without an account. Signing in (`/signin`: Google, or "Local test user" in
+without an account. Signing in (`/signin`: Google; a "Local test user" appears only in
 development) adds history, deal workspaces, notes, data-room documents, memo
 export, watchlists and saved network contacts. The account menu (top right)
 shows the unseen-alert count.

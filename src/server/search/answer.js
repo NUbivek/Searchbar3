@@ -107,7 +107,7 @@ export function llmConfigured() {
 export async function generateAnswer(plan, entity, results, { model = 'auto', useLLM = true, deadline = null } = {}) {
   const top = results.slice(0, MAX_SOURCES_FOR_LLM);
   const sourceMap = Object.fromEntries(top.map((r, i) => [String(i + 1), { title: r.title, url: r.url, sourceName: r.sourceName || hostOf(r.url), date: dateOf(r), type: r.type || r.source }]));
-  let reason = 'No AI model is configured';
+  let reason = 'AI answers are not enabled on this deployment';
   // "provider:model" from the model menu; anything else is ignored, and the
   // answer says so instead of silently using another model.
   const requested = typeof model === 'string' && model && model !== 'auto' ? model : null;

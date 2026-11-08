@@ -44,7 +44,7 @@ export function webSearchConfigured() {
 export async function searchWeb(q, { news = false, withinDays = 0, num = 10 } = {}) {
   const serper = process.env.SERPER_API_KEY;
   const tavily = process.env.TAVILY_API_KEY;
-  if (!serper && !tavily) throw new Error('No SERPER_API_KEY or TAVILY_API_KEY configured');
+  if (!serper && !tavily) throw new Error('Web search is not enabled on this deployment');
   if (serper) {
     try {
       const tbs = withinDays ? (withinDays <= 7 ? 'qdr:w' : withinDays <= 31 ? 'qdr:m' : withinDays <= 366 ? 'qdr:y' : null) : null;
@@ -141,7 +141,7 @@ async function integrationSearch(sources, query, options = {}) {
  * @param {{ customUrls?: string[], files?: Object[] }} options
  * @returns {Promise<{ results: Object[], statuses: Array<{source, status, count, error}> }>}
  */
-export const WEB_NOT_CONFIGURED = 'Web search is off (no SERPER_API_KEY or TAVILY_API_KEY); searching curated sources and Hacker News';
+export const WEB_NOT_CONFIGURED = 'Web search is not enabled on this deployment; showing curated sources and Hacker News';
 
 /**
  * Custom URLs: a page that could not be fetched is reported, not silently

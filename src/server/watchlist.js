@@ -188,7 +188,7 @@ ${groups.map((c) => `<h3 style="margin:16px 0 6px">${escapeHtml(c.company)} <spa
 
 /** Send one digest with Resend. Throws on failure; never logs the key. */
 export async function sendAlertDigest({ to, companies, baseUrl }, { fetchImpl = globalThis.fetch } = {}) {
-  if (!emailAlertsConfigured()) throw new Error('Email alerts are not configured (RESEND_API_KEY).');
+  if (!emailAlertsConfigured()) throw new Error('Email alerts are not enabled on this deployment.');
   const digest = renderAlertDigest(companies, { baseUrl });
   if (!digest.total) return false;
   const r = await fetchImpl(RESEND_URL, {

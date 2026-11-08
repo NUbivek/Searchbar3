@@ -33,14 +33,16 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
   }));
 }
-if (isDev) {
+// The local test account is opt-in: ALLOW_DEV_LOGIN=true in development only.
+const devLoginAllowed = isDev && process.env.ALLOW_DEV_LOGIN === 'true';
+if (devLoginAllowed) {
   providers.push(CredentialsProvider({
     id: 'dev-login',
     name: 'Local test user (development only)',
     credentials: {},
     async authorize(_credentials, req) {
       const host = String(req?.headers?.host || '');
-      if (!isDev || !LOCAL_HOSTS.test(host)) return null;
+      if (!devLoginAllowed || !LOCAL_HOSTS.test(host)) return null;
       return { id: 'dev:local-test-user', name: 'Local test user', email: 'local-test-user@localhost' };
     },
   }));

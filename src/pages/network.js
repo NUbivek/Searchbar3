@@ -8,16 +8,14 @@
  * Only first-degree connections exist in these exports; nothing is invented.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useSession } from 'next-auth/react';
-import { Tab } from '@headlessui/react';
 import {
-  FaSearch, FaProjectDiagram, FaUserTie, FaLinkedin, FaFileUpload, FaTrash, FaTimes, FaExternalLinkAlt,
-} from 'react-icons/fa';
-import { FaXTwitter } from 'react-icons/fa6';
-import AccountMenu from '../components/account/AccountMenu';
+  HiOutlineArrowUpTray, HiOutlineTrash, HiOutlineXMark, HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass,
+  HiOutlineShare, HiOutlineSparkles, HiOutlineDocumentText,
+} from 'react-icons/hi2';
+import PageShell from '../components/layout/PageShell';
 import NetworkGraph, { SOURCE_COLORS } from '../components/network/NetworkGraph';
 import {
   parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, MAX_CONTACTS,
@@ -28,6 +26,7 @@ function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 
+const ICON = { width: 15, height: 15 };
 const SOURCE_LABELS = { linkedin: 'LinkedIn', csv: 'CSV/XLSX', x: 'X' };
 const EXAMPLES = ['Who do I know at Google?', 'Find software engineers in my network', 'Intro paths to Stripe'];
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -36,14 +35,16 @@ const MAX_BODY_BYTES = 14 * 1024 * 1024;
 // Answers expand the companies of the top matches, but not huge ones.
 const AUTO_EXPAND_MAX_PEOPLE = 60;
 const fmt = (n) => Number(n || 0).toLocaleString('en-US');
+const LINKEDIN_UNAVAILABLE = "LinkedIn connection isn't available on this deployment yet";
+const X_UNAVAILABLE = "X connection isn't available on this deployment yet";
 
 // OAuth redirects come back with ?error=<code>; only these are shown.
 const AUTH_ERRORS = {
-  linkedin_not_configured: 'LinkedIn sign-in is not set up on this server.',
+  linkedin_not_configured: `${LINKEDIN_UNAVAILABLE}.`,
   linkedin_denied: 'LinkedIn sign-in was cancelled.',
   linkedin_state: 'LinkedIn sign-in could not be verified. Please try connecting again.',
   linkedin_failed: 'LinkedIn sign-in did not complete. Please try again.',
-  twitter_not_configured: 'X sign-in is not set up on this server.',
+  twitter_not_configured: `${X_UNAVAILABLE}.`,
   twitter_denied: 'X sign-in was cancelled.',
   twitter_state: 'X sign-in could not be verified. Please try connecting again.',
   twitter_expired: 'The X sign-in session expired. Please try connecting again.',
@@ -67,10 +68,21 @@ async function readJson(response) {
   try { return await response.json(); } catch { return {}; }
 }
 
+/** Small brand marks for the import cards (no brand icon set is loaded). */
+function SourceMark({ source }) {
+  if (source === 'linkedin') {
+    return <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#0077B5] text-[11px] font-bold text-white" aria-hidden="true">in</span>;
+  }
+  if (source === 'x') {
+    return <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-ink text-[12px] font-bold text-white" aria-hidden="true">X</span>;
+  }
+  return <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600" aria-hidden="true"><HiOutlineDocumentText style={{ width: 16, height: 16 }} /></span>;
+}
+
 function SourceBadge({ source }) {
   return (
-    <span className="inline-flex items-center text-xs px-1.5 py-0.5 rounded border border-gray-200 text-gray-600">
-      <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: SOURCE_COLORS[source] || SOURCE_COLORS.csv }} />
+    <span className="chip">
+      <span className="inline-block h-2 w-2 rounded-full" style={{ background: SOURCE_COLORS[source] || SOURCE_COLORS.csv }} />
       {SOURCE_LABELS[source] || source}
     </span>
   );
@@ -79,17 +91,17 @@ function SourceBadge({ source }) {
 function ContactActions({ name, company }) {
   if (!company && !name) return null;
   return (
-    <div className="flex flex-wrap gap-2 mt-3">
+    <div className="mt-3 flex flex-wrap gap-2">
       {company && (
         <>
-          <Link href={`/company/${encodeURIComponent(company)}`} className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2.5 py-1.5 rounded-md">Company profile</Link>
-          <Link href={`/?q=${encodeURIComponent(company)}`} className="text-xs bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 px-2.5 py-1.5 rounded-md">Search company</Link>
+          <Link href={`/company/${encodeURIComponent(company)}`} className="btn-primary px-3 py-1.5 text-xs">Company profile</Link>
+          <Link href={`/?q=${encodeURIComponent(company)}`} className="btn-secondary px-3 py-1.5 text-xs">Search company</Link>
         </>
       )}
       {name && (
         <Link
           href={`/founder?name=${encodeURIComponent(name)}${company ? `&company=${encodeURIComponent(company)}` : ''}`}
-          className="text-xs bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 px-2.5 py-1.5 rounded-md"
+          className="btn-secondary px-3 py-1.5 text-xs"
         >
           Founder check
         </Link>
@@ -101,25 +113,36 @@ function ContactActions({ name, company }) {
 function ResultRow({ item, onShow }) {
   const c = item.contact;
   return (
-    <li className="py-2.5 border-b border-gray-100 last:border-0">
+    <li className="py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <button type="button" onClick={() => onShow(c)} className="font-medium text-gray-900 hover:text-blue-700 text-left">{c.name}</button>
-          <div className="text-sm text-gray-600 truncate">{[c.position, c.company].filter(Boolean).join(' · ') || 'No title or company listed'}</div>
-          <ul className="mt-1 text-xs text-gray-500 list-disc list-inside">
-            {item.reasons.map((r) => <li key={r}>{r}</li>)}
-          </ul>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => onShow(c)} className="text-left text-sm font-medium text-ink hover:text-brand-600">{c.name}</button>
+            {c.company && <span className="chip">{c.company}</span>}
+          </div>
+          <div className="mt-0.5 truncate text-sm text-slate-600">{c.position || (c.company ? '' : 'No title or company listed')}</div>
+          {item.reasons.length > 0 && <p className="mt-1 text-xs text-muted">{item.reasons.join(' · ')}</p>}
         </div>
-        <div className="flex flex-col items-end gap-1 shrink-0">
+        <div className="flex shrink-0 flex-col items-end gap-1">
           <SourceBadge source={c.source} />
           {c.profileUrl && (
-            <a href={c.profileUrl} target="_blank" rel="noopener noreferrer nofollow" className="text-xs text-blue-600 hover:underline inline-flex items-center">
-              Profile <FaExternalLinkAlt className="ml-1" size={9} />
+            <a href={c.profileUrl} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
+              Profile <HiOutlineArrowTopRightOnSquare style={{ width: 12, height: 12 }} />
             </a>
           )}
         </div>
       </div>
     </li>
+  );
+}
+
+function Count({ label, value, hint }) {
+  return (
+    <div className="text-right">
+      <div className="eyebrow">{label}</div>
+      <div className="text-lg font-semibold tracking-tight text-ink">{fmt(value)}</div>
+      {hint && <div className="text-xs text-muted">{hint}</div>}
+    </div>
   );
 }
 
@@ -138,6 +161,8 @@ export default function NetworkPage() {
 
   const [linkedin, setLinkedin] = useState({ checked: false, connected: false, name: '', configured: true });
   const [xStatus, setXStatus] = useState({ checked: false, connected: false, username: '', note: '', configured: true });
+  // Shown inline when a connection is offered but not available on this deployment.
+  const [unavailable, setUnavailable] = useState({ linkedin: false, x: false });
 
   const [sourceFilter, setSourceFilter] = useState({ linkedin: true, csv: true, x: true });
   const [companyFilter, setCompanyFilter] = useState('');
@@ -374,8 +399,8 @@ export default function NetworkPage() {
     } catch {
       // cookies are cleared server side; nothing else to do
     }
-    if (service === 'linkedin') setLinkedin({ checked: true, connected: false, name: '' });
-    else setXStatus({ checked: true, connected: false, username: '', note: '' });
+    if (service === 'linkedin') setLinkedin((s) => ({ ...s, checked: true, connected: false, name: '' }));
+    else setXStatus((s) => ({ ...s, checked: true, connected: false, username: '', note: '' }));
   };
 
   const removeAll = async () => {
@@ -549,368 +574,356 @@ export default function NetworkPage() {
 
   // ------------------------------------------------------------ render
 
+  const connectLinkedIn = () => {
+    if (linkedin.configured) { window.location.assign('/api/auth/linkedin'); return; }
+    setUnavailable((u) => ({ ...u, linkedin: true }));
+  };
+  const connectX = () => {
+    if (xStatus.configured) { window.location.assign('/api/auth/twitter'); return; }
+    setUnavailable((u) => ({ ...u, x: true }));
+  };
+
   return (
-    <div className="w-full min-h-screen bg-gray-50">
-      <Head>
-        <title>Network Map - Research Hub</title>
-        <meta name="description" content="Map and search your own professional network" />
-      </Head>
+    <PageShell
+      title="Network Map"
+      subtitle="Import your own contacts, see who you know grouped by company, and ask who can make an introduction. Nothing is added that is not in your files."
+      wide
+    >
+      <div className="space-y-5">
+        {notice && (
+          <div
+            role={notice.kind === 'error' ? 'alert' : 'status'}
+            className={classNames(
+              'flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm',
+              notice.kind === 'error' && 'border-rose-200 bg-rose-50 text-rose-700',
+              notice.kind === 'success' && 'border-emerald-200 bg-emerald-50 text-emerald-800',
+              notice.kind === 'info' && 'border-brand-200 bg-brand-50 text-brand-700'
+            )}
+          >
+            <span>{notice.text}</span>
+            <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="shrink-0 opacity-70 hover:opacity-100"><HiOutlineXMark style={ICON} /></button>
+          </div>
+        )}
 
-      <main className="container mx-auto px-4 py-6">
-        <div className="flex justify-end mb-2"><AccountMenu /></div>
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-800">Research Hub</h1>
-          <p className="text-gray-600 mt-1">Search across web, academic sources, and more.</p>
-        </div>
+        {/* ---------------------------------------------------- import */}
+        <section aria-labelledby="import-heading" className="space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 id="import-heading" className="section-title">Your network</h2>
+              <p className="muted">Only your first-degree connections are in these files; nothing else is added.</p>
+            </div>
+            {mode === 'loading' ? (
+              <span className="muted">Loading your network…</span>
+            ) : (
+              <Count
+                label="Contacts"
+                value={contacts.length}
+                hint={`${mode === 'saved' ? 'Saved to your account' : 'Kept in this tab only'}${lastImportAny ? ` · last import ${formatTime(lastImportAny)}` : ''}`}
+              />
+            )}
+          </div>
 
-        <Tab.Group>
-          <Tab.List className="flex space-x-2 rounded-xl bg-blue-100 p-1 mb-6 max-w-xl mx-auto">
-            <Link href="/" className="w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center bg-blue-100 text-blue-500 hover:bg-white/[0.12] hover:text-blue-700">
-              <FaSearch className="mr-2" /> Open Research
-            </Link>
-            <Tab
-              className={({ selected: isSelected }) =>
-                classNames(
-                  'w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center',
-                  'focus:outline-none focus:ring-2 ring-offset-2 ring-offset-blue-400 ring-white ring-opacity-60',
-                  isSelected
-                    ? 'bg-white text-blue-700 shadow'
-                    : 'text-blue-500 hover:bg-white/[0.12] hover:text-blue-700'
-                )
-              }
-            >
-              <FaProjectDiagram className="mr-2" /> Network Map
-            </Tab>
-            <Link href="/founder" className="w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center bg-blue-100 text-blue-500 hover:bg-white/[0.12] hover:text-blue-700">
-              <FaUserTie className="mr-2" /> Founder Check
-            </Link>
-          </Tab.List>
-        </Tab.Group>
-
-        <div className="max-w-6xl mx-auto space-y-6">
-          {notice && (
-            <div
-              role={notice.kind === 'error' ? 'alert' : 'status'}
-              className={classNames(
-                'p-3 text-sm rounded-lg border flex items-start justify-between gap-3',
-                notice.kind === 'error' && 'bg-red-50 border-red-200 text-red-700',
-                notice.kind === 'success' && 'bg-green-50 border-green-200 text-green-800',
-                notice.kind === 'info' && 'bg-blue-50 border-blue-200 text-blue-800'
-              )}
-            >
-              <span>{notice.text}</span>
-              <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="opacity-70 hover:opacity-100"><FaTimes /></button>
+          {mode === 'memory' && !signedIn && sessionStatus !== 'loading' && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <Link href="/signin" className="font-medium underline">Sign in to save your network</Link>. Until then, imports stay in this browser tab and are gone when you close it.
             </div>
           )}
+          {loadError && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{loadError}</div>
+          )}
 
-          {/* ---------------------------------------------------- import */}
-          <section className="bg-white border border-gray-200 rounded-lg p-4" aria-labelledby="import-heading">
-            <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
-              <div>
-                <h2 id="import-heading" className="text-lg font-semibold text-gray-800">Your network</h2>
-                <p className="text-sm text-gray-600">
-                  Import your own contacts. Only your first-degree connections are in these files; nothing else is added.
-                </p>
-              </div>
-              <div className="text-right text-sm">
-                {mode === 'loading' ? (
-                  <span className="text-gray-500">Loading your network…</span>
-                ) : (
-                  <>
-                    <div className="font-medium text-gray-800">{contacts.length.toLocaleString('en-US')} contacts</div>
-                    <div className="text-xs text-gray-500">
-                      {mode === 'saved' ? 'Saved to your account' : 'Kept in this tab only'}
-                      {lastImportAny ? ` · last import ${formatTime(lastImportAny)}` : ''}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {mode === 'memory' && !signedIn && sessionStatus !== 'loading' && (
-              <div className="mb-3 p-2.5 text-sm rounded-md bg-amber-50 border border-amber-200 text-amber-800">
-                <Link href="/signin" className="font-medium underline">Sign in to save your network</Link>. Until then, imports stay in this browser tab and are gone when you close it.
-              </div>
-            )}
-            {loadError && (
-              <div className="mb-3 p-2.5 text-sm rounded-md bg-amber-50 border border-amber-200 text-amber-800">{loadError}</div>
-            )}
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="border border-gray-200 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-medium text-gray-800 flex items-center"><FaLinkedin className="mr-2 text-[#0077B5]" /> LinkedIn connections</h3>
-                  <span className="text-xs text-gray-500">{counts.linkedin.toLocaleString('en-US')}{lastImport('linkedin') ? ` · ${formatTime(lastImport('linkedin'))}` : ''}</span>
+          <div className="grid gap-4 md:grid-cols-3">
+            {/* LinkedIn */}
+            <div className="card card-pad flex flex-col">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <SourceMark source="linkedin" />
+                  <h3 className="text-sm font-semibold text-ink">LinkedIn connections</h3>
                 </div>
-                <ol className="text-xs text-gray-600 list-decimal list-inside space-y-0.5 mb-3">
-                  <li>On LinkedIn, open <span className="font-medium">Settings &amp; Privacy → Data privacy → Get a copy of your data</span>.</li>
-                  <li>Choose <span className="font-medium">Connections</span> (or the full archive) and request the archive.</li>
-                  <li>LinkedIn emails a download link, usually within minutes. Unzip it.</li>
-                  <li>Upload <span className="font-medium">Connections.csv</span> here.</li>
-                </ol>
-                <input ref={linkedinInput} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => handleFile(e, 'linkedin')} data-testid="linkedin-file" />
+                <Count label="Imported" value={counts.linkedin} hint={lastImport('linkedin') ? formatTime(lastImport('linkedin')) : null} />
+              </div>
+              <ol className="mb-4 list-decimal space-y-1 pl-4 text-xs text-muted">
+                <li>On LinkedIn, open <span className="font-medium text-slate-700">Settings &amp; Privacy → Data privacy → Get a copy of your data</span>.</li>
+                <li>Choose <span className="font-medium text-slate-700">Connections</span> (or the full archive) and request the archive.</li>
+                <li>LinkedIn emails a download link, usually within minutes. Unzip it.</li>
+                <li>Upload <span className="font-medium text-slate-700">Connections.csv</span> here.</li>
+              </ol>
+              <input ref={linkedinInput} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => handleFile(e, 'linkedin')} data-testid="linkedin-file" />
+              <div className="mt-auto">
                 <button
                   type="button"
                   onClick={() => linkedinInput.current?.click()}
                   disabled={Boolean(busy) || mode === 'loading'}
-                  className="inline-flex items-center bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white text-sm px-3 py-2 rounded-md"
+                  className="btn-primary w-full"
                 >
-                  <FaFileUpload className="mr-2" /> {busy === 'linkedin' ? 'Importing…' : 'Upload LinkedIn Connections.csv'}
+                  <HiOutlineArrowUpTray style={ICON} /> {busy === 'linkedin' ? 'Importing…' : 'Upload LinkedIn Connections.csv'}
                 </button>
-                <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-600">
+                <div className="mt-3 border-t border-line pt-3 text-xs text-muted">
                   {linkedin.connected ? (
                     <div className="flex items-center justify-between gap-2">
-                      <span>Connected as <span className="font-medium">{linkedin.name || 'your LinkedIn profile'}</span> (profile only).</span>
-                      <button type="button" onClick={() => disconnect('linkedin')} className="text-blue-600 hover:underline">Disconnect</button>
+                      <span>Connected as <span className="font-medium text-slate-700">{linkedin.name || 'your LinkedIn profile'}</span> (profile only).</span>
+                      <button type="button" onClick={() => disconnect('linkedin')} className="btn-ghost shrink-0 px-2 py-1 text-xs">Disconnect</button>
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Signing in with LinkedIn only shares your own profile: LinkedIn does not give apps your connections, so use the export above.</span>
-                      {linkedin.configured
-                        ? <a href="/api/auth/linkedin" className="shrink-0 text-blue-600 hover:underline">Connect profile</a>
-                        : <span className="shrink-0 text-gray-400">LinkedIn sign-in is not set up</span>}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="border border-gray-200 rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-medium text-gray-800 flex items-center"><FaFileUpload className="mr-2 text-gray-500" /> Other contacts (CSV / XLSX)</h3>
-                    <span className="text-xs text-gray-500">{counts.csv.toLocaleString('en-US')}{lastImport('csv') ? ` · ${formatTime(lastImport('csv'))}` : ''}</span>
-                  </div>
-                  <p className="text-xs text-gray-600 mb-3">
-                    Any spreadsheet with a header row: Name (or First/Last Name), Company, Title, Email, LinkedIn URL, Location, Tags. A new upload replaces your previous CSV/XLSX import.
-                  </p>
-                  <input ref={genericInput} type="file" accept=".csv,.tsv,.xlsx,.xls,.json,text/csv,application/json" className="hidden" onChange={(e) => handleFile(e, 'auto')} data-testid="generic-file" />
-                  <button
-                    type="button"
-                    onClick={() => genericInput.current?.click()}
-                    disabled={Boolean(busy) || mode === 'loading'}
-                    className="inline-flex items-center bg-white border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-50 text-sm px-3 py-2 rounded-md"
-                  >
-                    <FaFileUpload className="mr-2" /> {busy === 'auto' ? 'Importing…' : 'Upload CSV/XLSX contacts'}
-                  </button>
-                </div>
-
-                <div className="border border-gray-200 rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-medium text-gray-800 flex items-center"><FaXTwitter className="mr-2" /> X following (optional)</h3>
-                    <span className="text-xs text-gray-500">{counts.x.toLocaleString('en-US')}{lastImport('x') ? ` · ${formatTime(lastImport('x'))}` : ''}</span>
-                  </div>
-                  {xStatus.connected ? (
                     <>
-                      <p className="text-xs text-gray-600 mb-2">Connected as <span className="font-medium">@{xStatus.username || 'unknown'}</span>. Importing who you follow needs a paid X API tier; if this app does not have it, you will see a note instead.</p>
-                      <div className="flex items-center gap-3">
-                        <button type="button" onClick={importX} disabled={Boolean(busy)} className="inline-flex items-center bg-black hover:bg-gray-800 disabled:opacity-50 text-white text-sm px-3 py-2 rounded-md">
-                          {busy === 'x' ? 'Importing…' : 'Import accounts I follow'}
-                        </button>
-                        <button type="button" onClick={() => disconnect('twitter')} className="text-xs text-blue-600 hover:underline">Disconnect</button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-xs text-gray-600 mb-2">X only shares following lists with apps on a paid API tier, so this may not be available. You can also upload an X API following JSON file above.</p>
-                      {xStatus.configured ? (
-                        <a href="/api/auth/twitter" className="inline-flex items-center bg-white border border-gray-300 text-gray-800 hover:bg-gray-50 text-sm px-3 py-2 rounded-md">
-                          <FaXTwitter className="mr-2" /> Connect X
-                        </a>
-                      ) : (
-                        <p className="text-xs text-gray-400">X sign-in is not set up on this server.</p>
-                      )}
+                      <p>Connecting LinkedIn only shares your own profile: LinkedIn does not give apps your connections, so the Connections.csv export above is how they come in.</p>
+                      <button type="button" onClick={connectLinkedIn} className="btn-secondary mt-2 w-full py-2 text-xs">Connect LinkedIn</button>
+                      {unavailable.linkedin && !linkedin.configured && <p className="muted mt-2 text-xs" role="status">{LINKEDIN_UNAVAILABLE}.</p>}
                     </>
                   )}
-                  {xStatus.note && <p className="text-xs text-amber-700 mt-2">{xStatus.note}</p>}
                 </div>
               </div>
             </div>
 
-            {contacts.length > 0 && (
-              <div className="mt-4 pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
-                <span>
-                  Your contacts are only used to answer your own questions. They are never sent to AI models or other services.
-                </span>
-                <button type="button" onClick={removeAll} disabled={Boolean(busy)} className="inline-flex items-center text-red-600 hover:text-red-700 disabled:opacity-50">
-                  <FaTrash className="mr-1" /> {busy === 'delete' ? 'Removing…' : 'Remove all my network data'}
+            {/* CSV / XLSX */}
+            <div className="card card-pad flex flex-col">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <SourceMark source="csv" />
+                  <h3 className="text-sm font-semibold text-ink">Other contacts</h3>
+                </div>
+                <Count label="Imported" value={counts.csv} hint={lastImport('csv') ? formatTime(lastImport('csv')) : null} />
+              </div>
+              <p className="mb-4 text-xs text-muted">
+                Any CSV or XLSX with a header row: Name (or First/Last Name), Company, Title, Email, LinkedIn URL, Location, Tags. A new upload replaces your previous CSV/XLSX import.
+              </p>
+              <input ref={genericInput} type="file" accept=".csv,.tsv,.xlsx,.xls,.json,text/csv,application/json" className="hidden" onChange={(e) => handleFile(e, 'auto')} data-testid="generic-file" />
+              <div className="mt-auto">
+                <button
+                  type="button"
+                  onClick={() => genericInput.current?.click()}
+                  disabled={Boolean(busy) || mode === 'loading'}
+                  className="btn-primary w-full"
+                >
+                  <HiOutlineArrowUpTray style={ICON} /> {busy === 'auto' ? 'Importing…' : 'Upload CSV/XLSX contacts'}
                 </button>
               </div>
-            )}
-          </section>
-
-          {/* ---------------------------------------------------- graph */}
-          <section className="bg-white border border-gray-200 rounded-lg p-4" aria-labelledby="graph-heading">
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-              <h2 id="graph-heading" className="text-lg font-semibold text-gray-800">Network graph</h2>
-              {contacts.length > 0 && (
-                <div className="flex flex-wrap items-center gap-3 text-sm">
-                  {['linkedin', 'csv', 'x'].map((s) => (
-                    <label key={s} className={classNames('inline-flex items-center gap-1.5', !counts[s] && 'opacity-50')}>
-                      <input
-                        type="checkbox"
-                        className="rounded border-gray-300"
-                        checked={sourceFilter[s]}
-                        disabled={!counts[s]}
-                        onChange={(e) => setSourceFilter((f) => ({ ...f, [s]: e.target.checked }))}
-                      />
-                      <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: SOURCE_COLORS[s] }} />
-                      {SOURCE_LABELS[s]} ({counts[s].toLocaleString('en-US')})
-                    </label>
-                  ))}
-                </div>
-              )}
             </div>
 
-            {contacts.length === 0 ? (
-              <div className="flex flex-col items-center justify-center text-center py-16 text-gray-500">
-                <FaProjectDiagram className="text-5xl text-blue-300 mb-3" />
-                <p className="font-medium text-gray-700">{mode === 'loading' ? 'Loading your network…' : 'No contacts yet'}</p>
-                {mode !== 'loading' && <p className="text-sm mt-1 max-w-md">Upload LinkedIn&apos;s Connections.csv or a contacts spreadsheet above to see who you know, grouped by company.</p>}
+            {/* X */}
+            <div className="card card-pad flex flex-col">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <SourceMark source="x" />
+                  <h3 className="text-sm font-semibold text-ink">X following</h3>
+                </div>
+                <Count label="Imported" value={counts.x} hint={lastImport('x') ? formatTime(lastImport('x')) : null} />
               </div>
-            ) : (
-              <>
-                <div className="flex flex-wrap gap-2 mb-3">
-                  <input
-                    type="search"
-                    value={companyFilter}
-                    onChange={(e) => { setCompanyFilter(e.target.value); setSelected(null); }}
-                    placeholder="Filter by company…"
-                    aria-label="Filter by company"
-                    className="flex-1 min-w-[180px] h-9 px-3 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-300"
-                  />
-                  <input
-                    type="search"
-                    value={graphSearch}
-                    onChange={(e) => setGraphSearch(e.target.value)}
-                    placeholder="Highlight a name, title or company…"
-                    aria-label="Highlight in graph"
-                    className="flex-1 min-w-[180px] h-9 px-3 text-sm border border-gray-200 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-300"
-                  />
-                </div>
-                <div className="text-xs text-gray-500 mb-2 flex flex-wrap gap-x-4 gap-y-1">
-                  <span>{visibleContacts.length.toLocaleString('en-US')} people · {graph.companyCount.toLocaleString('en-US')} companies</span>
-                  {graph.large && (
-                    <span>
-                      Large network: showing companies only{graph.hiddenCompanies ? ` (largest ${(graph.companyCount - graph.hiddenCompanies).toLocaleString('en-US')}; filter to find others)` : ''}. Click a company to show its people.
-                    </span>
-                  )}
-                  {graph.cappedCompanies?.length > 0 && (
-                    <span>
-                      Showing the first {fmt(MAX_PEOPLE_PER_EXPANDED_COMPANY)} people of {graph.cappedCompanies.map((c) => c.label).slice(0, 3).join(', ')}{graph.cappedCompanies.length > 3 ? ` and ${graph.cappedCompanies.length - 3} more` : ''}; everyone is in the company&apos;s details list.
-                    </span>
-                  )}
-                  {(graphSearch.trim() || answerKeys) && (
-                    <span>
-                      {fmt(highlightedPeople)} highlighted{graph.large && highlightedTotal > highlightedPeople ? ` (${fmt(highlightedTotal)} match; click a company to show its people)` : ''}
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex flex-col lg:flex-row gap-4">
-                  <div ref={graphBoxRef} className="flex-1 min-w-0 border border-gray-200 rounded-md overflow-hidden">
-                    {visibleContacts.length === 0 ? (
-                      <div className="flex items-center justify-center text-sm text-gray-500" style={{ height: 560 }}>No contacts match these filters.</div>
-                    ) : (
-                      <NetworkGraph
-                        graphData={graph}
-                        width={graphWidth}
-                        height={560}
-                        highlightIds={highlightIds}
-                        selectedId={selected?.id}
-                        onNodeClick={onNodeClick}
-                        onBackgroundClick={() => setSelected(null)}
-                      />
-                    )}
+              {xStatus.connected ? (
+                <>
+                  <p className="mb-4 text-xs text-muted">Connected as <span className="font-medium text-slate-700">@{xStatus.username || 'unknown'}</span>. If X does not share who you follow with this app, you will see a note instead; an X following export can be uploaded under Other contacts.</p>
+                  <div className="mt-auto space-y-2">
+                    <button type="button" onClick={importX} disabled={Boolean(busy)} className="btn-primary w-full">
+                      {busy === 'x' ? 'Importing…' : 'Import accounts I follow'}
+                    </button>
+                    <button type="button" onClick={() => disconnect('twitter')} className="btn-ghost w-full justify-center text-xs">Disconnect</button>
                   </div>
+                </>
+              ) : (
+                <>
+                  <p className="mb-4 text-xs text-muted">X does not share who you follow with this app yet; upload an X following export (JSON) under Other contacts instead.</p>
+                  <div className="mt-auto">
+                    <button type="button" onClick={connectX} className="btn-secondary w-full">Connect X</button>
+                    {unavailable.x && !xStatus.configured && <p className="muted mt-2 text-xs" role="status">{X_UNAVAILABLE}.</p>}
+                  </div>
+                </>
+              )}
+              {xStatus.note && <p className="mt-2 text-xs text-amber-700">{xStatus.note}</p>}
+            </div>
+          </div>
 
-                  <aside className="lg:w-80 shrink-0 border border-gray-200 rounded-md p-3 text-sm" aria-label="Details">
-                    {!selected && (
-                      <div className="text-gray-500">
-                        <p className="font-medium text-gray-700 mb-1">Details</p>
-                        <p>Click a person or company in the graph to see details. Blue circles are companies, sized by how many people you know there.</p>
+          {contacts.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+              <p className="muted text-xs">Your contacts are only used to answer your own questions. They are never sent to AI models or other services.</p>
+              <button type="button" onClick={removeAll} disabled={Boolean(busy)} className="btn-danger text-xs disabled:opacity-50">
+                <HiOutlineTrash style={{ width: 13, height: 13 }} /> {busy === 'delete' ? 'Removing…' : 'Remove all my network data'}
+              </button>
+            </div>
+          )}
+        </section>
+
+        {/* ---------------------------------------------------- graph */}
+        <section className="card card-pad" aria-labelledby="graph-heading">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h2 id="graph-heading" className="section-title">Network graph</h2>
+            {contacts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5" aria-label="Sources shown">
+                {['linkedin', 'csv', 'x'].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    role="checkbox"
+                    aria-checked={sourceFilter[s]}
+                    disabled={!counts[s]}
+                    onClick={() => setSourceFilter((f) => ({ ...f, [s]: !f[s] }))}
+                    className={classNames('chip', sourceFilter[s] && 'chip-active', !counts[s] && 'opacity-50')}
+                  >
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: SOURCE_COLORS[s] }} />
+                    {SOURCE_LABELS[s]} <span className="text-muted">{fmt(counts[s])}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {contacts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-14 text-center">
+              <span className="mb-3 grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600"><HiOutlineShare style={{ width: 20, height: 20 }} /></span>
+              <p className="text-sm font-medium text-ink">{mode === 'loading' ? 'Loading your network…' : 'No contacts yet'}</p>
+              {mode !== 'loading' && (
+                <>
+                  <p className="muted mt-1 max-w-md">Upload LinkedIn&apos;s Connections.csv or a contacts spreadsheet to see who you know, grouped by company.</p>
+                  <button type="button" onClick={() => linkedinInput.current?.click()} disabled={Boolean(busy)} className="btn-secondary mt-4">
+                    <HiOutlineArrowUpTray style={ICON} /> Upload Connections.csv
+                  </button>
+                </>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="mb-3 flex flex-wrap gap-2">
+                <input
+                  type="search"
+                  value={companyFilter}
+                  onChange={(e) => { setCompanyFilter(e.target.value); setSelected(null); }}
+                  placeholder="Filter by company…"
+                  aria-label="Filter by company"
+                  className="input min-w-[180px] flex-1 py-2"
+                />
+                <input
+                  type="search"
+                  value={graphSearch}
+                  onChange={(e) => setGraphSearch(e.target.value)}
+                  placeholder="Highlight a name, title or company…"
+                  aria-label="Highlight in graph"
+                  className="input min-w-[180px] flex-1 py-2"
+                />
+              </div>
+              <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+                <span><span className="font-semibold text-ink">{fmt(visibleContacts.length)}</span> people · <span className="font-semibold text-ink">{fmt(graph.companyCount)}</span> companies</span>
+                {graph.large && (
+                  <span>
+                    Large network: showing companies only{graph.hiddenCompanies ? ` (largest ${fmt(graph.companyCount - graph.hiddenCompanies)}; filter to find others)` : ''}. Click a company to show its people.
+                  </span>
+                )}
+                {graph.cappedCompanies?.length > 0 && (
+                  <span>
+                    Showing the first {fmt(MAX_PEOPLE_PER_EXPANDED_COMPANY)} people of {graph.cappedCompanies.map((c) => c.label).slice(0, 3).join(', ')}{graph.cappedCompanies.length > 3 ? ` and ${graph.cappedCompanies.length - 3} more` : ''}; everyone is in the company&apos;s details list.
+                  </span>
+                )}
+                {(graphSearch.trim() || answerKeys) && (
+                  <span>
+                    {fmt(highlightedPeople)} highlighted{graph.large && highlightedTotal > highlightedPeople ? ` (${fmt(highlightedTotal)} match; click a company to show its people)` : ''}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-4 lg:flex-row">
+                <div ref={graphBoxRef} className="min-w-0 flex-1 overflow-hidden rounded-xl border border-line bg-white">
+                  {visibleContacts.length === 0 ? (
+                    <div className="flex items-center justify-center text-sm text-muted" style={{ height: 560 }}>No contacts match these filters.</div>
+                  ) : (
+                    <NetworkGraph
+                      graphData={graph}
+                      width={graphWidth}
+                      height={560}
+                      highlightIds={highlightIds}
+                      selectedId={selected?.id}
+                      onNodeClick={onNodeClick}
+                      onBackgroundClick={() => setSelected(null)}
+                    />
+                  )}
+                </div>
+
+                <aside className="card card-pad shrink-0 text-sm lg:w-80" aria-label="Details">
+                  {!selected && (
+                    <div>
+                      <p className="eyebrow mb-1">Details</p>
+                      <p className="muted">Click a person or company in the graph to see details. Indigo circles are companies, sized by how many people you know there.</p>
+                    </div>
+                  )}
+                  {selected?.type === 'person' && (
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="font-semibold text-ink">{selected.contact.name}</h3>
+                        <button type="button" onClick={() => setSelected(null)} aria-label="Close details" className="text-muted hover:text-ink"><HiOutlineXMark style={ICON} /></button>
                       </div>
-                    )}
-                    {selected?.type === 'person' && (
-                      <div>
-                        <div className="flex items-start justify-between gap-2">
-                          <h3 className="font-semibold text-gray-900">{selected.contact.name}</h3>
-                          <button type="button" onClick={() => setSelected(null)} aria-label="Close details" className="text-gray-400 hover:text-gray-600"><FaTimes /></button>
-                        </div>
-                        {selected.contact.position && <p className="text-gray-700">{selected.contact.position}</p>}
-                        {selected.contact.company && <p className="text-gray-600">{selected.contact.company}</p>}
-                        <dl className="mt-2 space-y-1 text-xs text-gray-600">
-                          {selected.contact.location && <div><dt className="inline font-medium">Location: </dt><dd className="inline">{selected.contact.location}</dd></div>}
-                          {selected.contact.connectedOn && <div><dt className="inline font-medium">Connected on: </dt><dd className="inline">{formatDate(selected.contact.connectedOn)}</dd></div>}
-                          {selected.contact.email && <div><dt className="inline font-medium">Email: </dt><dd className="inline break-all">{selected.contact.email}</dd></div>}
-                          <div><dt className="inline font-medium">Source: </dt><dd className="inline"><SourceBadge source={selected.contact.source} /></dd></div>
-                          {selected.contact.tags?.length > 0 && <div><dt className="inline font-medium">Tags: </dt><dd className="inline">{selected.contact.tags.join(', ')}</dd></div>}
-                        </dl>
-                        {selected.contact.profileUrl && (
-                          <a href={selected.contact.profileUrl} target="_blank" rel="noopener noreferrer nofollow" className="mt-2 inline-flex items-center text-blue-600 hover:underline text-xs">
-                            Open profile <FaExternalLinkAlt className="ml-1" size={9} />
-                          </a>
-                        )}
-                        <ContactActions name={selected.contact.name} company={selected.contact.company} />
+                      {selected.contact.position && <p className="text-slate-700">{selected.contact.position}</p>}
+                      {selected.contact.company && <p className="mt-1"><span className="chip">{selected.contact.company}</span></p>}
+                      <dl className="mt-3 space-y-1 text-xs text-muted">
+                        {selected.contact.location && <div><dt className="inline font-medium text-slate-700">Location: </dt><dd className="inline">{selected.contact.location}</dd></div>}
+                        {selected.contact.connectedOn && <div><dt className="inline font-medium text-slate-700">Connected on: </dt><dd className="inline">{formatDate(selected.contact.connectedOn)}</dd></div>}
+                        {selected.contact.email && <div><dt className="inline font-medium text-slate-700">Email: </dt><dd className="inline break-all">{selected.contact.email}</dd></div>}
+                        <div><dt className="inline font-medium text-slate-700">Source: </dt><dd className="inline"><SourceBadge source={selected.contact.source} /></dd></div>
+                        {selected.contact.tags?.length > 0 && <div><dt className="inline font-medium text-slate-700">Tags: </dt><dd className="inline">{selected.contact.tags.join(', ')}</dd></div>}
+                      </dl>
+                      {selected.contact.profileUrl && (
+                        <a href={selected.contact.profileUrl} target="_blank" rel="noopener noreferrer nofollow" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
+                          Open profile <HiOutlineArrowTopRightOnSquare style={{ width: 12, height: 12 }} />
+                        </a>
+                      )}
+                      <ContactActions name={selected.contact.name} company={selected.contact.company} />
+                    </div>
+                  )}
+                  {selected?.type === 'company' && (
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="font-semibold text-ink">{selected.label}</h3>
+                        <button type="button" onClick={() => setSelected(null)} aria-label="Close details" className="text-muted hover:text-ink"><HiOutlineXMark style={ICON} /></button>
                       </div>
-                    )}
-                    {selected?.type === 'company' && (
-                      <div>
-                        <div className="flex items-start justify-between gap-2">
-                          <h3 className="font-semibold text-gray-900">{selected.label}</h3>
-                          <button type="button" onClick={() => setSelected(null)} aria-label="Close details" className="text-gray-400 hover:text-gray-600"><FaTimes /></button>
-                        </div>
-                        <p className="text-gray-600">{selected.count} {selected.count === 1 ? 'person' : 'people'} you know</p>
-                        {graph.large && expanded.has(selected.key) && (
+                      <p className="muted">{selected.count} {selected.count === 1 ? 'person' : 'people'} you know</p>
+                      {graph.large && expanded.has(selected.key) && (
+                        <button
+                          type="button"
+                          onClick={() => setExpanded((prev) => { const next = new Set(prev); next.delete(selected.key); return next; })}
+                          className="btn-ghost mt-1 px-1.5 py-1 text-xs"
+                        >
+                          Hide these people in the graph
+                        </button>
+                      )}
+                      {selected.key !== NO_COMPANY_KEY && (
+                        <>
+                          <ContactActions company={selected.label} />
                           <button
                             type="button"
-                            onClick={() => setExpanded((prev) => { const next = new Set(prev); next.delete(selected.key); return next; })}
-                            className="mt-1 text-xs text-gray-500 hover:text-gray-700 underline"
+                            onClick={() => { const q = `Intro paths to ${selected.label}`; setQuestion(q); ask(q); }}
+                            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline"
                           >
-                            Hide these people in the graph
+                            <HiOutlineSparkles style={{ width: 13, height: 13 }} /> Find intro paths to {selected.label}
                           </button>
-                        )}
-                        {selected.key !== NO_COMPANY_KEY && (
-                          <>
-                            <ContactActions company={selected.label} />
-                            <button
-                              type="button"
-                              onClick={() => { const q = `Intro paths to ${selected.label}`; setQuestion(q); ask(q); }}
-                              className="mt-2 text-xs text-blue-600 hover:underline"
-                            >
-                              Find intro paths to {selected.label}
+                        </>
+                      )}
+                      {graph.large && expanded.has(selected.key) && selected.count > MAX_PEOPLE_PER_EXPANDED_COMPANY && (
+                        <p className="muted mt-1 text-xs">The graph draws the first {fmt(MAX_PEOPLE_PER_EXPANDED_COMPANY)} people by name; all {fmt(selected.count)} are listed here.</p>
+                      )}
+                      <ul className="mt-3 max-h-64 divide-y divide-line overflow-y-auto">
+                        {selectedCompanyPeople.map((c) => (
+                          <li key={dedupeKey(c)} className="py-1.5">
+                            <button type="button" className="text-left hover:text-brand-600" onClick={() => selectContact({ ...c, key: dedupeKey(c) })}>
+                              <span className="font-medium text-ink">{c.name}</span>
+                              {c.position && <span className="block text-xs text-muted">{c.position}</span>}
                             </button>
-                          </>
-                        )}
-                        {graph.large && expanded.has(selected.key) && selected.count > MAX_PEOPLE_PER_EXPANDED_COMPANY && (
-                          <p className="mt-1 text-xs text-gray-500">The graph draws the first {fmt(MAX_PEOPLE_PER_EXPANDED_COMPANY)} people by name; all {fmt(selected.count)} are listed here.</p>
-                        )}
-                        <ul className="mt-3 max-h-64 overflow-y-auto divide-y divide-gray-100">
-                          {selectedCompanyPeople.map((c) => (
-                            <li key={dedupeKey(c)} className="py-1.5">
-                              <button type="button" className="text-left hover:text-blue-700" onClick={() => selectContact({ ...c, key: dedupeKey(c) })}>
-                                <span className="font-medium">{c.name}</span>
-                                {c.position && <span className="block text-xs text-gray-500">{c.position}</span>}
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </aside>
-                </div>
-              </>
-            )}
-          </section>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </aside>
+              </div>
+            </>
+          )}
+        </section>
 
-          {/* ---------------------------------------------------- ask */}
-          <section className="bg-white border border-gray-200 rounded-lg p-4" aria-labelledby="ask-heading">
-            <h2 id="ask-heading" className="text-lg font-semibold text-gray-800 mb-1">Ask your network</h2>
-            <p className="text-sm text-gray-600 mb-1">Search by company, role, industry or place. Intro paths also check the company&apos;s investors from public sources.</p>
-            <p className="text-xs text-gray-500 mb-3">Your contacts never leave this app. Only the text of your question may be sent to the configured AI model when the built-in rules cannot interpret it.</p>
-            <form
-              onSubmit={(e) => { e.preventDefault(); ask(); }}
-              className="flex gap-2"
-            >
+        {/* ---------------------------------------------------- ask */}
+        <section className="card card-pad" aria-labelledby="ask-heading">
+          <h2 id="ask-heading" className="section-title">Ask your network</h2>
+          <p className="muted mt-1">Search by company, role, industry or place. Intro paths also check the company&apos;s investors from public sources.</p>
+          <form
+            onSubmit={(e) => { e.preventDefault(); ask(); }}
+            className="mt-4 flex flex-col gap-2 sm:flex-row"
+          >
+            <div className="relative flex-1">
+              <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" style={{ width: 17, height: 17 }} />
               <input
                 type="text"
                 value={question}
@@ -918,122 +931,131 @@ export default function NetworkPage() {
                 placeholder="Search your network..."
                 aria-label="Ask your network"
                 maxLength={500}
-                className="flex-1 h-11 px-4 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-300 shadow-sm"
+                className="input py-3 pl-10"
               />
-              <button
-                type="submit"
-                disabled={asking || !question.trim() || !contacts.length}
-                className="inline-flex items-center bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white text-sm px-4 rounded-lg"
-              >
-                <FaSearch className="mr-2" /> {asking ? 'Searching…' : 'Ask'}
-              </button>
-            </form>
-            <div className="flex flex-wrap gap-2 mt-3">
-              {EXAMPLES.map((ex) => (
-                <button
-                  key={ex}
-                  type="button"
-                  disabled={asking || !contacts.length}
-                  onClick={() => askExample(ex)}
-                  className="text-xs bg-blue-50 border border-blue-100 text-blue-800 hover:bg-blue-100 disabled:opacity-50 px-3 py-1.5 rounded-full"
-                >
-                  {ex}
-                </button>
-              ))}
             </div>
-            {!contacts.length && mode !== 'loading' && (
-              <p className="text-sm text-gray-500 mt-3">Import your contacts above to start asking.</p>
-            )}
-            {askError && <p role="alert" className="mt-3 text-sm text-red-600">{askError}</p>}
+            <button
+              type="submit"
+              disabled={asking || !question.trim() || !contacts.length}
+              className="btn-primary sm:px-5"
+            >
+              <HiOutlineSparkles style={ICON} /> {asking ? 'Searching…' : 'Ask'}
+            </button>
+          </form>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {EXAMPLES.map((ex) => (
+              <button
+                key={ex}
+                type="button"
+                disabled={asking || !contacts.length}
+                onClick={() => askExample(ex)}
+                className="chip hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 disabled:opacity-50"
+              >
+                {ex}
+              </button>
+            ))}
+          </div>
+          <p className="muted mt-3 text-xs">Your contacts never leave this app. Only the text of your question may be sent to the AI model when the built-in rules cannot interpret it.</p>
+          {!contacts.length && mode !== 'loading' && (
+            <p className="muted mt-3">Import your contacts above to start asking.</p>
+          )}
+          {askError && <p role="alert" className="mt-3 text-sm text-rose-600">{askError}</p>}
 
-            {asking && (
-              <div className="mt-4 flex items-center text-sm text-gray-600">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500 mr-2" />
+          {asking && (
+            <div className="mt-4" aria-busy="true" aria-live="polite">
+              <p className="flex items-center gap-2 text-sm text-ink">
+                <HiOutlineSparkles className="text-brand-500 animate-glow" style={{ width: 16, height: 16 }} />
                 {/intro|path/i.test(question) ? 'Searching your contacts and looking up the company\'s investors…' : 'Searching your contacts…'}
+              </p>
+              <div className="mt-3 space-y-2">
+                <div className="skeleton h-4 w-1/3" />
+                <div className="skeleton h-3 w-2/3" />
+                <div className="skeleton h-4 w-1/4" />
+                <div className="skeleton h-3 w-1/2" />
               </div>
-            )}
+            </div>
+          )}
 
-            {answer && !asking && (
-              <div className="mt-4">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                  <div className="text-sm text-gray-700">
-                    {answer.intent === 'intro-path'
-                      ? <>Intro paths to <span className="font-semibold">{answer.intro?.target}</span></>
-                      : <><span className="font-semibold">{answer.total.toLocaleString('en-US')}</span> {answer.total === 1 ? 'match' : 'matches'}{answer.total > answer.results.length ? ` (top ${answer.results.length} shown)` : ''}</>}
-                  </div>
-                  <button type="button" onClick={() => setAnswer(null)} className="text-xs text-gray-500 hover:text-gray-700">Clear results</button>
+          {answer && !asking && (
+            <div className="mt-4 border-t border-line pt-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm text-slate-700">
+                  {answer.intent === 'intro-path'
+                    ? <>Intro paths to <span className="font-semibold text-ink">{answer.intro?.target}</span></>
+                    : <><span className="font-semibold text-ink">{fmt(answer.total)}</span> {answer.total === 1 ? 'match' : 'matches'}{answer.total > answer.results.length ? ` (top ${answer.results.length} shown)` : ''}</>}
                 </div>
-                {filtersShown && (
-                  <div className="flex flex-wrap gap-1.5 mb-3 text-xs">
-                    {filtersShown.companies.map((v) => <span key={`c${v}`} className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">Company: {v}</span>)}
-                    {filtersShown.roles.map((v) => <span key={`r${v}`} className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">Role: {v}</span>)}
-                    {filtersShown.keywords.map((v) => <span key={`k${v}`} className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">Keyword: {v}</span>)}
-                    {filtersShown.locations.map((v) => <span key={`l${v}`} className="px-2 py-0.5 rounded bg-gray-100 text-gray-700">Location: {v}</span>)}
-                    {answer.parsedBy === 'llm' && <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-700">question interpreted by AI (your contacts were not shared)</span>}
-                  </div>
-                )}
-                {(answer.notes || []).filter((n) => !/^Past employees/.test(n)).map((n) => (
-                  <p key={n} className="text-xs text-amber-700 mb-2">{n}</p>
-                ))}
-
-                {answer.intent === 'intro-path' && answer.intro ? (
-                  <div className="space-y-4">
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-800">Direct: people at {answer.intro.target} ({answer.intro.direct.length})</h3>
-                      {answer.intro.direct.length ? (
-                        <ul>{answer.intro.direct.map((r) => <ResultRow key={r.contact.key} item={r} onShow={selectContact} />)}</ul>
-                      ) : (
-                        <p className="text-sm text-gray-500 mt-1">No one in your network lists {answer.intro.target} as their company.</p>
-                      )}
-                    </div>
-                    {answer.intro.possiblyRelated?.length > 0 && (
-                      <div>
-                        <h3 className="text-sm font-semibold text-gray-800">Possibly related ({answer.intro.possiblyRelated.length})</h3>
-                        <p className="text-xs text-gray-500">Similar company names, or {answer.intro.target} mentioned in a title. They may not work there.</p>
-                        <ul>{answer.intro.possiblyRelated.map((r) => <ResultRow key={`rel-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
-                      </div>
-                    )}
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-800">Via investors ({answer.intro.viaInvestors.reduce((n, g) => n + g.total, 0)})</h3>
-                      {answer.intro.viaInvestors.length ? answer.intro.viaInvestors.map((g) => (
-                        <div key={g.investor} className="mt-2 border-l-2 border-blue-200 pl-3">
-                          <div className="text-sm font-medium text-gray-700">{g.investor} <span className="text-xs font-normal text-gray-500">({g.evidence}; {g.total} {g.total === 1 ? 'contact' : 'contacts'})</span></div>
-                          <ul>{g.contacts.map((r) => <ResultRow key={`${g.investor}-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
-                        </div>
-                      )) : (
-                        <p className="text-sm text-gray-500 mt-1">
-                          {answer.intro.investorsChecked.length
-                            ? `You don't know anyone at the investors found for ${answer.intro.target} (${answer.intro.investorsChecked.slice(0, 8).join(', ')}${answer.intro.investorsChecked.length > 8 ? '…' : ''}).`
-                            : 'No investor paths found.'}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <h3 className="text-sm font-semibold text-gray-800">Via past employees</h3>
-                      <p className="text-sm text-gray-500 mt-1">Not available: LinkedIn&apos;s export and contact files only include current company, not employment history.</p>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {answer.results.length ? (
-                      <ul>{answer.results.map((r) => <ResultRow key={r.contact.key} item={r} onShow={selectContact} />)}</ul>
-                    ) : (
-                      <p className="text-sm text-gray-500">No one in your network matches that. Try a company name, a role like &quot;engineers&quot;, or an industry like &quot;fintech&quot;.</p>
-                    )}
-                    {answer.possiblyRelated?.results?.length > 0 && (
-                      <div className="mt-4">
-                        <h3 className="text-sm font-semibold text-gray-800">Possibly related ({fmt(answer.possiblyRelated.total)})</h3>
-                        <p className="text-xs text-gray-500">Similar company names, or the company mentioned in a title. They may not work there.</p>
-                        <ul>{answer.possiblyRelated.results.map((r) => <ResultRow key={`rel-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
-                      </div>
-                    )}
-                  </>
-                )}
+                <button type="button" onClick={() => setAnswer(null)} className="btn-ghost text-xs">Clear results</button>
               </div>
-            )}
-          </section>
-        </div>
-      </main>
-    </div>
+              {filtersShown && (
+                <div className="mb-3 flex flex-wrap gap-1.5">
+                  {filtersShown.companies.map((v) => <span key={`c${v}`} className="chip">Company: {v}</span>)}
+                  {filtersShown.roles.map((v) => <span key={`r${v}`} className="chip">Role: {v}</span>)}
+                  {filtersShown.keywords.map((v) => <span key={`k${v}`} className="chip">Keyword: {v}</span>)}
+                  {filtersShown.locations.map((v) => <span key={`l${v}`} className="chip">Location: {v}</span>)}
+                  {answer.parsedBy === 'llm' && <span className="chip chip-active"><HiOutlineSparkles style={{ width: 12, height: 12 }} /> question interpreted by AI (your contacts were not shared)</span>}
+                </div>
+              )}
+              {(answer.notes || []).filter((n) => !/^Past employees/.test(n)).map((n) => (
+                <p key={n} className="mb-2 text-xs text-amber-700">{n}</p>
+              ))}
+
+              {answer.intent === 'intro-path' && answer.intro ? (
+                <div className="space-y-5">
+                  <div>
+                    <h3 className="text-sm font-semibold text-ink">Direct: people at {answer.intro.target} <span className="chip ml-1">{answer.intro.direct.length}</span></h3>
+                    {answer.intro.direct.length ? (
+                      <ul className="divide-y divide-line">{answer.intro.direct.map((r) => <ResultRow key={r.contact.key} item={r} onShow={selectContact} />)}</ul>
+                    ) : (
+                      <p className="muted mt-1">No one in your network lists {answer.intro.target} as their company.</p>
+                    )}
+                  </div>
+                  {answer.intro.possiblyRelated?.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-ink">Possibly related <span className="chip ml-1">{answer.intro.possiblyRelated.length}</span></h3>
+                      <p className="muted text-xs">Similar company names, or {answer.intro.target} mentioned in a title. They may not work there.</p>
+                      <ul className="divide-y divide-line">{answer.intro.possiblyRelated.map((r) => <ResultRow key={`rel-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
+                    </div>
+                  )}
+                  <div>
+                    <h3 className="text-sm font-semibold text-ink">Via investors <span className="chip ml-1">{answer.intro.viaInvestors.reduce((n, g) => n + g.total, 0)}</span></h3>
+                    {answer.intro.viaInvestors.length ? answer.intro.viaInvestors.map((g) => (
+                      <div key={g.investor} className="mt-2 border-l-2 border-brand-200 pl-3">
+                        <div className="text-sm font-medium text-slate-700">{g.investor} <span className="text-xs font-normal text-muted">({g.evidence}; {g.total} {g.total === 1 ? 'contact' : 'contacts'})</span></div>
+                        <ul className="divide-y divide-line">{g.contacts.map((r) => <ResultRow key={`${g.investor}-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
+                      </div>
+                    )) : (
+                      <p className="muted mt-1">
+                        {answer.intro.investorsChecked.length
+                          ? `You don't know anyone at the investors found for ${answer.intro.target} (${answer.intro.investorsChecked.slice(0, 8).join(', ')}${answer.intro.investorsChecked.length > 8 ? '…' : ''}).`
+                          : 'No investor paths found.'}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-ink">Via past employees</h3>
+                    <p className="muted mt-1">Not available: LinkedIn&apos;s export and contact files only include current company, not employment history.</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {answer.results.length ? (
+                    <ul className="divide-y divide-line">{answer.results.map((r) => <ResultRow key={r.contact.key} item={r} onShow={selectContact} />)}</ul>
+                  ) : (
+                    <p className="muted">No one in your network matches that. Try a company name, a role like &quot;engineers&quot;, or an industry like &quot;fintech&quot;.</p>
+                  )}
+                  {answer.possiblyRelated?.results?.length > 0 && (
+                    <div className="mt-4">
+                      <h3 className="text-sm font-semibold text-ink">Possibly related <span className="chip ml-1">{fmt(answer.possiblyRelated.total)}</span></h3>
+                      <p className="muted text-xs">Similar company names, or the company mentioned in a title. They may not work there.</p>
+                      <ul className="divide-y divide-line">{answer.possiblyRelated.results.map((r) => <ResultRow key={`rel-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </section>
+      </div>
+    </PageShell>
   );
 }
