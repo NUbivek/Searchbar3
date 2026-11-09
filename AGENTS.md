@@ -192,45 +192,76 @@ Misc: `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_PRODUCTION_URL`, `FEATURE_*`,
 `vercel env ls` shows names; use `vercel env add NAME preview <branch> --value '…' --yes`
 for non-interactive adds (the owner normally pastes secret values himself).
 
-## 8. Current state (2026-11-09)
+## 8. Current state (2026-11-09, evening)
 
-Production `openclaw-fixes` = preview `claude/research-hub-fix` at commit
-`d64d580` (merge of `e635c19`). Everything below is live.
+Production `openclaw-fixes` is at `f3b49a5`. The preview branch
+`claude/research-hub-fix` is at `eb29785` and has the **same code**: its two
+extra commits (`a4dde74` and its revert `eb29785`) cancel out. Nothing is
+waiting to be deployed.
 
-Done in this session: full audit and overhaul; free-first LLM chain incl.
-Gemini; redesign (ink + steel blue, quiet top bar, hero search bars); Google
-sign-in on both hosts; custom domain; privacy/terms; Network Map rebuild
-(roles and lenses, role/company/industry/country grouping, three-layer
-drill-down, breadcrumb, navigator, full screen, folded singletons,
-known-employer industries, cross-tab "Your network" panels, Attio import built
-behind a flag); Open Research source groups (Gov, Patents & IP,
-Institutions), All/Custom chips; README, NETWORK-MAP.md and DESIGN.md kept
-current.
+Done earlier: full audit and overhaul; free-first LLM chain incl. Gemini;
+redesign (ink + steel blue, quiet top bar, hero search bars); Google sign-in
+on both hosts; custom domain; privacy/terms; Network Map rebuild (roles and
+lenses, role/company/industry/country grouping, three-layer drill-down,
+breadcrumb, navigator, full screen, folded singletons, known-employer
+industries, cross-tab "Your network" panels, Attio import built behind a
+flag); Open Research source groups (Gov, Patents & IP, Institutions),
+All/Custom chips.
+
+Added since the first handoff (all live):
+- **Tavus video guide** ("Diligence Doctor"), commit `f9d9655`: one
+  `<tavus-widget>` on every page with page-aware context and three PAL tools
+  (`go_to_section`, `run_research`, `run_founder_check`). See section 5 and
+  `docs/tavus/03-pal-tools.md`. Open Research now writes the current query to
+  the URL (`?q=`) and reruns on every new `?q=`.
+- **Avatar knowledge docs**, commit `45eb8a5`:
+  `docs/tavus/01-site-overview-and-navigation.txt` and
+  `02-walkthroughs-faq-and-limits.txt`, written for the avatar (user-facing
+  language). Keep them in sync with UI changes; the owner uploads them to the
+  PAL's knowledge base.
+- **X callbacks and diagnostics**, commit `e635c19`: OAuth callbacks return
+  to the host the user started on; the X status endpoint reports X's own
+  refusal reason (`xReason`, `xDetail`) and makes one API call, not two.
+- A Tavus findings report and `?tavusDebug=1` timing marks were added and then
+  reverted on purpose (`eb29785`). The owner keeps that report outside the
+  repo. Do not re-add it.
+- **Untracked, on purpose:** `docs/tavus/media/` holds banner and avatar
+  background JPGs made for the owner's video. Leave them uncommitted unless he
+  asks.
 
 ## 9. Open items — pick up here
 
-1. **X (Twitter) connect — blocked on the owner.** X now returns
-   `403 client-not-enrolled`: the X app must be attached to a **Project** in
-   the X developer portal (Projects & Apps → create Project → add the existing
-   standalone app). Callback URL `https://diligence.bivek.ai/api/auth/twitter/callback`
-   is already registered. If the Client ID/Secret change, the owner updates
+1. **X (Twitter) connect — blocked on the owner's X plan.** Sign-in now
+   completes and returns to diligence.bivek.ai, and the app "Diligence Hub" is
+   inside a Project. X still answers `403 client-not-enrolled` because X
+   deprecated its Free API plan (the Project shows a quota of 0). The owner
+   said he will enable X's **Pay Per Use** plan. No code change is needed.
+   After he does: if the OAuth 2.0 Client ID/Secret changed he updates
    `TWITTER_CLIENT_ID`/`TWITTER_CLIENT_SECRET` in Vercel and production needs a
-   redeploy. After enrollment: re-test Connect X on production, then check
-   `GET /api/auth/twitter/token` returns `authenticated: true`. "Import
-   follows" will still need X's paid Basic tier; the page explains that.
-   Also suggested: rename the X app to "Research Hub".
-2. **Stale env overrides in Vercel** (cleanup; code already ignores them):
+   redeploy; then re-test Connect X and `GET /api/auth/twitter/token`
+   (expect `authenticated: true`), then "Import follows".
+2. **Tavus PAL tools — on the owner.** The three tools must be added to the
+   PAL in the Tavus PAL Maker exactly as in `docs/tavus/03-pal-tools.md`
+   (delivery app message, on-resolve `generate_response`). Until then the
+   guide talks but cannot act. The owner reported a freeze in a test call;
+   the page replies to tool calls in under 100 ms, so the likelier causes are
+   the PAL's knowledge base size or the PAL runtime. Not a code task unless he
+   asks.
+3. **Stale env overrides in Vercel** (cleanup; code already ignores them):
    `TWITTER_REDIRECT_URI` (unexpanded template), `LINKEDIN_REDIRECT_URI` and
    `NEXT_PUBLIC_LINKEDIN_REDIRECT_URI` (old `airesearch.bivek.ai`), and
    `NEXT_PUBLIC_BASE_URL` / `NEXT_PUBLIC_PRODUCTION_URL` if they still point at
    the old domain. Removing env vars needs the owner's OK.
-3. **Key rotation:** keys that were once in `env-config.txt` are in git
+4. **Key rotation:** keys that were once in `env-config.txt` are in git
    history; the owner should rotate them, plus the Vercel variables marked
    "Needs Attention".
-4. **Attio** stays a disabled placeholder until the owner has a workspace
+5. **Attio** stays a disabled placeholder until the owner has a workspace
    token; enable with `NEXT_PUBLIC_ATTIO_ENABLED=true`. Import logic and tests
    exist (`src/pages/api/network/attio.js`, `tests/unit/features/networkAttio.test.js`).
-5. **Ideas the owner liked but not started:** a firm-level LinkedIn import
+6. **Possible rename:** the owner now calls the product "DiligenceHub"
+   (banner, PAL, X app). The site still says "Research Hub" in the logo,
+   titles and sign-in page. Rename only if he asks.
+7. **Ideas the owner liked but not started:** a firm-level LinkedIn import
    (colleagues' exports attributed to them → "via <colleague>" second-degree
    paths, reusing the direct/firm model); optional `RESEND_API_KEY` for
    watchlist email digests.
