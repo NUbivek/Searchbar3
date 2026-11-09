@@ -30,7 +30,7 @@ adds nothing else (its API never shares connections), X adds the accounts
 you follow where the API tier allows. Both are shown as "not available on
 this deployment" when the keys are not set.
 
-**Connect Attio (the firm's CRM)** imports the People object of an Attio
+**Connect Attio (the firm's CRM)** is shown as a placeholder ("Connect Attio · soon") until `NEXT_PUBLIC_ATTIO_ENABLED=true` is set; the import is built and tested. When enabled it imports the People object of an Attio
 workspace with an API access token you paste in (Attio → Workspace settings
 → Developers). The token is used for that one request and never stored.
 Every person is saved with a *relationship*:

@@ -38,6 +38,8 @@ const AUTO_EXPAND_MAX_PEOPLE = 60;
 const fmt = (n) => Number(n || 0).toLocaleString('en-US');
 const LINKEDIN_UNAVAILABLE = "LinkedIn connection isn't available on this deployment yet";
 const X_UNAVAILABLE = "X connection isn't available on this deployment yet";
+// Attio stays a placeholder until the firm's workspace token is set up (the import route and UI are ready).
+const ATTIO_ENABLED = process.env.NEXT_PUBLIC_ATTIO_ENABLED === 'true';
 
 // OAuth redirects come back with ?error=<code>; only these are shown.
 const AUTH_ERRORS = {
@@ -706,7 +708,11 @@ export default function NetworkPage() {
           <div className="text-sm font-medium text-ink">Attio <span className="font-normal text-muted">· firm CRM</span></div>
           <div className="mt-0.5 text-xs leading-snug text-muted">{counts.attio ? `${fmt(counts.attio)} people imported, ${fmt(firmCount)} of them firm-wide.` : "The firm's contacts, kept apart from your own connections."}</div>
         </div>
-        <button type="button" onClick={() => setAttioOpen((v) => !v)} className={classNames('mt-auto w-full py-2 text-xs', counts.attio ? 'btn-secondary' : 'btn-secondary')}>{counts.attio ? 'Re-import from Attio' : 'Connect Attio'}</button>
+        {ATTIO_ENABLED ? (
+          <button type="button" onClick={() => setAttioOpen((v) => !v)} className="btn-secondary mt-auto w-full py-2 text-xs">{counts.attio ? 'Re-import from Attio' : 'Connect Attio'}</button>
+        ) : (
+          <button type="button" disabled className="btn-secondary mt-auto w-full py-2 text-xs" title="Not connected yet">Connect Attio · soon</button>
+        )}
       </div>
       {(unavailable.linkedin && !linkedin.configured) && <p className="muted text-xs sm:col-span-3" role="status">{LINKEDIN_UNAVAILABLE}.</p>}
       {(unavailable.x && !xStatus.configured) && <p className="muted text-xs sm:col-span-3" role="status">{X_UNAVAILABLE}.</p>}
