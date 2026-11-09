@@ -28,7 +28,7 @@ const ModelSelector = ({ selectedModel, onChange, className = '' }) => {
       id="model-selector"
       value={models && models.some((m) => m.id === selectedModel) ? selectedModel : 'auto'}
       onChange={(e) => onChange(e.target.value)}
-      className={`select ${className}`}
+      className={className || 'select'}
       aria-label="Select AI model"
       title={none ? 'Answers are quoted directly from sources on this deployment.' : 'AI model used to write the answer'}
     >

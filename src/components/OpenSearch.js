@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { HiOutlineSparkles, HiOutlineMagnifyingGlass, HiOutlineCheckCircle, HiOutlineBuildingOffice2, HiOutlineUserCircle, HiOutlineExclamationCircle } from 'react-icons/hi2';
-import ModelSelector from './ModelSelector';
 import NetworkHelpers from './network/NetworkHelpers';
 import { sectorKeywordsFrom } from '../utils/network/sectors';
 import SourceSelector from './SourceSelector';
@@ -176,10 +175,6 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
     .split(/\b(?:funding|raise[sd]?|round|series [a-h]|seed|valuation|investors?|revenue|competitors?|founders?|ceo|news|ipo|acquisition)\b/i)[0]
     .replace(/[^\w&.' -]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80));
 
-  const handleModelChange = (model) => {
-    setSelectedModel(model);
-  };
-
   const handleFollowUpSearch = (followUpQuery) => {
     setQuery(followUpQuery);
     setHasSearched(true); // Make sure to set hasSearched to true
@@ -287,33 +282,29 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
             </button>
           </div>
 
-          {/* Model, date filter and (signed in) workspace filing */}
-          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-            <ModelSelector
-              selectedModel={selectedModel}
-              onChange={handleModelChange}
-            />
-            <label className="flex items-center gap-2 text-muted">
+          {/* Model, date filter and (signed in) workspace filing: quiet, one line */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted">
+            <label className="flex items-center gap-1.5 whitespace-nowrap">
               Published
               <select
                 value={maxAgeDays}
                 onChange={(e) => handleMaxAgeChange(e.target.value)}
-                className="select"
+                className="select-quiet"
               >
                 {DATE_FILTERS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
               </select>
             </label>
             {signedIn ? (
-              <label className="flex flex-wrap items-center gap-2 text-muted">
-                Save search to
+              <label className="flex items-center gap-1.5 whitespace-nowrap">
+                Save to
                 <select
                   value={workspaceId}
                   onChange={(e) => setWorkspaceId(e.target.value)}
                   aria-label="Save this search to a deal workspace"
                   title="Deal workspace this search is filed under (not the AI model)"
-                  className="select max-w-[260px]"
+                  className="select-quiet max-w-[220px]"
                 >
-                  <option value="">History only (no workspace)</option>
+                  <option value="">History only</option>
                   {workspaces.length > 0 && (
                     <optgroup label="Deal workspaces">
                       {workspaces.map((w) => {
@@ -325,8 +316,9 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
                     </optgroup>
                   )}
                 </select>
-                <Link href="/workspaces" className="btn-ghost">
-                  {workspaces.length > 0 ? 'Manage workspaces' : 'New workspace'}
+                <span className="mx-0.5 select-none text-line" aria-hidden="true">|</span>
+                <Link href="/workspaces" className="whitespace-nowrap font-medium text-slate-700 hover:text-ink hover:underline">
+                  {workspaces.length > 0 ? 'Manage workspaces' : 'Add new workspace'}
                 </Link>
               </label>
             ) : null}

@@ -8,11 +8,26 @@ in deal workspaces, and watch companies for new funding, people and filings.
 Next.js 14 (pages router), React 18, Tailwind. Deploys to Vercel. Every AI
 feature runs on free providers first; nothing is paid unless you turn it on.
 
+## Design and language
+
+The interface is deliberately quiet (`DESIGN.md`): a light canvas, white
+cards, near-black primary actions, one muted steel-blue accent for links,
+focus rings and citations, no gradients or colour blocks. Navigation is the
+three-flow switch under a minimal top bar (wordmark; Workspaces, Watchlist
+and the account menu as small text on the right). Every page is title, the
+one input that matters, then content; subtitles, taglines and footers were
+removed, and the example questions live inside the search bars (a rotating
+placeholder plus a dropdown on focus). Copy is short and specific, never
+mentions pricing tiers, keys or environment variables, and says "not enabled
+on this deployment" when a capability is missing. Controls that are not the
+main action (model, date filter, workspace filing) are small, borderless and
+blend into the card; the source toggles are the one row meant to stand out.
+
 ## What it does
 
-The home page has three tabs: **Open Research**, **Network Map** and
-**Founder Check**. Signed-in users also get **Workspaces** and **Watchlist**
-in the navigation.
+The three flows are **Open Research**, **Network Map** and **Founder
+Check**, switched at the top of every page. **Workspaces** and **Watchlist**
+sit quietly at the top right for signed-in users.
 
 ### Open Research (`/`)
 - Sources you can toggle: curated registry (on by default, no key), Web,
@@ -53,8 +68,15 @@ in the navigation.
 - Claim check (`src/utils/claimCheck.js`, no model needed): funding and
   valuation figures are extracted from every source and marked
   corroborated (2+ sites agree), single-source, or conflicting.
-- Model menu: "Auto" picks the best free model available right now
-  (`/api/llm/models`); only models each provider serves today are listed.
+- The model is always "Auto": the best free model available right now
+  (`/api/llm/models`); there is no model menu in the UI. Under the search
+  box, the "Published" date filter and the workspace filing are one quiet
+  line; the source row starts with an **All**
+  chip (select or clear every source), then the sources, then **Custom**
+  (your own URLs and uploaded files), separated by thin dividers.
+- After a search about a company, a **Your network** panel lists who you know
+  there, at its investors and competitors, and which experts and investors in
+  your network cover its sector (see Network Map).
 
 ### Founder Check (`/founder`)
 Background brief on a person: career timeline, past companies, education,

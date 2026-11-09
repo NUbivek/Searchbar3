@@ -144,6 +144,8 @@ export default function SourceSelector({
   const allOn = allIds.every((id) => selectedSources.includes(id));
   const toggleAll = () => {
     const next = allOn ? [] : allIds;
+    // "All" covers Custom too: open the custom URL / file panel when selecting everything.
+    setShowCustomOptions(!allOn);
     if (typeof onSelectAll === 'function') { onSelectAll(next); return; }
     if (typeof setSelectedSources === 'function') { setSelectedSources(next); return; }
     if (typeof onSourceToggle === 'function') {
@@ -175,7 +177,7 @@ export default function SourceSelector({
               disabled={isLoading}
               aria-pressed={active}
               title={source.hint || undefined}
-              className={`chip ${active ? 'chip-active' : 'hover:border-slate-300 hover:text-ink'} disabled:opacity-50`}
+              className={`chip text-ink ${active ? 'chip-active' : 'border-slate-200 hover:border-slate-300'} disabled:opacity-50`}
             >
               {source.name}
             </button>
