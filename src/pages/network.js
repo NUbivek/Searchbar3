@@ -1024,10 +1024,7 @@ export default function NetworkPage() {
         {hasContacts && (
           <section className="card overflow-hidden" aria-labelledby="graph-heading">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h2 id="graph-heading" className="section-title">Your map</h2>
-                <span className="text-sm text-muted"><span className="font-semibold text-ink">{fmt(visibleContacts.length)}</span> people · <span className="font-semibold text-ink">{fmt(graph.companyCount)}</span> companies</span>
-              </div>
+              <h2 id="graph-heading" className="sr-only">Map</h2>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex rounded-lg border border-line bg-white p-0.5 text-xs" role="radiogroup" aria-label="Group the map">
                   {GROUPINGS.map(({ key: v, label }) => (
@@ -1059,6 +1056,7 @@ export default function NetworkPage() {
                   </button>
                 ))}
               </div>
+              <span className="ml-auto text-xs text-muted">{fmt(visibleContacts.length)} people · {fmt(graph.companyCount)} companies</span>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 border-b border-line bg-slate-50/60 px-4 py-2 text-xs sm:px-5" aria-label="Lenses">
