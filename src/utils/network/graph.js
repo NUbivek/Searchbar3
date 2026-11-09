@@ -55,7 +55,8 @@ export function buildGraph(contacts, {
   let groups = [];
   // Hubs are pinned on a ring around "you" so the map always reads as the
   // same quadrants; only the companies and people move.
-  const hubRadius = 380 + Math.sqrt(list.length) * 4;
+  const biggest = buckets.reduce((m, b) => Math.max(m, b.contacts.length), 0);
+  const hubRadius = 220 + Math.sqrt(biggest) * 10;
   buckets.forEach((b, i) => {
     const gs = groupByCompany(b.contacts).map((g) => ({ ...g, hub: b.key }));
     if (byRole) {
@@ -71,6 +72,36 @@ export function buildGraph(contacts, {
   });
   groups.sort((a, b) => b.contacts.length - a.contacts.length || a.label.localeCompare(b.label));
   const shown = large ? groups.slice(0, maxCompanies) : groups;
+
+  // With hubs, companies get fixed places on rings around their hub (largest
+  // first, on the side facing away from the centre) so every layer reads the
+  // same way; only people move. Without hubs the force layout places them.
+  const placed = new Map();
+  if (byRole) {
+    const hubAngle = new Map();
+    buckets.forEach((b, i) => hubAngle.set(b.key, (2 * Math.PI * i) / buckets.length - Math.PI / 2));
+    for (const b of buckets) {
+      const mine = shown.filter((g) => g.hub === b.key);
+      const hubX = Math.cos(hubAngle.get(b.key)) * hubRadius;
+      const hubY = Math.sin(hubAngle.get(b.key)) * hubRadius;
+      let start = 0;
+      let ring = 0;
+      while (start < mine.length) {
+        const capacity = 6 + ring * 6;
+        const slice = mine.slice(start, start + capacity);
+        const roomiest = Math.sqrt(slice[0]?.contacts.length || 1);
+        const radius = 95 + ring * 85 + roomiest * 4;
+        const arc = ring === 0 ? Math.PI * 1.5 : Math.PI * 1.8;
+        slice.forEach((g, j) => {
+          const angle = hubAngle.get(b.key) - arc / 2 + ((j + 0.5) * arc) / slice.length;
+          placed.set(companyNodeId(g.key, g.hub), { fx: hubX + Math.cos(angle) * radius, fy: hubY + Math.sin(angle) * radius });
+        });
+        start += capacity;
+        ring += 1;
+      }
+    }
+  }
+
   shown.forEach((g, rank) => {
     const cid = companyNodeId(g.key, g.hub);
     const count = g.contacts.length;
@@ -94,6 +125,7 @@ export function buildGraph(contacts, {
       labelled: rank < 30,
       shownPeople: people.length,
       hiddenPeople,
+      ...(placed.get(cid) || {}),
     });
     links.push({ source: g.hub ? groupNodeId(g.hub) : 'me', target: cid, kind: g.hub ? 'group' : 'me' });
     for (const c of people) {

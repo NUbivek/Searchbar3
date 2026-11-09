@@ -68,6 +68,13 @@ import request.
   or by the country parsed from the location field. Up to twelve hubs; the
   long tail folds into *Other* / *Unknown* (LinkedIn's export has no
   location, so those contacts sit under *Unknown* until a CSV adds one).
+- **Layers.** Clicking a hub drills into it: the hub becomes the centre and
+  its people are regrouped by the next dimension, then by company. Starting
+  by role the layers are role → industry → companies and people; by
+  industry: industry → role → companies; by country: country → industry →
+  companies. A breadcrumb above the map (All › Founders & operators ›
+  Fintech) steps back; changing the grouping or a filter returns to the top.
+  Clicking a company opens its people in the details panel.
 - **Full screen** puts the map, its details panel and legend on the whole
   screen; *Fit to view* resets the viewport. Sources (imports and connectors)
   sit above the map; the LinkedIn export steps are behind the ⓘ next to the

@@ -33,6 +33,8 @@ function loadForceGraph2D() {
         const ForceGraph2D = fromKapsule(forceGraph.default || forceGraph, { methodNames: METHOD_NAMES });
         ForceGraph2D.displayName = 'ForceGraph2D';
         ForceGraph2D.forceCollide = d3Force.forceCollide;
+        ForceGraph2D.forceX = d3Force.forceX;
+        ForceGraph2D.forceY = d3Force.forceY;
         return ForceGraph2D;
       })
       .catch((error) => {
@@ -109,6 +111,19 @@ export default function NetworkGraph({
         : n.type === 'person' ? (n.hub ? hubColor(n.hub) : clusterColor(n.companyKey)) : ME_COLOR;
       const p = prev.get(n.id);
       if (n.type === 'group') return { ...n, color, x: n.fx, y: n.fy };
+      // Companies placed by the layout (hub layers) are fixed; their people start beside them.
+      if (n.type === 'company' && Number.isFinite(n.fx)) return { ...n, color, x: n.fx, y: n.fy };
+      if (n.type === 'person' && n.companyId) {
+        const placedCompany = graphData.nodes.find((x) => x.id === n.companyId);
+        if (placedCompany && Number.isFinite(placedCompany.fx) && !(p && Number.isFinite(p.x))) {
+          const total = ringSize.get(n.companyKey) || 1;
+          const i = ringIndex.get(n.companyKey) || 0;
+          ringIndex.set(n.companyKey, i + 1);
+          const angle = (2 * Math.PI * i) / total;
+          const radius = 8 + Math.sqrt(total) * 3;
+          return { ...n, color, x: placedCompany.fx + Math.cos(angle) * radius, y: placedCompany.fy + Math.sin(angle) * radius };
+        }
+      }
       if (p && Number.isFinite(p.x)) {
         kept += 1;
         const pin = n.type === 'company' && pinCompanies ? { fx: p.x, fy: p.y, pinned: true } : {};
@@ -164,12 +179,22 @@ export default function NetworkGraph({
     try {
       const n = data.nodes.length;
       // Big clusters push hard (room for their people); one-person companies barely at all.
-      fg.d3Force('charge')?.strength((node) => (node.type === 'company' ? -(30 + 28 * Math.sqrt(node.count || 1)) * (n > 600 ? 0.8 : 1) : node.type === 'group' ? -2500 : node.type === 'me' ? -500 : -5));
+      const hubs = data.nodes.some((node) => node.type === 'group');
+      fg.d3Force('charge')?.strength((node) => (node.type === 'company' ? -(hubs ? 12 + 10 * Math.sqrt(node.count || 1) : 30 + 28 * Math.sqrt(node.count || 1)) * (n > 600 ? 0.8 : 1) : node.type === 'group' ? -1200 : node.type === 'me' ? (hubs ? -300 : -500) : (hubs ? -1 : -5)));
       fg.d3Force('link')
-        ?.distance((link) => (link.kind === 'me' ? (link.target?.type === 'group' ? 320 + Math.sqrt(link.target?.count || 1) * 6 : 90 + Math.sqrt(link.target?.count || 1) * 24) : link.kind === 'group' ? 120 + Math.sqrt(link.target?.count || 1) * 26 : 14))
-        .strength((link) => (link.kind === 'me' ? (link.target?.type === 'group' ? 0.6 : 0.3) : link.kind === 'group' ? 0.25 : 0.9));
+        ?.distance((link) => (link.kind === 'me' ? (link.target?.type === 'group' ? 320 + Math.sqrt(link.target?.count || 1) * 6 : 90 + Math.sqrt(link.target?.count || 1) * 24) : link.kind === 'group' ? 70 + Math.sqrt(link.target?.count || 1) * 9 : 14))
+        .strength((link) => (link.kind === 'me' ? (link.target?.type === 'group' ? 0.6 : 0.3) : link.kind === 'group' ? 0.55 : 0.9));
+      // In hub layers companies are pinned by the layout; people are pulled
+      // toward their own company so each cluster stays a tight cloud.
+      if (ForceGraph2D?.forceX && ForceGraph2D?.forceY) {
+        const companyPos = new Map(data.nodes.filter((node) => node.type === 'company' && Number.isFinite(node.fx)).map((node) => [node.id, node]));
+        const target = (node) => (node.type === 'person' && node.companyId ? companyPos.get(node.companyId) : null);
+        const pull = (node) => (target(node) ? 0.25 : 0);
+        fg.d3Force('hubX', ForceGraph2D.forceX((node) => target(node)?.fx ?? 0).strength(pull));
+        fg.d3Force('hubY', ForceGraph2D.forceY((node) => target(node)?.fy ?? 0).strength(pull));
+      }
       if (ForceGraph2D?.forceCollide && !fg.d3Force('collide')) {
-        fg.d3Force('collide', ForceGraph2D.forceCollide((node) => (node.r || 3) + (node.type === 'company' ? 16 : node.type === 'group' ? 40 : 1.5)).iterations(2));
+        fg.d3Force('collide', ForceGraph2D.forceCollide((node) => (node.r || 3) + (node.type === 'company' ? 16 : node.type === 'group' ? 60 : 1.5)).iterations(2));
       }
       fg.d3ReheatSimulation();
     } catch {
@@ -383,7 +408,7 @@ export default function NetworkGraph({
         onRenderFramePost={drawLabels}
         linkColor={linkColor}
         linkWidth={(l) => (l.kind === 'me' ? (typeof l.target === 'object' && l.target.type === 'group' ? 2.5 : 1.2) : l.kind === 'group' ? 1 : 0.7)}
-        warmupTicks={80}
+        warmupTicks={0}
         cooldownTicks={200}
         onEngineStop={() => {
           // Release company pins now that the new cluster has settled.
