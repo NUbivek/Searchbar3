@@ -62,6 +62,15 @@ import request.
   operators. A company can appear under more than one hub.
 - **By company**: the classic view, every company as one coloured cluster
   around you, sized by how many people you know there.
+- **By industry** and **By country**: the same hub layout keyed by the
+  sector words in a contact's title, company or tags (`src/utils/network/grouping.js`)
+  or by the country parsed from the location field. Up to twelve hubs; the
+  long tail folds into *Other* / *Unknown* (LinkedIn's export has no
+  location, so those contacts sit under *Unknown* until a CSV adds one).
+- **Full screen** puts the map, its details panel and legend on the whole
+  screen; *Fit to view* resets the viewport. Sources (imports and connectors)
+  sit above the map; the LinkedIn export steps are behind the ⓘ next to the
+  upload button.
 - People are the small dots around their company (hollow when they are a
   firm-wide CRM contact rather than your own). Hover for the name and
   title; click a person, a company or a hub for details. The details panel
@@ -165,6 +174,7 @@ import, the panel says so and links to the Network Map.
 | Graph data (company clusters, role hubs, large-network collapse) | `src/utils/network/graph.js` |
 | File parsing (LinkedIn export, CSV/XLSX, X JSON), dedupe, limits | `src/utils/network/parseContacts.js` |
 | Role and lens classification | `src/utils/network/roles.js` |
+| Industry / country grouping | `src/utils/network/grouping.js` |
 | Industry vocabulary | `src/utils/network/sectors.js` |
 | Question parsing, scoring, intro paths | `src/server/network/query.js` |
 | Storage (Postgres / PGlite), company lookup | `src/server/network/store.js` |

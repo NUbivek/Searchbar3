@@ -5,7 +5,7 @@
  * people appear when it is expanded.
  */
 import { normalizeCompanyKey, dedupeKey } from './parseContacts';
-import { classifyContact, ROLE_GROUPS } from './roles';
+import { bucketsFor } from './grouping';
 
 export const NO_COMPANY_KEY = '__none__';
 /** People drawn for one expanded company in a large network; the rest stay in the details list. */
@@ -48,12 +48,10 @@ export function buildGraph(contacts, {
   const links = [];
   let peopleShown = 0;
   const cappedCompanies = [];
-  // By role: one hub per role group ("Investors & LPs", ...) between "you"
-  // and the companies, and a company appears once per hub it has people in.
-  const byRole = groupBy === 'role';
-  const buckets = byRole
-    ? ROLE_GROUPS.map((rg) => ({ ...rg, contacts: list.filter((c) => classifyContact(c).group === rg.key) })).filter((b) => b.contacts.length)
-    : [{ key: null, contacts: list }];
+  // Hubs (by role, industry or country) sit between "you" and the
+  // companies, and a company appears once per hub it has people in.
+  const byRole = groupBy !== 'company';
+  const buckets = bucketsFor(list, groupBy);
   let groups = [];
   // Hubs are pinned on a ring around "you" so the map always reads as the
   // same quadrants; only the companies and people move.

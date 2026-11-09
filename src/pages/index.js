@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Head from 'next/head';
+import Link from 'next/link';
 import OpenSearch from '../components/OpenSearch';
 import { TopBar, SectionSwitch } from '../components/layout/PageShell';
 
@@ -27,8 +28,9 @@ export default function Home() {
         </section>
         <OpenSearch selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
       </main>
-      <footer className="mx-auto max-w-5xl px-4 pb-8 text-xs text-muted">
-        Every statement is cited to a numbered source.
+      <footer className="mx-auto flex max-w-5xl justify-end gap-3 px-4 pb-8 text-xs text-muted">
+        <Link href="/privacy" className="hover:text-ink">Privacy</Link>
+        <Link href="/terms" className="hover:text-ink">Terms</Link>
       </footer>
     </div>
   );

@@ -65,8 +65,9 @@ accountant, consultant, academic, press) and into three lenses: **raise**
 capital, **source** deals, **diligence** a company or founder. The map shows
 you in the centre with three role hubs (Investors & LPs, Founders &
 operators, Experts & advisors) and every company you know people at hanging
-off the hub its people belong to; switch to a plain by-company view, filter
-by lens, highlight a name, click anything for details. Ask it questions in
+off the hub its people belong to; switch to by-company, by-industry or
+by-country views, filter by lens, highlight a name, go full screen, click
+anything for details. Ask it questions in
 plain words: "Who can help me raise a fund?", "Who sends me deal flow in
 fintech?", "Who can diligence an AI company?", "Who do I know at Google?",
 "Intro paths to Stripe". Matching is deterministic over your contacts;
@@ -242,7 +243,7 @@ src/server/           search/ (queryPlan, retrieve, rank, answer), llm/providers
                       founderCheck, companyProfile, dataroom, memo, watchlist,
                       network/, store, db, auth
 src/utils/            sourceTiers, claimCheck, evidence, fallbackSynthesizer,
-                      network/{parseContacts,graph,roles,sectors},
+                      network/{parseContacts,graph,roles,sectors,grouping},
                       sources/curatedIndex, sourceIntegration, fileProcessing, ...
 src/components/       OpenSearch, SourceSelector, ModelSelector, search/results,
                       network/{NetworkGraph,NetworkHelpers}, workspace/, watchlist/

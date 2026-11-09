@@ -103,9 +103,10 @@ export default function NetworkGraph({
     const companyCount = graphData.nodes.filter((n) => n.type === 'company').length;
     let companyRank = 0;
     const nodes = graphData.nodes.map((n) => {
-      const color = n.type === 'group' ? (GROUP_COLORS[n.key] || GROUP_COLORS.other)
-        : n.type === 'company' ? (n.hub ? GROUP_COLORS[n.hub] || GROUP_COLORS.other : clusterColor(n.key))
-        : n.type === 'person' ? (n.hub ? GROUP_COLORS[n.hub] || GROUP_COLORS.other : clusterColor(n.companyKey)) : ME_COLOR;
+      const hubColor = (key) => GROUP_COLORS[key] || (key === 'Other' || key === 'Unknown' ? GROUP_COLORS.other : clusterColor(key));
+      const color = n.type === 'group' ? hubColor(n.key)
+        : n.type === 'company' ? (n.hub ? hubColor(n.hub) : clusterColor(n.key))
+        : n.type === 'person' ? (n.hub ? hubColor(n.hub) : clusterColor(n.companyKey)) : ME_COLOR;
       const p = prev.get(n.id);
       if (n.type === 'group') return { ...n, color, x: n.fx, y: n.fy };
       if (p && Number.isFinite(p.x)) {
@@ -409,7 +410,7 @@ export default function NetworkGraph({
       <button
         type="button"
         onClick={() => fgRef.current && fgRef.current.zoomToFit(500, 48)}
-        className="glass absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink shadow-card"
+        className="glass absolute right-3 top-3 inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink shadow-card"
       >
         <HiOutlineArrowsPointingOut style={{ width: 13, height: 13 }} /> Fit to view
       </button>

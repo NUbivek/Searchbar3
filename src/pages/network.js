@@ -13,7 +13,7 @@ import { useRouter } from 'next/router';
 import { useSession } from 'next-auth/react';
 import {
   HiOutlineArrowUpTray, HiOutlineTrash, HiOutlineXMark, HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass,
-  HiOutlineShare, HiOutlineSparkles, HiOutlineCloudArrowUp,
+  HiOutlineShare, HiOutlineSparkles, HiOutlineCloudArrowUp, HiOutlineInformationCircle, HiOutlineArrowsPointingIn, HiOutlineArrowsPointingOut,
 } from 'react-icons/hi2';
 import PageShell from '../components/layout/PageShell';
 import NetworkGraph, { SOURCE_COLORS, clusterColor } from '../components/network/NetworkGraph';
@@ -21,7 +21,8 @@ import {
   parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, MAX_CONTACTS,
 } from '../utils/network/parseContacts';
 import { buildGraph, personNodeId, NO_COMPANY_KEY, MAX_PEOPLE_PER_EXPANDED_COMPANY } from '../utils/network/graph';
-import { classifyContact, roleStats, ROLE_GROUPS, LENSES } from '../utils/network/roles';
+import { classifyContact, roleStats, LENSES } from '../utils/network/roles';
+import { GROUPINGS, groupKeyFor } from '../utils/network/grouping';
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
@@ -170,6 +171,8 @@ export default function NetworkPage() {
 
   const graphBoxRef = useRef(null);
   const [graphWidth, setGraphWidth] = useState(0);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [graphHeight, setGraphHeight] = useState(620);
   const linkedinInput = useRef(null);
   const genericInput = useRef(null);
 
@@ -254,6 +257,26 @@ export default function NetworkPage() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [contacts.length > 0]);
+
+  // Full screen: the graph box itself goes full screen (details and legend
+  // ride along); the canvas follows the window height while it is.
+  useEffect(() => {
+    const onChange = () => {
+      const on = Boolean(document.fullscreenElement) && document.fullscreenElement === graphBoxRef.current;
+      setFullscreen(on);
+      setGraphHeight(on ? window.innerHeight : 620);
+    };
+    const onResize = () => { if (document.fullscreenElement === graphBoxRef.current) setGraphHeight(window.innerHeight); };
+    document.addEventListener('fullscreenchange', onChange);
+    window.addEventListener('resize', onResize);
+    return () => { document.removeEventListener('fullscreenchange', onChange); window.removeEventListener('resize', onResize); };
+  }, []);
+  const toggleFullscreen = () => {
+    const el = graphBoxRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else el.requestFullscreen?.();
+  };
 
   // The example questions live in the search bar: one rotates as the
   // placeholder, all of them drop down while the empty field has focus.
@@ -526,7 +549,7 @@ export default function NetworkPage() {
       const hitAnswer = answerKeys && answerKeys.has(dedupeKey(c));
       if (hitSearch || hitAnswer) {
         ids.add(personNodeId(c));
-        hitKeys.add(`${classifyContact(c).group}|${normalizeCompanyKey(c.company) || NO_COMPANY_KEY}`);
+        hitKeys.add(`${groupKeyFor(c, groupBy)}|${normalizeCompanyKey(c.company) || NO_COMPANY_KEY}`);
       }
     }
     // Company (and role hub) nodes light up when any of their people do.
@@ -534,7 +557,7 @@ export default function NetworkPage() {
       if (n.type === 'company' && [...hitKeys].some((k) => k.endsWith(`|${n.key}`) && (!n.hub || k.startsWith(`${n.hub}|`)))) { ids.add(n.id); if (n.hub) ids.add(`g:${n.hub}`); }
     }
     return ids;
-  }, [graphSearch, answerKeys, visibleContacts, graph]);
+  }, [graphSearch, answerKeys, visibleContacts, graph, groupBy]);
 
   // Count only people actually drawn: in a large network most highlighted
   // people sit in companies that are not expanded.
@@ -577,19 +600,19 @@ export default function NetworkPage() {
   const selectedCompanyPeople = useMemo(() => {
     if (selected?.type !== 'company') return [];
     return visibleContacts
-      .filter((c) => (normalizeCompanyKey(c.company) || NO_COMPANY_KEY) === selected.key && (!selected.hub || classifyContact(c).group === selected.hub))
+      .filter((c) => (normalizeCompanyKey(c.company) || NO_COMPANY_KEY) === selected.key && (!selected.hub || groupKeyFor(c, groupBy) === selected.hub))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [selected, visibleContacts]);
+  }, [selected, visibleContacts, groupBy]);
   const selectedGroupRoles = useMemo(() => {
     if (selected?.type !== 'group') return [];
     const counts = new Map();
     for (const c of visibleContacts) {
+      if (groupKeyFor(c, groupBy) !== selected.key) continue;
       const k = classifyContact(c);
-      if (k.group !== selected.key) continue;
       counts.set(k.label, (counts.get(k.label) || 0) + 1);
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, [selected, visibleContacts]);
+  }, [selected, visibleContacts, groupBy]);
 
   // ------------------------------------------------------------ ask
 
@@ -664,27 +687,25 @@ export default function NetworkPage() {
   const hasContacts = contacts.length > 0;
   const loading = mode === 'loading';
 
+  const LINKEDIN_HOW = 'LinkedIn: Settings & Privacy → Data privacy → Get a copy of your data → Connections. LinkedIn emails a zip within minutes; upload the Connections.csv inside it. LinkedIn never shares connections with apps, so the export is the only way in.';
+  const linkedinInfo = (
+    <span className="inline-flex items-center text-muted hover:text-ink" title={LINKEDIN_HOW} aria-label="How to get your LinkedIn connections" role="img">
+      <HiOutlineInformationCircle style={{ width: 15, height: 15 }} />
+    </span>
+  );
+
   const uploadButtons = (
     <div className="flex flex-wrap justify-center gap-2">
-      <button type="button" onClick={() => linkedinInput.current?.click()} disabled={Boolean(busy) || loading} className="btn-primary">
-        <HiOutlineArrowUpTray style={ICON} /> {busy === 'linkedin' ? 'Importing…' : 'Upload LinkedIn Connections.csv'}
-      </button>
+      <span className="inline-flex items-center gap-1.5">
+        <button type="button" onClick={() => linkedinInput.current?.click()} disabled={Boolean(busy) || loading} className="btn-primary">
+          <HiOutlineArrowUpTray style={ICON} /> {busy === 'linkedin' ? 'Importing…' : 'Upload LinkedIn Connections.csv'}
+        </button>
+        {linkedinInfo}
+      </span>
       <button type="button" onClick={() => genericInput.current?.click()} disabled={Boolean(busy) || loading} className="btn-secondary">
         {busy === 'auto' ? 'Importing…' : 'Upload CSV/XLSX contacts'}
       </button>
     </div>
-  );
-
-  const linkedinSteps = (
-    <details className="group text-sm">
-      <summary className="cursor-pointer select-none text-brand-600 hover:underline">How do I get my LinkedIn connections?</summary>
-      <ol className="mt-2 list-decimal space-y-1 pl-5 text-slate-600">
-        <li>On LinkedIn, open <span className="font-medium text-slate-800">Settings &amp; Privacy → Data privacy → Get a copy of your data</span>.</li>
-        <li>Choose <span className="font-medium text-slate-800">Connections</span> and request the archive.</li>
-        <li>LinkedIn emails a download link within minutes. Unzip it and upload <span className="font-medium text-slate-800">Connections.csv</span> here.</li>
-      </ol>
-      <p className="mt-2 text-xs text-muted">LinkedIn only shares your own profile with apps, never your connections, so the export is the only way they come in.</p>
-    </details>
   );
 
   const firmCount = useMemo(() => contacts.filter((c) => c.relationship === 'firm').length, [contacts]);
@@ -942,7 +963,6 @@ export default function NetworkPage() {
                   <h2 className="mt-1 text-xl font-semibold tracking-tight text-ink">Drop your contacts here to draw your map</h2>
                   <p className="muted mt-1 max-w-md">LinkedIn&apos;s Connections.csv, or any CSV or XLSX with names and companies. Everything stays private to you.</p>
                   <div className="mt-6">{uploadButtons}</div>
-                  <div className="mt-5">{linkedinSteps}</div>
                 </>
               )}
             </div>
@@ -956,6 +976,50 @@ export default function NetworkPage() {
           </section>
         )}
 
+        {/* ---------------------------------------------------- sources */}
+        {hasContacts && (
+          <section
+            className={classNames('card', dragging && 'ring-2 ring-brand-300')}
+            aria-labelledby="sources-heading"
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                <h2 id="sources-heading" className="section-title">Sources</h2>
+                {['linkedin', 'csv', 'x', 'attio'].filter((s) => counts[s]).map((s) => (
+                  <span key={s} className="flex items-center gap-1.5 text-muted">
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: SOURCE_COLORS[s] }} />
+                    <span className="font-medium text-ink">{fmt(counts[s])}</span> {SOURCE_LABELS[s]}{lastImport(s) ? ` · ${formatTime(lastImport(s))}` : ''}
+                  </span>
+                ))}
+                <span className="text-xs text-muted">{mode === 'saved' ? 'Saved to your account' : 'Kept in this tab only'}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button type="button" onClick={() => linkedinInput.current?.click()} disabled={Boolean(busy)} className="btn-secondary px-3 py-1.5 text-xs">
+                  <HiOutlineArrowUpTray style={{ width: 13, height: 13 }} /> {busy === 'linkedin' ? 'Importing…' : 'Upload LinkedIn Connections.csv'}
+                </button>
+                {linkedinInfo}
+                <button type="button" onClick={() => genericInput.current?.click()} disabled={Boolean(busy)} className="btn-secondary px-3 py-1.5 text-xs">
+                  {busy === 'auto' ? 'Importing…' : 'Upload CSV/XLSX contacts'}
+                </button>
+                <button type="button" onClick={removeAll} disabled={Boolean(busy)} className="btn-danger px-3 py-1.5 text-xs disabled:opacity-50">
+                  <HiOutlineTrash style={{ width: 13, height: 13 }} /> {busy === 'delete' ? 'Removing…' : 'Remove all my network data'}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-2 border-t border-line bg-slate-50/60 px-4 py-3 sm:px-5">
+              {connectors}
+              <div className="flex flex-wrap items-center gap-x-4 text-xs text-muted">
+                {mode === 'memory' && !signedIn && sessionStatus !== 'loading' && (
+                  <span className="text-amber-700"><Link href="/signin" className="font-medium underline">Sign in to save your network</Link></span>
+                )}
+                <span>A new upload replaces that source. Your contacts never leave this app.</span>
+              </div>
+            </div>
+          </section>
+        )}
         {/* ---------------------------------------------------- graph */}
         {hasContacts && (
           <section className="card overflow-hidden" aria-labelledby="graph-heading">
@@ -966,7 +1030,7 @@ export default function NetworkPage() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex rounded-lg border border-line bg-white p-0.5 text-xs" role="radiogroup" aria-label="Group the map">
-                  {[['role', 'By role'], ['company', 'By company']].map(([v, label]) => (
+                  {GROUPINGS.map(({ key: v, label }) => (
                     <button key={v} type="button" role="radio" aria-checked={groupBy === v} onClick={() => { setGroupBy(v); setSelected(null); }} className={classNames('rounded-md px-2.5 py-1 font-medium', groupBy === v ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}>{label}</button>
                   ))}
                 </div>
@@ -1041,14 +1105,14 @@ export default function NetworkPage() {
               </div>
             )}
 
-            <div ref={graphBoxRef} className="relative min-w-0 overflow-hidden">
+            <div ref={graphBoxRef} className="relative min-w-0 overflow-hidden bg-white">
               {visibleContacts.length === 0 ? (
-                <div className="flex items-center justify-center text-sm text-muted" style={{ height: 620 }}>No contacts match these filters.</div>
+                <div className="flex items-center justify-center text-sm text-muted" style={{ height: graphHeight }}>No contacts match these filters.</div>
               ) : (
                 <NetworkGraph
                   graphData={graph}
                   width={graphWidth}
-                  height={620}
+                  height={graphHeight}
                   highlightIds={highlightIds}
                   selectedId={selected?.id}
                   hoverId={hoverId}
@@ -1059,12 +1123,20 @@ export default function NetworkPage() {
               )}
               <div className="pointer-events-none absolute bottom-3 left-3 hidden items-center gap-3 rounded-lg bg-white/80 px-2.5 py-1.5 text-[11px] text-muted sm:flex">
                 <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-ink" /> You</span>
-                {groupBy === 'role' && <span className="flex items-center gap-1"><span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-brand-400 bg-white" /> Role group</span>}
+                {groupBy !== 'company' && <span className="flex items-center gap-1"><span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-brand-400 bg-white" /> {groupBy === 'role' ? 'Role' : groupBy === 'industry' ? 'Industry' : 'Country'} group</span>}
                 <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-brand-300" /> Company, sized by people you know</span>
                 <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" /> Person</span>
                 {firmCount > 0 && <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full border border-brand-400 bg-white" /> Firm contact (via a colleague)</span>}
                 <span>Click to see details</span>
               </div>
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="glass absolute right-28 top-3 inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink shadow-card"
+                title={fullscreen ? 'Exit full screen' : 'Full screen'}
+              >
+                {fullscreen ? <HiOutlineArrowsPointingIn style={{ width: 13, height: 13 }} /> : <HiOutlineArrowsPointingOut style={{ width: 13, height: 13 }} />} {fullscreen ? 'Exit' : 'Full screen'}
+              </button>
               <div className="px-3 pb-3 sm:p-0">{details}</div>
             </div>
           </section>
@@ -1166,50 +1238,6 @@ export default function NetworkPage() {
           </section>
         )}
 
-        {/* ---------------------------------------------------- sources */}
-        {hasContacts && (
-          <section
-            className={classNames('card', dragging && 'ring-2 ring-brand-300')}
-            aria-labelledby="sources-heading"
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                <h2 id="sources-heading" className="section-title">Sources</h2>
-                {['linkedin', 'csv', 'x', 'attio'].filter((s) => counts[s]).map((s) => (
-                  <span key={s} className="flex items-center gap-1.5 text-muted">
-                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: SOURCE_COLORS[s] }} />
-                    <span className="font-medium text-ink">{fmt(counts[s])}</span> {SOURCE_LABELS[s]}{lastImport(s) ? ` · ${formatTime(lastImport(s))}` : ''}
-                  </span>
-                ))}
-                <span className="text-xs text-muted">{mode === 'saved' ? 'Saved to your account' : 'Kept in this tab only'}</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button type="button" onClick={() => linkedinInput.current?.click()} disabled={Boolean(busy)} className="btn-secondary px-3 py-1.5 text-xs">
-                  <HiOutlineArrowUpTray style={{ width: 13, height: 13 }} /> {busy === 'linkedin' ? 'Importing…' : 'Upload LinkedIn Connections.csv'}
-                </button>
-                <button type="button" onClick={() => genericInput.current?.click()} disabled={Boolean(busy)} className="btn-secondary px-3 py-1.5 text-xs">
-                  {busy === 'auto' ? 'Importing…' : 'Upload CSV/XLSX contacts'}
-                </button>
-                <button type="button" onClick={removeAll} disabled={Boolean(busy)} className="btn-danger px-3 py-1.5 text-xs disabled:opacity-50">
-                  <HiOutlineTrash style={{ width: 13, height: 13 }} /> {busy === 'delete' ? 'Removing…' : 'Remove all my network data'}
-                </button>
-              </div>
-            </div>
-            <div className="space-y-2 border-t border-line bg-slate-50/60 px-4 py-3 sm:px-5">
-              {connectors}
-              <div className="flex flex-wrap items-center gap-x-4 text-xs text-muted">
-                {linkedinSteps}
-                {mode === 'memory' && !signedIn && sessionStatus !== 'loading' && (
-                  <span className="text-amber-700"><Link href="/signin" className="font-medium underline">Sign in to save your network</Link></span>
-                )}
-                <span>A new upload replaces that source. Your contacts never leave this app.</span>
-              </div>
-            </div>
-          </section>
-        )}
       </div>
     </PageShell>
   );

@@ -120,8 +120,7 @@ export default function PageShell({ title, subtitle, children, actions = null, w
         )}
         <div>{children}</div>
       </main>
-      <footer className="mx-auto flex max-w-5xl flex-col gap-2 px-4 pb-8 pt-4 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
-        <span>Every statement is cited to a numbered source.</span>
+      <footer className="mx-auto flex max-w-5xl justify-end px-4 pb-8 pt-4 text-xs text-muted">
         <span className="flex items-center gap-3">
           <Link href="/privacy" className="hover:text-ink">Privacy</Link>
           <Link href="/terms" className="hover:text-ink">Terms</Link>
