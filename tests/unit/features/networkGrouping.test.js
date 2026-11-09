@@ -12,7 +12,8 @@ describe('industryOf', () => {
     expect(industryOf(c('A', 'Engineer', 'Stripe Payments'))).toBe('Fintech');
     expect(industryOf(c('B', 'Research Scientist', 'OpenAI'))).toBe('AI');
     expect(industryOf(c('C', 'Nurse', 'City Hospital'))).toBe('Healthcare');
-    expect(industryOf(c('D', 'Partner', 'Sequoia Capital'))).toBe('Other');
+    expect(industryOf(c('D', 'Partner', 'Sequoia Capital'))).toBe('Venture capital');
+    expect(industryOf(c('D2', 'Partner', 'Smith & Co'))).toBe('Other');
     expect(industryOf(c('E', '', ''))).toBe('Other');
   });
 });
@@ -56,6 +57,31 @@ describe('groupKeyFor / bucketsFor', () => {
     const google = g.nodes.find((n) => n.type === 'company' && n.label === 'Google');
     expect(google.hub).toBe('Unknown');
     expect(g.links.some((l) => l.source === 'g:Unknown' && l.target === google.id)).toBe(true);
-    expect(buildGraph(list, { groupBy: 'industry' }).nodes.filter((n) => n.type === 'group').map((h) => h.label)).toEqual(['Fintech', 'Media', 'Other']);
+    expect(buildGraph(list, { groupBy: 'industry' }).nodes.filter((n) => n.type === 'group').map((h) => h.label)).toEqual(['Big Tech', 'Fintech', 'Media', 'Venture capital']);
+  });
+});
+
+describe('industryOf: known employers and decisive titles', () => {
+  const ind = (position, company) => industryOf({ position, company });
+  test('well-known employers are classified by company, not by title words', () => {
+    expect(ind('Engineer', 'Google')).toBe('Big Tech');
+    expect(ind('Product Manager', 'Stripe')).toBe('Fintech');
+    expect(ind('Partner', 'Sequoia Capital')).toBe('Venture capital');
+    expect(ind('Partner', 'a16z')).toBe('Venture capital');
+    expect(ind('Associate', 'McKinsey & Company')).toBe('Consulting');
+    expect(ind('Analyst', 'Goldman Sachs')).toBe('Finance & banking');
+    expect(ind('Engineer', 'Databricks')).toBe('AI');
+    expect(ind('Data Scientist', 'OpenAI')).toBe('AI');
+    expect(ind('Designer', 'Figma')).toBe('Software');
+    expect(ind('Researcher', 'UC Berkeley Haas School of Business')).toBe('Education');
+  });
+  test('decisive titles place people without a known employer; unknown stays Other', () => {
+    expect(ind('MBA Candidate', 'Startup 12')).toBe('Education');
+    expect(ind('Angel investor', 'Self-employed')).toBe('Venture capital');
+    expect(ind('Engineer', 'Startup 12')).toBe('Other');
+  });
+  test('word boundaries: "Metadata Inc" is not Meta, "Bainbridge" is not Bain', () => {
+    expect(ind('Engineer', 'Metadata Inc')).not.toBe('Big Tech');
+    expect(ind('Engineer', 'Bainbridge Labs')).not.toBe('Consulting');
   });
 });

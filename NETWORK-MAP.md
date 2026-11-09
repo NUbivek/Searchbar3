@@ -63,9 +63,16 @@ import request.
   operators. A company can appear under more than one hub.
 - **By company**: the classic view, every company as one coloured cluster
   around you, sized by how many people you know there.
-- **By industry** and **By country**: the same hub layout keyed by the
-  sector words in a contact's title, company or tags (`src/utils/network/grouping.js`)
-  or by the country parsed from the location field. Up to twelve hubs; the
+- **By industry** and **By country**: the same hub layout keyed by industry
+  or by the country parsed from the location field
+  (`src/utils/network/grouping.js`). Industry is decided in three steps: a
+  known-employer table (Google, Meta, Amazon, Microsoft → Big Tech; OpenAI,
+  Anthropic, Databricks → AI; Stripe, Ramp, Brex → Fintech; Goldman Sachs,
+  Blackstone → Finance & banking; Sequoia, a16z, YC → Venture capital;
+  McKinsey, BCG, Bain, the Big Four → Consulting; Figma, Notion, Snowflake →
+  Software; universities → Education; and more), then decisive titles (MBA
+  candidate, angel investor, consultant), then sector words in the title,
+  company or tags. Up to twelve hubs; the
   long tail folds into *Other* / *Unknown* (LinkedIn's export has no
   location, so those contacts sit under *Unknown* until a CSV adds one).
 - **Layers.** Clicking a hub drills into it: the hub becomes the centre and
@@ -74,7 +81,14 @@ import request.
   industry: industry → role → companies; by country: country → industry →
   companies. A breadcrumb above the map (All › Founders & operators ›
   Fintech) steps back; changing the grouping or a filter returns to the top.
-  Clicking a company opens its people in the details panel.
+  Clicking a company opens its people in the details panel. In hub layers,
+  companies with fewer than three people you know are folded into one
+  "N other companies" node per hub so the clusters stay readable.
+- **Navigator.** The bar along the bottom of the map lists this layer's
+  groups (largest first) or, at the last layer, its biggest companies.
+  Clicking a group drills into it; clicking a company selects it and centres
+  the map on it. Hubs sit at fixed compass points: Investors & LPs top,
+  Founders & operators right, Everyone else bottom, Experts & advisors left.
 - **Full screen** puts the map, its details panel and legend on the whole
   screen; *Fit to view* resets the viewport. Sources (imports and connectors)
   sit above the map; the LinkedIn export steps are behind the ⓘ next to the

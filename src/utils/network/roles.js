@@ -85,11 +85,12 @@ export const ROLES = [
   },
 ];
 
+// Order is the map's compass: top, right, bottom, left.
 export const ROLE_GROUPS = [
   { key: 'investors', label: 'Investors & LPs', hint: 'Who can fund you, co-invest or introduce an LP', lens: 'raise' },
   { key: 'founders', label: 'Founders & operators', hint: 'Who sees deals first and can vouch for a founder', lens: 'source' },
-  { key: 'experts', label: 'Experts & advisors', hint: 'Who can vet a sector, a company or a founder', lens: 'diligence' },
   { key: 'other', label: 'Everyone else', hint: 'No title or company that places them', lens: null },
+  { key: 'experts', label: 'Experts & advisors', hint: 'Who can vet a sector, a company or a founder', lens: 'diligence' },
 ];
 const GROUP_KEY = { 'Investors & LPs': 'investors', 'Founders & operators': 'founders', 'Experts & advisors': 'experts' };
 

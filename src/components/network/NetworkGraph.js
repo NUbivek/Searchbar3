@@ -77,7 +77,7 @@ function withAlpha(hex, alpha) {
 }
 
 export default function NetworkGraph({
-  graphData, width, height = 600, highlightIds, selectedId, hoverId, onNodeClick, onNodeHover, onBackgroundClick,
+  graphData, width, height = 600, highlightIds, selectedId, hoverId, focusId, onNodeClick, onNodeHover, onBackgroundClick,
 }) {
   const [ForceGraph2D, setForceGraph2D] = useState(null);
   const [loadError, setLoadError] = useState('');
@@ -184,15 +184,13 @@ export default function NetworkGraph({
       fg.d3Force('link')
         ?.distance((link) => (link.kind === 'me' ? (link.target?.type === 'group' ? 320 + Math.sqrt(link.target?.count || 1) * 6 : 90 + Math.sqrt(link.target?.count || 1) * 24) : link.kind === 'group' ? 70 + Math.sqrt(link.target?.count || 1) * 9 : 14))
         .strength((link) => (link.kind === 'me' ? (link.target?.type === 'group' ? 0.6 : 0.3) : link.kind === 'group' ? 0.55 : 0.9));
-      // In hub layers companies are pinned by the layout; people are pulled
-      // toward their own company so each cluster stays a tight cloud.
-      if (ForceGraph2D?.forceX && ForceGraph2D?.forceY) {
-        const companyPos = new Map(data.nodes.filter((node) => node.type === 'company' && Number.isFinite(node.fx)).map((node) => [node.id, node]));
-        const target = (node) => (node.type === 'person' && node.companyId ? companyPos.get(node.companyId) : null);
-        const pull = (node) => (target(node) ? 0.25 : 0);
-        fg.d3Force('hubX', ForceGraph2D.forceX((node) => target(node)?.fx ?? 0).strength(pull));
-        fg.d3Force('hubY', ForceGraph2D.forceY((node) => target(node)?.fy ?? 0).strength(pull));
-      }
+      // Hub layers: companies are pinned by the layout, so the person→company
+      // links alone keep each cloud tight; the positional forces are cleared.
+      fg.d3Force('hubX', null);
+      fg.d3Force('hubY', null);
+      // No centering force: "you" is pinned at the origin, and with other
+      // pinned nodes forceCenter would drag every free node away from them.
+      fg.d3Force('center', null);
       if (ForceGraph2D?.forceCollide && !fg.d3Force('collide')) {
         fg.d3Force('collide', ForceGraph2D.forceCollide((node) => (node.r || 3) + (node.type === 'company' ? 16 : node.type === 'group' ? 60 : 1.5)).iterations(2));
       }
@@ -223,6 +221,23 @@ export default function NetworkGraph({
     setTimeout(() => { fitting.current = false; }, 700);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightIds]);
+
+  // Navigator: centre the view on a node (a hub, a company) when asked.
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg || !focusId) return;
+    const node = data.nodes.find((n) => n.id === focusId);
+    if (!node || !Number.isFinite(node.x)) return;
+    fitting.current = true;
+    try {
+      fg.centerAt(node.x, node.y, 500);
+      fg.zoom(node.type === 'group' ? 1.6 : 2.4, 500);
+    } catch {
+      // graph not ready yet
+    }
+    setTimeout(() => { fitting.current = false; }, 700);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId]);
 
   if (loadError) {
     return <div className="flex items-center justify-center px-4 text-center text-sm text-rose-600" style={{ height }}>Could not load the graph: {loadError}</div>;
@@ -328,28 +343,37 @@ export default function NetworkGraph({
   // per person would cover the canvas, so only highlighted/selected/hovered
   // people get one (the tooltip still names everyone).
   const labelPeopleOnZoom = data.nodes.length < LABEL_ALL_PEOPLE_BELOW;
+  const hasHubs = data.nodes.some((n) => n.type === 'group');
   const drawLabels = (ctx, scale) => {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (const node of data.nodes) {
+    // Hub labels last so they are never covered by company labels.
+    const ordered = hasHubs ? [...data.nodes.filter((n) => n.type !== 'group'), ...data.nodes.filter((n) => n.type === 'group')] : data.nodes;
+    for (const node of ordered) {
       if (!Number.isFinite(node.x)) continue;
       const lit = isLit(node.id);
       const hot = node.id === selectedId || node.id === hoverId;
+      const inHubLayer = hasHubs;
       const show = node.type === 'me' || node.type === 'group'
-        || (node.type === 'company' && ((node.labelled && (node.count >= 5 || scale > 1.4)) || scale > 2.2 || lit || hot))
+        || (node.type === 'company' && (inHubLayer
+          ? (node.count >= 15 || scale > 1.8 || lit || hot || node.id === selectedId)
+          : ((node.labelled && (node.count >= 5 || scale > 1.4)) || scale > 2.2 || lit || hot)))
         || (node.type === 'person' && (hot || lit || (labelPeopleOnZoom && scale > 2.5)));
       if (!show) continue;
       ctx.globalAlpha = isDim(node) ? 0.25 : 1;
       const r = node.r || 3;
       const big = node.type === 'me' || node.type === 'group' || hot || (node.type === 'company' && node.count >= 10);
-      const fontSize = (node.type === 'person' ? 9 : node.type === 'group' ? 13 : big ? 11 : 10) / scale;
-      ctx.font = `${big ? '600 ' : '500 '}${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
+      const fontSize = (node.type === 'person' ? 9 : node.type === 'group' ? 16 : node.type === 'me' ? 13 : big ? 11 : 10) / scale;
+      ctx.font = `${node.type === 'group' ? '700 ' : big ? '600 ' : '500 '}${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
       const raw = node.type === 'company' || node.type === 'group' ? `${node.label}  ${node.count}` : node.label;
       const label = raw.length > 38 ? `${raw.slice(0, 37)}…` : raw;
       const w = ctx.measureText(label).width;
-      const padX = 5 / scale;
-      const padY = 3 / scale;
-      const y = node.y + r + 5 / scale + fontSize / 2 + padY;
+      const padX = (node.type === 'group' ? 8 : 5) / scale;
+      const padY = (node.type === 'group' ? 5 : 3) / scale;
+      // Hub labels sit above the hub, away from the companies below it.
+      const y = node.type === 'group'
+        ? node.y - r - 10 / scale - fontSize / 2 - padY
+        : node.y + r + 5 / scale + fontSize / 2 + padY;
       const bx = node.x - w / 2 - padX;
       const by = y - fontSize / 2 - padY;
       const bw = w + padX * 2;
@@ -362,14 +386,14 @@ export default function NetworkGraph({
       ctx.arcTo(bx, by + bh, bx, by, radius);
       ctx.arcTo(bx, by, bx + bw, by, radius);
       ctx.closePath();
-      ctx.fillStyle = hot || lit ? '#FFFFFF' : 'rgba(255,255,255,0.86)';
+      ctx.fillStyle = node.type === 'group' ? '#FFFFFF' : hot || lit ? '#FFFFFF' : 'rgba(255,255,255,0.86)';
       ctx.fill();
-      if (hot || lit) {
-        ctx.lineWidth = 1 / scale;
-        ctx.strokeStyle = withAlpha(node.color || ME_COLOR, 0.6);
+      if (hot || lit || node.type === 'group') {
+        ctx.lineWidth = (node.type === 'group' ? 1.5 : 1) / scale;
+        ctx.strokeStyle = withAlpha(node.color || ME_COLOR, node.type === 'group' ? 0.9 : 0.6);
         ctx.stroke();
       }
-      ctx.fillStyle = node.type === 'person' && !hot ? LABEL_MUTED : LABEL;
+      ctx.fillStyle = node.type === 'person' && !hot ? LABEL_MUTED : node.type === 'group' ? node.color : LABEL;
       ctx.fillText(label, node.x, y);
       ctx.globalAlpha = 1;
     }

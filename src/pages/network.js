@@ -16,11 +16,11 @@ import {
   HiOutlineShare, HiOutlineSparkles, HiOutlineCloudArrowUp, HiOutlineInformationCircle, HiOutlineArrowsPointingIn, HiOutlineArrowsPointingOut,
 } from 'react-icons/hi2';
 import PageShell from '../components/layout/PageShell';
-import NetworkGraph, { SOURCE_COLORS, clusterColor } from '../components/network/NetworkGraph';
+import NetworkGraph, { SOURCE_COLORS, clusterColor, GROUP_COLORS } from '../components/network/NetworkGraph';
 import {
   parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, MAX_CONTACTS,
 } from '../utils/network/parseContacts';
-import { buildGraph, personNodeId, NO_COMPANY_KEY, MAX_PEOPLE_PER_EXPANDED_COMPANY } from '../utils/network/graph';
+import { buildGraph, personNodeId, NO_COMPANY_KEY, SMALL_COMPANIES_KEY, MAX_PEOPLE_PER_EXPANDED_COMPANY } from '../utils/network/graph';
 import { classifyContact, roleStats, LENSES } from '../utils/network/roles';
 import { GROUPINGS, groupKeyFor } from '../utils/network/grouping';
 
@@ -38,6 +38,9 @@ const DRILL_ORDER = {
   company: ['company'],
 };
 const DIM_LABEL = { role: 'role', industry: 'industry', country: 'country', company: 'company' };
+// The graph module is mocked in tests; colours fall back to grey there.
+const hubColorOf = (key) => (GROUP_COLORS && GROUP_COLORS[key]) || (typeof clusterColor === 'function' ? clusterColor(key) : '#64748B');
+const clusterColorOf = (key) => (typeof clusterColor === 'function' ? clusterColor(key) : '#64748B');
 const EXAMPLES = ['Who can help me raise a fund?', 'Who sends me deal flow in fintech?', 'Who can diligence an AI company?', 'Who do I know at Google?', 'Intro paths to Stripe'];
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 // The contacts API accepts 15 MB request bodies; stop a little short of it.
@@ -168,6 +171,7 @@ export default function NetworkPage() {
   // `groupBy`; clicking a hub drills into it and the next layer groups its
   // people by the next dimension, down to companies and people.
   const [drill, setDrill] = useState([]);
+  const [focusId, setFocusId] = useState(null);
   const [lensFilter, setLensFilter] = useState(null);
   const [expanded, setExpanded] = useState(() => new Set());
   const [selected, setSelected] = useState(null);
@@ -620,10 +624,33 @@ export default function NetworkPage() {
   const selectedCompanyPeople = useMemo(() => {
     if (selected?.type !== 'company') return [];
     return focusContacts
-      .filter((c) => (normalizeCompanyKey(c.company) || NO_COMPANY_KEY) === selected.key && (!selected.hub || groupKeyFor(c, levelDim) === selected.hub))
+      .filter((c) => (selected.key === SMALL_COMPANIES_KEY
+        ? graph.nodes.some((n) => n.type === 'person' && n.companyKey === SMALL_COMPANIES_KEY && n.hub === selected.hub && n.contact === c)
+        : (normalizeCompanyKey(c.company) || NO_COMPANY_KEY) === selected.key) && (!selected.hub || groupKeyFor(c, levelDim) === selected.hub))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [selected, focusContacts, levelDim]);
+  }, [selected, focusContacts, levelDim, graph]);
   // ------------------------------------------------------------ ask
+
+  // Footer navigator: the groups of this layer (or its companies at the last
+  // layer), largest first. Clicking drills in or centres the map on it.
+  const navigator = useMemo(() => {
+    const hubs = graph.nodes.filter((n) => n.type === 'group').sort((a, b) => b.count - a.count);
+    if (hubs.length) return { kind: 'group', items: hubs };
+    const companies = graph.nodes.filter((n) => n.type === 'company').sort((a, b) => b.count - a.count).slice(0, 16);
+    return { kind: 'company', items: companies };
+  }, [graph]);
+  const navigateTo = (node) => {
+    if (node.type === 'group') {
+      setDrill((prev) => [...prev, { dim: levelDim, key: node.key, label: node.label }]);
+      setSelected(null);
+      setExpanded(new Set());
+      setFocusId(null);
+      return;
+    }
+    if (graph.large && !expanded.has(node.key)) setExpanded((prev) => new Set(prev).add(node.key));
+    setSelected({ type: 'company', id: node.id, key: node.key, hub: node.hub, label: node.label, count: node.count });
+    setFocusId(node.id);
+  };
 
   const ask = async (text, { target } = {}) => {
     const q = String(text ?? question).trim();
@@ -827,7 +854,7 @@ export default function NetworkPage() {
               Hide these people in the graph
             </button>
           )}
-          {selected.key !== NO_COMPANY_KEY && (
+          {selected.key !== NO_COMPANY_KEY && selected.key !== SMALL_COMPANIES_KEY && (
             <>
               <ContactActions company={selected.label} />
               <button
@@ -983,7 +1010,7 @@ export default function NetworkPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex rounded-lg border border-line bg-white p-0.5 text-xs" role="radiogroup" aria-label="Group the map">
                   {GROUPINGS.map(({ key: v, label }) => (
-                    <button key={v} type="button" role="radio" aria-checked={groupBy === v} onClick={() => { setGroupBy(v); setDrill([]); setSelected(null); }} className={classNames('rounded-md px-2.5 py-1 font-medium', groupBy === v ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}>{label}</button>
+                    <button key={v} type="button" role="radio" aria-checked={groupBy === v} onClick={() => { setGroupBy(v); setDrill([]); setSelected(null); setFocusId(null); }} className={classNames('rounded-md px-2.5 py-1 font-medium', groupBy === v ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}>{label}</button>
                   ))}
                 </div>
                 <div className="relative">
@@ -1060,13 +1087,13 @@ export default function NetworkPage() {
 
             {groupBy !== 'company' && (
               <nav className="flex flex-wrap items-center gap-1 border-b border-line bg-slate-50/60 px-4 py-2 text-xs sm:px-5" aria-label="Map layers">
-                <button type="button" onClick={() => { setDrill([]); setSelected(null); }} className={classNames('rounded-md px-1.5 py-0.5', drill.length ? 'text-muted hover:text-ink' : 'font-medium text-ink')}>All</button>
+                <button type="button" onClick={() => { setDrill([]); setSelected(null); setFocusId(null); }} className={classNames('rounded-md px-1.5 py-0.5', drill.length ? 'text-muted hover:text-ink' : 'font-medium text-ink')}>All</button>
                 {drill.map((step, i) => (
                   <React.Fragment key={`${step.dim}:${step.key}`}>
                     <span className="text-line">›</span>
                     <button
                       type="button"
-                      onClick={() => { setDrill(drill.slice(0, i + 1)); setSelected(null); }}
+                      onClick={() => { setDrill(drill.slice(0, i + 1)); setSelected(null); setFocusId(null); }}
                       className={classNames('rounded-md px-1.5 py-0.5', i === drill.length - 1 ? 'font-medium text-ink' : 'text-muted hover:text-ink')}
                     >
                       {step.label}
@@ -1090,19 +1117,29 @@ export default function NetworkPage() {
                   highlightIds={highlightIds}
                   selectedId={selected?.id}
                   hoverId={hoverId}
+                  focusId={focusId}
                   onNodeClick={onNodeClick}
                   onNodeHover={(node) => setHoverId(node ? node.id : null)}
                   onBackgroundClick={() => setSelected(null)}
                 />
               )}
-              <div className="pointer-events-none absolute bottom-3 left-3 hidden items-center gap-3 rounded-lg bg-white/80 px-2.5 py-1.5 text-[11px] text-muted sm:flex">
-                <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-ink" /> You</span>
-                {levelDim !== 'company' && <span className="flex items-center gap-1"><span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-brand-400 bg-white" /> {levelDim === 'role' ? 'Role' : levelDim === 'industry' ? 'Industry' : 'Country'} group · click to drill in</span>}
-                <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-brand-300" /> Company, sized by people you know</span>
-                <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" /> Person</span>
-                {firmCount > 0 && <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full border border-brand-400 bg-white" /> Firm contact (via a colleague)</span>}
-                <span>Click to see details</span>
-              </div>
+              <nav className="glass absolute bottom-0 left-0 right-0 flex items-center gap-1.5 overflow-x-auto border-t border-line px-3 py-2 text-xs" aria-label="Map navigator">
+                <span className="shrink-0 text-muted">{navigator.kind === 'group' ? `${navigator.items.length} groups` : 'Companies'}</span>
+                <span className="text-line">|</span>
+                {navigator.items.map((node) => (
+                  <button
+                    key={node.id}
+                    type="button"
+                    onClick={() => navigateTo(node)}
+                    title={node.type === 'group' ? `Drill into ${node.label}` : `Centre on ${node.label}`}
+                    className={classNames('chip shrink-0', selected?.id === node.id && 'chip-active')}
+                  >
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: node.type === 'group' ? hubColorOf(node.key) : clusterColorOf(node.key) }} />
+                    {node.label} <span className="text-muted">{fmt(node.count)}</span>
+                  </button>
+                ))}
+                {firmCount > 0 && <span className="ml-auto shrink-0 text-muted"><span className="inline-block h-2 w-2 rounded-full border border-brand-400 bg-white align-middle" /> hollow = firm contact</span>}
+              </nav>
               <button
                 type="button"
                 onClick={toggleFullscreen}
