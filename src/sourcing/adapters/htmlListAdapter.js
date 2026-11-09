@@ -34,7 +34,17 @@ function readNodeValue(node, attributeName) {
     return (node.attr(attributeName) || '').replace(/\s+/g, ' ').trim();
   }
 
-  return node.text().replace(/\s+/g, ' ').trim();
+  // Separate child elements with spaces: node.text() glues sibling elements
+  // together ("Series A" + "Adyen" + "FinTech" -> "Series AAdyenFinTech").
+  const html = node.html();
+  if (html == null) {
+    return node.text().replace(/\s+/g, ' ').trim();
+  }
+  return cheerio.load(`<div>${html.replace(/<(?!\/?(?:a|b|i|em|strong|span|abbr|sup|sub)\b)[^>]+>/gi, ' $&')}</div>`)('div')
+    .first()
+    .text()
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function readMergedValues($, rootNode, selectors, attributeName, joinWith) {

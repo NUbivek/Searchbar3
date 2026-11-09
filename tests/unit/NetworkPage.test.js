@@ -1,114 +1,96 @@
 /** @jest-environment jsdom */
-
+/**
+ * Network Map page: shell, empty states, sign-in notice, no sample data.
+ */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
-import axios from 'axios';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import NetworkPage from '../../src/pages/network';
 
-jest.mock('next/head', () => {
-  return function Head({ children }) {
-    return <>{children}</>;
-  };
-});
-
-jest.mock('next/link', () => {
-  return function Link({ children, href, ...props }) {
-    return <a href={href} {...props}>{children}</a>;
-  };
-});
-
-jest.mock('next/router', () => ({
-  useRouter: jest.fn()
+jest.mock('next/head', () => function Head({ children }) { return <>{children}</>; });
+jest.mock('next/link', () => function Link({ children, href, ...props }) { return <a href={href} {...props}>{children}</a>; });
+jest.mock('next/router', () => ({ useRouter: jest.fn() }));
+jest.mock('next-auth/react', () => ({ useSession: jest.fn() }));
+jest.mock('../../src/components/account/AccountMenu', () => function AccountMenu() { return <div>account</div>; });
+jest.mock('../../src/components/network/NetworkGraph', () => ({
+  __esModule: true,
+  default: function NetworkGraphMock() { return <div data-testid="graph" />; },
+  SOURCE_COLORS: { linkedin: '#0077B5', x: '#000', csv: '#6B7280' },
 }));
-
-jest.mock('@headlessui/react', () => ({
-  Tab: Object.assign(
-    ({ children, className }) => {
-      const resolvedClassName = typeof className === 'function'
-        ? className({ selected: true })
-        : className;
-      return <button className={resolvedClassName}>{children}</button>;
-    },
-    {
-      Group: ({ children }) => <div>{children}</div>,
-      List: ({ children, className }) => <div className={className}>{children}</div>
-    }
-  )
-}));
-
-jest.mock('axios');
-jest.mock('../../src/components/NetworkDebug', () => {
-  return function NetworkDebugMock() {
-    return <div data-testid="network-debug">Network Debug</div>;
-  };
-});
 
 const { useRouter } = require('next/router');
+const { useSession } = require('next-auth/react');
 
 describe('NetworkPage', () => {
   beforeEach(() => {
-    useRouter.mockReturnValue({
-      query: {},
-      replace: jest.fn()
-    });
-
-    axios.get.mockImplementation((url) => {
-      if (url === '/api/auth/linkedin/token') {
-        return Promise.resolve({ data: { isAuthenticated: false } });
-      }
-
-      if (url === '/api/auth/twitter/token') {
-        return Promise.resolve({
-          status: 200,
-          data: { authenticated: false }
-        });
-      }
-
-      return Promise.resolve({ data: {} });
-    });
+    // PageShell's TopBar reads router.pathname to mark the active section.
+    useRouter.mockReturnValue({ isReady: true, pathname: '/network', query: {}, replace: jest.fn() });
+    global.fetch = jest.fn(async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (String(url).includes('linkedin') ? { isAuthenticated: false } : { authenticated: false }),
+    }));
   });
 
   afterEach(() => {
     jest.clearAllMocks();
+    delete global.fetch;
   });
 
-  it('renders the network shell with disconnected auth state', async () => {
+  it('signed out: shell, import options, sign-in notice and empty states', async () => {
+    useSession.mockReturnValue({ data: null, status: 'unauthenticated' });
     render(<NetworkPage />);
-
-    await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Research Hub' })).toBeTruthy();
-      expect(screen.getByPlaceholderText('Search your network...')).toBeTruthy();
-      expect(screen.getByRole('heading', { name: 'Network Visualization' })).toBeTruthy();
-      expect(screen.getByText('Connect to your accounts using the buttons at the top right to visualize your network')).toBeTruthy();
-      expect(screen.getByText('Statistics')).toBeTruthy();
-      expect(screen.getByTestId('network-debug')).toBeTruthy();
-      expect(axios.get).toHaveBeenCalledWith('/api/auth/linkedin/token');
-      expect(axios.get).toHaveBeenCalledWith(
-        '/api/auth/twitter/token',
-        expect.objectContaining({
-          validateStatus: false,
-          params: expect.objectContaining({ retry: 0 })
-        })
-      );
-    });
-
-    expect(screen.getAllByRole('button', { name: 'Connect' })).toHaveLength(2);
-    expect(screen.getByRole('button', { name: '' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('heading', { name: 'Network Map' })).toBeTruthy();
+    // The shell's section links (desktop and mobile nav)
+    expect(screen.getAllByText('Research')[0].closest('a').getAttribute('href')).toBe('/');
+    expect(screen.getAllByText('Founder Check')[0].closest('a').getAttribute('href')).toBe('/founder');
+    expect(screen.getByText('Connect LinkedIn')).toBeTruthy();
+    expect(screen.getByText('Connect X')).toBeTruthy();
+    expect(screen.getByText('Upload LinkedIn Connections.csv')).toBeTruthy();
+    expect(screen.getByText('Upload CSV/XLSX contacts')).toBeTruthy();
+    expect(screen.getByText('Sign in to save your network')).toBeTruthy();
+    expect(screen.getByText('No contacts yet')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Search your network...')).toBeTruthy();
+    expect(screen.queryByTestId('graph')).toBeNull();
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/auth/linkedin/token'));
+    expect(global.fetch).not.toHaveBeenCalledWith('/api/network/contacts');
   });
 
-  it('renders decoded error query params and clears the URL state', async () => {
-    const replace = jest.fn();
-
-    useRouter.mockReturnValue({
-      query: { error: encodeURIComponent('Twitter failed') },
-      replace
-    });
-
+  it('signed in: loads saved contacts and draws the graph', async () => {
+    useSession.mockReturnValue({ data: { user: { name: 'Test User' } }, status: 'authenticated' });
+    global.fetch = jest.fn(async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        if (url === '/api/network/contacts') {
+          return {
+            contacts: [{ name: 'Ana Synthetic', company: 'Stripe', position: 'Engineer', source: 'linkedin', tags: [] }],
+            stats: { total: 1, bySource: { linkedin: 1, csv: 0, x: 0 }, lastImportAt: null, lastImportBySource: {} },
+          };
+        }
+        return {};
+      },
+    }));
     render(<NetworkPage />);
+    await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
+    expect(screen.getByText('Saved to your account')).toBeTruthy();
+    expect(screen.getByText('Remove all my network data')).toBeTruthy();
+  });
 
-    await waitFor(() => {
-      expect(screen.getByText('Twitter failed')).toBeTruthy();
-      expect(replace).toHaveBeenCalledWith('/network', undefined, { shallow: true });
-    });
+  it('offers Connect LinkedIn / Connect X even when not configured: an inline note, no redirect', async () => {
+    useSession.mockReturnValue({ data: null, status: 'unauthenticated' });
+    global.fetch = jest.fn(async (url) => ({
+      ok: true,
+      status: 200,
+      json: async () => (String(url).includes('linkedin')
+        ? { isAuthenticated: false, configured: false }
+        : { authenticated: false, configured: false }),
+    }));
+    render(<NetworkPage />);
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/auth/twitter/token'));
+    fireEvent.click(screen.getByText('Connect LinkedIn'));
+    fireEvent.click(screen.getByText('Connect X'));
+    expect(screen.getByText("LinkedIn connection isn't available on this deployment yet.")).toBeTruthy();
+    expect(screen.getByText("X connection isn't available on this deployment yet.")).toBeTruthy();
+    expect(screen.queryByText(/paid|tier|API/)).toBeNull();
   });
 });

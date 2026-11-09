@@ -9,11 +9,7 @@ const handler = require('../../../src/pages/api/auth/linkedin/callback').default
 
 function createRedirectRes() {
   const res = createMockRes();
-  res.headers = {};
   res.redirectTarget = null;
-  res.setHeader = jest.fn((name, value) => {
-    res.headers[name] = value;
-  });
   res.redirect = jest.fn((target) => {
     res.redirectTarget = target;
     return res;
@@ -21,148 +17,143 @@ function createRedirectRes() {
   return res;
 }
 
+// A request as the dev server sees it: localhost host header, so the
+// redirect goes back to the same origin.
+function createCallbackReq(overrides = {}) {
+  return createMockReq({
+    headers: { host: 'localhost:3000' },
+    cookies: {},
+    ...overrides,
+  });
+}
+
+const NETWORK = 'http://localhost:3000/network';
+
 describe('/api/auth/linkedin/callback', () => {
-  const originalClientId = process.env.LINKEDIN_CLIENT_ID;
-  const originalClientSecret = process.env.LINKEDIN_CLIENT_SECRET;
-  const originalBaseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-  const originalRedirectUri = process.env.LINKEDIN_REDIRECT_URI;
+  const saved = {};
+  const KEYS = ['LINKEDIN_CLIENT_ID', 'LINKEDIN_CLIENT_SECRET', 'NEXT_PUBLIC_BASE_URL', 'LINKEDIN_REDIRECT_URI', 'FRONTEND_BASE_URL'];
+
+  beforeAll(() => {
+    for (const key of KEYS) saved[key] = process.env[key];
+  });
 
   beforeEach(() => {
     jest.clearAllMocks();
-    delete process.env.LINKEDIN_CLIENT_ID;
-    delete process.env.LINKEDIN_CLIENT_SECRET;
-    delete process.env.NEXT_PUBLIC_BASE_URL;
-    delete process.env.LINKEDIN_REDIRECT_URI;
+    for (const key of KEYS) delete process.env[key];
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   afterAll(() => {
-    if (originalClientId) process.env.LINKEDIN_CLIENT_ID = originalClientId;
-    else delete process.env.LINKEDIN_CLIENT_ID;
-
-    if (originalClientSecret) process.env.LINKEDIN_CLIENT_SECRET = originalClientSecret;
-    else delete process.env.LINKEDIN_CLIENT_SECRET;
-
-    if (originalBaseUrl) process.env.NEXT_PUBLIC_BASE_URL = originalBaseUrl;
-    else delete process.env.NEXT_PUBLIC_BASE_URL;
-
-    if (originalRedirectUri) process.env.LINKEDIN_REDIRECT_URI = originalRedirectUri;
-    else delete process.env.LINKEDIN_REDIRECT_URI;
+    for (const key of KEYS) {
+      if (saved[key] !== undefined) process.env[key] = saved[key];
+      else delete process.env[key];
+    }
   });
 
-  test('redirects non-GET requests back to the network page', async () => {
-    const req = createMockReq({ method: 'POST', query: {} });
+  test('redirects non-GET requests back to the network page with an error', async () => {
+    const req = createCallbackReq({ method: 'POST' });
     const res = createRedirectRes();
 
     await handler(req, res);
 
-    expect(res.redirect).toHaveBeenCalledWith('/network?error=Method%20not%20allowed');
+    expect(res.redirect).toHaveBeenCalledTimes(1);
+    expect(res.redirectTarget.startsWith(`${NETWORK}?error=`)).toBe(true);
   });
 
-  test('redirects with auth error from linkedin', async () => {
-    const req = createMockReq({
-      query: {
-        error: 'access_denied',
-        error_description: 'User denied access',
-      },
-    });
+  test('redirects with an error when LinkedIn reports one', async () => {
+    const req = createCallbackReq({ query: { error: 'access_denied', error_description: 'User denied access' } });
     const res = createRedirectRes();
 
     await handler(req, res);
 
-    expect(res.redirect).toHaveBeenCalledWith('/network?error=User%20denied%20access');
-  });
-
-  test('redirects when no authorization code is received', async () => {
-    const req = createMockReq({ query: {} });
-    const res = createRedirectRes();
-
-    await handler(req, res);
-
-    expect(res.redirect).toHaveBeenCalledWith('/network?error=No authorization code received');
-  });
-
-  test('redirects when linkedin credentials are missing', async () => {
-    const req = createMockReq({ query: { code: 'auth-code' } });
-    const res = createRedirectRes();
-
-    await handler(req, res);
-
-    expect(res.redirect).toHaveBeenCalledWith('/network?error=LinkedIn API credentials not configured');
+    expect(res.redirectTarget.startsWith(`${NETWORK}?error=`)).toBe(true);
     expect(axios.post).not.toHaveBeenCalled();
   });
 
-  test('sets cookies and redirects on successful callback exchange', async () => {
+  test('redirects with an error when no authorization code is received', async () => {
+    const req = createCallbackReq({ query: {} });
+    const res = createRedirectRes();
+
+    await handler(req, res);
+
+    expect(res.redirectTarget.startsWith(`${NETWORK}?error=`)).toBe(true);
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  test('rejects a callback whose state does not match the cookie (CSRF)', async () => {
+    process.env.LINKEDIN_CLIENT_ID = 'id';
+    process.env.LINKEDIN_CLIENT_SECRET = 'secret';
+    const req = createCallbackReq({ query: { code: 'auth-code', state: 'from-attacker' }, cookies: { linkedin_auth_state: 'real' } });
+    const res = createRedirectRes();
+
+    await handler(req, res);
+
+    expect(res.redirectTarget.startsWith(`${NETWORK}?error=`)).toBe(true);
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  test('redirects with an error when LinkedIn credentials are missing', async () => {
+    const req = createCallbackReq({ query: { code: 'auth-code', state: 's1' }, cookies: { linkedin_auth_state: 's1' } });
+    const res = createRedirectRes();
+
+    await handler(req, res);
+
+    expect(res.redirectTarget.startsWith(`${NETWORK}?error=`)).toBe(true);
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  test('exchanges the code, sets cookies and redirects with the success flag', async () => {
     process.env.LINKEDIN_CLIENT_ID = 'linkedin-client-id';
     process.env.LINKEDIN_CLIENT_SECRET = 'linkedin-client-secret';
     process.env.NEXT_PUBLIC_BASE_URL = 'https://example.com';
 
-    axios.post.mockResolvedValueOnce({
-      data: {
-        access_token: 'linkedin-access-token',
-        expires_in: 7200,
-      },
-    });
+    axios.post.mockResolvedValueOnce({ data: { access_token: 'linkedin-access-token', expires_in: 7200 } });
+    axios.get.mockResolvedValueOnce({ data: { sub: 'linkedin-user', name: 'Ada Lovelace' } });
 
-    axios.get.mockResolvedValueOnce({
-      data: {
-        id: 'linkedin-user',
-      },
-    });
-
-    const req = createMockReq({ query: { code: 'auth-code' } });
+    const req = createCallbackReq({ query: { code: 'auth-code', state: 's1' }, cookies: { linkedin_auth_state: 's1' } });
     const res = createRedirectRes();
 
     await handler(req, res);
 
-    expect(axios.post).toHaveBeenCalledWith(
-      'https://www.linkedin.com/oauth/v2/accessToken',
-      null,
-      {
-        params: {
-          grant_type: 'authorization_code',
-          code: 'auth-code',
-          redirect_uri: 'https://example.com/api/auth/linkedin/callback',
-          client_id: 'linkedin-client-id',
-          client_secret: 'linkedin-client-secret',
-        },
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        timeout: 10000,
-      }
-    );
-    expect(axios.get).toHaveBeenCalledWith('https://api.linkedin.com/v2/me', {
-      headers: {
-        Authorization: 'Bearer linkedin-access-token',
-      },
-      timeout: 10000,
+    expect(axios.post).toHaveBeenCalledTimes(1);
+    const [tokenUrl, , tokenOptions] = axios.post.mock.calls[0];
+    expect(tokenUrl).toBe('https://www.linkedin.com/oauth/v2/accessToken');
+    expect(tokenOptions.params).toMatchObject({
+      grant_type: 'authorization_code',
+      code: 'auth-code',
+      client_id: 'linkedin-client-id',
+      client_secret: 'linkedin-client-secret',
     });
-    expect(res.setHeader).toHaveBeenCalledWith('Set-Cookie', [
-      'linkedin_access_token=linkedin-access-token; Path=/; Max-Age=7200; HttpOnly; SameSite=Lax',
-      'linkedin_user_id=linkedin-user; Path=/; Max-Age=7200; SameSite=Lax',
-    ]);
-    expect(res.redirect).toHaveBeenCalledWith('/network?auth=linkedin_success');
+    expect(tokenOptions.params.redirect_uri).toMatch(/\/api\/auth\/linkedin\/callback$/);
+    expect(tokenOptions.timeout).toBeGreaterThan(0);
+
+    expect(axios.get).toHaveBeenCalledWith('https://api.linkedin.com/v2/userinfo', expect.objectContaining({
+      headers: { Authorization: 'Bearer linkedin-access-token' },
+    }));
+
+    const cookies = res.headers['Set-Cookie'];
+    expect(cookies[0]).toMatch(/^linkedin_access_token=linkedin-access-token; Path=\/; Max-Age=7200; HttpOnly; SameSite=Lax/);
+    expect(cookies[1]).toMatch(/^linkedin_user_id=linkedin-user; Path=\/; Max-Age=7200; SameSite=Lax/);
+    expect(cookies).toContain('linkedin_auth_state=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax');
+    expect(res.redirectTarget).toBe(`${NETWORK}?auth=linkedin_success`);
   });
 
-  test('redirects with detailed failure when token exchange fails', async () => {
+  test('redirects with an error when the token exchange fails', async () => {
     process.env.LINKEDIN_CLIENT_ID = 'linkedin-client-id';
     process.env.LINKEDIN_CLIENT_SECRET = 'linkedin-client-secret';
+    axios.post.mockRejectedValueOnce({ response: { data: { error_description: 'Invalid authorization code' } } });
 
-    axios.post.mockRejectedValueOnce({
-      response: {
-        data: {
-          error_description: 'Invalid authorization code',
-        },
-      },
-    });
-
-    const req = createMockReq({ query: { code: 'bad-code' } });
+    const req = createCallbackReq({ query: { code: 'bad-code', state: 's1' }, cookies: { linkedin_auth_state: 's1' } });
     const res = createRedirectRes();
 
     await handler(req, res);
 
-    expect(res.redirect).toHaveBeenCalledWith(
-      '/network?error=Failed%20to%20authenticate%20with%20LinkedIn%3A%20Invalid%20authorization%20code'
-    );
+    expect(res.redirectTarget.startsWith(`${NETWORK}?error=`)).toBe(true);
+    expect(res.headers['Set-Cookie']).toBeUndefined();
   });
 });

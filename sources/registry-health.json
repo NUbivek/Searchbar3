@@ -1,0 +1,5545 @@
+{
+  "checkedAt": "2026-11-07T04:25:37.939Z",
+  "counts": {
+    "ok": 98,
+    "broken": 359,
+    "repaired": 37,
+    "dead": 286
+  },
+  "sources": {
+    "A-TC-RSS": {
+      "name": "TechCrunch Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techcrunch.com/feed/",
+      "status": "ok",
+      "items": 20
+    },
+    "B-SIFTED-RSS": {
+      "name": "Sifted Feed",
+      "adapter": "rss",
+      "listedUrl": "https://sifted.eu/feed",
+      "status": "ok",
+      "items": 24
+    },
+    "A-GITHUB-RELEASES-RSS": {
+      "name": "GitHub Changelog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://github.blog/changelog/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-CRUNCHBASE-NEWS": {
+      "name": "Crunchbase News Feed",
+      "adapter": "rss",
+      "listedUrl": "https://news.crunchbase.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "B-WELLFOUND-REMOTE": {
+      "name": "Wellfound Remote Jobs",
+      "adapter": "html_list",
+      "listedUrl": "https://wellfound.com/jobs",
+      "status": "ok",
+      "items": 50
+    },
+    "B-SAASTR-BLOG": {
+      "name": "SaaStr Blog",
+      "adapter": "rss",
+      "listedUrl": "https://www.saastr.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-OSS-INSIGHTS": {
+      "name": "OSS Insights",
+      "adapter": "js_rendered",
+      "listedUrl": "https://ossinsight.io/",
+      "status": "ok",
+      "items": 18
+    },
+    "A-STRICTLYVC-RSS": {
+      "name": "StrictlyVC Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.strictlyvc.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "B-TECHEU-RSS": {
+      "name": "Tech.eu Feed",
+      "adapter": "rss",
+      "listedUrl": "https://tech.eu/feed/",
+      "status": "ok",
+      "items": 20
+    },
+    "A-HUGGINGFACE-BLOG-RSS": {
+      "name": "Hugging Face Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://huggingface.co/blog/feed.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "C-STARTUPSTASH": {
+      "name": "Startup Stash",
+      "adapter": "html_list",
+      "listedUrl": "https://startupstash.com",
+      "status": "ok",
+      "items": 50
+    },
+    "A-OPENAI-BLOG-RSS": {
+      "name": "OpenAI Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://openai.com/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "B-FAILORY-RSS": {
+      "name": "Failory Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.failory.com/feed",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-BETALIST": {
+      "name": "BetaList Startups",
+      "adapter": "html_list",
+      "listedUrl": "https://betalist.com/startups",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-LATENTSPACE-RSS": {
+      "name": "Latent Space Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.latent.space/feed",
+      "status": "ok",
+      "items": 20
+    },
+    "B-PYMNTS-RSS": {
+      "name": "PYMNTS Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.pymnts.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-F6S-PROGRAMS": {
+      "name": "F6S Programs",
+      "adapter": "html_list",
+      "listedUrl": "https://www.f6s.com/programs",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-ARCTICSTARTUP-RSS": {
+      "name": "ArcticStartup Feed",
+      "adapter": "rss",
+      "listedUrl": "https://arcticstartup.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "B-EUSTARTUPS-RSS": {
+      "name": "EU-Startups Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.eu-startups.com/feed/",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "A-PRODUCTHUNT-RSS": {
+      "name": "Product Hunt Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.producthunt.com/feed",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-ANGELLIST-BLOG": {
+      "name": "AngelList Blog",
+      "adapter": "rss",
+      "listedUrl": "https://www.angellist.com/blog.rss",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-STRATECHERY-RSS": {
+      "name": "Stratechery Feed",
+      "adapter": "rss",
+      "listedUrl": "https://stratechery.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-FOUNDERWIKI": {
+      "name": "FounderWiki",
+      "adapter": "html_list",
+      "listedUrl": "https://www.founderwiki.com",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-STRIPE-BLOG-RSS": {
+      "name": "Stripe Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://stripe.com/blog/feed.rss",
+      "status": "ok",
+      "items": 10
+    },
+    "B-GITLAB-BLOG-RSS": {
+      "name": "GitLab Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://about.gitlab.com/atom.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-ANTLER-PORTFOLIO": {
+      "name": "Antler Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.antler.co/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-SEMAFOR-BUSINESS-RSS": {
+      "name": "Semafor Business Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.semafor.com/feeds/business.xml",
+      "status": "repaired",
+      "url": "https://www.semafor.com/rss.xml",
+      "items": 50,
+      "error": "HTTP 404"
+    },
+    "A-CLOUDFLARE-BLOG-RSS": {
+      "name": "Cloudflare Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://blog.cloudflare.com/rss/",
+      "status": "ok",
+      "items": 20
+    },
+    "A-GITHUB-BLOG-RSS": {
+      "name": "GitHub Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://github.blog/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "B-SAASTR-RSS": {
+      "name": "SaaStr Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.saastr.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-SEEDTABLE-BLOG": {
+      "name": "Seedtable Blog",
+      "adapter": "rss",
+      "listedUrl": "https://seedtable.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "A-VERCEL-BLOG-RSS": {
+      "name": "Vercel Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://vercel.com/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-INDIEHACKERS-RSS": {
+      "name": "Indie Hackers Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.indiehackers.com/feed",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "C-BENSBITS-RSS": {
+      "name": "Benedict Evans Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.ben-evans.com/benedictevans?format=rss",
+      "status": "ok",
+      "items": 20
+    },
+    "A-VCSTACK-RSS": {
+      "name": "VC Stack Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.vcstack.com/feed",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-OPENVC-RSS": {
+      "name": "OpenVC Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.openvc.app/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "A-NVIDIA-BLOG-RSS": {
+      "name": "NVIDIA Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://blogs.nvidia.com/feed/",
+      "status": "ok",
+      "items": 18
+    },
+    "C-UNUSUAL-VC-PORTFOLIO": {
+      "name": "Unusual Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.unusual.vc/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-20VC-PORTFOLIO": {
+      "name": "20VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.20vc.com/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-SIGNALFIRE-PORTFOLIO": {
+      "name": "SignalFire Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://signalfire.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-PEARVC-PORTFOLIO": {
+      "name": "Pear VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://pear.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-FIRSTMINUTE-PORTFOLIO": {
+      "name": "Firstminute Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.firstminute.capital/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-TECHCRUNCH-STARTUPS-RSS": {
+      "name": "TechCrunch Startups Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techcrunch.com/category/startups/feed/",
+      "status": "ok",
+      "items": 20
+    },
+    "A-SUPABASE-BLOG-RSS": {
+      "name": "Supabase Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://supabase.com/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "C-AVENTURE-PORTFOLIO": {
+      "name": "Avenue Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.avenuevc.com/portfolio/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-MERCURY-RAISE-RSS": {
+      "name": "Mercury Raise Feed",
+      "adapter": "rss",
+      "listedUrl": "https://mercury.com/raise/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-LANGCHAIN-BLOG-RSS": {
+      "name": "LangChain Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://blog.langchain.dev/rss/",
+      "status": "repaired",
+      "url": "https://blog.langchain.dev/rss.xml",
+      "items": 50,
+      "error": "Error"
+    },
+    "C-TOMTUNGUZ-RSS": {
+      "name": "Tom Tunguz Feed",
+      "adapter": "rss",
+      "listedUrl": "https://tomtunguz.com/feed/",
+      "status": "repaired",
+      "url": "https://tomtunguz.com/index.xml",
+      "items": 2,
+      "error": "HTTP 404"
+    },
+    "B-STRICTLYVC-RSS": {
+      "name": "StrictlyVC Feed",
+      "adapter": "rss",
+      "listedUrl": "https://strictlyvc.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-THEINFORMATION-STARTUPS-RSS": {
+      "name": "The Information Startups Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.theinformation.com/feed",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-POINTNINE-PORTFOLIO": {
+      "name": "Point Nine Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.pointnine.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-LOCALGLOBE-PORTFOLIO": {
+      "name": "LocalGlobe Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.localglobe.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-ANTHROPIC-NEWS-RSS": {
+      "name": "Anthropic News Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.anthropic.com/news/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-HOXTON-PORTFOLIO": {
+      "name": "Hoxton Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.hoxtonventures.com/portfolio/",
+      "status": "ok",
+      "items": 34
+    },
+    "A-REPLICATE-BLOG-RSS": {
+      "name": "Replicate Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://replicate.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-MISTRAL-BLOG-RSS": {
+      "name": "Mistral AI Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://mistral.ai/news/rss.xml",
+      "status": "repaired",
+      "url": "https://mistral.ai/news/rss",
+      "items": 50,
+      "error": "HTTP 404"
+    },
+    "A-PINECONE-BLOG-RSS": {
+      "name": "Pinecone Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.pinecone.io/blog/rss/",
+      "status": "ok",
+      "items": 50
+    },
+    "C-PAULGRAHAM-ESSAYS-RSS": {
+      "name": "Paul Graham Essays Feed",
+      "adapter": "rss",
+      "listedUrl": "https://paulgraham.com/rss.html",
+      "status": "repaired",
+      "url": "http://www.aaronsw.com/2002/feeds/pgessays.rss",
+      "items": 50,
+      "error": "Error"
+    },
+    "B-SPEEDINVEST-PORTFOLIO": {
+      "name": "Speedinvest Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://speedinvest.com/portfolio/",
+      "status": "ok",
+      "items": 50
+    },
+    "A-RETOOL-BLOG-RSS": {
+      "name": "Retool Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://retool.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-STARTUPSBEAT-RSS": {
+      "name": "StartupsBeat Feed",
+      "adapter": "rss",
+      "listedUrl": "https://startupsbeat.com/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-KIMA-PORTFOLIO": {
+      "name": "Kima Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.kimaventures.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-SIFTED-NEWS-RSS": {
+      "name": "Sifted Feed",
+      "adapter": "rss",
+      "listedUrl": "https://sifted.eu/feed/",
+      "status": "ok",
+      "items": 24
+    },
+    "A-OLLAMA-BLOG-RSS": {
+      "name": "Ollama Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://ollama.com/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "C-BRADFELD-BLOG-RSS": {
+      "name": "Brad Feld Feed",
+      "adapter": "rss",
+      "listedUrl": "https://feld.com/feed/",
+      "status": "ok",
+      "items": 20
+    },
+    "A-OPENROUTER-BLOG-RSS": {
+      "name": "OpenRouter Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://openrouter.ai/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-WEAVIATE-BLOG-RSS": {
+      "name": "Weaviate Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://weaviate.io/blog/rss.xml",
+      "status": "ok",
+      "items": 20
+    },
+    "C-LEADINGEDGE-PORTFOLIO": {
+      "name": "Leading Edge Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.leadingedgeventures.com/portfolio/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-HARRYSTEBBINGS-RSS": {
+      "name": "Harry Stebbings Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.harrystebbings.com/feed",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-NORTHZONE-PORTFOLIO": {
+      "name": "Northzone Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://northzone.com/portfolio/",
+      "status": "ok",
+      "items": 32
+    },
+    "C-NFX-PORTFOLIO": {
+      "name": "NFX Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.nfx.com/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-SCRUMVC-PORTFOLIO": {
+      "name": "Scrum Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://scrum.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-FELIXCAPITAL-RSS": {
+      "name": "Felix Capital Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.felixcap.com/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-COHERE-BLOG-RSS": {
+      "name": "Cohere Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://cohere.com/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-SEEDCAMP-PORTFOLIO": {
+      "name": "Seedcamp Companies",
+      "adapter": "html_list",
+      "listedUrl": "https://seedcamp.com/companies/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-CRANE-PORTFOLIO": {
+      "name": "Crane Venture Partners Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.crane.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-BOTHSIDESOFTABLE-RSS": {
+      "name": "Both Sides of the Table Feed",
+      "adapter": "rss",
+      "listedUrl": "https://bothsidesofthetable.com/feed",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-BLOSSOM-PORTFOLIO": {
+      "name": "Blossom Street Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.blossomstreetventures.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-CREANDUM-PORTFOLIO": {
+      "name": "Creandum Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://creandum.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-TECHINASIA-STARTUPS-RSS": {
+      "name": "Tech in Asia Startups Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.techinasia.com/tag/startups/feed",
+      "status": "ok",
+      "items": 36
+    },
+    "B-STARTUPDAILY-RSS": {
+      "name": "Startup Daily Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.startupdaily.net/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "A-VERCEL-AI-RSS": {
+      "name": "Vercel AI Feed",
+      "adapter": "rss",
+      "listedUrl": "https://vercel.com/changelog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-HUGGINGFACE-COMPANY-RSS": {
+      "name": "Hugging Face Company Feed",
+      "adapter": "rss",
+      "listedUrl": "https://huggingface.co/blog/feed.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "A-NEON-BLOG-RSS": {
+      "name": "Neon Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://neon.tech/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "B-UNICORNFACTORY-RSS": {
+      "name": "Unicorn Factory Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.unicornfactory.com/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-FLYIO-BLOG-RSS": {
+      "name": "Fly.io Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://fly.io/blog/feed.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-BETAKIT-STARTUPS-RSS": {
+      "name": "BetaKit Feed",
+      "adapter": "rss",
+      "listedUrl": "https://betakit.com/feed/",
+      "status": "ok",
+      "items": 50
+    },
+    "B-ACCEL-PORTFOLIO": {
+      "name": "Accel Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.accel.com/companies",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-PLANETSCALE-BLOG-RSS": {
+      "name": "PlanetScale Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://planetscale.com/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-GENERALCATALYST-PORTFOLIO": {
+      "name": "General Catalyst Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.generalcatalyst.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-DBT-BLOG-RSS": {
+      "name": "dbt Labs Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://docs.getdbt.com/blog/rss.xml",
+      "status": "ok",
+      "items": 20
+    },
+    "B-SILICONCANALS-RSS": {
+      "name": "Silicon Canals Feed",
+      "adapter": "rss",
+      "listedUrl": "https://siliconcanals.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "A-GROQ-BLOG-RSS": {
+      "name": "Groq Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://groq.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-TEMBO-BLOG-RSS": {
+      "name": "Tembo Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://tembo.io/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-ANTHROPIC-ENGINEERING-RSS": {
+      "name": "Anthropic Engineering Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.anthropic.com/engineering/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-ATOMICO-PORTFOLIO": {
+      "name": "Atomico Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://atomico.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 429"
+    },
+    "B-EQT-VENTURES-PORTFOLIO": {
+      "name": "EQT Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://eqtventures.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 525"
+    },
+    "B-CRUNCHBASE-NEWS-RSS": {
+      "name": "Crunchbase News Feed",
+      "adapter": "rss",
+      "listedUrl": "https://news.crunchbase.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "A-SCALEAI-BLOG-RSS": {
+      "name": "Scale AI Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://scale.com/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-INSIDE-BLOG-RSS": {
+      "name": "Inside Feed",
+      "adapter": "rss",
+      "listedUrl": "https://inside.com/feed",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-FRST-PORTFOLIO": {
+      "name": "Firstminute FRST Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.frst.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-NEXTVIEW-BLOG-RSS": {
+      "name": "NextView Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://nextview.vc/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://nextview.vc/feed",
+      "items": 10,
+      "error": "HTTP 404"
+    },
+    "B-INDEX-PORTFOLIO": {
+      "name": "Index Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.indexventures.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-HIGHGROWTH-BLOG-RSS": {
+      "name": "High Growth Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.highgrowth.com/feed/",
+      "status": "repaired",
+      "url": "https://highgrowth.com/feed/news",
+      "items": 6,
+      "error": "HTTP 404"
+    },
+    "C-TOMLOVERRO-INSIGHTS-RSS": {
+      "name": "Tom Loverro Insights Feed",
+      "adapter": "rss",
+      "listedUrl": "https://tomloverro.com/feed/",
+      "status": "broken",
+      "error": "ERR_TLS_CERT_ALTNAME_INVALID"
+    },
+    "B-VENTUREBEAT-AI-RSS": {
+      "name": "VentureBeat AI Feed",
+      "adapter": "rss",
+      "listedUrl": "https://venturebeat.com/category/ai/feed/",
+      "status": "broken",
+      "error": "HTTP 429"
+    },
+    "A-REPLOIT-BLOG-RSS": {
+      "name": "Replit Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://blog.replit.com/rss.xml",
+      "status": "repaired",
+      "url": "https://blog.replit.com/feed.xml",
+      "items": 50,
+      "error": "HTTP 404"
+    },
+    "B-ELAIA-PORTFOLIO": {
+      "name": "Elaia Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.elaia.com/portfolio/",
+      "status": "ok",
+      "items": 12
+    },
+    "C-BALDERTON-PORTFOLIO": {
+      "name": "Balderton Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.balderton.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "C-FIRSTROUND-REVIEW-RSS": {
+      "name": "First Round Review Feed",
+      "adapter": "rss",
+      "listedUrl": "https://review.firstround.com/rss/",
+      "status": "repaired",
+      "url": "https://review.firstround.com/glossary/rss/",
+      "items": 15,
+      "error": "HTTP 404"
+    },
+    "C-EUVC-RSS": {
+      "name": "EUVC Feed",
+      "adapter": "rss",
+      "listedUrl": "https://eu.vc/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-POSTHOG-BLOG-RSS": {
+      "name": "PostHog Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://posthog.com/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "A-FLYTE-BLOG-RSS": {
+      "name": "Flyte Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://modal.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-SOFTWARE-STACKINVESTING-RSS": {
+      "name": "Software Stack Investing Feed",
+      "adapter": "rss",
+      "listedUrl": "https://softwarestackinvesting.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "A-ANYSCALE-BLOG-RSS": {
+      "name": "Anyscale Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.anyscale.com/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://www.anyscale.com/rss.xml",
+      "items": 18,
+      "error": "Error"
+    },
+    "B-SEQUOIA-ARC-PORTFOLIO": {
+      "name": "Sequoia Arc Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.sequoiacap.com/arc/companies/",
+      "status": "repaired",
+      "url": "https://www.sequoiacap.com/companies",
+      "items": 21,
+      "error": "HTTP 404"
+    },
+    "B-LIGHTSPEED-PORTFOLIO": {
+      "name": "Lightspeed Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://lsvp.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-DAGSTER-BLOG-RSS": {
+      "name": "Dagster Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://dagster.io/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "C-OMERS-BLOG-RSS": {
+      "name": "OMERS Ventures Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.omersventures.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-DAWN-PORTFOLIO": {
+      "name": "Dawn Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://dawncapital.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-TURSO-BLOG-RSS": {
+      "name": "Turso Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://turso.tech/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-TOGETHER-AI-BLOG-RSS": {
+      "name": "Together AI Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.together.ai/blog/rss.xml",
+      "status": "ok",
+      "items": 44
+    },
+    "C-SAASR-REPORTS-RSS": {
+      "name": "SaaStr Reports Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.saastr.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "A-LANGFUSE-BLOG-RSS": {
+      "name": "Langfuse Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://langfuse.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-EUSTARTUPS-FUNDING-RSS": {
+      "name": "EU-Startups Funding Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.eu-startups.com/category/funding/feed/",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "C-OUTSIDEVC-PORTFOLIO": {
+      "name": "Outside VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.outsidevc.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "C-AVC-BLOG-RSS": {
+      "name": "AVC Feed",
+      "adapter": "rss",
+      "listedUrl": "https://avc.com/feed/",
+      "status": "broken",
+      "error": "HTTP 500"
+    },
+    "A-FIREWORKS-AI-BLOG-RSS": {
+      "name": "Fireworks AI Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://fireworks.ai/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-UKTN-FUNDING-RSS": {
+      "name": "UKTN Funding Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.uktech.news/news/topic/funding/feed",
+      "status": "ok",
+      "items": 10
+    },
+    "A-ARIZE-BLOG-RSS": {
+      "name": "Arize Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://arize.com/blog/rss/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-OPENVIEW-BLOG-RSS": {
+      "name": "OpenView Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://openviewpartners.com/blog/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-KINDRED-PORTFOLIO": {
+      "name": "Kindred Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://kindredcapital.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-WEFUNDER-PORTFOLIO": {
+      "name": "Wefunder Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://wefunder.com/portfolio",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "A-UNSTRUCTURED-BLOG-RSS": {
+      "name": "Unstructured Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://unstructured.io/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-REDPOINT-BLOG-RSS": {
+      "name": "Redpoint Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.redpoint.com/blog/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-MADDY-MONEY-RSS": {
+      "name": "Maddyness Funding Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.maddyness.com/uk/category/funding/feed/",
+      "status": "repaired",
+      "url": "https://www.maddyness.com/feed/",
+      "items": 10,
+      "error": "Error"
+    },
+    "A-TINYBIRD-BLOG-RSS": {
+      "name": "Tinybird Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.tinybird.co/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "C-ANTHEMIS-PORTFOLIO": {
+      "name": "Anthemis Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.anthemis.com/portfolio/",
+      "status": "broken",
+      "error": "UND_ERR_SOCKET"
+    },
+    "B-CHERRY-PORTFOLIO": {
+      "name": "Cherry Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.cherry.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-OMERS-VENTURES-PORTFOLIO": {
+      "name": "OMERS Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.omersventures.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-SIFTED-FUNDING-RSS": {
+      "name": "Sifted Funding Feed",
+      "adapter": "rss",
+      "listedUrl": "https://sifted.eu/articles/funding/feed",
+      "status": "repaired",
+      "url": "https://sifted.eu/feed",
+      "items": 24,
+      "error": "HTTP 403"
+    },
+    "A-PARQUET-BLOG-RSS": {
+      "name": "Parquet Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://parquet.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 520"
+    },
+    "C-HEAVYBIT-BLOG-RSS": {
+      "name": "Heavybit Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.heavybit.com/library/blog/feed/",
+      "status": "ok",
+      "items": 50
+    },
+    "B-SEEDTOGROW-PORTFOLIO": {
+      "name": "SeedToGrow Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://seedtogrow.vc/portfolio/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-STARTUPDAILY-FUNDING-RSS": {
+      "name": "Startup Daily Funding Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.startupdaily.net/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "B-TECHFUNDINGNEWS-RSS": {
+      "name": "Tech Funding News Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techfundingnews.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "B-PLAYFAIR-PORTFOLIO": {
+      "name": "Playfair Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://playfair.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-CLICKHOUSE-BLOG-RSS": {
+      "name": "ClickHouse Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://clickhouse.com/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://clickhouse.com/rss.xml",
+      "items": 50,
+      "error": "HTTP 404"
+    },
+    "C-DRAPER-PORTFOLIO": {
+      "name": "Draper Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://draper.vc/portfolio/",
+      "status": "ok",
+      "items": 50
+    },
+    "A-HAMELDEV-BLOG-RSS": {
+      "name": "Hamel Dev Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://hamel.dev/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://hamel.dev/index.xml",
+      "items": 20,
+      "error": "HTTP 404"
+    },
+    "A-DBRX-BLOG-RSS": {
+      "name": "DBRX Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.databricks.com/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://www.databricks.com/feed",
+      "items": 10,
+      "error": "HTTP 404"
+    },
+    "C-FIRSTMARK-BLOG-RSS": {
+      "name": "FirstMark Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://firstmark.com/feed/",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "C-SYSTEMIQ-PORTFOLIO": {
+      "name": "SYSTEMIQ Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.systemiq.earth/ventures/portfolio/",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "C-REVENT-PORTFOLIO": {
+      "name": "Revent Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://revent.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-FUTUREPOSITIVE-PORTFOLIO": {
+      "name": "Future Positive Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://futurepositive.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-WARPSTREAM-BLOG-RSS": {
+      "name": "WarpStream Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.warpstream.com/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "B-HOOX-PORTFOLIO": {
+      "name": "Hoxton Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.hoxtonventures.com/portfolio/",
+      "status": "ok",
+      "items": 34
+    },
+    "C-MERTECHCAPITAL-BLOG-RSS": {
+      "name": "Meritech Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://meritechcapital.com/blog/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-BASEROW-BLOG-RSS": {
+      "name": "Baserow Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://baserow.io/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-ENERGIZE-PORTFOLIO": {
+      "name": "Energize Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.energizecap.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-AIRBYTE-BLOG-RSS": {
+      "name": "Airbyte Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://airbyte.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-MOTHERDUCK-BLOG-RSS": {
+      "name": "MotherDuck Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://motherduck.com/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://motherduck.com/rss.xml",
+      "items": 15,
+      "error": "HTTP 404"
+    },
+    "A-TEMPEST-BLOG-RSS": {
+      "name": "Tempest Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://tempest.ai/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-NINEYARDS-PORTFOLIO": {
+      "name": "Nineyards Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.nineyards.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-PALEBLUE-PORTFOLIO": {
+      "name": "Pale Blue Dot Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.paleblue.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 429"
+    },
+    "A-CORCEL-BLOG-RSS": {
+      "name": "Corcel Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://corcel.io/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-HONEYCOMB-BLOG-RSS": {
+      "name": "Honeycomb Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.honeycomb.io/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://www.honeycomb.io/feed",
+      "items": 50,
+      "error": "HTTP 404"
+    },
+    "C-BERLIN-PORTFOLIO": {
+      "name": "Project A Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.project-a.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-SVIX-BLOG-RSS": {
+      "name": "Svix Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.svix.com/resources/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-GROWTHLIST-FUNDING-RSS": {
+      "name": "GrowthList Funding Feed",
+      "adapter": "rss",
+      "listedUrl": "https://growthlist.co/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-VILLAGEGLOBAL-BLOG-RSS": {
+      "name": "Village Global Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.villageglobal.vc/blog/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-LEMONADE-PORTFOLIO": {
+      "name": "Lemonade Stand Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://lemonade.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-MEZMO-BLOG-RSS": {
+      "name": "Mezmo Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.mezmo.com/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "A-NEBIUS-BLOG-RSS": {
+      "name": "Nebius Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://nebius.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-CRUNCHYDATA-BLOG-RSS": {
+      "name": "Crunchy Data Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.crunchydata.com/blog/rss.xml",
+      "status": "ok",
+      "items": 5
+    },
+    "B-VCNEWSDAILY-FUNDING-RSS": {
+      "name": "VCNewsDaily Feed",
+      "adapter": "rss",
+      "listedUrl": "https://vcnewsdaily.com/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-SEEDCAMP-COMPANIES": {
+      "name": "Seedcamp Companies",
+      "adapter": "html_list",
+      "listedUrl": "https://seedcamp.com/companies/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-ALLEYCORP-NEWS-RSS": {
+      "name": "AlleyCorp News Feed",
+      "adapter": "rss",
+      "listedUrl": "https://alleycorp.com/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-ASTRAL-BLOG-RSS": {
+      "name": "Astral Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://astral.sh/blog/rss.xml",
+      "status": "ok",
+      "items": 42
+    },
+    "C-ASCENSION-PORTFOLIO": {
+      "name": "Ascension Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://ascension.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-TURBOPUFFER-BLOG-RSS": {
+      "name": "Turbopuffer Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://turbopuffer.com/blog/rss.xml",
+      "status": "ok",
+      "items": 38
+    },
+    "C-HUSTLEFUND-BLOG-RSS": {
+      "name": "Hustle Fund Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.hustlefund.vc/blog/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-SCALE-VC-BLOG-RSS": {
+      "name": "Scale Venture Partners Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.scalevp.com/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-APACHE-KAFKA-BLOG-RSS": {
+      "name": "Apache Kafka Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.confluent.io/blog/feed/",
+      "status": "repaired",
+      "url": "https://www.confluent.io/rss.xml",
+      "items": 10,
+      "error": "HTTP 404"
+    },
+    "C-GAINGELS-PORTFOLIO": {
+      "name": "Gaingels Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.gaingels.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-SHIFTCAPITAL-NEWS-RSS": {
+      "name": "Shift Capital News Feed",
+      "adapter": "rss",
+      "listedUrl": "https://shiftcapital.com/blog/feed/",
+      "status": "repaired",
+      "url": "https://shiftcapital.com/blog/rss.xml",
+      "items": 3,
+      "error": "HTTP 404"
+    },
+    "B-TECHPOINT-AFRICA-RSS": {
+      "name": "Techpoint Africa Startups Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techpoint.africa/category/startups/feed/",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "C-SAPPHIRE-BLOG-RSS": {
+      "name": "Sapphire Ventures Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://sapphireventures.com/blog/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-AMPLIFY-PORTFOLIO": {
+      "name": "Amplify Partners Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://amplifypartners.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-SILICONREPUBLIC-STARTUPS-RSS": {
+      "name": "Silicon Republic Startups Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.siliconrepublic.com/start-ups/feed",
+      "status": "repaired",
+      "url": "https://www.siliconrepublic.com/feed",
+      "items": 20,
+      "error": "Error"
+    },
+    "A-CHROMA-BLOG-RSS": {
+      "name": "Chroma Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.trychroma.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-FINTECHCOLLECTIVE-PORTFOLIO": {
+      "name": "FinTech Collective Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.fintech.io/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-HAYSTACK-BLOG-RSS": {
+      "name": "Haystack VC Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://haystack.vc/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-UNCORRELATED-BLOG-RSS": {
+      "name": "Uncorrelated Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://uncorrelated.com/blog/rss/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-PREFECT-BLOG-RSS": {
+      "name": "Prefect Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.prefect.io/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-DBTLABS-BLOG-RSS": {
+      "name": "dbt Labs Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://docs.getdbt.com/blog/rss.xml",
+      "status": "ok",
+      "items": 20
+    },
+    "B-STARTUPNEWS-FUNDING-RSS": {
+      "name": "StartupNews Funding Feed",
+      "adapter": "rss",
+      "listedUrl": "https://startupnews.fyi/category/funding/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-BLINGCAPITAL-BLOG-RSS": {
+      "name": "Bling Capital Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.blingcapital.com/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-CHAPTERONE-PORTFOLIO": {
+      "name": "Chapter One Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://chapterone.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-BYGFOUNDERS-PORTFOLIO": {
+      "name": "byFounders Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://byfounders.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-EU-STARTUPS-RSS": {
+      "name": "EU Startups Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.eu-startups.com/feed/",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "C-VOIMA-PORTFOLIO": {
+      "name": "Voima Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://voimaventures.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-TORCHCAPITAL-PORTFOLIO": {
+      "name": "Torch Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.torchcapital.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-LAUNCHES-RSS": {
+      "name": "Launches Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.launches.com/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-STARTUPNEWS-RSS": {
+      "name": "Startup News Feed",
+      "adapter": "rss",
+      "listedUrl": "https://startupnews.com/feed/",
+      "status": "dead",
+      "error": "ECONNREFUSED"
+    },
+    "B-ANTHEMIS-PORTFOLIO": {
+      "name": "Anthemis Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://anthemis.com/portfolio/",
+      "status": "broken",
+      "error": "UND_ERR_SOCKET"
+    },
+    "C-BASE10-PORTFOLIO": {
+      "name": "Base10 Partners Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://base10.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-FORERUNNER-PORTFOLIO": {
+      "name": "Forerunner Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.forerunnerventures.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-MODAL-BLOG-RSS": {
+      "name": "Modal Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://flyte.org/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-LOREMIPSUM-PORTFOLIO": {
+      "name": "Lorem Ipsum Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://loremipsum.vc/portfolio/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-UNKEY-BLOG-RSS": {
+      "name": "Unkey Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.unkey.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-TECHFUNDS-RSS": {
+      "name": "TechFunds Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techfunds.co/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-BASSETT-BLOG-RSS": {
+      "name": "Bassett Ventures Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://bassett.vc/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-INNGEST-BLOG-RSS": {
+      "name": "Inngest Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.inngest.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-MOTHERDUCK-ENGINEERING-RSS": {
+      "name": "MotherDuck Engineering Feed",
+      "adapter": "rss",
+      "listedUrl": "https://motherduck.com/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://motherduck.com/rss.xml",
+      "items": 15,
+      "error": "HTTP 404"
+    },
+    "B-STARTUPNEWS-FYI-RSS": {
+      "name": "StartupNews.fyi Feed",
+      "adapter": "rss",
+      "listedUrl": "https://startupnews.fyi/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-HOMEBREW-BLOG-RSS": {
+      "name": "Homebrew Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.homebrew.co/blog/rss/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-OPERATORCOLLECTIVE-PORTFOLIO": {
+      "name": "Operator Collective Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorcollective.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-LOOPS-BLOG-RSS": {
+      "name": "Loops Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://loops.so/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-STARTUPPULSE-RSS": {
+      "name": "Startup Pulse Feed",
+      "adapter": "rss",
+      "listedUrl": "https://startuppulse.co/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-PEAR-PORTFOLIO": {
+      "name": "Pear VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://pear.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-TRUE-BLOG-RSS": {
+      "name": "True Ventures Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://trueventures.com/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-TRUNK-BLOG-RSS": {
+      "name": "Trunk Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://trunk.io/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://trunk.io/feed.xml",
+      "items": 50,
+      "error": "HTTP 404"
+    },
+    "B-FOUNDERJOURNAL-RSS": {
+      "name": "Founder Journal Feed",
+      "adapter": "rss",
+      "listedUrl": "https://founderjournal.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-SKYFLOW-BLOG-RSS": {
+      "name": "Skyflow Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.skyflow.com/post/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-FLOODGATE-PORTFOLIO": {
+      "name": "Floodgate Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://floodgate.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-SVIX-ENGINEERING-RSS": {
+      "name": "Svix Engineering Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.svix.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-CHAINVIEW-PORTFOLIO": {
+      "name": "Chainview Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://chainview.vc/portfolio/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-STARTUPWIRE-RSS": {
+      "name": "Startup Wire Feed",
+      "adapter": "rss",
+      "listedUrl": "https://startupwire.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-PARAGON-BLOG-RSS": {
+      "name": "Paragon Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.useparagon.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-HUMBA-PORTFOLIO": {
+      "name": "Humba Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://humbaventures.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-PRECURSOR-PORTFOLIO": {
+      "name": "Precursor Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://precursorventures.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-SOUTHPARKCOMMONS-BLOG-RSS": {
+      "name": "South Park Commons Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.southparkcommons.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "A-MERGENT-BLOG-RSS": {
+      "name": "Mergent AI Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.mergent.ai/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-GROWTHLIST-RSS": {
+      "name": "GrowthList Startup Feed",
+      "adapter": "rss",
+      "listedUrl": "https://growthlist.co/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-UNDERSCORE-BLOG-RSS": {
+      "name": "Underscore VC Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://underscore.vc/feed/",
+      "status": "ok",
+      "items": 3
+    },
+    "B-WORKLIFEVENURES-PORTFOLIO": {
+      "name": "Worklife Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://worklife.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-KNOCK-BLOG-RSS": {
+      "name": "Knock Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://knock.app/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-MINTLIFY-BLOG-RSS": {
+      "name": "Mintlify Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://mintlify.com/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://mintlify.com/feed.xml",
+      "items": 50,
+      "error": "HTTP 404"
+    },
+    "C-GALION-PORTFOLIO": {
+      "name": "Galion.exe Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.galion.exe.vc/portfolio/",
+      "status": "broken",
+      "error": "ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR"
+    },
+    "A-WINDMILL-BLOG-RSS": {
+      "name": "Windmill Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.windmill.dev/blog/rss.xml",
+      "status": "ok",
+      "items": 20
+    },
+    "C-CRAFT-BLOG-RSS": {
+      "name": "Craft Ventures Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.craftventures.com/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-TECHNODE-STARTUPS-RSS": {
+      "name": "TechNode Startups Feed",
+      "adapter": "rss",
+      "listedUrl": "https://technode.com/feed/",
+      "status": "ok",
+      "items": 50
+    },
+    "B-OPENOCEAN-PORTFOLIO": {
+      "name": "OpenOcean Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://openocean.vc/portfolio/",
+      "status": "ok",
+      "items": 50
+    },
+    "A-HATCH-BLOG-RSS": {
+      "name": "Hatch Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://hatchworks.com/blog/feed/",
+      "status": "repaired",
+      "url": "https://hatchworks.com/feed/",
+      "items": 10,
+      "error": "HTTP 404"
+    },
+    "B-SUNSTONE-PORTFOLIO": {
+      "name": "Sunstone Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.sunstone.life/portfolio/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-XYZ-PORTFOLIO": {
+      "name": "XYZ Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://xyz.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-NOVU-BLOG-RSS": {
+      "name": "Novu Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://novu.co/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "B-TECHINEUROPE-RSS": {
+      "name": "Tech in Europe Feed",
+      "adapter": "rss",
+      "listedUrl": "https://tech.eu/feed/",
+      "status": "ok",
+      "items": 20
+    },
+    "B-CREATIVEDESTRUCTIONLAB-PORTFOLIO": {
+      "name": "Creative Destruction Lab Ventures",
+      "adapter": "html_list",
+      "listedUrl": "https://creativedestructionlab.com/ventures/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-TRIEVE-ENGINEERING-RSS": {
+      "name": "Trieve Engineering Feed",
+      "adapter": "rss",
+      "listedUrl": "https://trieve.ai/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOOTWORK-BLOG-RSS": {
+      "name": "Footwork Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://footwork.vc/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-RESEND-BLOG-RSS": {
+      "name": "Resend Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://resend.com/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "A-BUILDABLE-BLOG-RSS": {
+      "name": "Buildable Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.buildable.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR"
+    },
+    "C-ELAD-BLOG-RSS": {
+      "name": "Elad Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://blog.eladgil.com/feeds/posts/default",
+      "status": "repaired",
+      "url": "https://blog.eladgil.com/feed",
+      "items": 20,
+      "error": "HTTP 404"
+    },
+    "A-BENTOML-BLOG-RSS": {
+      "name": "BentoML Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.bentoml.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 502"
+    },
+    "C-ENGINE-VENTURES-BLOG-RSS": {
+      "name": "Engine Ventures Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://engine.xyz/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-AV8-PORTFOLIO": {
+      "name": "AV8 Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://av8.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-ALPINE-PORTFOLIO": {
+      "name": "Alpine Space Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.alpinespace.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-MOSAIC-PORTFOLIO": {
+      "name": "Mosaic Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://mosaicventures.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-MOONFIRE-PORTFOLIO": {
+      "name": "Moonfire Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://moonfire.com/portfolio/",
+      "status": "ok",
+      "items": 50
+    },
+    "B-NORDICMAKERS-PORTFOLIO": {
+      "name": "Nordic Makers Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://nordicmakers.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-TRYCERATOPS-BLOG-RSS": {
+      "name": "Tryceratops Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://tryceratops.com/blog/rss.xml",
+      "status": "broken",
+      "error": "ERR_TLS_CERT_ALTNAME_INVALID"
+    },
+    "A-AUTOCODE-BLOG-RSS": {
+      "name": "Autocode Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://autocode.com/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-NANGO-BLOG-RSS": {
+      "name": "Nango Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.nango.dev/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "A-TASKADE-BLOG-RSS": {
+      "name": "Taskade Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.taskade.com/blog/feed/",
+      "status": "ok",
+      "items": 50
+    },
+    "B-STARTUPBEAT-RSS": {
+      "name": "StartupBeat Feed",
+      "adapter": "rss",
+      "listedUrl": "https://startupbeat.com/feed/",
+      "status": "ok",
+      "items": 12
+    },
+    "B-SHIFTMAG-RSS": {
+      "name": "ShiftMag Startup Feed",
+      "adapter": "rss",
+      "listedUrl": "https://theshiftmag.com/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-TRIGGERDEV-BLOG-RSS": {
+      "name": "Trigger.dev Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://trigger.dev/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "C-MERCURY-RAISE-BLOG-RSS": {
+      "name": "Mercury Raise Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://mercury.com/raise/feed",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-ATLANTICLABS-PORTFOLIO": {
+      "name": "Atlantic Labs Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://atlanticlabs.de/portfolio/",
+      "status": "ok",
+      "items": 6
+    },
+    "B-HFC-PORTFOLIO": {
+      "name": "Headline Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://headline.com/portfolio/",
+      "status": "ok",
+      "items": 50
+    },
+    "C-FLYBRIDGE-BLOG-RSS": {
+      "name": "Flybridge Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://flybridge.com/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-TECHBUZZ-RSS": {
+      "name": "TechBuzz Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techbuzz.news/feed/",
+      "status": "ok",
+      "items": 15
+    },
+    "C-AMPLITUDE-PORTFOLIO": {
+      "name": "Amplitude Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://amplitudevc.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-COSTANOA-PORTFOLIO": {
+      "name": "Costanoa Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://costanoa.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-RTTP-PORTFOLIO": {
+      "name": "RTP Global Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.rtp.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-TINYBASE-BLOG-RSS": {
+      "name": "Tinybase Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://tinybase.org/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-FOUNDERSCOOP-PORTFOLIO": {
+      "name": "Founder Collective Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.foundercollective.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-PLUNKY-BLOG-RSS": {
+      "name": "Plunky Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.plunky.ai/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-COURIER-BLOG-RSS": {
+      "name": "Courier Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.courier.com/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://www.courier.com/blog/feed",
+      "items": 50,
+      "error": "HTTP 404"
+    },
+    "C-BLOSSOMC-PORTFOLIO": {
+      "name": "Blossom Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://blossomcap.com/portfolio/",
+      "status": "ok",
+      "items": 38
+    },
+    "A-INFERABLE-BLOG-RSS": {
+      "name": "Inferable Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.inferable.ai/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-NOTEUS-PORTFOLIO": {
+      "name": "Notion Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.notion.vc/portfolio/",
+      "status": "ok",
+      "items": 50
+    },
+    "C-CHARM-BLOG-RSS": {
+      "name": "Charm Industrial Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://charmindustrial.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-VENTUREBURN-RSS": {
+      "name": "Ventureburn Feed",
+      "adapter": "rss",
+      "listedUrl": "https://ventureburn.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-UNCORK-PORTFOLIO": {
+      "name": "Uncork Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://uncork.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-BRIEFLY-BLOG-RSS": {
+      "name": "Briefly Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://briefly.ai/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 500"
+    },
+    "C-PEBBLEBED-PORTFOLIO": {
+      "name": "Pebblebed Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.pebblebed.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-BOWERY-BLOG-RSS": {
+      "name": "Bowery Capital Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://bowerycap.com/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-CALCALIST-STARTUPS-RSS": {
+      "name": "Calcalist Startup Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.calcalistech.com/ctechnews/rss",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-SEEDX-PORTFOLIO": {
+      "name": "Seed X Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://seedx.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-TSVECTOR-BLOG-RSS": {
+      "name": "TSVector Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://tsvector.com/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-TEMPO-BLOG-RSS": {
+      "name": "Tempo Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://tempo.io/blog/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-STARTUPWEEKLY-RSS": {
+      "name": "Startup Weekly Feed",
+      "adapter": "rss",
+      "listedUrl": "https://startupweekly.substack.com/feed",
+      "status": "ok",
+      "items": 1
+    },
+    "C-HUMANCAPITAL-BLOG-RSS": {
+      "name": "Human Capital Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://humancapital.co/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-PARABOLA-BLOG-RSS": {
+      "name": "Parabola Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://parabola.io/blog/feed.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-MASUMI-BLOG-RSS": {
+      "name": "Masumi Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://masumi.network/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-REDSEA-BLOG-RSS": {
+      "name": "Red Sea Ventures Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.redseaventures.com/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-WINDSURF-BLOG-RSS": {
+      "name": "Windsurf Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://windsurf.com/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://devin.ai/rss.xml",
+      "items": 50,
+      "error": "HTTP 404"
+    },
+    "B-GEEKTIME-STARTUPS-RSS": {
+      "name": "Geektime Startup Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.geektime.com/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-DISRUPT-AFRICA-RSS": {
+      "name": "Disrupt Africa Feed",
+      "adapter": "rss",
+      "listedUrl": "https://disrupt-africa.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-BETAWORKS-BLOG-RSS": {
+      "name": "Betaworks Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://betaworks.com/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-XYZCAP-PORTFOLIO": {
+      "name": "XYZ Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://xyz.capital/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-RECALL-BLOG-RSS": {
+      "name": "Recall Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.getrecall.ai/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-PEARX-PORTFOLIO": {
+      "name": "PearX Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://pearx.vc/portfolio/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-BASSETT-PORTFOLIO": {
+      "name": "Base10 Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://base10.vc/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-TINY-PORTFOLIO": {
+      "name": "Tiny Seed Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://tinyseed.com/companies/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-ENHANCE-BLOG-RSS": {
+      "name": "Enhance Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://enhance.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 500"
+    },
+    "A-SERVERLESSCLOUD-BLOG-RSS": {
+      "name": "Serverless Cloud Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://serverlesscloud.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ITERATE-BLOG-RSS": {
+      "name": "Iterate Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://iteratehq.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-LIVEBLOCKS-BLOG-RSS": {
+      "name": "Liveblocks Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://liveblocks.io/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-TECHINAFRICA-RSS": {
+      "name": "Tech In Africa Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techinafrica.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-CIRCLE-BLOG-RSS": {
+      "name": "Circle Ventures Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://circle.so/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-FREESTYLE-PORTFOLIO": {
+      "name": "Freestyle Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://freestyle.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-ATYPICAL-BLOG-RSS": {
+      "name": "Atypical Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://atypical.vc/feed/",
+      "status": "broken",
+      "error": "CERT_HAS_EXPIRED"
+    },
+    "C-MOVE37-PORTFOLIO": {
+      "name": "Move37 Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://move37.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-TECHAZON-RSS": {
+      "name": "Tech Azon Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techazon.com/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-HAYSTACKVC-PORTFOLIO": {
+      "name": "Haystack VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://haystack.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-BLOCKPARTNERS-PORTFOLIO": {
+      "name": "Block Partners Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://blockpartners.vc/portfolio/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-FELICIS-PORTFOLIO": {
+      "name": "Felicis Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://felicis.com/portfolio/",
+      "status": "ok",
+      "items": 20
+    },
+    "A-UNKEY-ENGINEERING-RSS": {
+      "name": "Unkey Engineering Feed",
+      "adapter": "rss",
+      "listedUrl": "https://unkey.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-TURSO-ENGINEERING-RSS": {
+      "name": "Turso Engineering Feed",
+      "adapter": "rss",
+      "listedUrl": "https://turso.tech/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-FOUNDERSINC-BLOG-RSS": {
+      "name": "Founders Inc Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://founders.inc/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-AMPLIFYPARTNERS-PORTFOLIO": {
+      "name": "Amplify Partners Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://amplifypartners.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-BEAM-BLOG-RSS": {
+      "name": "Beam Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://beam.cloud/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-SOUTHPARK-PORTFOLIO": {
+      "name": "South Park Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://southparkcommons.com/companies/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-TECHSAFARI-RSS": {
+      "name": "Tech Safari Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techsafari.io/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-HIGHLIGHTIO-BLOG-RSS": {
+      "name": "Highlight.io Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://highlight.io/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "C-NAVAL-PORTFOLIO": {
+      "name": "Naval Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://nav.al/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-ROWZERO-BLOG-RSS": {
+      "name": "Row Zero Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://rowzero.io/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-STACKAUTH-BLOG-RSS": {
+      "name": "Stack Auth Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://stack-auth.com/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://www.hexclave.com/feed.xml",
+      "items": 7,
+      "error": "HTTP 404"
+    },
+    "B-TECHMORROW-RSS": {
+      "name": "Techmorrow Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techmorrow.com/feed/",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "C-OPERATORS-BLOG-RSS": {
+      "name": "Operators Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://operators-guild.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-FOUNDERSLETTER-BLOG-RSS": {
+      "name": "Founders Letter Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://foundersletter.com/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-ANGELTRACK-BLOG-RSS": {
+      "name": "AngelTrack Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://angeltrack.com/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://angeltrack.com/feed/",
+      "items": 10,
+      "error": "HTTP 404"
+    },
+    "C-UNIONLABS-PORTFOLIO": {
+      "name": "Union Labs Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://unionlabs.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-SIGNALFLARE-PORTFOLIO": {
+      "name": "SignalFlare Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://signalflare.vc/portfolio/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-CALCOM-BLOG-RSS": {
+      "name": "Cal.com Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://cal.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-SVGPORTFOLIO-PORTFOLIO": {
+      "name": "Scale Venture Partners Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://scalevp.com/portfolio/",
+      "status": "ok",
+      "items": 9
+    },
+    "A-UPSTASH-BLOG-RSS": {
+      "name": "Upstash Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://upstash.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-TINYBIRD-DX-RSS": {
+      "name": "Tinybird Engineering Feed",
+      "adapter": "rss",
+      "listedUrl": "https://tinybird.co/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "C-OPERATORSTACK-BLOG-RSS": {
+      "name": "Operator Stack Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://operatorstack.com/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-REDPOINTPORTFOLIO-PORTFOLIO": {
+      "name": "Redpoint Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://redpoint.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-FOUNDEROPS-BLOG-RSS": {
+      "name": "FounderOps Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://founderops.com/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-CHARGEPORTFOLIO-PORTFOLIO": {
+      "name": "Charge Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://charge.vc/portfolio/",
+      "status": "ok",
+      "items": 26
+    },
+    "C-SCRIBBLE-PORTFOLIO": {
+      "name": "Scribble Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://scribble.vc/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-STARTUPNEWSWIRE-RSS": {
+      "name": "Startup Newswire Feed",
+      "adapter": "rss",
+      "listedUrl": "https://startupnewswire.com/feed/",
+      "status": "ok",
+      "items": 7
+    },
+    "B-TECHFUNDSDAILY-RSS": {
+      "name": "TechFunds Daily Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techfundsdaily.com/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-BATTERYPORTFOLIO-PORTFOLIO": {
+      "name": "Battery Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.battery.com/portfolio/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-OPERATORINSIGHTS-BLOG-RSS": {
+      "name": "Operator Insights Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://operatorinsights.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-DUBCO-BLOG-RSS": {
+      "name": "Dub.co Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://dub.co/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-BETTERAUTH-BLOG-RSS": {
+      "name": "Better Auth Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://better-auth.com/blog/rss.xml",
+      "status": "ok",
+      "items": 14
+    },
+    "A-SVIX-DX-BLOG-RSS": {
+      "name": "Svix DX Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://svix.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-MODERNANGELS-BLOG-RSS": {
+      "name": "Modern Angels Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://modernangels.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-FOUNDERDAILY-RSS": {
+      "name": "Founder Daily Feed",
+      "adapter": "rss",
+      "listedUrl": "https://founderdaily.io/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-HONO-BLOG-RSS": {
+      "name": "Hono Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://hono.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-TRAILBASE-BLOG-RSS": {
+      "name": "Trailbase Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://trailbase.io/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-LOGFIRE-BLOG-RSS": {
+      "name": "Logfire Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://logfire.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-CANAANPARTNERS-PORTFOLIO": {
+      "name": "Canaan Partners Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.canaan.com/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-HUSTLECAPITAL-PORTFOLIO": {
+      "name": "Hustle Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.hustlefund.vc/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-GGV-PORTFOLIO": {
+      "name": "GGV Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.ggv.com/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-OPENANGELS-BLOG-RSS": {
+      "name": "Open Angels Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://openangels.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-ALONGSIDE-PORTFOLIO": {
+      "name": "Alongside Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.alongside.vc/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-PGRX-BLOG-RSS": {
+      "name": "PGRX Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://pgrx.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-VENTURE360-RSS": {
+      "name": "Venture360 Feed",
+      "adapter": "rss",
+      "listedUrl": "https://venture360.co/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-TECHCABAL-RSS": {
+      "name": "TechCabal Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techcabal.com/feed/",
+      "status": "ok",
+      "items": 10
+    },
+    "C-FIREFRAME-PORTFOLIO": {
+      "name": "Fireframe Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.fireframe.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-BETTERSTACK-BLOG-RSS": {
+      "name": "Better Stack Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://betterstack.com/community/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-CRAFTVC-PORTFOLIO": {
+      "name": "Craft Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.craftventures.com/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-KVESTACK-BLOG-RSS": {
+      "name": "KveStack Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://kvestack.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-MERITVC-PORTFOLIO": {
+      "name": "Merit VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.merit.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-CLERK-BLOG-RSS": {
+      "name": "Clerk Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://clerk.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-LIVESTORE-BLOG-RSS": {
+      "name": "LiveStore Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://livestore.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-VALTOWN-BLOG-RSS": {
+      "name": "Val Town Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://blog.val.town/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "C-OPERATORDESK-BLOG-RSS": {
+      "name": "Operator Desk Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://operatordesk.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "B-TECHPOINT-RSS": {
+      "name": "Techpoint Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techpoint.africa/feed/",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "B-BUSINESSCLOUD-RSS": {
+      "name": "BusinessCloud Startups Feed",
+      "adapter": "rss",
+      "listedUrl": "https://businesscloud.co.uk/feed/",
+      "status": "broken",
+      "error": "TypeError"
+    },
+    "C-GTMOPERATOR-BLOG-RSS": {
+      "name": "GTM Operator Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://gtmoperator.com/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-TRAILHEAD-BLOG-RSS": {
+      "name": "Trailhead Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://trailhead.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "CERT_HAS_EXPIRED"
+    },
+    "C-OPERATORMEMOS-BLOG-RSS": {
+      "name": "Operator Memos Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://operatormemos.com/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHBUILD-RSS": {
+      "name": "TechBuild Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techbuild.co/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-OPERATORSANDCO-BLOG-RSS": {
+      "name": "Operators & Co Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://operatorsandco.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "C-FOUNDERSFUNDPORTFOLIO-PORTFOLIO": {
+      "name": "Founders Fund Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundersfund.com/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-E2B-BLOG-RSS": {
+      "name": "E2B Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://e2b.dev/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://e2b.dev/rss.xml",
+      "items": 50,
+      "error": "HTTP 404"
+    },
+    "A-PGLITE-BLOG-RSS": {
+      "name": "PGlite Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://pglite.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-EXECUTIONEDGE-BLOG-RSS": {
+      "name": "Execution Edge Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://executionedge.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-PRIMARYVC-PORTFOLIO": {
+      "name": "Primary VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.primary.vc/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-TECHCIRCLE-RSS": {
+      "name": "TechCircle Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.techcircle.in/feed",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-TECHGIST-RSS": {
+      "name": "TechGist Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techgist.io/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-TECHCOVEN-RSS": {
+      "name": "TechCoven Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techcoven.com/feed/",
+      "status": "dead",
+      "error": "ECONNREFUSED"
+    },
+    "A-SUPERTOKENS-BLOG-RSS": {
+      "name": "SuperTokens Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://supertokens.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-SOUTHPARKVENTURES-PORTFOLIO": {
+      "name": "South Park Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.southpark.vc/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-OPSNOTES-BLOG-RSS": {
+      "name": "Ops Notes Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opsnotes.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-STEELDB-BLOG-RSS": {
+      "name": "SteelDB Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://steeldb.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-LANGDB-BLOG-RSS": {
+      "name": "LangDB Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://langdb.ai/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-TECHTRENDING-RSS": {
+      "name": "TechTrending Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techtrending.io/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-ANGELPAD-PORTFOLIO": {
+      "name": "AngelPad Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://angelpad.com/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-OPERATORMANUAL-BLOG-RSS": {
+      "name": "Operator Manual Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://operatormanual.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-TINYSEEDPORTFOLIO-PORTFOLIO": {
+      "name": "TinySeed Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://tinyseed.com/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-JSONREPO-BLOG-RSS": {
+      "name": "JSON Repo Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://jsonrepo.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FRONTLINE-PORTFOLIO": {
+      "name": "Frontline Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.frontline.vc/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-FIRSTROUNDPORTFOLIO-PORTFOLIO": {
+      "name": "First Round Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.firstround.com/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-BESSEMERPORTFOLIO-PORTFOLIO": {
+      "name": "Bessemer Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.bvp.com/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-LIVESTORE-DX-RSS": {
+      "name": "LiveStore DX Feed",
+      "adapter": "rss",
+      "listedUrl": "https://livestore.dev/dx/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-EXECUTIONMEMOS-BLOG-RSS": {
+      "name": "Execution Memos Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://executionmemos.com/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHGRAPH-RSS": {
+      "name": "TechGraph Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techgraph.io/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-WORKLIFEVC-PORTFOLIO": {
+      "name": "Worklife Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://worklife.vc/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-TECHMOSAIC-RSS": {
+      "name": "TechMosaic Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techmosaic.io/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-UNCORKPORTFOLIO-PORTFOLIO": {
+      "name": "Uncork Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://uncork.com/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-ASYNCAPI-BLOG-RSS": {
+      "name": "AsyncAPI Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.asyncapi.com/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://www.asyncapi.com/rss.xml",
+      "items": 50,
+      "error": "HTTP 404"
+    },
+    "A-INFERLY-BLOG-RSS": {
+      "name": "Inferly Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://inferly.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-NEOSYNC-BLOG-RSS": {
+      "name": "NeoSync Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://neosync.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-FOUNDERCOLLECTIVEPORTFOLIO-PORTFOLIO": {
+      "name": "Founder Collective Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.foundercollective.com/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-TECHTHREAD-RSS": {
+      "name": "TechThread Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techthread.io/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-SCALEVC-PORTFOLIO": {
+      "name": "Scale VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.scale.vc/portfolio",
+      "status": "broken",
+      "error": "ERR_TLS_CERT_ALTNAME_INVALID"
+    },
+    "B-INDEXPORTFOLIO-PORTFOLIO": {
+      "name": "Index Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.indexventures.com/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-GARAGECAPITAL-PORTFOLIO": {
+      "name": "Garage Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.garage.vc/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-GROWTHSYSTEMS-BLOG-RSS": {
+      "name": "Growth Systems Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://growthsystems.io/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "A-SENTRY-BLOG-RSS": {
+      "name": "Sentry Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://blog.sentry.io/rss/",
+      "status": "repaired",
+      "url": "https://blog.sentry.io/feed.xml",
+      "items": 30,
+      "error": "HTTP 404"
+    },
+    "A-ELECTRICSQL-BLOG-RSS": {
+      "name": "ElectricSQL Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://electric-sql.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-SLOWPORTFOLIO-PORTFOLIO": {
+      "name": "Slow Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.slow.co/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-RUNN-BLOG-RSS": {
+      "name": "Runn Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://runn.io/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-POLAR-BLOG-RSS": {
+      "name": "Polar Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://polar.sh/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-VENTUREPULSE-RSS": {
+      "name": "VenturePulse Feed",
+      "adapter": "rss",
+      "listedUrl": "https://venturepulse.io/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-LUXCAPITAL-PORTFOLIO": {
+      "name": "Lux Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.luxcapital.com/companies",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-OMERSSEED-PORTFOLIO": {
+      "name": "OMERS Seed Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.omersventures.com/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-STARTUPWIREDAILY-RSS": {
+      "name": "StartupWire Daily Feed",
+      "adapter": "rss",
+      "listedUrl": "https://startupwiredaily.com/feed/",
+      "status": "ok",
+      "items": 50
+    },
+    "C-FOUNDERSFACTORY-PORTFOLIO": {
+      "name": "Founders Factory Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundersfactory.com/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-TRACESHIFT-BLOG-RSS": {
+      "name": "TraceShift Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://traceshift.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ROUTINGKIT-BLOG-RSS": {
+      "name": "RoutingKit Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://routingkit.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-OTEL-BLOG-RSS": {
+      "name": "OpenTelemetry Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opentelemetry.io/blog/feed.xml",
+      "status": "repaired",
+      "url": "https://opentelemetry.io/index.xml",
+      "items": 20,
+      "error": "HTTP 404"
+    },
+    "B-FOUNDERNEWS-RSS": {
+      "name": "Founder News Feed",
+      "adapter": "rss",
+      "listedUrl": "https://foundernews.io/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-PEARVCFOUNDERS-PORTFOLIO": {
+      "name": "Pear VC Founders Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://pear.vc/companies",
+      "status": "ok",
+      "items": 10
+    },
+    "A-SVIX-PLATFORM-RSS": {
+      "name": "Svix Platform Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.svix.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-ANTLERPORTFOLIO-PORTFOLIO": {
+      "name": "Antler Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.antler.co/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-SALESOPS-BLOG-RSS": {
+      "name": "SalesOps Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://salesops.io/blog/rss.xml",
+      "status": "repaired",
+      "url": "https://growintandem.com/feed/",
+      "items": 10,
+      "error": "HTTP 404"
+    },
+    "C-ELEVATIONPORTFOLIO-PORTFOLIO": {
+      "name": "Elevation Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://elevation.capital/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-SIGNALFIREPORTFOLIO-PORTFOLIO": {
+      "name": "SignalFire Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://signalfire.com/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-TRACECAT-BLOG-RSS": {
+      "name": "Tracecat Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://tracecat.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-REVENUEOPS-BLOG-RSS": {
+      "name": "Revenue Ops Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://revenueops.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-PAIRVC-PORTFOLIO": {
+      "name": "Pair VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://pair.vc/portfolio",
+      "status": "broken",
+      "error": "UND_ERR_SOCKET"
+    },
+    "C-GTMSTACK-BLOG-RSS": {
+      "name": "GTM Stack Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://gtmstack.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 403"
+    },
+    "A-TOOLHOUSE-BLOG-RSS": {
+      "name": "Toolhouse Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.toolhouse.ai/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-JULEP-BLOG-RSS": {
+      "name": "Julep Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.julep.ai/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-SIGNALS-BLOG-RSS": {
+      "name": "Signals Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://signals.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-PIPELINESTACK-BLOG-RSS": {
+      "name": "Pipeline Stack Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://pipelinestack.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-OPENPANEL-BLOG-RSS": {
+      "name": "OpenPanel Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://openpanel.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-ACCELERATORONE-PORTFOLIO": {
+      "name": "Accelerator One Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://acceleratorone.com/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-QUEUEFLOW-BLOG-RSS": {
+      "name": "QueueFlow Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queueflow.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-VENTUREDAILY-RSS": {
+      "name": "Venture Daily Feed",
+      "adapter": "rss",
+      "listedUrl": "https://venturedaily.io/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHFOUNDER-RSS": {
+      "name": "TechFounder Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techfounder.io/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-OPSPIPELINESYSTEMS-BLOG-RSS": {
+      "name": "Ops Pipeline Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opspipeline.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-BONFIREVC-PORTFOLIO": {
+      "name": "Bonfire VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.bonfirevc.com/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-STACKSYNC-BLOG-RSS": {
+      "name": "StackSync Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://stacksync.com/blog/rss.xml",
+      "status": "ok",
+      "items": 50
+    },
+    "B-FOUNDERSFIRST-PORTFOLIO": {
+      "name": "Founders First Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.foundersfirst.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-HOOK0-BLOG-RSS": {
+      "name": "Hook0 Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://hook0.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-SEEDCAMPPORTFOLIO-PORTFOLIO": {
+      "name": "Seedcamp Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://seedcamp.com/companies",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-PIPELINELEADERS-BLOG-RSS": {
+      "name": "Pipeline Leaders Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://pipelineleaders.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-UNCORKFOUNDERS-PORTFOLIO": {
+      "name": "Uncork Founders Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://uncork.com/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-QUERYLENS-BLOG-RSS": {
+      "name": "QueryLens Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://querylens.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-STARTUPSIGNAL-RSS": {
+      "name": "Startup Signal Feed",
+      "adapter": "rss",
+      "listedUrl": "https://startupsignal.io/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-RUNLIT-BLOG-RSS": {
+      "name": "Runlit Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://runlit.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-TRACEROUTE-BLOG-RSS": {
+      "name": "TraceRoute Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://traceroute.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-TECHDAY-RSS": {
+      "name": "TechDay Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techdayhq.com/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-STACKEDVC-PORTFOLIO": {
+      "name": "Stacked VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.stacked.vc/portfolio",
+      "status": "broken",
+      "error": "ERR_TLS_CERT_ALTNAME_INVALID"
+    },
+    "C-BUILDERSPORTFOLIO-PORTFOLIO": {
+      "name": "Builders Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://builders.vc/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-WORKBENCH-BLOG-RSS": {
+      "name": "Workbench Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://workbench.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHSCOUT-RSS": {
+      "name": "TechScout Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techscout.co/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-LAUNCHPORTFOLIO-PORTFOLIO": {
+      "name": "Launch Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://launch.vc/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-ANTHEM-PORTFOLIO": {
+      "name": "Anthem Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://anthemis.com/portfolio",
+      "status": "broken",
+      "error": "UND_ERR_SOCKET"
+    },
+    "C-PIPELINEPRACTICE-BLOG-RSS": {
+      "name": "Pipeline Practice Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://pipelinepractice.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-WORKSHOPPORTFOLIO-PORTFOLIO": {
+      "name": "Workshop Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://workshop.vc/portfolio",
+      "status": "dead",
+      "error": "ECONNREFUSED"
+    },
+    "B-OPERATORSVC-PORTFOLIO": {
+      "name": "Operators VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operators.vc/portfolio",
+      "status": "dead",
+      "error": "ECONNREFUSED"
+    },
+    "A-SCHEMAFLOW-BLOG-RSS": {
+      "name": "SchemaFlow Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://schemaflow.io/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-TECHRISE-RSS": {
+      "name": "TechRise Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techrise.co/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-OPSBLUEPRINT-BLOG-RSS": {
+      "name": "Ops Blueprint Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opsblueprint.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHHORIZON-RSS": {
+      "name": "Tech Horizon Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techhorizon.co/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-SYSTEMSPORTFOLIO-PORTFOLIO": {
+      "name": "Systems Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://systems.vc/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-PIPELINEFORGE-BLOG-RSS": {
+      "name": "Pipeline Forge Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://pipelineforge.io/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-SIGNALPATH-BLOG-RSS": {
+      "name": "SignalPath Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://signalpath.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-TECHMILESTONE-RSS": {
+      "name": "Tech Milestone Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techmilestone.co/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-EQT-FOUNDATIONS-PORTFOLIO": {
+      "name": "EQT Foundation Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://eqtfoundation.com/portfolio/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-NEA-PORTFOLIO": {
+      "name": "NEA Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://www.nea.com/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-STACKPORTFOLIO-PORTFOLIO": {
+      "name": "Stack Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://stack.vc/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-TRACEKIT-BLOG-RSS": {
+      "name": "TraceKit Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://tracekit.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-TECHVECTOR-RSS": {
+      "name": "Tech Vector Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techvector.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORCAPITAL-PORTFOLIO": {
+      "name": "Operator Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorcapital.vc/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-OPSFRAME-BLOG-RSS": {
+      "name": "Ops Frame Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opsframe.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-SYNCPATH-BLOG-RSS": {
+      "name": "SyncPath Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://syncpath.io/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-PIPELINEDB-BLOG-RSS": {
+      "name": "PipelineDB Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://pipelinedb.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-EXECFOUNDERS-PORTFOLIO": {
+      "name": "Exec Founders Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://execfounders.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ORBITAL-BLOG-RSS": {
+      "name": "Orbital Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://orbital.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "UND_ERR_SOCKET"
+    },
+    "B-TECHPULSE-RSS": {
+      "name": "Tech Pulse Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techpulse.co/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-OPSPATTERN-BLOG-RSS": {
+      "name": "Ops Pattern Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opspattern.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDRYPORTFOLIO-PORTFOLIO": {
+      "name": "Foundry Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundry.vc/portfolio",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-TRACELESS-BLOG-RSS": {
+      "name": "Traceless Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://traceless.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPSVENTURES-PORTFOLIO": {
+      "name": "Ops Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://opsventures.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-MAKERPORTFOLIO-PORTFOLIO": {
+      "name": "Maker Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://maker.vc/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-FOUNDERGRID-PORTFOLIO": {
+      "name": "Founder Grid Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundergrid.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-LOGLAYER-BLOG-RSS": {
+      "name": "LogLayer Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://loglayer.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-QUEUEKIT-BLOG-RSS": {
+      "name": "QueueKit Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queuekit.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-STREAMLINE-BLOG-RSS": {
+      "name": "Streamline Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://streamline.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "B-OPERATORSGUILD-PORTFOLIO": {
+      "name": "Operators Guild Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorsguild.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHSTACK-RSS": {
+      "name": "Tech Stack Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techstack.co/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-FOUNDRYSTACK-PORTFOLIO": {
+      "name": "Foundry Stack Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundrystack.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSFLOW-BLOG-RSS": {
+      "name": "Ops Flow Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opsflow.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-FLOWTASK-BLOG-RSS": {
+      "name": "FlowTask Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://flowtask.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-RUNBOOKS-BLOG-RSS": {
+      "name": "Runbooks Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://runbooks.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-EXECUTORGUILD-PORTFOLIO": {
+      "name": "Executor Guild Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://executorguild.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-TRAYCE-BLOG-RSS": {
+      "name": "Trayce Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://trayce.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-FOUNDERLOOP-PORTFOLIO": {
+      "name": "Founder Loop Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderloop.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSINSIGHT-BLOG-RSS": {
+      "name": "Ops Insight Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opsinsight.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUELAYER-BLOG-RSS": {
+      "name": "QueueLayer Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queuelayer.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-OPSQUEUE-BLOG-RSS": {
+      "name": "OpsQueue Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opsqueue.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORMESH-PORTFOLIO": {
+      "name": "Operator Mesh Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatormesh.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPERATORPULSE-BLOG-RSS": {
+      "name": "Operator Pulse Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://operatorpulse.io/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-FOUNDERMESH-PORTFOLIO": {
+      "name": "Founder Mesh Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundermesh.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPERATORTRACK-BLOG-RSS": {
+      "name": "Operator Track Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://operatortrack.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-TASKFLOW-BLOG-RSS": {
+      "name": "TaskFlow Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://taskflow.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHPATH-RSS": {
+      "name": "Tech Path Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techpath.co/feed/",
+      "status": "broken",
+      "error": "UND_ERR_SOCKET"
+    },
+    "B-OPERATORFORGE-PORTFOLIO": {
+      "name": "Operator Forge Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorforge.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHRHYTHM-RSS": {
+      "name": "Tech Rhythm Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techrhythm.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERSYSTEMS-PORTFOLIO": {
+      "name": "Founder Systems Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundersystems.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHEXEC-RSS": {
+      "name": "Tech Exec Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techexec.co/feed/",
+      "status": "broken",
+      "error": "HTTP 503"
+    },
+    "A-QUEUEDRIFT-BLOG-RSS": {
+      "name": "QueueState Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queuestate.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONLAYER-BLOG-RSS": {
+      "name": "ActionLayer Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://actionlayer.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORPATTERN-PORTFOLIO": {
+      "name": "Operator Pattern Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorpattern.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHSEQUENCE-RSS": {
+      "name": "Tech Sequence Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techsequence.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERCONTROL-PORTFOLIO": {
+      "name": "Founder Control Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundercontrol.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-EXECVC-PORTFOLIO": {
+      "name": "Exec VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://exec.vc/portfolio",
+      "status": "dead",
+      "error": "ENETUNREACH"
+    },
+    "A-QUEUECRAFT-BLOG-RSS": {
+      "name": "QueueCraft Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queuecraft.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-PIPEOPS-BLOG-RSS": {
+      "name": "PipeOps Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://pipeops.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-OPSFOUNDRY-PORTFOLIO": {
+      "name": "Ops Foundry Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://opsfoundry.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHMOTION-RSS": {
+      "name": "Tech Motion Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techmotion.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERGRIDCAPITAL-PORTFOLIO": {
+      "name": "Founder Grid Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundergridcapital.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSLAYER-BLOG-RSS": {
+      "name": "Ops Layer Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opslayer.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEGRID-BLOG-RSS": {
+      "name": "QueueGrid Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queuegrid.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-REVOPSSTACK-BLOG-RSS": {
+      "name": "RevOps Stack Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://revopsstack.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-OPSENGINE-PORTFOLIO": {
+      "name": "Ops Engine Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://opsengine.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHVELOCITY-RSS": {
+      "name": "Tech Velocity Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techvelocity.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERSTACKCAPITAL-PORTFOLIO": {
+      "name": "Founder Stack Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderstackcapital.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSREPORT-BLOG-RSS": {
+      "name": "Ops Report Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opsreport.io/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-REVOPSFORGE-BLOG-RSS": {
+      "name": "RevOps Forge Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://revopsforge.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-ACTIONQUEUE-BLOG-RSS": {
+      "name": "ActionQueue Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://actionqueue.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPSWORKS-PORTFOLIO": {
+      "name": "Ops Works Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://opsworks.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONMESH-BLOG-RSS": {
+      "name": "ActionMesh Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://actionmesh.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-FOUNDEROPSCAPITAL-PORTFOLIO": {
+      "name": "Founder Ops Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderopscapital.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHCADENCE-RSS": {
+      "name": "Tech Cadence Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techcadence.co/feed/",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-QUEUEMOTION-BLOG-RSS": {
+      "name": "Queue Motion Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queuemotion.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONFLOW-BLOG-RSS": {
+      "name": "Action Flow Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://actionflow.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ECONNREFUSED"
+    },
+    "B-OPSTRACK-PORTFOLIO": {
+      "name": "Ops Track Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://opstrack.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEOPS-BLOG-RSS": {
+      "name": "QueueOps Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queueops.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-FOUNDERSTACKOPS-PORTFOLIO": {
+      "name": "Founder Stack Ops Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderstackops.com/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-REVOPSOPS-BLOG-RSS": {
+      "name": "RevOps Ops Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://revopsops.com/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUESTATE-BLOG-RSS": {
+      "name": "Queue State Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queuestate.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHSIGNAL-RSS": {
+      "name": "Tech Signal Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techsignal.co/feed/",
+      "status": "broken",
+      "error": "UNABLE_TO_GET_ISSUER_CERT_LOCALLY"
+    },
+    "B-OPSLOOP-PORTFOLIO": {
+      "name": "Ops Loop Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://opsloop.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHWORKFLOW-RSS": {
+      "name": "Tech Workflow Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techworkflow.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-REVOPSWORKS-BLOG-RSS": {
+      "name": "RevOps Works Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://revopsworks.com/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-OPSPIPEWORK-BLOG-RSS": {
+      "name": "Ops Pipeline Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opspipeline.com/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUERUN-BLOG-RSS": {
+      "name": "Queue Run Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queuerun.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONTRACE-BLOG-RSS": {
+      "name": "Action Trace Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://actiontrace.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPSMESH-PORTFOLIO": {
+      "name": "Ops Mesh Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://opsmesh.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHPIPE-RSS": {
+      "name": "Tech Pipe Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techpipe.co/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-FOUNDERFLOWCAPITAL-PORTFOLIO": {
+      "name": "Founder Flow Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderflowcapital.com/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-REVOPSBLUEPRINT-BLOG-RSS": {
+      "name": "RevOps Blueprint Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://revopsblueprint.com/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEFABRIC-BLOG-RSS": {
+      "name": "Queue Fabric Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queuefabric.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONFABRIC-BLOG-RSS": {
+      "name": "Action Fabric Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://actionfabric.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPSGRID-PORTFOLIO": {
+      "name": "Ops Grid Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://opsgrid.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHRUNWAY-RSS": {
+      "name": "Tech Runway Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techrunway.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERSYSTEMSCAPITAL-PORTFOLIO": {
+      "name": "Founder Systems Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundersystemscapital.com/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-REVOPSSYSTEMS-BLOG-RSS": {
+      "name": "RevOps Systems Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://revopssystems.com/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-RUNQUEUE-BLOG-RSS": {
+      "name": "RunQueue Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://runqueue.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONENGINE-BLOG-RSS": {
+      "name": "Action Engine Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://actionengine.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-OPERATINGSYSTEMS-PORTFOLIO": {
+      "name": "Operating Systems Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatingsystems.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHOPERATIONS-RSS": {
+      "name": "Tech Operations Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techoperations.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDEROPERATIONS-PORTFOLIO": {
+      "name": "Founder Operations Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderoperations.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSNOTEBOOK-BLOG-RSS": {
+      "name": "Ops Notebook Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opsnotebook.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEDRIVE-BLOG-RSS": {
+      "name": "QueueDrive Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queuedrive.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONTRACEFLOW-BLOG-RSS": {
+      "name": "ActionTraceFlow Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://actiontraceflow.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORSYSTEMS-PORTFOLIO": {
+      "name": "Operator Systems Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorsystems.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONGRAPH-BLOG-RSS": {
+      "name": "ActionGraph Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://actiongraph.io/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-FOUNDERWORKFLOWS-PORTFOLIO": {
+      "name": "Founder Workflows Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderworkflows.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSJOURNAL-BLOG-RSS": {
+      "name": "Ops Journal Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opsjournal.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUECONTROL-BLOG-RSS": {
+      "name": "QueueControl Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queuecontrol.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONCONTROL-BLOG-RSS": {
+      "name": "ActionControl Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://actioncontrol.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORCONTROL-PORTFOLIO": {
+      "name": "Operator Control Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorcontrol.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHCONTROL-RSS": {
+      "name": "Tech Control Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techcontrol.co/feed/",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-FOUNDERCONTROLSYSTEMS-PORTFOLIO": {
+      "name": "Founder Control Systems Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundercontrolsystems.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERPIPE-PORTFOLIO": {
+      "name": "Founder Pipe Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderpipe.com/portfolio",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-QUEUESIGNAL-BLOG-RSS": {
+      "name": "QueueSignal Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://queuesignal.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONSTATE-BLOG-RSS": {
+      "name": "ActionState Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://actionstate.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORSTACK-PORTFOLIO": {
+      "name": "Operator Stack Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorstack.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHEXECUTION-RSS": {
+      "name": "Tech Execution Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techexecution.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERSTACKSYSTEMS-PORTFOLIO": {
+      "name": "Founder Stack Systems Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderstacksystems.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSSTACK-BLOG-RSS": {
+      "name": "Ops Stack Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opsstack.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEOPSCORE-BLOG-RSS": {
+      "name": "Queue Ops Core Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queueopscore.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONOPSCORE-BLOG-RSS": {
+      "name": "Action Ops Core Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionopscore.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORFABRIC-PORTFOLIO": {
+      "name": "Operator Fabric Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorfabric.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHORCHESTRATION-RSS": {
+      "name": "Tech Orchestration Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techorchestration.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERPROCESSCAPITAL-PORTFOLIO": {
+      "name": "Founder Process Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderprocess.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSOPERATIONS-BLOG-RSS": {
+      "name": "Ops Operations Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsoperations.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEROUTER-BLOG-RSS": {
+      "name": "Queue Router Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuerouter.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONROUTER-BLOG-RSS": {
+      "name": "Action Router Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionrouter.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORROUTER-PORTFOLIO": {
+      "name": "Operator Router Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorrouter.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHEXECUTIONSTACK-RSS": {
+      "name": "Tech Execution Stack Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techexecutionstack.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERROUTECAPITAL-PORTFOLIO": {
+      "name": "Founder Route Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderroute.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSROUTING-BLOG-RSS": {
+      "name": "Ops Routing Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsrouting.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEMETRIC-BLOG-RSS": {
+      "name": "Queue Metric Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuemetric.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONMETRIC-BLOG-RSS": {
+      "name": "Action Metric Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionmetric.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORMETRIC-PORTFOLIO": {
+      "name": "Operator Metric Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatormetric.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHOPERATORMETRICS-RSS": {
+      "name": "Tech Operator Metrics Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techoperatormetrics.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERMETRICCAPITAL-PORTFOLIO": {
+      "name": "Founder Metric Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundermetric.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSMETRICS-BLOG-RSS": {
+      "name": "Ops Metrics Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsmetrics.io/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-QUEUESIGNALS-BLOG-RSS": {
+      "name": "Queue Signals Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuesignals.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONSIGNALS-BLOG-RSS": {
+      "name": "Action Signals Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionsignals.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORSIGNALS-PORTFOLIO": {
+      "name": "Operator Signals Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorsignals.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHOPERATORSIGNALS-RSS": {
+      "name": "Tech Operator Signals Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techoperatorsignals.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERSIGNALCAPITAL-PORTFOLIO": {
+      "name": "Founder Signal Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundersignal.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSSIGNALS-BLOG-RSS": {
+      "name": "Ops Signals Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opssignals.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEINSIGHTS-BLOG-RSS": {
+      "name": "Queue Insights Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queueinsights.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONINSIGHTS-BLOG-RSS": {
+      "name": "Action Insights Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actioninsights.dev/blog/feed.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORINSIGHTS-PORTFOLIO": {
+      "name": "Operator Insights Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorinsights.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHOPSINSIGHTS-RSS": {
+      "name": "Tech Ops Insights Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techopsinsights.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERINSIGHTSCAPITAL-PORTFOLIO": {
+      "name": "Founder Insights Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderinsights.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSINSIGHTS-BLOG-RSS": {
+      "name": "Ops Insights Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsinsights.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEVISION-BLOG-RSS": {
+      "name": "Queue Vision Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuevision.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONVISION-BLOG-RSS": {
+      "name": "Action Vision Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionvision.dev/blog/feed.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORVISION-PORTFOLIO": {
+      "name": "Operator Vision Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorvision.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHVISIONOPS-RSS": {
+      "name": "Tech Vision Ops Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techvisionops.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERVISIONCAPITAL-PORTFOLIO": {
+      "name": "Founder Vision Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundervision.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSVISION-BLOG-RSS": {
+      "name": "Ops Vision Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsvision.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEINTEL-BLOG-RSS": {
+      "name": "Queue Intel Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queueintel.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONINTEL-BLOG-RSS": {
+      "name": "Action Intel Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionintel.dev/blog/feed.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORINTEL-PORTFOLIO": {
+      "name": "Operator Intel Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorintel.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHINTELOPS-RSS": {
+      "name": "Tech Intel Ops Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techintelops.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERINTELCAPITAL-PORTFOLIO": {
+      "name": "Founder Intel Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderintel.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSINTEL-BLOG-RSS": {
+      "name": "Ops Intel Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsintel.io/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-QUEUESCOPE-BLOG-RSS": {
+      "name": "Queue Scope Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuescope.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONSCOPE-BLOG-RSS": {
+      "name": "Action Scope Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionscope.dev/blog/feed.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORSCOPE-PORTFOLIO": {
+      "name": "Operator Scope Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorscope.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHSCOPEOPS-RSS": {
+      "name": "Tech Scope Ops Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techscopeops.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERSCOPECAPITAL-PORTFOLIO": {
+      "name": "Founder Scope Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderscope.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSSCOPE-BLOG-RSS": {
+      "name": "Ops Scope Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsscope.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEPULSE-BLOG-RSS": {
+      "name": "Queue Pulse Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuepulse.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONPULSE-BLOG-RSS": {
+      "name": "Action Pulse Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionpulse.dev/blog/feed.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORPULSE-PORTFOLIO": {
+      "name": "Operator Pulse Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorpulse.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHPULSEOPS-RSS": {
+      "name": "Tech Pulse Ops Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techpulseops.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERPULSECAPITAL-PORTFOLIO": {
+      "name": "Founder Pulse Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderpulse.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOCUS-PORTFOLIO": {
+      "name": "Focus Ventures Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://focus.vc/portfolio/",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "A-QUEUEORBIT-BLOG-RSS": {
+      "name": "Queue Orbit Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queueorbit.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONORBIT-BLOG-RSS": {
+      "name": "Action Orbit Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionorbit.dev/feed.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORORBIT-PORTFOLIO": {
+      "name": "Operator Orbit Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatororbit.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHORBITOPS-RSS": {
+      "name": "Tech Orbit Ops Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techorbitops.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERORBITCAPITAL-PORTFOLIO": {
+      "name": "Founder Orbit Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderorbit.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSORBIT-BLOG-RSS": {
+      "name": "Ops Orbit Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsorbit.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUECONTROLPLANE-BLOG-RSS": {
+      "name": "Queue Control Plane Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuecontrolplane.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONCONTROLPLANE-BLOG-RSS": {
+      "name": "Action Control Plane Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actioncontrolplane.dev/feed.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORCONTROLPLANE-PORTFOLIO": {
+      "name": "Operator Control Plane Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorcontrolplane.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHCONTROLPLANEOPS-RSS": {
+      "name": "Tech Control Plane Ops Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techcontrolplaneops.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERCONTROLPLANECAPITAL-PORTFOLIO": {
+      "name": "Founder Control Plane Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundercontrolplane.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSCONTROLPLANE-BLOG-RSS": {
+      "name": "Ops Control Plane Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opscontrolplane.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUECOMMAND-BLOG-RSS": {
+      "name": "Queue Command Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuecommand.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONCOMMAND-BLOG-RSS": {
+      "name": "Action Command Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actioncommand.dev/feed.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORCOMMAND-PORTFOLIO": {
+      "name": "Operator Command Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorcommand.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHCOMMANDOPS-RSS": {
+      "name": "Tech Command Ops Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techcommandops.co/feed/",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERCOMMANDCAPITAL-PORTFOLIO": {
+      "name": "Founder Command Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundercommand.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSCONTROL-BLOG-RSS": {
+      "name": "Ops Control Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://opscontrol.io/blog/rss.xml",
+      "status": "broken",
+      "error": "ERR_SSL_TLSV1_UNRECOGNIZED_NAME"
+    },
+    "A-QUEUEPROCESS-BLOG-RSS": {
+      "name": "Queue Process Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queueprocess.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONPROCESS-BLOG-RSS": {
+      "name": "Action Process Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionprocess.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORPROCESS-PORTFOLIO": {
+      "name": "Operator Process Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorprocess.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHPROCESSOPS-RSS": {
+      "name": "Tech Process Ops",
+      "adapter": "rss",
+      "listedUrl": "https://techprocessops.com/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERPROCESSSYSTEMS-PORTFOLIO": {
+      "name": "Founder Process Systems Capital",
+      "adapter": "html_list",
+      "listedUrl": "https://founderprocesssystems.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSPROCESS-BLOG-RSS": {
+      "name": "Ops Process Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsprocess.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEPIPELINE-BLOG-RSS": {
+      "name": "Queue Pipeline Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuepipeline.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONPIPELINE-BLOG-RSS": {
+      "name": "Action Pipeline Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionpipeline.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORPIPELINE-PORTFOLIO": {
+      "name": "Operator Pipeline Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorpipeline.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHPIPELINEOPS-RSS": {
+      "name": "Tech Pipeline Ops",
+      "adapter": "rss",
+      "listedUrl": "https://techpipelineops.com/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERPIPELINESYSTEMS-PORTFOLIO": {
+      "name": "Founder Pipeline Systems Capital",
+      "adapter": "html_list",
+      "listedUrl": "https://founderpipelinesystems.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSPIPELINE-BLOG-RSS": {
+      "name": "Ops Pipeline Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opspipeline.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEWORKFLOW-BLOG-RSS": {
+      "name": "Queue Workflow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queueworkflow.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONWORKFLOW-BLOG-RSS": {
+      "name": "Action Workflow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionworkflow.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORWORKFLOW-PORTFOLIO": {
+      "name": "Operator Workflow Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorworkflow.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHWORKFLOWOPS-RSS": {
+      "name": "Tech Workflow Ops",
+      "adapter": "rss",
+      "listedUrl": "https://techworkflowops.com/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERWORKFLOWSYSTEMS-PORTFOLIO": {
+      "name": "Founder Workflow Systems Capital",
+      "adapter": "html_list",
+      "listedUrl": "https://founderworkflowsystems.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSWORKFLOW-BLOG-RSS": {
+      "name": "Ops Workflow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsworkflow.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUERUNBOOK-BLOG-RSS": {
+      "name": "Queue Runbook Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuerunbook.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONRUNBOOK-BLOG-RSS": {
+      "name": "Action Runbook Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionrunbook.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORRUNBOOK-PORTFOLIO": {
+      "name": "Operator Runbook Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorrunbook.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHRUNBOOKOPS-RSS": {
+      "name": "Tech Runbook Ops",
+      "adapter": "rss",
+      "listedUrl": "https://techrunbookops.com/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERRUNBOOKCAPITAL-PORTFOLIO": {
+      "name": "Founder Runbook Capital",
+      "adapter": "html_list",
+      "listedUrl": "https://founderrunbook.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSRUNBOOK-BLOG-RSS": {
+      "name": "Ops Runbook Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsrunbook.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEATLAS-BLOG-RSS": {
+      "name": "Queue Atlas Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queueatlas.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-SVL-PORTFOLIO": {
+      "name": "SV Latam Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://svlatam.com/portfolio/",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "B-OPERATORATLAS-PORTFOLIO": {
+      "name": "Operator Atlas Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatoratlas.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHATLASOPS-RSS": {
+      "name": "Tech Atlas Ops",
+      "adapter": "rss",
+      "listedUrl": "https://techatlasops.com/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERATLASCAPITAL-PORTFOLIO": {
+      "name": "Founder Atlas Capital",
+      "adapter": "html_list",
+      "listedUrl": "https://founderatlas.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSCOMMAND-BLOG-RSS": {
+      "name": "Ops Command Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opscommand.io/blog/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-QUEUECANVAS-BLOG-RSS": {
+      "name": "Queue Canvas Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuecanvas.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONCANVAS-BLOG-RSS": {
+      "name": "Action Canvas Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actioncanvas.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORCANVAS-PORTFOLIO": {
+      "name": "Operator Canvas Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorcanvas.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHQUEUE-RSS": {
+      "name": "Tech Queue",
+      "adapter": "rss",
+      "listedUrl": "https://techqueue.co/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERCANVASCAPITAL-PORTFOLIO": {
+      "name": "Founder Canvas Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundercanvas.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSCANVAS-BLOG-RSS": {
+      "name": "Ops Canvas Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opscanvas.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUESTUDIO-BLOG-RSS": {
+      "name": "Queue Studio Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuestudio.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONATLAS-BLOG-RSS": {
+      "name": "Action Atlas Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionatlas.io/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-OPERATORSTUDIO-PORTFOLIO": {
+      "name": "Operator Studio Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorstudio.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHSTUDIO-RSS": {
+      "name": "Tech Studio",
+      "adapter": "rss",
+      "listedUrl": "https://techstudio.co/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERSTUDIOCAPITAL-PORTFOLIO": {
+      "name": "Founder Studio Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderstudio.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONSTUDIO-BLOG-RSS": {
+      "name": "Action Studio Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionstudio.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "A-QUEUELAB-BLOG-RSS": {
+      "name": "Queue Lab Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuelab.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSATLAS-BLOG-RSS": {
+      "name": "Ops Atlas Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsatlas.io/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-OPERATORLAB-PORTFOLIO": {
+      "name": "Operator Lab Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorlab.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONLAB-BLOG-RSS": {
+      "name": "Action Lab Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionlab.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 526"
+    },
+    "C-FOUNDERLABCAPITAL-PORTFOLIO": {
+      "name": "Founder Lab Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderlab.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSLAB-BLOG-RSS": {
+      "name": "Ops Lab Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opslab.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEHUB-BLOG-RSS": {
+      "name": "Queue Hub Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuehub.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONHUB-BLOG-RSS": {
+      "name": "Action Hub Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionhub.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORHUB-PORTFOLIO": {
+      "name": "Operator Hub Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorhub.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHLAB-RSS": {
+      "name": "Tech Lab",
+      "adapter": "rss",
+      "listedUrl": "https://techlab.co/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-FOUNDERHUBCAPITAL-PORTFOLIO": {
+      "name": "Founder Hub Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderhub.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSHUB-BLOG-RSS": {
+      "name": "Ops Hub Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opshub.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHHUB-RSS": {
+      "name": "Tech Hub",
+      "adapter": "rss",
+      "listedUrl": "https://techhub.co/startups/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "A-QUEUEFORGE-BLOG-RSS": {
+      "name": "Queue Forge Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queueforge.dev/blog/rss.xml",
+      "status": "ok",
+      "items": 26
+    },
+    "B-OPERATORFORGEVC-PORTFOLIO": {
+      "name": "Operator Forge VC Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorforge.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONFORGE-BLOG-RSS": {
+      "name": "Action Forge Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionforge.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-FOUNDERFORGECAPITAL-PORTFOLIO": {
+      "name": "Founder Forge Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderforge.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSFORGE-BLOG-RSS": {
+      "name": "Ops Forge Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsforge.io/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUESIGNALFLOW-BLOG-RSS": {
+      "name": "Queue Signal Flow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuesignalflow.dev/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONSIGNALFLOW-BLOG-RSS": {
+      "name": "Action Signal Flow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionsignalflow.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORSIGNALFLOW-PORTFOLIO": {
+      "name": "Operator Signal Flow Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorsignalflow.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHSIGNALFLOW-RSS": {
+      "name": "Tech Signal Flow",
+      "adapter": "rss",
+      "listedUrl": "https://techsignalflow.com/feed",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERSIGNALFLOWCAPITAL-PORTFOLIO": {
+      "name": "Founder Signal Flow Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundersignalflow.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSSIGNALFLOW-BLOG-RSS": {
+      "name": "Ops Signal Flow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opssignalflow.io/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEPATTERNFLOW-BLOG-RSS": {
+      "name": "Queue Pattern Flow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuepatternflow.dev/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONPATTERNFLOW-BLOG-RSS": {
+      "name": "Action Pattern Flow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionpatternflow.dev/blog/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORPATTERNFLOW-PORTFOLIO": {
+      "name": "Operator Pattern Flow Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorpatternflow.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHPATTERNFLOW-RSS": {
+      "name": "Tech Pattern Flow",
+      "adapter": "rss",
+      "listedUrl": "https://techpatternflow.com/feed",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERPATTERNFLOWCAPITAL-PORTFOLIO": {
+      "name": "Founder Pattern Flow Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderpatternflow.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSPATTERNFLOW-BLOG-RSS": {
+      "name": "Ops Pattern Flow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opspatternflow.io/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEFABRICFLOW-BLOG-RSS": {
+      "name": "Queue Fabric Flow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuefabricflow.dev/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONFABRICFLOW-BLOG-RSS": {
+      "name": "Action Fabric Flow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionfabricflow.dev/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORFABRICFLOW-PORTFOLIO": {
+      "name": "Operator Fabric Flow Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorfabricflow.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHFABRICFLOW-RSS": {
+      "name": "Tech Fabric Flow",
+      "adapter": "rss",
+      "listedUrl": "https://techfabricflow.com/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-FOUNDERFABRICFLOWCAPITAL-PORTFOLIO": {
+      "name": "Founder Fabric Flow Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderfabricflow.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSFABRICFLOW-BLOG-RSS": {
+      "name": "Ops Fabric Flow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsfabricflow.io/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUELATTICE-BLOG-RSS": {
+      "name": "Queue Lattice Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuelattice.dev/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONLATTICE-BLOG-RSS": {
+      "name": "Action Lattice Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionlattice.dev/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORLATTICE-PORTFOLIO": {
+      "name": "Operator Lattice Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorlattice.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHFORGE-RSS": {
+      "name": "Tech Forge",
+      "adapter": "rss",
+      "listedUrl": "https://techforge.co/rss.xml",
+      "status": "broken",
+      "error": "Error"
+    },
+    "C-FOUNDERLATTICECAPITAL-PORTFOLIO": {
+      "name": "Founder Lattice Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://founderlattice.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSLATTICE-BLOG-RSS": {
+      "name": "Ops Lattice Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opslattice.io/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEGRIDFLOW-BLOG-RSS": {
+      "name": "Queue Grid Flow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuegridflow.dev/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONGRIDFLOW-BLOG-RSS": {
+      "name": "Action Grid Flow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actiongridflow.dev/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORGRIDFLOW-PORTFOLIO": {
+      "name": "Operator Grid Flow Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatorgridflow.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSPULSE-BLOG-RSS": {
+      "name": "Ops Pulse Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opspulse.io/blog/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "C-FOUNDERGRIDFLOWCAPITAL-PORTFOLIO": {
+      "name": "Founder Grid Flow Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundergridflow.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSGRIDFLOW-BLOG-RSS": {
+      "name": "Ops Grid Flow Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsgridflow.io/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-QUEUEMATRIX-BLOG-RSS": {
+      "name": "Queue Matrix Blog",
+      "adapter": "rss",
+      "listedUrl": "https://queuematrix.dev/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "A-ACTIONMATRIX-BLOG-RSS": {
+      "name": "Action Matrix Blog",
+      "adapter": "rss",
+      "listedUrl": "https://actionmatrix.dev/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-OPERATORMATRIX-PORTFOLIO": {
+      "name": "Operator Matrix Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://operatormatrix.vc/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHGRIDFLOW-RSS": {
+      "name": "Tech Grid Flow",
+      "adapter": "rss",
+      "listedUrl": "https://techgridflow.com/rss.xml",
+      "status": "repaired",
+      "url": "https://techgridflow.com/feed/",
+      "items": 10,
+      "error": "HTTP 404"
+    },
+    "C-FOUNDERMATRIXCAPITAL-PORTFOLIO": {
+      "name": "Founder Matrix Capital Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://foundermatrix.capital/portfolio",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "C-OPSMATRIX-BLOG-RSS": {
+      "name": "Ops Matrix Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsmatrix.io/rss.xml",
+      "status": "dead",
+      "error": "ENOTFOUND"
+    },
+    "B-TECHLATTICE-RSS": {
+      "name": "Tech Lattice",
+      "adapter": "rss",
+      "listedUrl": "https://techlattice.com/rss.xml",
+      "status": "broken",
+      "error": "HTTP 404"
+    },
+    "B-TECHMATRIX-RSS": {
+      "name": "Tech Matrix RSS",
+      "adapter": "rss",
+      "listedUrl": "https://techmatrix.io/rss.xml",
+      "status": "repaired",
+      "url": "https://techmatrix.io/feed/",
+      "items": 5,
+      "error": "HTTP 404"
+    },
+    "A-TRIEVE-BLOG-RSS": {
+      "name": "Trieve Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://www.trieve.ai/blog/rss.xml",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "B-FOCUSPORTFOLIO-PORTFOLIO": {
+      "name": "Focus Portfolio",
+      "adapter": "html_list",
+      "listedUrl": "https://focus.vc/portfolio",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "C-SLOW-BLOG-RSS": {
+      "name": "Slow Ventures Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://slow.ventures/feed/",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "B-STARTUPGENOME-RSS": {
+      "name": "Startup Genome Feed",
+      "adapter": "rss",
+      "listedUrl": "https://startupgenome.com/blog/rss",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "C-OPERATORKIT-BLOG-RSS": {
+      "name": "Operator Kit Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://operatorkit.com/blog/rss.xml",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "C-PIPELINEOPS-BLOG-RSS": {
+      "name": "Pipeline Ops Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://pipelineops.io/blog/rss.xml",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "A-CACHEFLOW-BLOG-RSS": {
+      "name": "CacheFlow Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://cacheflow.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "C-PIPELINECRAFT-BLOG-RSS": {
+      "name": "Pipeline Craft Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://pipelinecraft.io/blog/rss.xml",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "B-TECHWORKS-RSS": {
+      "name": "Tech Works Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techworks.co/feed/",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "A-RUNSTATE-BLOG-RSS": {
+      "name": "RunState Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://runstate.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "A-ACTIONSTACK-BLOG-RSS": {
+      "name": "ActionStack Blog Feed",
+      "adapter": "rss",
+      "listedUrl": "https://actionstack.dev/blog/rss.xml",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "B-TECHSYSTEMS-RSS": {
+      "name": "Tech Systems Feed",
+      "adapter": "rss",
+      "listedUrl": "https://techsystems.co/feed/",
+      "status": "broken",
+      "error": "TimeoutError"
+    },
+    "C-OPSSTUDIO-BLOG-RSS": {
+      "name": "Ops Studio Blog",
+      "adapter": "rss",
+      "listedUrl": "https://opsstudio.io/blog/rss.xml",
+      "status": "broken",
+      "error": "TimeoutError"
+    }
+  }
+}

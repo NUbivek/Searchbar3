@@ -1,23 +1,25 @@
 import React, { useState } from 'react';
+import { HiOutlineChevronDown, HiOutlineChevronUp, HiOutlineLink, HiOutlineArrowUpTray } from 'react-icons/hi2';
 import { uploadFiles } from '../utils/fileHandlers';
 
-export default function SourceSelector({ 
+export default function SourceSelector({
   mode = 'open',
   selectedSources = [],
-  onSourceToggle, 
+  onSourceToggle,
   setSelectedSources,
-  onCustomSourceAdd, 
-  onFileUpload, 
-  isLoading = false 
+  onCustomSourceAdd,
+  onFileUpload,
+  isLoading = false
 }) {
   const [customUrl, setCustomUrl] = useState('');
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [customUrlError, setCustomUrlError] = useState('');
   const [fileUploadError, setFileUploadError] = useState('');
   const [showCustomOptions, setShowCustomOptions] = useState(false);
-  
+
   const sources = {
     open: [
+      { id: 'Curated', name: 'Curated sources' },
       { id: 'Web', name: 'Web' },
       { id: 'LinkedIn', name: 'LinkedIn' },
       { id: 'X', name: 'X' },
@@ -86,90 +88,88 @@ export default function SourceSelector({
     }
   };
 
-  const removeUrl = (urlToRemove) => {
-    // This would require a callback from the parent component
-    console.log('Would remove URL:', urlToRemove);
-  };
-
-  const removeFile = (fileToRemove) => {
-    // This would require a callback from the parent component
-    console.log('Would remove file:', fileToRemove);
-  };
-
   const CustomSourcesSection = () => (
-    <div className="mt-4 p-4 border border-gray-200 rounded-md">
-      <h3 className="text-md font-medium mb-2">Custom Sources</h3>
-      
+    <div className="mt-3 rounded-xl border border-line bg-canvas p-4 animate-fadeIn">
+      <div className="eyebrow mb-2">Custom sources</div>
+
       <div className="mb-3">
-        <form onSubmit={handleUrlSubmit} className="flex">
-          <input
-            type="text"
-            placeholder="Add website URL"
-            value={customUrl}
-            onChange={(e) => setCustomUrl(e.target.value)}
-            className="flex-grow p-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={isLoading}
-          />
+        <form onSubmit={handleUrlSubmit} className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative flex-1">
+            <HiOutlineLink className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" style={{ width: 16, height: 16 }} />
+            <input
+              type="text"
+              placeholder="Add website URL"
+              value={customUrl}
+              onChange={(e) => setCustomUrl(e.target.value)}
+              className="input pl-9"
+              disabled={isLoading}
+            />
+          </div>
           <button
             type="submit"
-            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-r-md disabled:opacity-50"
+            className="btn-secondary"
             disabled={isLoading}
           >
             Add
           </button>
         </form>
-        {customUrlError && <p className="text-red-500 text-sm mt-1">{customUrlError}</p>}
+        {customUrlError && <p className="mt-1 text-sm text-rose-600">{customUrlError}</p>}
       </div>
-      
-      <div className="mb-3">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Upload Files
+
+      <div>
+        <label className="mb-1 flex items-center gap-1.5 text-sm font-medium text-ink">
+          <HiOutlineArrowUpTray className="text-muted" style={{ width: 15, height: 15 }} />
+          Upload files
         </label>
         <input
           type="file"
           multiple
           onChange={(e) => handleFileUpload(e.target.files)}
-          className="block w-full text-sm text-gray-500
-            file:mr-4 file:py-2 file:px-4
-            file:rounded-md file:border-0
-            file:text-sm file:font-semibold
-            file:bg-blue-50 file:text-blue-700
-            hover:file:bg-blue-100"
+          className="block w-full text-sm text-muted
+            file:mr-3 file:rounded-xl file:border file:border-line file:bg-white
+            file:px-3.5 file:py-2 file:text-sm file:font-medium file:text-ink
+            hover:file:bg-slate-50 file:transition"
           disabled={isLoading}
         />
-        {fileUploadError && <p className="text-red-500 text-sm mt-1">{fileUploadError}</p>}
+        {fileUploadError && <p className="mt-1 text-sm text-rose-600">{fileUploadError}</p>}
       </div>
     </div>
   );
 
   return (
     <div>
-      <div className="flex flex-wrap gap-2 mt-2 justify-center">
-        {sources[mode].map(source => (
-          <button
-            key={source.id}
-            onClick={() => toggleSource(source.id)}
-            disabled={isLoading}
-            className={`px-3 py-1 text-sm rounded-md border ${
-              selectedSources.includes(source.id)
-                ? 'bg-blue-500 text-white border-blue-500'
-                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
-            } disabled:opacity-50`}
-          >
-            {source.name}
-          </button>
-        ))}
+      <div className="flex flex-wrap gap-1.5">
+        {sources[mode].map(source => {
+          const active = selectedSources.includes(source.id);
+          return (
+            <button
+              key={source.id}
+              type="button"
+              onClick={() => toggleSource(source.id)}
+              disabled={isLoading}
+              aria-pressed={active}
+              className={`chip ${active ? 'chip-active' : 'hover:border-slate-300 hover:text-ink'} disabled:opacity-50`}
+            >
+              {source.name}
+            </button>
+          );
+        })}
         {mode === 'open' && (typeof onCustomSourceAdd === 'function' || typeof onFileUpload === 'function') && (
           <button
+            type="button"
             onClick={() => setShowCustomOptions(!showCustomOptions)}
-            className="px-3 py-1 text-sm rounded-md border bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+            className={`chip ${showCustomOptions ? 'chip-active' : 'hover:border-slate-300 hover:text-ink'} disabled:opacity-50`}
             disabled={isLoading}
+            aria-expanded={showCustomOptions}
           >
-            Custom {showCustomOptions ? '▲' : '▼'}
+            Custom
+            {showCustomOptions
+              ? <HiOutlineChevronUp style={{ width: 13, height: 13 }} />
+              : <HiOutlineChevronDown style={{ width: 13, height: 13 }} />}
           </button>
         )}
       </div>
-      
+
       {mode === 'open' && showCustomOptions && <CustomSourcesSection />}
     </div>
   );

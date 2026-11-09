@@ -1,10 +1,26 @@
 import React, { useState, useRef, useEffect } from 'react';
-import axios from 'axios';
+import { HiOutlineSparkles, HiOutlineMagnifyingGlass, HiOutlineCheckCircle, HiOutlineBuildingOffice2, HiOutlineUserCircle, HiOutlineExclamationCircle } from 'react-icons/hi2';
 import ModelSelector from './ModelSelector';
 import SourceSelector from './SourceSelector';
 import SimplifiedLLMResults, { FollowUpChat } from './search/results/SimplifiedLLMResults';
-import { isLLMResult } from '../utils/isLLMResult';
 import DegradedBanner from './search/DegradedBanner';
+import { postSearchRequest } from '../utils/clientApi';
+import { useRouter } from 'next/router';
+import Link from 'next/link';
+import { useSession } from 'next-auth/react';
+import { skippedNote } from '../utils/skippedNote';
+
+// Feature 6: limit results by publication date (undated items are kept and flagged)
+const DATE_FILTERS = [
+  { value: '', label: 'Any time' },
+  { value: '30', label: 'Past month' },
+  { value: '365', label: 'Past year' },
+  { value: '1095', label: 'Past 3 years' },
+];
+
+// Progress line shown while a search runs (no bare spinner)
+const PROGRESS_STEPS = ['Reading sources…', 'Writing the answer…'];
+const CONFIDENCE_CHIP = { high: 'chip-good', medium: 'chip-warn', low: 'chip-bad' };
 
 function normalizeClientError(error) {
   const axiosMessage = error?.response?.data?.error;
@@ -25,108 +41,99 @@ function normalizeClientError(error) {
     lower.includes('network error') ||
     lower.includes('network request failed')
   ) {
-    return 'Unable to reach the search API right now. Check your connection and try again.';
+    return 'Unable to reach the search service right now. Check your connection and try again.';
   }
 
   return message;
 }
 
-function resolveSearchEndpoints() {
-  if (typeof window === 'undefined') {
-    return ['/api/search'];
-  }
-
-  const host = window.location.hostname || '';
-  const isLocal = host === 'localhost' || host === '127.0.0.1';
-
-  if (isLocal) {
-    return ['/api/search', 'http://127.0.0.1:3001/api/search'];
-  }
-
-  return [
-    'https://searchbar3.vercel.app/api/search',
-    'https://api.research.bivek.ai/api/search',
-    'https://research.bivek.ai/api/search',
-    '/api/search'
-  ];
-}
-
-async function fetchPublicFallbackResults(query) {
-  const encodedQuery = encodeURIComponent(query || '');
-  const timeoutMs = 10000;
-  const abortWithTimeout = (signalController) => setTimeout(() => signalController.abort(), timeoutMs);
-
-  const wikipediaPromise = (async () => {
-    const controller = new AbortController();
-    const timeout = abortWithTimeout(controller);
-    try {
-      const resp = await fetch(
-        `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodedQuery}&utf8=1&format=json&origin=*`,
-        { signal: controller.signal }
-      );
-      if (!resp.ok) return [];
-      const data = await resp.json();
-      return (data?.query?.search || []).slice(0, 5).map((item) => ({
-        title: item.title || 'Wikipedia Result',
-        url: `https://en.wikipedia.org/wiki/${encodeURIComponent(item.title || '')}`,
-        snippet: String(item.snippet || '').replace(/<[^>]+>/g, ''),
-        content: String(item.snippet || '').replace(/<[^>]+>/g, ''),
-        source: 'Wikipedia'
-      }));
-    } catch {
-      return [];
-    } finally {
-      clearTimeout(timeout);
-    }
-  })();
-
-  const wikiResults = await wikipediaPromise;
-  return wikiResults;
-}
-
-function normalizeText(value) {
-  return String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function cleanupLowSignalResults(results = []) {
-  const cleaned = results
-    .filter(Boolean)
-    .map((item) => ({
-      ...item,
-      title: normalizeText(item.title || 'Untitled'),
-      snippet: normalizeText(item.snippet || item.content || '').slice(0, 360),
-      content: normalizeText(item.content || item.snippet || '').slice(0, 800),
-    }));
-
-  const nonShowHN = cleaned.filter((item) => !String(item.title || '').toLowerCase().startsWith('show hn:'));
-  return nonShowHN.length > 0 ? nonShowHN : cleaned;
+/** Skeleton of the answer card with a progress line that advances. */
+function AnswerSkeleton({ step }) {
+  return (
+    <div className="ai-card animate-fadeIn" aria-busy="true" aria-live="polite">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
+        <div className="flex items-center gap-2 text-sm font-medium text-ink">
+          <HiOutlineSparkles className="animate-glow text-brand-500" style={{ width: 16, height: 16 }} />
+          <span>{PROGRESS_STEPS[step] || PROGRESS_STEPS[0]}</span>
+        </div>
+        <div className="skeleton h-5 w-20" />
+      </div>
+      <div className="px-5 py-5">
+        <div className="skeleton mb-3 h-3 w-24" />
+        <div className="skeleton mb-2 h-4 w-full" />
+        <div className="skeleton mb-2 h-4 w-11/12" />
+        <div className="skeleton mb-5 h-4 w-4/5" />
+        <div className="skeleton mb-3 h-3 w-28" />
+        <div className="skeleton mb-2 h-4 w-10/12" />
+        <div className="skeleton mb-2 h-4 w-9/12" />
+        <div className="skeleton h-4 w-7/12" />
+      </div>
+    </div>
+  );
 }
 
 export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [error, setError] = useState(null);
-  // Only select Web by default
-  const [selectedSources, setSelectedSources] = useState(['Web']);
+  // Curated registry sources (private-company coverage) + Web
+  const [selectedSources, setSelectedSources] = useState(['Curated', 'Web']);
   const [customUrls, setCustomUrls] = useState([]);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [results, setResults] = useState([]);
-  const [apiMeta, setApiMeta] = useState({ status: null, degradedSources: [], failSoftContent: null });
+  const [apiMeta, setApiMeta] = useState({ status: null, degradedSources: [], failSoftContent: null, queryPlan: null, answerInfo: null, sourceStatuses: [], olderThanFilter: 0 });
   const [hasSearched, setHasSearched] = useState(false);
   const resultsContainerRef = useRef(null);
+  const router = useRouter();
+  const { status: sessionStatus } = useSession();
+  const signedIn = sessionStatus === 'authenticated';
+  const [workspaces, setWorkspaces] = useState([]);
+  const [workspaceId, setWorkspaceId] = useState('');
+  const [maxAgeDays, setMaxAgeDays] = useState('');
+  const [savedHistoryId, setSavedHistoryId] = useState(null);
+  const autoRanRef = useRef(false);
 
-  // Scroll to bottom of results when new results are loaded
-  const scrollToBottom = () => {
-    if (resultsContainerRef.current) {
+  // Signed-in users can file searches under a deal workspace
+  useEffect(() => {
+    if (!signedIn) return;
+    fetch('/api/workspaces')
+      .then((r) => (r.ok ? r.json() : { workspaces: [] }))
+      .then((d) => setWorkspaces(d.workspaces || []))
+      .catch(() => {});
+  }, [signedIn]);
+
+  // ?q=...&workspace=... (from History "Run again", workspaces, company pages)
+  useEffect(() => {
+    if (!router.isReady || autoRanRef.current) return;
+    const q = typeof router.query.q === 'string' ? router.query.q.trim() : '';
+    if (typeof router.query.workspace === 'string') setWorkspaceId(router.query.workspace);
+    if (q) {
+      autoRanRef.current = true;
+      setQuery(q);
+      handleSearch(q, typeof router.query.workspace === 'string' ? router.query.workspace : undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.isReady]);
+
+  // Scroll to the results when a search completes (not while typing)
+  useEffect(() => {
+    if (hasSearched && !loading && resultsContainerRef.current && typeof resultsContainerRef.current.scrollIntoView === 'function') {
       resultsContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-  };
+  }, [results, hasSearched, loading]);
 
+  // Start warming the curated source index so the first search is fast.
   useEffect(() => {
-    if (query) {
-      scrollToBottom();
-    }
-  }, [query]);
+    fetch('/api/sources/curated').catch(() => {});
+  }, []);
+
+  // Advance the progress line while a search runs
+  useEffect(() => {
+    if (!loading) { setLoadingStep(0); return undefined; }
+    const timer = setTimeout(() => setLoadingStep(1), 3500);
+    return () => clearTimeout(timer);
+  }, [loading]);
 
   const handleSourceToggle = (source) => {
     if (selectedSources.includes(source)) {
@@ -146,244 +153,295 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
     setUploadedFiles([...uploadedFiles, ...files]);
   };
 
+  // Pin a source from the results to the selected workspace
+  const saveSourceToWorkspace = async (source) => {
+    const res = await fetch(`/api/workspaces/${workspaceId}/sources`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: source.title || source.displayTitle,
+        url: source.url,
+        sourceName: source.sourceName || source.displayTitle || null,
+        publishedAt: source.date || source.publishedAt || null,
+        excerpt: String(source.snippet || source.content || '').slice(0, 1000)
+      })
+    });
+    return res.ok;
+  };
+
+  // Company name for the profile link: the query minus funding/topic words
+  const profileName = apiMeta.queryPlan?.entity || (apiMeta.queryPlan?.mode === 'topic' ? '' : String(query || '')
+    .split(/\b(?:funding|raise[sd]?|round|series [a-h]|seed|valuation|investors?|revenue|competitors?|founders?|ceo|news|ipo|acquisition)\b/i)[0]
+    .replace(/[^\w&.' -]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80));
+
   const handleModelChange = (model) => {
     setSelectedModel(model);
   };
 
-  // Follow-up search functionality temporarily disabled
   const handleFollowUpSearch = (followUpQuery) => {
     setQuery(followUpQuery);
     setHasSearched(true); // Make sure to set hasSearched to true
     handleSearch(followUpQuery);
   };
 
-  const handleSearch = async (searchQuery = query) => {
+  const handleSearch = async (searchQuery = query, workspaceOverride, maxAgeOverride) => {
     if (!searchQuery.trim()) return;
 
     setLoading(true);
     setError(null);
+    setSavedHistoryId(null);
+    const activeWorkspace = workspaceOverride !== undefined ? workspaceOverride : workspaceId;
+    const activeMaxAge = maxAgeOverride !== undefined ? maxAgeOverride : maxAgeDays;
 
     try {
-      console.log('Performing search for query:', searchQuery);
-      console.log('Selected sources:', selectedSources);
-      console.log('Using model:', selectedModel);
-      
-      const payload = {
+      const data = await postSearchRequest({
         query: searchQuery,
         mode: 'open',
         model: selectedModel,
         sources: selectedSources,
-        customUrls: customUrls,
+        customUrls,
         files: uploadedFiles,
-        useLLM: true
-      };
+        useLLM: true,
+        workspaceId: activeWorkspace || undefined,
+        maxAgeDays: activeMaxAge || undefined
+      });
+      setSavedHistoryId(data?.historyId || null);
 
-      let response = null;
-      let lastError = null;
-
-      for (const endpoint of resolveSearchEndpoints()) {
-        try {
-          response = await axios.post(endpoint, payload, { timeout: 20000 });
-          break;
-        } catch (endpointError) {
-          lastError = endpointError;
-          console.warn(`Search endpoint failed: ${endpoint}`, endpointError?.response?.status || endpointError?.message);
-        }
-      }
-
-      if (!response) {
-        let fallbackResponse = null;
-        let fallbackError = null;
-
-        const publicFallbackResults = await fetchPublicFallbackResults(searchQuery);
-        if (publicFallbackResults.length > 0) {
-          response = {
-            data: {
-              status: 'degraded',
-              query: searchQuery,
-              results: publicFallbackResults,
-              degradedSources: ['web'],
-              failSoftContent: null
-            }
-          };
-        }
-
-        if (!response) {
-          throw fallbackError || lastError || new Error('No search endpoint responded');
-        } else {
-          console.warn('Using degraded fallback search path');
-        }
-      }
-      
       setApiMeta({
-        status: response.data?.status || null,
-        degradedSources: Array.isArray(response.data?.degradedSources) ? response.data.degradedSources : [],
-        failSoftContent: response.data?.failSoftContent || null
+        status: data?.status || null,
+        degradedSources: Array.isArray(data?.degradedSources) ? data.degradedSources : [],
+        failSoftContent: data?.failSoftContent || null,
+        queryPlan: data?.queryPlan || null,
+        answerInfo: data?.answerInfo || null,
+        sourceStatuses: Array.isArray(data?.sourceStatuses) ? data.sourceStatuses : [],
+        olderThanFilter: Number(data?.olderThanFilter) || 0
       });
 
-      const responseData = response.data || {};
-      const responseResults = Array.isArray(responseData.results) ? responseData.results : [];
-      const llmAuthError =
-        responseData?.errorType === 'auth_error' ||
-        responseData?.llmResults?.errorType === 'auth_error' ||
-        String(responseData?.error || '').toLowerCase().includes('authentication failed') ||
-        String(responseData?.content || '').toLowerCase().includes('authentication failed');
-
-      let cleanedResults = cleanupLowSignalResults(responseResults);
-
-      // Do not auto-expand from HackerNews; keep web-only result quality predictable.
-
-      // Log the response for debugging
-      console.log('Search API response structure:', {
-        hasLLMResults: !!response.data.llmResults,
-        hasContent: !!response.data.content,
-        topLevelKeys: Object.keys(response.data).slice(0, 8),
-        llmFlags: response.data.isLLMResults || response.data.isLLMResult || response.data.__isImmutableLLMResult
-      });
-      
-      // Enhanced LLM detection using utility function
-      console.log('Performing LLM result detection on response data');
-      
-      if (llmAuthError && cleanedResults.length > 0) {
-        console.warn('LLM auth error detected; rendering source results instead of auth wrapper.');
-        setResults(cleanedResults);
-      } else if (isLLMResult(response.data)) {
-        console.log('✅ Successfully detected LLM-formatted results');
-        
-        // Determine if we should use a property or the whole object
-        if (response.data.llmResults && isLLMResult(response.data.llmResults)) {
-          console.log('Using nested llmResults from response');
-          setResults({
-            ...response.data.llmResults,
-            __isImmutableLLMResult: true,
-            isLLMResult: true,
-            query: searchQuery
-          });
-        } else {
-          // Use the whole response when it's the LLM result itself
-          console.log('Using entire response as LLM result');
-          setResults({
-            ...response.data,
-            __isImmutableLLMResult: true,
-            isLLMResult: true,
-            query: searchQuery
-          });
-        }
-      } else if (response.data.content && typeof response.data.content === 'string') {
-        // Explicitly format as LLM result when content is present
-        console.log('Formatting content property as LLM result');
+      // Response contract (/api/search/open): an answer is a string in
+      // `content` with the ranked `results`; a fail-soft response has no
+      // answer (content null, results []). Never render the raw payload.
+      const hasAnswer = typeof data?.content === 'string' && data.content.trim().length > 0;
+      if (data?.status === 'fail-soft' || !hasAnswer) {
+        if (data?.error) setError(typeof data.message === 'string' && data.message ? data.message : String(data.error));
+        setResults([]);
+      } else {
         setResults({
-          content: response.data.content,
-          isLLMResult: true,
+          ...data,
           __isImmutableLLMResult: true,
+          isLLMResult: true,
           query: searchQuery
         });
-      } else if (response.data.results) {
-        // Fallback to regular results
-        console.log('Using regular search results array');
-        setResults(cleanedResults);
-      } else if (typeof response.data === 'string') {
-        // Handle case where response might be a plain string
-        console.log('Handling string response');
-        setResults([response.data]);
-      } else {
-        // Create empty result if nothing found
-        console.log('No recognizable results format');
-        setResults([]);
       }
-      
+
       setHasSearched(true);
-      
     } catch (err) {
-      console.error('Search error:', err.response?.data || err.message);
       setError(normalizeClientError(err));
-      // Set empty results
       setResults([]);
+      setHasSearched(true);
     } finally {
       setLoading(false);
     }
   };
 
+  // Changing the date filter re-runs the current search
+  const handleMaxAgeChange = (value) => {
+    setMaxAgeDays(value);
+    if (hasSearched && query.trim()) handleSearch(query, undefined, value);
+  };
+
+  const hasAnswer = Boolean(results && !Array.isArray(results) && typeof results.content === 'string');
+  const webNotConfigured = (apiMeta.sourceStatuses || []).some((s) => s.status === 'not_configured');
+  const answerInfo = apiMeta.answerInfo;
+  const confidenceLevel = answerInfo?.confidence?.level ? String(answerInfo.confidence.level).toLowerCase() : null;
+  const skipped = answerInfo ? skippedNote(answerInfo.skipped).replace(/^\s*·\s*/, '') : '';
+  const quotedReason = answerInfo?.mode !== 'ai' && answerInfo?.reason && !/No AI model/i.test(answerInfo.reason) ? answerInfo.reason : '';
+
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-6">
       <div className="mb-6">
-        {/* Search interface */}
-        <div className="mb-4">
-          <div className="flex w-full">
-            <div className="flex-grow bg-gray-100 rounded-l-md border border-gray-300">
+        {/* Search box */}
+        <div className="card card-pad animate-fadeIn">
+          <div className="flex flex-col gap-2 md:flex-row">
+            <div className="relative flex-1">
+              <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" style={{ width: 18, height: 18 }} />
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                placeholder="Search across sources..."
-                className="w-full bg-transparent border-none focus:outline-none focus:ring-0 px-4 py-2"
+                placeholder="Ask about a company, founder or market…"
+                aria-label="Research question"
+                className="input py-3 pl-11 pr-4 text-base"
               />
             </div>
-            <div className="flex">
-              <div className="w-[150px] bg-gray-100 border-y border-r border-gray-300">
-                <ModelSelector 
-                  selectedModel={selectedModel} 
-                  onChange={handleModelChange}
-                />
-              </div>
-              <button
-                onClick={() => handleSearch()}
-                disabled={loading}
-                className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-r-md disabled:opacity-50"
+            <button
+              type="button"
+              onClick={() => handleSearch()}
+              disabled={loading}
+              className="btn-primary px-5 py-3 md:w-auto"
+            >
+              <HiOutlineSparkles style={{ width: 16, height: 16 }} />
+              {loading ? 'Searching…' : 'Search'}
+            </button>
+          </div>
+
+          {/* Model, date filter and (signed in) workspace filing */}
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+            <ModelSelector
+              selectedModel={selectedModel}
+              onChange={handleModelChange}
+            />
+            <label className="flex items-center gap-2 text-muted">
+              Published
+              <select
+                value={maxAgeDays}
+                onChange={(e) => handleMaxAgeChange(e.target.value)}
+                className="select"
               >
-                {loading ? 'Searching...' : 'Search'}
-              </button>
-            </div>
+                {DATE_FILTERS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
+            </label>
+            {signedIn ? (
+              <label className="flex flex-wrap items-center gap-2 text-muted">
+                Save search to
+                <select
+                  value={workspaceId}
+                  onChange={(e) => setWorkspaceId(e.target.value)}
+                  aria-label="Save this search to a deal workspace"
+                  title="Deal workspace this search is filed under (not the AI model)"
+                  className="select max-w-[260px]"
+                >
+                  <option value="">History only (no workspace)</option>
+                  {workspaces.length > 0 && (
+                    <optgroup label="Deal workspaces">
+                      {workspaces.map((w) => {
+                        // Same-named workspaces are told apart by creation date
+                        const duplicate = workspaces.filter((x) => x.name === w.name).length > 1;
+                        const created = duplicate ? ` (created ${new Date(w.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })})` : '';
+                        return <option key={w.id} value={w.id}>{w.name}{created}</option>;
+                      })}
+                    </optgroup>
+                  )}
+                </select>
+                <Link href="/workspaces" className="btn-ghost">
+                  {workspaces.length > 0 ? 'Manage workspaces' : 'New workspace'}
+                </Link>
+              </label>
+            ) : (
+              <span className="text-muted">
+                <Link href="/signin" className="font-medium text-brand-600 hover:text-brand-700">Sign in</Link> to save searches to your history and workspaces
+              </span>
+            )}
+            {savedHistoryId && (
+              <Link href={`/history/${savedHistoryId}`} className="chip chip-good">
+                <HiOutlineCheckCircle style={{ width: 13, height: 13 }} />
+                Saved to history
+              </Link>
+            )}
+            {hasSearched && profileName && (
+              <span className="flex flex-wrap items-center gap-1">
+                <Link href={`/company/${encodeURIComponent(profileName)}`} className="btn-ghost">
+                  <HiOutlineBuildingOffice2 style={{ width: 15, height: 15 }} />
+                  Company profile: {profileName}
+                </Link>
+                <Link href={`/founder?company=${encodeURIComponent(profileName)}`} className="btn-ghost">
+                  <HiOutlineUserCircle style={{ width: 15, height: 15 }} />
+                  Founder check
+                </Link>
+              </span>
+            )}
+          </div>
+
+          {/* Source selector */}
+          <div className="mt-3 border-t border-line pt-3">
+            <SourceSelector
+              mode="open"
+              selectedSources={selectedSources}
+              onSourceToggle={handleSourceToggle}
+              onCustomSourceAdd={handleCustomSourceAdd}
+              onFileUpload={handleFileUpload}
+              isLoading={loading}
+            />
           </div>
         </div>
-        
-        {/* Source selector */}
-        <SourceSelector
-          mode="open"
-          selectedSources={selectedSources}
-          onSourceToggle={handleSourceToggle}
-          onCustomSourceAdd={handleCustomSourceAdd}
-          onFileUpload={handleFileUpload}
-          isLoading={loading}
-        />
       </div>
 
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-          {error}
+        <div className="mb-4 flex items-start gap-2.5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 animate-fadeIn" role="alert">
+          <HiOutlineExclamationCircle className="mt-0.5 shrink-0" style={{ width: 17, height: 17 }} />
+          <span>{error}</span>
         </div>
       )}
 
       {loading ? (
-        <div className="text-center py-10">
-          <p className="text-gray-600">Searching... This may take a moment.</p>
-        </div>
+        <AnswerSkeleton step={loadingStep} />
       ) : (
         <div ref={resultsContainerRef}>
-          {hasSearched && apiMeta.degradedSources.length > 0 && (
-            <DegradedBanner degradedSources={apiMeta.degradedSources} status={apiMeta.status} />
+          {hasSearched && (apiMeta.degradedSources.length > 0 || webNotConfigured) && (
+            <DegradedBanner degradedSources={apiMeta.degradedSources} status={apiMeta.status} sourceStatuses={apiMeta.sourceStatuses} />
           )}
 
+          {hasSearched && hasAnswer && answerInfo && (
+            <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted animate-fadeIn">
+              {answerInfo.mode === 'ai' ? (
+                <span className="ai-badge" title={`Answer written by ${answerInfo.model} (${answerInfo.provider}) from the cited sources`}>
+                  <HiOutlineSparkles style={{ width: 13, height: 13 }} />
+                  AI
+                  <span className="font-medium opacity-90">· {answerInfo.model}</span>
+                </span>
+              ) : (
+                <span className="chip" title={quotedReason || 'Every statement is quoted from a cited source'}>
+                  <HiOutlineSparkles className="text-brand-500" style={{ width: 13, height: 13 }} />
+                  Quoted from sources
+                </span>
+              )}
+              {answerInfo.mode === 'ai' && answerInfo.confidence && (
+                <span className={`chip ${CONFIDENCE_CHIP[confidenceLevel] || ''}`} title={answerInfo.confidence.reason || undefined}>
+                  Confidence: {answerInfo.confidence.level}
+                </span>
+              )}
+              {quotedReason && <span>{quotedReason}</span>}
+              {skipped && <span>{skipped}</span>}
+              {answerInfo.modelNote && <span>{answerInfo.modelNote}</span>}
+              {apiMeta.queryPlan?.entity && (
+                <span>
+                  About <strong className="font-medium text-ink">{apiMeta.queryPlan.entity}</strong>
+                  {apiMeta.queryPlan.confidence === 'low' ? ' (low confidence: no source clearly matches this name and your question)' : ''}
+                  {apiMeta.queryPlan.droppedForRelevance ? ` · ${apiMeta.queryPlan.droppedForRelevance} unrelated results removed` : ''}
+                </span>
+              )}
+              {apiMeta.olderThanFilter > 0 && <span>{apiMeta.olderThanFilter} result{apiMeta.olderThanFilter === 1 ? ' was' : 's were'} older than the filter</span>}
+            </div>
+          )}
           {hasSearched && query && (
             <>
-              <SimplifiedLLMResults 
+              <SimplifiedLLMResults
                 query={query}
                 results={results}
                 onFollowUpSearch={handleFollowUpSearch}
+                onSaveSource={signedIn && workspaceId ? saveSourceToWorkspace : null}
               />
 
               {Array.isArray(results) && results.length === 0 && (
-                <div className="mt-4 border rounded-md p-4 bg-amber-50 border-amber-200 text-amber-900">
-                  <div className="font-semibold mb-1">No direct results yet</div>
-                  <p className="text-sm mb-2">Try refining your query or enabling additional sources. The system is in fail-soft mode, so it will keep returning a safe response.</p>
-                  <ul className="list-disc ml-5 text-sm">
-                    {(apiMeta.failSoftContent?.exampleQueries || [
-                      'AI infrastructure Series B deals 2024',
-                      'SaaS ARR multiples Q4 2024',
-                      'Robotics logistics startup funding'
-                    ]).map((q) => <li key={q}>{q}</li>)}
-                  </ul>
+                <div className="card card-pad mt-4 animate-fadeIn">
+                  <div className="flex items-start gap-3">
+                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600">
+                      <HiOutlineMagnifyingGlass style={{ width: 18, height: 18 }} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="section-title">No direct results yet</div>
+                      <p className="muted mt-1">
+                        {apiMeta.failSoftContent?.message || 'No source returned results for this search.'}
+                        {apiMeta.olderThanFilter > 0 && !/older than the filter/.test(apiMeta.failSoftContent?.message || '') ? ` ${apiMeta.olderThanFilter} result${apiMeta.olderThanFilter === 1 ? ' was' : 's were'} older than the filter.` : ''}
+                      </p>
+                      <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink">
+                        {(Array.isArray(apiMeta.failSoftContent?.suggestions) && apiMeta.failSoftContent.suggestions.length > 0
+                          ? apiMeta.failSoftContent.suggestions
+                          : ['Check the spelling of the company or person', 'Try fewer words, e.g. just the company name', 'Enable more sources']
+                        ).map((q) => <li key={q}>{q}</li>)}
+                      </ul>
+                    </div>
+                  </div>
                 </div>
               )}
             </>

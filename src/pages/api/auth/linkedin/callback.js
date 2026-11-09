@@ -4,6 +4,7 @@
  */
 import axios from 'axios';
 import { getCallbackUrl } from '../../../../utils/oauthUtils';
+import { fetchLinkedInProfile } from '../../../../utils/linkedinProfile';
 
 const LINKEDIN_CALLBACK_TIMEOUT_MS = 10000;
 
@@ -27,17 +28,23 @@ export default async function handler(req, res) {
     return redirectToNetwork('error=Method%20not%20allowed');
   }
 
-  const { code, state, error, error_description } = req.query;
-  console.log('LinkedIn callback received:', { code: !!code, state, error, error_description });
+  const { code, state, error } = req.query;
 
-  // Handle error from LinkedIn
+  // Handle error from LinkedIn (the page maps these codes to user copy)
   if (error) {
-    console.error('LinkedIn auth error:', error, error_description);
-    return redirectToNetwork(`error=${encodeURIComponent(error_description || 'Authentication failed')}`);
+    console.error(`LinkedIn sign-in failed: ${String(error).slice(0, 80)}`);
+    return redirectToNetwork(error === 'user_cancelled_login' || error === 'user_cancelled_authorize' || error === 'access_denied'
+      ? 'error=linkedin_denied' : 'error=linkedin_failed');
   }
 
   if (!code) {
-    return redirectToNetwork('error=No authorization code received');
+    return redirectToNetwork('error=linkedin_failed');
+  }
+
+  // CSRF check: state must match the one set when sign-in started.
+  const storedState = req.cookies?.linkedin_auth_state;
+  if (!storedState || state !== storedState) {
+    return redirectToNetwork('error=linkedin_state');
   }
 
   try {
@@ -48,12 +55,10 @@ export default async function handler(req, res) {
     const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
     
     if (!clientId || !clientSecret) {
-      console.error('LinkedIn credentials missing from environment variables');
-      return redirectToNetwork('error=LinkedIn API credentials not configured');
+      console.error('LinkedIn sign-in callback but LINKEDIN_CLIENT_ID/LINKEDIN_CLIENT_SECRET are not set');
+      return redirectToNetwork('error=linkedin_not_configured');
     }
 
-    console.log('Exchanging code for token with redirectUri:', redirectUri);
-    
     // Exchange authorization code for access token
     const tokenResponse = await axios.post(
       'https://www.linkedin.com/oauth/v2/accessToken',
@@ -74,32 +79,24 @@ export default async function handler(req, res) {
     );
 
     const { access_token, expires_in } = tokenResponse.data;
-    console.log('LinkedIn token obtained successfully');
 
     // Fetch basic profile information
-    const profileResponse = await axios.get('https://api.linkedin.com/v2/me', {
-      headers: {
-        Authorization: `Bearer ${access_token}`
-      },
-      timeout: LINKEDIN_CALLBACK_TIMEOUT_MS,
-    });
-    
-    console.log('LinkedIn profile fetched successfully');
+    const profile = await fetchLinkedInProfile(access_token, LINKEDIN_CALLBACK_TIMEOUT_MS);
 
     // Set cookies with token and expiration
     // HttpOnly cookie to prevent client-side access to the token
     const maxAge = expires_in * 1000; // Convert to milliseconds
     res.setHeader('Set-Cookie', [
-      `linkedin_access_token=${access_token}; Path=/; Max-Age=${expires_in}; HttpOnly; SameSite=Lax`,
-      `linkedin_user_id=${profileResponse.data.id}; Path=/; Max-Age=${expires_in}; SameSite=Lax`
+      `linkedin_access_token=${access_token}; Path=/; Max-Age=${expires_in}; HttpOnly; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`,
+      `linkedin_user_id=${encodeURIComponent(profile.id)}; Path=/; Max-Age=${expires_in}; SameSite=Lax${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`,
+      `linkedin_auth_state=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`
     ]);
 
     // Redirect back to the network page with success flag
     // This will trigger the useEffect in network.js to fetch user data
     return redirectToNetwork('auth=linkedin_success');
   } catch (error) {
-    console.error('LinkedIn token exchange error:', error.response?.data || error.message);
-    const errorDetails = error.response?.data?.error_description || error.message || 'Unknown error';
-    return redirectToNetwork(`error=${encodeURIComponent('Failed to authenticate with LinkedIn: ' + errorDetails)}`);
+    console.error(`LinkedIn token exchange failed: ${error.response?.status || ''} ${String(error.response?.data?.error_description || error.message || '').slice(0, 120)}`);
+    return redirectToNetwork('error=linkedin_failed');
   }
 }

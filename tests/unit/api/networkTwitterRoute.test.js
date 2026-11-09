@@ -26,54 +26,53 @@ describe('/api/network/twitter', () => {
     expect(axios.get).not.toHaveBeenCalled();
   });
 
-  test('returns visualization-ready data on success', async () => {
-    axios.get.mockResolvedValueOnce({
-      data: {
-        data: {
-          id: 'user-1',
-          username: 'builder',
-          profile_image_url: 'https://example.com/avatar.png',
-          description: 'bio'
-        }
-      }
-    });
+  test('returns the X user and following list when the API tier allows it', async () => {
+    axios.get
+      .mockResolvedValueOnce({
+        data: { data: { id: 'user-1', username: 'builder', profile_image_url: 'https://example.com/avatar.png', description: 'bio' } }
+      })
+      .mockResolvedValueOnce({
+        data: { data: [{ id: 'f1', name: 'Ada Example', username: 'ada_example', description: 'Engineer' }], meta: {} }
+      });
 
-    const req = createMockReq({
-      method: 'GET',
-      headers: { cookie: 'twitter_access_token=token123' }
-    });
+    const req = createMockReq({ method: 'GET', headers: { cookie: 'twitter_access_token=token123' } });
     const res = createMockRes();
-
     await handler(req, res);
 
     expect(axios.get).toHaveBeenCalledWith(
       'https://api.twitter.com/2/users/me',
       expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: 'Bearer token123'
-        }),
-        params: expect.objectContaining({
-          'user.fields': 'username,profile_image_url,description'
-        }),
+        headers: expect.objectContaining({ Authorization: 'Bearer token123' }),
+        params: expect.objectContaining({ 'user.fields': 'username,profile_image_url,description' }),
         timeout: 10000
       })
     );
+    expect(axios.get.mock.calls[1][0]).toBe('https://api.twitter.com/2/users/user-1/following');
     expect(res.statusCode).toBe(200);
-    expect(res.body.user).toEqual({
-      id: 'user-1',
-      username: 'builder',
-      profile_image_url: 'https://example.com/avatar.png',
-      description: 'bio'
-    });
-    expect(res.body.networksData.nodes).toHaveLength(6);
-    expect(res.body.networksData.links).toHaveLength(5);
-    expect(res.body.networksData.nodes[0]).toEqual(
-      expect.objectContaining({
-        id: 'user',
-        name: 'builder',
-        type: 'user'
-      })
-    );
+    expect(res.body.user.username).toBe('builder');
+    expect(res.body.followingAvailable).toBe(true);
+    expect(res.body.following).toEqual([
+      { id: 'f1', name: 'Ada Example', username: 'ada_example', description: 'Engineer', location: '' }
+    ]);
+    // never placeholder contacts
+    expect(res.body.networksData.nodes).toHaveLength(1);
+  });
+
+  test('reports honestly when X does not share following lists with this app', async () => {
+    const forbidden = new Error('Forbidden');
+    forbidden.response = { status: 403 };
+    axios.get
+      .mockResolvedValueOnce({ data: { data: { id: 'user-1', username: 'builder' } } })
+      .mockRejectedValueOnce(forbidden);
+
+    const req = createMockReq({ method: 'GET', headers: { cookie: 'twitter_access_token=token123' } });
+    const res = createMockRes();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.followingAvailable).toBe(false);
+    expect(res.body.following).toEqual([]);
+    expect(res.body.note).toMatch(/does not share who you follow/);
   });
 
   test('returns 401 when twitter reports an expired token', async () => {
@@ -138,11 +137,12 @@ describe('/api/network/twitter', () => {
     expect(res.body).toEqual({
       status: 'fail-soft',
       user: null,
+      following: [],
+      followingAvailable: false,
       networksData: { nodes: [], links: [] },
       degradedSources: ['twitter-network'],
       error: 'Failed to fetch Twitter network data',
-      details: 'upstream broke',
-      errorData: JSON.stringify({ error: 'upstream broke' })
+      details: 'upstream broke'
     });
   });
 });

@@ -1,1028 +1,1061 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * Network Map: import your own contacts (LinkedIn's Connections.csv export,
+ * any CSV/XLSX, or your X following list), see them as a company graph, and
+ * ask questions like "Who do I know at Stripe?" or "Intro paths to OpenAI".
+ *
+ * Signed in: contacts are saved to your account (/api/network/contacts).
+ * Signed out: contacts stay in this browser tab only.
+ * Only first-degree connections exist in these exports; nothing is invented.
+ */
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import Head from 'next/head';
-import { Tab } from '@headlessui/react';
-import axios from 'axios';
-import { FaSearch, FaProjectDiagram, FaUsers, FaLink, FaCheckCircle, FaExclamationCircle, FaInfoCircle, FaLinkedin } from 'react-icons/fa';
-import { FaXTwitter } from 'react-icons/fa6'; // X logo (formerly Twitter)
-import NetworkDebug from '../components/NetworkDebug';
+import { useSession } from 'next-auth/react';
+import {
+  HiOutlineArrowUpTray, HiOutlineTrash, HiOutlineXMark, HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass,
+  HiOutlineShare, HiOutlineSparkles, HiOutlineDocumentText,
+} from 'react-icons/hi2';
+import PageShell from '../components/layout/PageShell';
+import NetworkGraph, { SOURCE_COLORS } from '../components/network/NetworkGraph';
+import {
+  parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, MAX_CONTACTS,
+} from '../utils/network/parseContacts';
+import { buildGraph, personNodeId, companyNodeId, NO_COMPANY_KEY, MAX_PEOPLE_PER_EXPANDED_COMPANY } from '../utils/network/graph';
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 
-function runLocalNetworkAnalysis(query, connections = []) {
-  const terms = String(query || '')
-    .toLowerCase()
-    .split(/\s+/)
-    .map((term) => term.trim())
-    .filter((term) => term.length > 2);
+const ICON = { width: 15, height: 15 };
+const SOURCE_LABELS = { linkedin: 'LinkedIn', csv: 'CSV/XLSX', x: 'X' };
+const EXAMPLES = ['Who do I know at Google?', 'Find software engineers in my network', 'Intro paths to Stripe'];
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
+// The contacts API accepts 15 MB request bodies; stop a little short of it.
+const MAX_BODY_BYTES = 14 * 1024 * 1024;
+// Answers expand the companies of the top matches, but not huge ones.
+const AUTO_EXPAND_MAX_PEOPLE = 60;
+const fmt = (n) => Number(n || 0).toLocaleString('en-US');
+const LINKEDIN_UNAVAILABLE = "LinkedIn connection isn't available on this deployment yet";
+const X_UNAVAILABLE = "X connection isn't available on this deployment yet";
 
-  const matches = (connections || [])
-    .map((conn) => {
-      const haystack = [
-        conn.firstName,
-        conn.lastName,
-        conn.name,
-        conn.company,
-        conn.organization,
-        conn.position,
-        conn.title,
-        conn.location
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
+// OAuth redirects come back with ?error=<code>; only these are shown.
+const AUTH_ERRORS = {
+  linkedin_not_configured: `${LINKEDIN_UNAVAILABLE}.`,
+  linkedin_denied: 'LinkedIn sign-in was cancelled.',
+  linkedin_state: 'LinkedIn sign-in could not be verified. Please try connecting again.',
+  linkedin_failed: 'LinkedIn sign-in did not complete. Please try again.',
+  twitter_not_configured: `${X_UNAVAILABLE}.`,
+  twitter_denied: 'X sign-in was cancelled.',
+  twitter_state: 'X sign-in could not be verified. Please try connecting again.',
+  twitter_expired: 'The X sign-in session expired. Please try connecting again.',
+  twitter_failed: 'X sign-in did not complete. Please try again.',
+};
+const authErrorText = (code) => AUTH_ERRORS[String(code || '')] || 'Sign-in did not complete. Please try again.';
 
-      const hitCount = terms.reduce((count, term) => count + (haystack.includes(term) ? 1 : 0), 0);
-      if (hitCount === 0 && terms.length > 0) return null;
+const formatDate = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso.length === 10 ? `${iso}T00:00:00Z` : iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', ...(iso.length === 10 ? { timeZone: 'UTC' } : {}) });
+};
+const formatTime = (iso) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+};
 
-      return {
-        ...conn,
-        relevance: hitCount >= 2 ? 'High' : (hitCount === 1 ? 'Medium' : 'Low'),
-        reasoning: hitCount > 0
-          ? `Matched ${hitCount} query term${hitCount > 1 ? 's' : ''}.`
-          : 'Included as broad fallback.',
-        category: conn.company || conn.organization || '',
-      };
-    })
-    .filter(Boolean)
-    .slice(0, 25);
+async function readJson(response) {
+  try { return await response.json(); } catch { return {}; }
+}
 
-  return {
-    status: 'fail-soft',
-    matches: matches.map((m) => ({ id: m.id, relevance: m.relevance, reasoning: m.reasoning })),
-    filteredConnections: matches,
-    summary: matches.length > 0
-      ? `Found ${matches.length} matching connection${matches.length > 1 ? 's' : ''} with local analysis.`
-      : 'No matching connections found in your loaded network.',
-    responseText: matches.length > 0
-      ? `Found ${matches.length} connections matching your search: "${query}"`
-      : `No connections found matching your search: "${query}"`,
-    degradedSources: ['network-analyze-api'],
-    error: null
-  };
+/** Small brand marks for the import cards (no brand icon set is loaded). */
+function SourceMark({ source }) {
+  if (source === 'linkedin') {
+    return <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#0077B5] text-[11px] font-bold text-white" aria-hidden="true">in</span>;
+  }
+  if (source === 'x') {
+    return <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-ink text-[12px] font-bold text-white" aria-hidden="true">X</span>;
+  }
+  return <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600" aria-hidden="true"><HiOutlineDocumentText style={{ width: 16, height: 16 }} /></span>;
+}
+
+function SourceBadge({ source }) {
+  return (
+    <span className="chip">
+      <span className="inline-block h-2 w-2 rounded-full" style={{ background: SOURCE_COLORS[source] || SOURCE_COLORS.csv }} />
+      {SOURCE_LABELS[source] || source}
+    </span>
+  );
+}
+
+function ContactActions({ name, company }) {
+  if (!company && !name) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {company && (
+        <>
+          <Link href={`/company/${encodeURIComponent(company)}`} className="btn-primary px-3 py-1.5 text-xs">Company profile</Link>
+          <Link href={`/?q=${encodeURIComponent(company)}`} className="btn-secondary px-3 py-1.5 text-xs">Search company</Link>
+        </>
+      )}
+      {name && (
+        <Link
+          href={`/founder?name=${encodeURIComponent(name)}${company ? `&company=${encodeURIComponent(company)}` : ''}`}
+          className="btn-secondary px-3 py-1.5 text-xs"
+        >
+          Founder check
+        </Link>
+      )}
+    </div>
+  );
+}
+
+function ResultRow({ item, onShow }) {
+  const c = item.contact;
+  return (
+    <li className="py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => onShow(c)} className="text-left text-sm font-medium text-ink hover:text-brand-600">{c.name}</button>
+            {c.company && <span className="chip">{c.company}</span>}
+          </div>
+          <div className="mt-0.5 truncate text-sm text-slate-600">{c.position || (c.company ? '' : 'No title or company listed')}</div>
+          {item.reasons.length > 0 && <p className="mt-1 text-xs text-muted">{item.reasons.join(' · ')}</p>}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <SourceBadge source={c.source} />
+          {c.profileUrl && (
+            <a href={c.profileUrl} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
+              Profile <HiOutlineArrowTopRightOnSquare style={{ width: 12, height: 12 }} />
+            </a>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function Count({ label, value, hint }) {
+  return (
+    <div className="text-right">
+      <div className="eyebrow">{label}</div>
+      <div className="text-lg font-semibold tracking-tight text-ink">{fmt(value)}</div>
+      {hint && <div className="text-xs text-muted">{hint}</div>}
+    </div>
+  );
 }
 
 export default function NetworkPage() {
   const router = useRouter();
-  const { error, auth, code, state } = router.query;
-  
-  // Store last check time in a ref to prevent redundant Twitter checks
-  const lastTwitterCheckRef = React.useRef(0);
-  
-  const [connectionStatus, setConnectionStatus] = useState({
-    LinkedIn: false,
-    Twitter: false
-  });
-  
-  const [errorMessage, setErrorMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [networkData, setNetworkData] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState(null);
-  const [showConnectionWarning, setShowConnectionWarning] = useState(false);
-  
-  // Effect to handle network data updates and visualization
-  useEffect(() => {
-    // Check if the network data is loaded and should display
-    if (networkData) {
-      // Check if there are any connections to display
-      if (networkData.connections?.length > 0) {
-        console.log('Network data loaded with connections, can visualize now');
-        // Clear any existing error messages about connection issues
-        if (errorMessage && errorMessage.includes('but no network data was found')) {
-          setErrorMessage('');
-        }
-      } else {
-        // Show a helpful message when the user is connected but no data loaded
-        console.log('Network connected but no connections found');
-        if ((connectionStatus.LinkedIn || connectionStatus.Twitter) && !errorMessage) {
-          setErrorMessage(`Your account is connected, but no network data was found. This might be because you're using a new account or don't have any connections yet.`);
-        }
-      }
+  const { data: session, status: sessionStatus } = useSession();
+  const signedIn = sessionStatus === 'authenticated';
+
+  const [contacts, setContacts] = useState([]);
+  const [mode, setMode] = useState('loading'); // loading | saved | memory
+  const [stats, setStats] = useState(null);
+  const [memoryImports, setMemoryImports] = useState({});
+  const [loadError, setLoadError] = useState('');
+  const [notice, setNotice] = useState(null); // { kind: 'error'|'success'|'info', text }
+  const [busy, setBusy] = useState(null);
+
+  const [linkedin, setLinkedin] = useState({ checked: false, connected: false, name: '', configured: true });
+  const [xStatus, setXStatus] = useState({ checked: false, connected: false, username: '', note: '', configured: true });
+  // Shown inline when a connection is offered but not available on this deployment.
+  const [unavailable, setUnavailable] = useState({ linkedin: false, x: false });
+
+  const [sourceFilter, setSourceFilter] = useState({ linkedin: true, csv: true, x: true });
+  const [companyFilter, setCompanyFilter] = useState('');
+  const [graphSearch, setGraphSearch] = useState('');
+  const [expanded, setExpanded] = useState(() => new Set());
+  const [selected, setSelected] = useState(null);
+
+  const [question, setQuestion] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [answer, setAnswer] = useState(null);
+  const [askError, setAskError] = useState('');
+
+  const graphBoxRef = useRef(null);
+  const [graphWidth, setGraphWidth] = useState(0);
+  const linkedinInput = useRef(null);
+  const genericInput = useRef(null);
+
+  // ------------------------------------------------------------ loading
+
+  const loadSaved = useCallback(async () => {
+    const response = await fetch('/api/network/contacts');
+    const data = await readJson(response);
+    if (response.status === 503) {
+      setMode('memory');
+      setLoadError('Saving is not available right now (no database is configured), so your network is kept in this tab only.');
+      return;
     }
-  }, [networkData, connectionStatus, errorMessage]);
-  
-  // Clear error message when navigating away
-  useEffect(() => {
-    return () => setErrorMessage('');
+    if (!response.ok) throw new Error(data.error || `Could not load your network (${response.status})`);
+    setContacts(Array.isArray(data.contacts) ? data.contacts : []);
+    setStats(data.stats || null);
+    setMode('saved');
+    setLoadError('');
   }, []);
-  
-  // Handle authentication status and errors from URL params
+
   useEffect(() => {
-    if (error) {
-      setErrorMessage(decodeURIComponent(error));
-      // Remove error from URL
-      router.replace('/network', undefined, { shallow: true });
+    if (sessionStatus === 'loading') return;
+    if (sessionStatus !== 'authenticated') {
+      setMode('memory');
+      return;
     }
-    
-    // Handle auth success parameters
-    if (auth) {
-      if (auth === 'linkedin_success') {
-        setConnectionStatus(prev => ({
-          ...prev,
-          LinkedIn: true
-        }));
-        // Fetch LinkedIn connections
-        fetchLinkedInData();
-      } else if (auth === 'twitter_success') {
-        setConnectionStatus(prev => ({
-          ...prev,
-          Twitter: true
-        }));
-        // Fetch Twitter network data
-        fetchTwitterData();
-      }
-      
-      // Remove auth from URL
-      router.replace('/network', undefined, { shallow: true });
-    }
-    
-    // Handle LinkedIn OAuth callback
-    if (code && state) {
-      handleLinkedInCallback(code, state);
-    }
-  }, [error, auth, code, state, router]);
-  
-  // Check if user is already authenticated with LinkedIn and Twitter
-  useEffect(() => {
-    const checkAuthStatus = async () => {
-      try {
-        setIsLoading(true);
-        console.log('Checking LinkedIn authentication status');
-        const linkedinResponse = await axios.get('/api/auth/linkedin/token');
-        
-        if (linkedinResponse.data.isAuthenticated) {
-          console.log('User is authenticated with LinkedIn', linkedinResponse.data.user);
-          setConnectionStatus(prev => ({
-            ...prev,
-            LinkedIn: true
-          }));
-          // Fetch LinkedIn connections if authenticated
-          fetchLinkedInData();
-        } else {
-          console.log('User is not authenticated with LinkedIn');
-          if (linkedinResponse.data.error) {
-            console.warn('LinkedIn auth status error:', linkedinResponse.data.error);
-          }
-        }
-        
-        // Check Twitter authentication status with better retry handling
-        console.log('Checking Twitter authentication status');
-        
-        // Check if we've recently checked Twitter auth status
-        const now = Date.now();
-        
-        // Skip check if we've checked in the last 10 seconds
-        if (now - lastTwitterCheckRef.current < 10000) {
-          console.log('Skipping Twitter check - too recent');
-          setIsLoading(false);
-          // Use cached status
-          return;
-        }
-        
-        // Update the timestamp for this check
-        lastTwitterCheckRef.current = now;
-        
-        let retryCount = 0;
-        const maxRetries = 1; // Only retry once with longer delays
-        
-        const checkTwitterAuth = async () => {
-          try {
-            // Use exponential backoff with jitter for retries
-            if (retryCount > 0) {
-              // Base delay of 6 seconds, with exponential backoff and random jitter
-              const baseDelay = 6000;
-              const maxDelay = 30000; // Cap at 30 seconds
-              const exponentialDelay = Math.min(baseDelay * Math.pow(1.5, retryCount-1), maxDelay);
-              const jitter = Math.random() * 2000; // Add up to 2 seconds of jitter
-              const delayMs = exponentialDelay + jitter;
-              
-              console.log(`Waiting ${Math.round(delayMs/1000)}s before retrying Twitter auth check (retry #${retryCount})...`);
-              await new Promise(resolve => setTimeout(resolve, delayMs));
-            }
-            
-            const twitterResponse = await axios.get('/api/auth/twitter/token', { 
-              validateStatus: false,
-              // Add cache busting to avoid browser caching the 429 response
-              params: { 
-                _t: Date.now(),
-                retry: retryCount // Pass retry count to API for logging
-              } 
-            });
-            
-            // Handle rate limiting specially
-            if (twitterResponse.status === 429) {
-              // Extract retry-after if available
-              const retryAfter = twitterResponse.data?.retryAfter || 
-                                 twitterResponse.headers?.['retry-after'] || 15;
-              
-              // Get nextReset time if available
-              const nextReset = twitterResponse.data?.nextReset || null;
-              const nextResetMessage = nextReset ? ` (reset at ${new Date(nextReset).toLocaleTimeString()})` : '';
-                                 
-              console.warn(`Twitter API rate limited. Retry after ${retryAfter}s${nextResetMessage}`);
-              
-              // Show a more user-friendly error
-              setErrorMessage(`Twitter connection check is temporarily unavailable due to rate limiting. Please try again in ${retryAfter} seconds.`);
-              
-              // Set Twitter status to false but don't treat as a full error
-              setConnectionStatus(prev => ({
-                ...prev,
-                Twitter: false
-              }));
-              
-              // Only retry once with a longer delay
-              if (retryCount < maxRetries) {
-                retryCount++;
-                // Wait longer before retrying (at least 8 seconds)
-                const waitTime = Math.max(retryAfter * 1000, 8000);
-                console.log(`Will retry Twitter auth check in ${waitTime/1000}s`);
-                setTimeout(checkTwitterAuth, waitTime);
-                return;
-              } else {
-                // Stop loading state after max retries
-                setIsLoading(false);
-                return;
-              }
-            }
-            
-            // Process the response even if it's an error code
-            if (twitterResponse.status === 200 && twitterResponse.data.authenticated) {
-              console.log('User is authenticated with Twitter', twitterResponse.data.profile);
-              setConnectionStatus(prev => ({
-                ...prev,
-                Twitter: true
-              }));
-              
-              // Clear any error message about rate limiting
-              if (errorMessage && errorMessage.includes('rate limit')) {
-                setErrorMessage('');
-              }
-              
-              // Fetch Twitter connections if authenticated
-              fetchTwitterData();
-            } else {
-              // User not authenticated or auth expired - don't treat as error
-              console.log('User is not authenticated with Twitter');
-              setConnectionStatus(prev => ({
-                ...prev,
-                Twitter: false
-              }));
-              
-              if (twitterResponse.data?.error) {
-                console.warn('Twitter auth status:', twitterResponse.data.error);
-                
-                // Only show rate limit errors to the user
-                if (twitterResponse.data.rateLimited) {
-                  setErrorMessage(`Twitter API ${twitterResponse.data.error}`);
-                }
-              }
-            }
-          } catch (twitterError) {
-            // Only log real errors, not auth status
-            console.warn('Twitter auth check failed:', twitterError.message);
-            setConnectionStatus(prev => ({
-              ...prev,
-              Twitter: false
-            }));
-          }
-        };
-        
-        // Start the Twitter auth check process
-        await checkTwitterAuth();
-      } catch (error) {
-        console.error('Failed to check authentication status:', error.response?.data || error.message);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    checkAuthStatus();
-  }, []);
-  
-  const fetchLinkedInData = async () => {
+    setMode('loading');
+    loadSaved().catch((error) => {
+      setMode('memory');
+      setLoadError(`${error.message}. Imports will be kept in this tab only.`);
+    });
+  }, [sessionStatus, loadSaved]);
+
+  const checkSocial = useCallback(async () => {
     try {
-      setIsLoading(true);
-      console.log('Fetching LinkedIn network data');
-      const response = await axios.get('/api/network/linkedin/index');
-      
-      if (response.data && (response.data.connections || response.data.networksData)) {
-        console.log('Successfully retrieved LinkedIn network data:', 
-          response.data.connections ? `${response.data.connections.length} connections` : 'No connections');
-        
-        // Merge with existing networkData or set as new networkData
-        setNetworkData(prevData => {
-          if (!prevData) {
-            return response.data;
-          }
-          
-          // Mark LinkedIn connections with a source field
-          const linkedinConnections = (response.data.connections || []).map(conn => ({
-            ...conn,
-            source: 'linkedin'
-          }));
-          
-          // Keep only connections from other sources (like Twitter)
-          const nonLinkedinConnections = (prevData.connections || []).filter(conn => 
-            conn.source !== 'linkedin'
-          );
-          
-          return {
-            // Preserve user data if it exists
-            user: response.data.user || prevData.user,
-            // Maintain Twitter user data if it exists
-            twitterUser: prevData.twitterUser,
-            twitterNetworkData: prevData.twitterNetworkData,
-            // LinkedIn specific data
-            linkedinNetworkData: response.data.networksData,
-            // Merge connections from both sources
-            connections: [
-              ...nonLinkedinConnections,
-              ...linkedinConnections
-            ],
-            // Preserve any analyzed connections
-            analyzedConnections: prevData.analyzedConnections,
-            useAnalyzedConnections: prevData.useAnalyzedConnections
-          };
-        });
+      const r = await fetch('/api/auth/linkedin/token');
+      const d = await readJson(r);
+      const name = [d.user?.firstName, d.user?.lastName].filter(Boolean).join(' ');
+      setLinkedin({ checked: true, connected: Boolean(d.isAuthenticated), name, configured: d.configured !== false });
+    } catch {
+      setLinkedin({ checked: true, connected: false, name: '', configured: true });
+    }
+    try {
+      const r = await fetch('/api/auth/twitter/token');
+      const d = await readJson(r);
+      const configured = d.configured !== false;
+      if (r.status === 429) {
+        setXStatus({ checked: true, connected: false, username: '', note: 'X status is temporarily unavailable (rate limited).', configured });
       } else {
-        console.error('LinkedIn data response is missing expected data structure:', response.data);
-        setErrorMessage('Received incomplete data from LinkedIn API');
+        setXStatus({ checked: true, connected: Boolean(d.authenticated), username: d.profile?.username || '', note: '', configured });
       }
-    } catch (error) {
-      console.error('Failed to fetch LinkedIn data:', error.response?.data || error.message);
-      const errorDetails = error.response?.data?.error || error.message || 'Unknown error';
-      setErrorMessage(`Failed to fetch network data from LinkedIn: ${errorDetails}`);
-      
-      // If we got a 401, the token might be expired - update connection status
-      if (error.response?.status === 401) {
-        setConnectionStatus(prev => ({
-          ...prev,
-          LinkedIn: false
-        }));
-        console.log('LinkedIn session expired, updating connection status to disconnected');
-      }
-    } finally {
-      setIsLoading(false);
+    } catch {
+      setXStatus({ checked: true, connected: false, username: '', note: '', configured: true });
     }
-  };
-  
-  const fetchTwitterData = async () => {
-    try {
-      setIsLoading(true);
-      console.log('Fetching Twitter network data');
-      
-      // Better error handling with timeout
-      const response = await axios.get('/api/network/twitter', {
-        timeout: 10000, // 10 second timeout
-        validateStatus: status => status < 500 // Handle 500 errors manually
-      }).catch(error => {
-        console.error('Twitter network fetch failed:', error.message);
-        // Explicitly handle network errors
-        if (error.code === 'ECONNABORTED') {
-          throw new Error('Connection to Twitter API timed out');
-        }
-        throw error;
+  }, []);
+
+  useEffect(() => { checkSocial(); }, [checkSocial]);
+
+  // OAuth callbacks come back as ?auth=linkedin_success / ?error=...
+  useEffect(() => {
+    if (!router.isReady) return;
+    const { error, auth } = router.query;
+    if (!error && !auth) return;
+    if (error) setNotice({ kind: 'error', text: authErrorText(error) });
+    if (auth === 'linkedin_success') setNotice({ kind: 'success', text: 'LinkedIn connected (profile only). Upload Connections.csv to add your connections.' });
+    if (auth === 'twitter_success') setNotice({ kind: 'success', text: 'X connected.' });
+    checkSocial();
+    router.replace('/network', undefined, { shallow: true });
+  }, [router.isReady, router.query, router, checkSocial]);
+
+  // Graph width follows its container.
+  useEffect(() => {
+    const el = graphBoxRef.current;
+    if (!el) return undefined;
+    const update = () => setGraphWidth(Math.max(280, Math.floor(el.clientWidth)));
+    update();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update);
+      return () => window.removeEventListener('resize', update);
+    }
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [contacts.length > 0]);
+
+  // ------------------------------------------------------------ import
+
+  /**
+   * Save (signed in) or keep (signed out) one source's contacts. Returns the
+   * notice text; `fileTruncated` is how many the parser already dropped at
+   * the 30,000 limit, so the counts in the notice add up.
+   */
+  const saveSource = async (source, list, { fileTruncated = 0 } = {}) => {
+    const deduped = dedupeContacts(list).slice(0, MAX_CONTACTS);
+    const overLimit = (n) => `${fmt(n)} over the ${fmt(MAX_CONTACTS)} limit were not ${mode === 'saved' ? 'saved' : 'loaded'}`;
+    if (mode === 'saved') {
+      const body = JSON.stringify({ source, contacts: deduped });
+      if (body.length > MAX_BODY_BYTES) {
+        throw new Error(`This import is too large to save in one go (${(body.length / 1048576).toFixed(1)} MB; the limit is 14 MB). Remove unneeded columns such as notes or tags, or split the file, and try again.`);
+      }
+      const response = await fetch('/api/network/contacts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
       });
-      
-      if (response.data && response.data.user) {
-        console.log('Successfully retrieved Twitter network data:', response.data);
-        // Merge with existing networkData or set as new networkData
-        setNetworkData(prevData => {
-          if (!prevData) {
-            return response.data;
-          }
-          
-          // Merge the Twitter data with existing LinkedIn data
-          return {
-            ...prevData,
-            twitterUser: response.data.user,
-            twitterNetworkData: response.data.networksData,
-            // Add any Twitter connections to the connections array
-            connections: [
-              ...(prevData.connections || []),
-              // Add Twitter contacts as connections with a source field
-              ...(response.data.networksData?.nodes?.filter(node => node.id !== 'user') || []).map(node => ({
-                firstName: node.name,
-                source: 'twitter',
-                id: node.id
-              }))
-            ]
-          };
-        });
-      } else {
-        console.error('Twitter data response is missing expected data structure:', response.data);
-        setErrorMessage('Received incomplete data from Twitter API');
+      const data = await readJson(response);
+      if (response.status !== 503) {
+        if (response.status === 413) throw new Error('The server refused this import because it is too large (over 15 MB). Split the file and try again.');
+        if (response.status === 400 && !data.error) throw new Error('The server could not read this import. Please try the upload again.');
+        if (!response.ok) throw new Error(data.error || `Import failed (${response.status})`);
+        if (Array.isArray(data.contacts)) {
+          // The server returns what it saved for this source: merge it in
+          // instead of downloading the whole network again.
+          setContacts((prev) => [...prev.filter((c) => c.source !== source), ...data.contacts]);
+          if (data.stats) setStats(data.stats);
+        } else {
+          await loadSaved();
+        }
+        const extra = [
+          data.duplicates ? `${fmt(data.duplicates)} already saved from another source` : '',
+          (Number(data.truncated) || 0) + fileTruncated ? overLimit((Number(data.truncated) || 0) + fileTruncated) : '',
+        ].filter(Boolean).join('; ');
+        return `Saved ${fmt(data.saved)} ${SOURCE_LABELS[source]} contacts to your account${extra ? ` (${extra})` : ''}.`;
       }
-    } catch (error) {
-      console.error('Failed to fetch Twitter data:', error.response?.data || error.message);
-      
-      // Enhanced error handling with more detailed messages
-      if (error.response?.status === 429) {
-        const retryAfter = error.response.data?.retryAfter || 
-                           error.response.headers?.['retry-after'] || 60;
-        setErrorMessage(`Twitter API rate limited. Please try again in ${retryAfter} seconds.`);
-      } else if (error.response?.status === 401) {
-        setErrorMessage('Twitter authentication expired. Please reconnect your X account.');
-        // Update connection status
-        setConnectionStatus(prev => ({
-          ...prev,
-          Twitter: false
-        }));
-      } else if (error.response?.status === 500) {
-        // Log detailed error for debugging
-        console.error('Twitter API 500 error details:', error.response?.data);
-        
-        setErrorMessage('Error connecting to X. The service may be temporarily unavailable.');
-      } else {
-        // Include more error details
-        const errorDetails = error.response?.data?.error || error.message || 'Unknown error';
-        const additionalDetails = error.response?.data?.details || '';
-        setErrorMessage(`Failed to fetch network data from X: ${errorDetails}${additionalDetails ? ` (${additionalDetails})` : ''}`);
-      }
-      
-      // If we got a 401, the token might be expired - update connection status
-      if (error.response?.status === 401) {
-        setConnectionStatus(prev => ({
-          ...prev,
-          Twitter: false
-        }));
-        console.log('Twitter session expired, updating connection status to disconnected');
-      }
-    } finally {
-      setIsLoading(false);
+      setMode('memory');
+      setLoadError('Saving is not available right now (no database is configured), so your network is kept in this tab only.');
     }
+    // Signed out: merge in memory, then report what is actually there.
+    const others = contacts.filter((c) => c.source !== source);
+    const merged = dedupeContacts([...others, ...deduped]);
+    const kept = merged.slice(0, MAX_CONTACTS);
+    const loaded = kept.filter((c) => c.source === source).length;
+    const dropped = merged.length - kept.length + fileTruncated;
+    const dupes = others.length + deduped.length - merged.length;
+    setContacts(kept);
+    setMemoryImports((prev) => ({ ...prev, [source]: new Date().toISOString() }));
+    const extra = [
+      dupes ? `${fmt(dupes)} already loaded from another source` : '',
+      dropped ? overLimit(dropped) : '',
+    ].filter(Boolean).join('; ');
+    return `Loaded ${fmt(loaded)} ${SOURCE_LABELS[source]} contacts into this tab${extra ? ` (${extra})` : ''}.`;
   };
-  
-  const handleConnect = (source) => {
-    // Clear any previous error messages
-    setErrorMessage('');
-    
-    // Add delay between connection attempts to avoid rate limits
-    const lastConnectAttempt = localStorage.getItem(`last_connect_${source}`);
-    const now = Date.now();
-    
-    if (lastConnectAttempt && (now - parseInt(lastConnectAttempt)) < 5000) {
-      setErrorMessage(`Please wait a moment before trying to connect to ${source} again.`);
+
+  const handleFile = async (event, kind) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setNotice(null);
+    if (file.size > MAX_FILE_BYTES) {
+      setNotice({ kind: 'error', text: 'That file is larger than 25 MB. Export only the contacts you need and try again.' });
       return;
     }
-    
-    // Record this connection attempt
-    localStorage.setItem(`last_connect_${source}`, now.toString());
-    
-    if (source === 'LinkedIn') {
-      if (connectionStatus.LinkedIn) {
-        // Disconnect from LinkedIn
-        handleDisconnect('linkedin');
-      } else {
-        // Delegate OAuth URL creation to server-side handler for consistent env/callback handling.
-        window.location.href = '/api/auth/linkedin';
-      }
-    } else if (source === 'Twitter') {
-      if (connectionStatus.Twitter) {
-        // Disconnect from Twitter
-        handleDisconnect('twitter');
-      } else {
-        // Delegate OAuth URL creation to server-side handler for consistent env/callback handling.
-        window.location.href = '/api/auth/twitter';
-      }
-    }
-  };
-  
-  const handleDisconnect = async (service) => {
+    setBusy(kind);
     try {
-      await axios.get(`/api/auth/${service}/logout`);
-      setConnectionStatus(prev => ({
-        ...prev,
-        [service.charAt(0).toUpperCase() + service.slice(1)]: false
-      }));
-      setNetworkData(null);
+      const parsed = await parseContactsFile(file, { kind });
+      if (!parsed.headerFound) {
+        let text;
+        if (parsed.reason === 'not-linkedin') {
+          text = 'This is a contacts file, not LinkedIn\'s Connections.csv (no First Name, Last Name and Connected On columns), so it was not imported. Use "Upload CSV/XLSX contacts" for it; your LinkedIn import is unchanged.';
+        } else if (kind === 'linkedin') {
+          text = 'This does not look like LinkedIn\'s Connections.csv: no header row with First Name, Last Name, Company, Position and Connected On was found.';
+        } else {
+          text = 'No contacts found: the file needs a header row with a name column (Name, or First Name and Last Name) and ideally Company and Title.';
+        }
+        setNotice({ kind: 'error', text });
+        return;
+      }
+      if (!parsed.contacts.length) {
+        setNotice({ kind: 'error', text: 'The file has a header row but no contacts with a name.' });
+        return;
+      }
+      const message = await saveSource(parsed.source, parsed.contacts, { fileTruncated: parsed.truncated || 0 });
+      const details = [
+        parsed.skippedRows ? `${fmt(parsed.skippedRows)} rows without a name were skipped.` : '',
+        parsed.duplicates ? `${fmt(parsed.duplicates)} duplicate rows in the file were merged.` : '',
+      ].filter(Boolean).join(' ');
+      setNotice({ kind: 'success', text: `${message}${details ? ` ${details}` : ''}` });
+      setAnswer(null);
     } catch (error) {
-      console.error(`Failed to disconnect from ${service}:`, error);
-      setErrorMessage(`Failed to disconnect from ${service}`);
-    }
-  };
-  
-  // Handle LinkedIn OAuth callback directly in the frontend
-  const clearNetworkSearch = () => {
-    setSearchResults(null);
-    setSearchQuery('');
-    
-    // Reset visualization to use default connections
-    if (networkData) {
-      setNetworkData(prevData => ({
-        ...prevData,
-        useAnalyzedConnections: false
-      }));
+      setNotice({ kind: 'error', text: `Import failed: ${error.message}` });
+    } finally {
+      setBusy(null);
     }
   };
 
-  const handleNetworkSearch = async (e) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) {
-      clearNetworkSearch();
+  const importX = async () => {
+    setBusy('x');
+    setNotice(null);
+    try {
+      const response = await fetch('/api/network/twitter');
+      const data = await readJson(response);
+      if (response.status === 401) {
+        setXStatus((s) => ({ ...s, connected: false }));
+        throw new Error('Your X session expired. Connect X again.');
+      }
+      if (!response.ok) throw new Error(data.error || `X request failed (${response.status})`);
+      if (!data.followingAvailable) {
+        setXStatus((s) => ({ ...s, note: data.note || data.error || 'X did not return your following list.' }));
+        setNotice({ kind: 'info', text: data.note || data.error || 'X did not return your following list.' });
+        return;
+      }
+      const parsed = parseXFollowing({ data: data.following || [] });
+      if (!parsed.contacts.length) {
+        setNotice({ kind: 'info', text: 'X returned an empty following list.' });
+        return;
+      }
+      const message = await saveSource('x', parsed.contacts, { fileTruncated: parsed.truncated || 0 });
+      const dupes = parsed.duplicates ? ` ${fmt(parsed.duplicates)} duplicate accounts were merged.` : '';
+      setNotice({ kind: 'success', text: `${message}${dupes}${data.note ? ` ${data.note}` : ''}` });
+    } catch (error) {
+      setNotice({ kind: 'error', text: error.message });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const disconnect = async (service) => {
+    try {
+      await fetch(`/api/auth/${service}/logout`);
+    } catch {
+      // cookies are cleared server side; nothing else to do
+    }
+    if (service === 'linkedin') setLinkedin((s) => ({ ...s, checked: true, connected: false, name: '' }));
+    else setXStatus((s) => ({ ...s, checked: true, connected: false, username: '', note: '' }));
+  };
+
+  const removeAll = async () => {
+    if (!contacts.length) return;
+    const where = mode === 'saved' ? 'from your account' : 'from this tab';
+    if (typeof window !== 'undefined' && !window.confirm(`Remove all ${contacts.length.toLocaleString('en-US')} contacts ${where}? This cannot be undone.`)) return;
+    setBusy('delete');
+    try {
+      if (mode === 'saved') {
+        const response = await fetch('/api/network/contacts', { method: 'DELETE' });
+        const data = await readJson(response);
+        if (!response.ok) throw new Error(data.error || `Delete failed (${response.status})`);
+        setStats(data.stats || null);
+      }
+      setContacts([]);
+      setMemoryImports({});
+      setAnswer(null);
+      setSelected(null);
+      setExpanded(new Set());
+      setNotice({ kind: 'success', text: 'All of your network data was removed.' });
+    } catch (error) {
+      setNotice({ kind: 'error', text: error.message });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // ------------------------------------------------------------ graph
+
+  const counts = useMemo(() => countBySource(contacts), [contacts]);
+
+  const visibleContacts = useMemo(() => {
+    const q = companyFilter.trim().toLowerCase();
+    const qKey = normalizeCompanyKey(companyFilter);
+    return contacts.filter((c) => {
+      if (!sourceFilter[c.source]) return false;
+      if (!q) return true;
+      const company = String(c.company || '').toLowerCase();
+      return company.includes(q) || (qKey && normalizeCompanyKey(c.company).includes(qKey));
+    });
+  }, [contacts, sourceFilter, companyFilter]);
+
+  const graph = useMemo(() => buildGraph(visibleContacts, {
+    expanded,
+    meLabel: session?.user?.name ? `You (${session.user.name.split(' ')[0]})` : 'You',
+  }), [visibleContacts, expanded, session?.user?.name]);
+
+  const answerKeys = useMemo(() => {
+    if (!answer) return null;
+    const keys = new Set();
+    (answer.results || []).forEach((r) => keys.add(r.contact.key));
+    (answer.intro?.viaInvestors || []).forEach((g) => g.contacts.forEach((r) => keys.add(r.contact.key)));
+    return keys;
+  }, [answer]);
+
+  const highlightIds = useMemo(() => {
+    const ids = new Set();
+    const term = graphSearch.trim().toLowerCase();
+    if (!term && !answerKeys) return ids;
+    for (const c of visibleContacts) {
+      const hitSearch = term && [c.name, c.company, c.position].some((v) => String(v || '').toLowerCase().includes(term));
+      const hitAnswer = answerKeys && answerKeys.has(dedupeKey(c));
+      if (hitSearch || hitAnswer) {
+        ids.add(personNodeId(c));
+        ids.add(companyNodeId(normalizeCompanyKey(c.company) || NO_COMPANY_KEY));
+      }
+    }
+    return ids;
+  }, [graphSearch, answerKeys, visibleContacts]);
+
+  // Count only people actually drawn: in a large network most highlighted
+  // people sit in companies that are not expanded.
+  const highlightedPeople = useMemo(() => {
+    let n = 0;
+    const drawn = new Set(graph.nodes.map((node) => node.id));
+    highlightIds.forEach((id) => { if (id.startsWith('p:') && drawn.has(id)) n += 1; });
+    return n;
+  }, [highlightIds, graph]);
+  const highlightedTotal = useMemo(() => {
+    let n = 0;
+    highlightIds.forEach((id) => { if (id.startsWith('p:')) n += 1; });
+    return n;
+  }, [highlightIds]);
+
+  const selectContact = (contact) => {
+    const key = normalizeCompanyKey(contact.company) || NO_COMPANY_KEY;
+    if (graph.large) setExpanded((prev) => new Set(prev).add(key));
+    const full = contacts.find((c) => dedupeKey(c) === contact.key) || contact;
+    setSelected({ type: 'person', id: personNodeId(full), contact: full });
+    graphBoxRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  };
+
+  const onNodeClick = (node) => {
+    if (node.type === 'person') {
+      setSelected({ type: 'person', id: node.id, contact: node.contact });
+    } else if (node.type === 'company') {
+      // Clicking always shows the company's people; hiding is an explicit button
+      // (a toggle here would collapse again on a double click).
+      if (graph.large && !expanded.has(node.key)) setExpanded((prev) => new Set(prev).add(node.key));
+      setSelected({ type: 'company', id: node.id, key: node.key, label: node.label, count: node.count });
+    } else {
+      setSelected(null);
+    }
+  };
+
+  const selectedCompanyPeople = useMemo(() => {
+    if (selected?.type !== 'company') return [];
+    return visibleContacts
+      .filter((c) => (normalizeCompanyKey(c.company) || NO_COMPANY_KEY) === selected.key)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [selected, visibleContacts]);
+
+  // ------------------------------------------------------------ ask
+
+  const ask = async (text, { target } = {}) => {
+    const q = String(text ?? question).trim();
+    if (!q && !target) return;
+    if (!contacts.length) {
+      setAskError('Import your contacts first: there is nothing to search yet.');
       return;
     }
-    
+    setAsking(true);
+    setAskError('');
     try {
-      setIsSearching(true);
-      setErrorMessage('');
-      
-      // Get the available network data to include in the request
-      const networkDataToSend = {
-        connections: networkData?.connections || [],
-        user: networkData?.user || {},
-        twitterUser: networkData?.twitterUser,
-        linkedInConnected: connectionStatus.LinkedIn,
-        twitterConnected: connectionStatus.Twitter
-      };
-      
-      console.log('Submitting network analysis query:', searchQuery);
-      
-      let resultPayload = null;
-
-      try {
-        // Try API analysis first.
-        const response = await axios.post('/api/network/analyze', {
-          query: searchQuery,
-          networkData: networkDataToSend
-        });
-        resultPayload = response?.data || null;
-      } catch (apiError) {
-        console.warn('Network analyze API unavailable, using local fallback:', apiError?.response?.status || apiError?.message);
-        resultPayload = runLocalNetworkAnalysis(searchQuery, networkDataToSend.connections || []);
-      }
-
-      // Guard against malformed or non-network payloads.
-      if (!resultPayload || typeof resultPayload !== 'object' || !Array.isArray(resultPayload.filteredConnections)) {
-        resultPayload = runLocalNetworkAnalysis(searchQuery, networkDataToSend.connections || []);
-      }
-
-      console.log('Network analysis result:', resultPayload);
-      setSearchResults(resultPayload);
-
-      // Update network visualization based on filtered/analyzed data
-      setNetworkData(prevData => ({
-        ...prevData,
-        analyzedConnections: resultPayload.filteredConnections || [],
-        useAnalyzedConnections: true
-      }));
-    } catch (error) {
-      console.error('Network analysis failed:', error.response?.data || error.message);
-      setErrorMessage(`Analysis failed: ${error.response?.data?.error || error.message || 'Unknown error'}`);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-  
-  const handleLinkedInCallback = async (code, state) => {
-    console.log('Handling LinkedIn callback in frontend with code present');
-    try {
-      setIsLoading(true);
-      
-      // Exchange the code for an access token
-      const response = await axios.post('/api/auth/linkedin/token', { code });
-      
-      if (response.data && response.data.success) {
-        console.log('Successfully authenticated with LinkedIn');
-        // Set as connected
-        setConnectionStatus(prev => ({
-          ...prev,
-          LinkedIn: true
+      const body = { question: q, ...(target ? { target } : {}) };
+      if (mode !== 'saved') {
+        // Signed out, the server has no copy: send only what scoring uses
+        // (never email) plus the identity key so results map back to the graph.
+        body.contacts = contacts.map((c) => ({
+          key: dedupeKey(c), name: c.name, company: c.company, position: c.position, location: c.location,
+          profileUrl: c.profileUrl, connectedOn: c.connectedOn, source: c.source, tags: c.tags,
         }));
-        
-        // Fetch LinkedIn data
-        fetchLinkedInData();
-      } else {
-        // Handle unsuccessful authentication
-        console.error('LinkedIn authentication response did not indicate success:', response.data);
-        setErrorMessage(response.data.error || 'Failed to authenticate with LinkedIn');
       }
-      
-      // Always clear the URL params to prevent reprocessing
-      router.replace('/network', undefined, { shallow: true });
+      const response = await fetch('/api/network/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await readJson(response);
+      if (!response.ok) throw new Error(data.error || `Search failed (${response.status})`);
+      setAnswer(data);
+      setSelected(null);
+      if (graph.large) {
+        // Expand the top matches' companies, except very large ones (they
+        // would bury the answer); those stay as a company node to click.
+        const sizes = new Map(graph.nodes.filter((n) => n.type === 'company').map((n) => [n.key, n.count]));
+        const keys = new Set(expanded);
+        [...(data.results || []), ...((data.intro?.viaInvestors || []).flatMap((g) => g.contacts))]
+          .slice(0, 30)
+          .forEach((r) => {
+            const key = normalizeCompanyKey(r.contact.company) || NO_COMPANY_KEY;
+            if ((sizes.get(key) || 0) <= AUTO_EXPAND_MAX_PEOPLE) keys.add(key);
+          });
+        setExpanded(keys);
+      }
     } catch (error) {
-      console.error('Failed to exchange LinkedIn code:', error.response?.data || error.message);
-      const errorDetails = error.response?.data?.details || error.message || 'Unknown error';
-      setErrorMessage(`Failed to authenticate with LinkedIn: ${errorDetails}`);
-      router.replace('/network', undefined, { shallow: true });
+      setAskError(error.message);
     } finally {
-      setIsLoading(false);
+      setAsking(false);
     }
   };
+
+  const askExample = (text) => {
+    setQuestion(text);
+    ask(text);
+  };
+
+  const lastImport = (source) => (mode === 'saved' ? stats?.lastImportBySource?.[source] : memoryImports[source]);
+  const lastImportAny = mode === 'saved' ? stats?.lastImportAt : Object.values(memoryImports).sort().pop();
+  const filtersShown = answer?.filters;
+
+  // ------------------------------------------------------------ render
+
+  const connectLinkedIn = () => {
+    if (linkedin.configured) { window.location.assign('/api/auth/linkedin'); return; }
+    setUnavailable((u) => ({ ...u, linkedin: true }));
+  };
+  const connectX = () => {
+    if (xStatus.configured) { window.location.assign('/api/auth/twitter'); return; }
+    setUnavailable((u) => ({ ...u, x: true }));
+  };
+
   return (
-    <div className="w-full min-h-screen bg-gray-50">
-      <Head>
-        <title>Network Map - Research Hub</title>
-        <meta name="description" content="Visualize your professional network" />
-      </Head>
-      
-      <main className="container mx-auto px-4 py-6">
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-800">Research Hub</h1>
-          <p className="text-gray-600 mt-1">Search across web, academic sources, and more.</p>
-        </div>
-        
-        <Tab.Group>
-          <Tab.List className="flex space-x-2 rounded-xl bg-blue-100 p-1 mb-6 max-w-md mx-auto">
-            <Link href="/" className="w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center bg-blue-100 text-blue-500 hover:bg-white/[0.12] hover:text-blue-700">
-              <FaSearch className="mr-2" /> Open Research
-            </Link>
-            <Tab
-              className={({ selected }) =>
-                classNames(
-                  'w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center',
-                  'focus:outline-none focus:ring-2 ring-offset-2 ring-offset-blue-400 ring-white ring-opacity-60',
-                  selected
-                    ? 'bg-white text-blue-700 shadow'
-                    : 'text-blue-500 hover:bg-white/[0.12] hover:text-blue-700'
-                )
-              }
-            >
-              <FaProjectDiagram className="mr-2" /> Network Map
-            </Tab>
-          </Tab.List>
-        </Tab.Group>
+    <PageShell flows
+      title="Network Map"
+      subtitle="Import your own contacts, see who you know grouped by company, and ask who can make an introduction. Nothing is added that is not in your files."
+      wide
+    >
+      <div className="space-y-5">
+        {notice && (
+          <div
+            role={notice.kind === 'error' ? 'alert' : 'status'}
+            className={classNames(
+              'flex items-start justify-between gap-3 rounded-xl border px-4 py-3 text-sm',
+              notice.kind === 'error' && 'border-rose-200 bg-rose-50 text-rose-700',
+              notice.kind === 'success' && 'border-emerald-200 bg-emerald-50 text-emerald-800',
+              notice.kind === 'info' && 'border-brand-200 bg-brand-50 text-brand-700'
+            )}
+          >
+            <span>{notice.text}</span>
+            <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="shrink-0 opacity-70 hover:opacity-100"><HiOutlineXMark style={ICON} /></button>
+          </div>
+        )}
 
-        {/* Enhanced searchbar and connection tabs in one row */}
-        <div className="mb-8 px-4 py-3 bg-white shadow-md rounded-xl mx-auto max-w-4xl flex items-center gap-4 border border-gray-100">
-          {/* Search bar - more pronounced */}
-          <div className="flex-grow">
-            <form onSubmit={handleNetworkSearch} className="flex w-full">
-              <div className="relative w-full">
-                <input
-                  type="text"
-                  placeholder="Search your network..." 
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    // Show warning if typing without connections
-                    if (!connectionStatus.LinkedIn && !connectionStatus.Twitter && e.target.value && !showConnectionWarning) {
-                      setShowConnectionWarning(true);
-                    }
-                  }}
-                  onFocus={() => {
-                    // Show warning on focus if no connections
-                    if (!connectionStatus.LinkedIn && !connectionStatus.Twitter && !showConnectionWarning) {
-                      setShowConnectionWarning(true);
-                    }
-                  }}
-                  className="w-full h-11 px-4 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-300 shadow-sm"
-                />
-                <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex space-x-2">
-                  {searchResults && (
-                    <button
-                      type="button"
-                      onClick={clearNetworkSearch}
-                      className="bg-gray-200 text-gray-700 p-1.5 rounded-md hover:bg-gray-300 transition-colors"
-                      title="Clear search"
-                    >
-                      ✕
-                    </button>
-                  )}
-                  <button
-                    type="submit"
-                    className="bg-blue-500 text-white p-2 rounded-md hover:bg-blue-600 transition-colors"
-                    disabled={!connectionStatus.LinkedIn && !connectionStatus.Twitter}
-                  >
-                    <FaSearch />
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-          
-          {/* Connection buttons - more pronounced with status indicators */}
-          <div className="flex flex-row gap-3 flex-shrink-0">
-            {[
-              { name: 'LinkedIn', icon: <FaLinkedin size={18} /> },
-              { name: 'Twitter', icon: <FaXTwitter size={18} /> }
-            ].map(({ name, icon }) => {
-              // Determine button state and styling
-              let buttonClass = "flex items-center h-11 px-4 text-sm rounded-md transition-colors font-medium shadow-sm";
-              let statusIndicator = null;
-              
-              if (isLoading && !connectionStatus[name]) {
-                // Loading state
-                buttonClass += " bg-gray-100 text-gray-500 cursor-not-allowed";
-                statusIndicator = (
-                  <div className="ml-2 animate-pulse">
-                    <div className="h-3 w-3 rounded-full bg-gray-300"></div>
-                  </div>
-                );
-              } else if (connectionStatus[name]) {
-                // Connected state - green
-                buttonClass += " bg-green-600 text-white hover:bg-green-700";
-                statusIndicator = <FaCheckCircle className="text-white ml-2" size={14} />;
-              } else {
-                // Not connected state - blue
-                buttonClass += " bg-blue-500 text-white hover:bg-blue-600";
-              }
-              
-              // Not using tab selection highlighting for now
-              /* Removed activeTabIndex reference that was causing an error */
-              
-              return (
-                <button 
-                  key={name}
-                  onClick={() => handleConnect(name)}
-                  disabled={isLoading && !connectionStatus[name]}
-                  className={buttonClass}
-                  title={connectionStatus[name] ? `Disconnect from ${name}` : `Connect to ${name}`}
-                >
-                  <span className="mr-2">{icon}</span>
-                  <span>{connectionStatus[name] ? 'Connected' : 'Connect'}</span>
-                  {statusIndicator}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        
-        {/* Error message display */}
-        {errorMessage && (
-          <div className="mb-4 p-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg flex items-center justify-between w-full max-w-2xl mx-auto shadow-sm">
-            <div className="flex items-center">
-              <FaExclamationCircle className="text-red-500 mr-2 flex-shrink-0" />
-              <span>{errorMessage}</span>
+        {/* ---------------------------------------------------- import */}
+        <section aria-labelledby="import-heading" className="space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 id="import-heading" className="section-title">Your network</h2>
+              <p className="muted">Only your first-degree connections are in these files; nothing else is added.</p>
             </div>
-            <button 
-              onClick={() => setErrorMessage('')} 
-              className="text-red-500 hover:text-red-700 ml-2 p-1"
-              aria-label="Dismiss error"
-            >
-              ×
-            </button>
-          </div>
-        )}
-        
-        {false && (
-          <div className="hidden mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded relative w-full max-w-2xl mx-auto">
-            <div className="flex items-center">
-              <FaExclamationCircle className="mr-2" />
-              <span>{errorMessage}</span>
-            </div>
-          </div>
-        )}
-        
-        {/* Add CSS for animation */}
-        <style>{`
-          @keyframes fadeInDown {
-            from {
-              opacity: 0;
-              transform: translateY(-20px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-          .animate-fade-in-down {
-            animation: fadeInDown 0.3s ease-out forwards;
-          }
-        `}</style>
-        
-        {/* Popup warning when user tries to use search without connecting */}
-        {showConnectionWarning && (
-          <div className="fixed inset-x-0 top-20 flex justify-center items-start z-50 px-4 pointer-events-none animate-fade-in-down">
-            <div className="bg-white border border-amber-300 rounded-lg shadow-lg p-4 max-w-md pointer-events-auto relative">
-              <button 
-                onClick={() => setShowConnectionWarning(false)}
-                className="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
-              >
-                ×
-              </button>
-              <div className="flex items-start space-x-3">
-                <div className="bg-amber-100 rounded-full p-2 flex-shrink-0">
-                  <FaInfoCircle className="text-amber-500 text-lg" />
-                </div>
-                <div>
-                  <h3 className="font-medium text-gray-900">Connect Your Accounts</h3>
-                  <p className="text-gray-600 text-sm mt-1">
-                    To search and visualize your professional network, connect to LinkedIn or Twitter using the buttons.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        
-        {/* Subtle divider */}
-        <div className="relative mb-8">
-          <div className="absolute inset-0 flex items-center" aria-hidden="true">
-            <div className="w-full border-t border-gray-200"></div>
-          </div>
-          <div className="relative flex justify-center">
-            <span className="bg-gray-50 px-4 text-sm text-gray-500">Network Analysis</span>
-          </div>
-        </div>
-        
-        {/* Network visualization with statistics on the right */}
-        <div className="flex flex-col md:flex-row md:justify-between gap-6 mb-6">
-          {/* Main visualization area */}
-          <div className="bg-white rounded-lg shadow-sm p-8 flex-grow">
-            {networkData ? (
-              <div className="min-h-[500px]">
-                <h2 className="text-xl font-semibold mb-2">Network Visualization</h2>
-                <div className="p-4 border border-gray-200 rounded-md h-full relative">
-                  {isSearching ? (
-                    <div className="flex flex-col items-center justify-center min-h-[400px]">
-                      <div className="text-center">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
-                        <p className="text-gray-600">Analyzing your network...</p>
-                        <p className="text-sm text-gray-500 mt-2">Applying AI to understand your query</p>
-                      </div>
-                    </div>
-                  ) : searchResults ? (
-                    <div className="flex flex-col items-center min-h-[400px]">
-                      <div className="w-full mb-4 text-center">
-                        <h3 className="font-medium text-gray-800">{searchResults.responseText}</h3>
-                        <p className="text-sm text-gray-600 mt-1">{searchResults.summary}</p>
-                      </div>
-                      <div className="flex flex-col items-center justify-center relative min-h-[400px] w-full">
-
-                      {/* Center node - the user */}
-                      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10">
-                        <div className="w-24 h-24 rounded-full bg-blue-100 border-4 border-blue-500 flex items-center justify-center shadow-lg">
-                          <div className="text-center">
-                            <div className="font-semibold text-blue-800">{networkData.user.firstName || 'User'}</div>
-                            <div className="text-xs text-blue-600 mt-1">You</div>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Connection nodes */}
-                      {networkData.useAnalyzedConnections && networkData.analyzedConnections 
-                        ? networkData.analyzedConnections.slice(0, 8).map((connection, index) => {
-                            // Calculate position in a circle around the center
-                            const angle = (index * (360 / Math.min(8, networkData.analyzedConnections.length))) * (Math.PI / 180);
-                            const radius = 150; // Distance from center
-                            const left = `calc(50% + ${Math.cos(angle) * radius}px)`;
-                            const top = `calc(50% + ${Math.sin(angle) * radius}px)`;
-                            
-                            return (
-                              <div key={index} 
-                                   className="absolute w-16 h-16 rounded-full bg-blue-50 border-2 border-blue-400 flex items-center justify-center transform -translate-x-1/2 -translate-y-1/2 shadow-md"
-                                   style={{ left, top }}>
-                                <div className="text-center">
-                                  <div className="text-xs font-medium text-blue-800 px-1 truncate">
-                                    {connection.firstName || connection.name || `Contact ${index + 1}`}
-                                  </div>
-                                  {connection.category && (
-                                    <div className="text-xxs text-blue-600 px-1 truncate">{connection.category}</div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })
-                        : networkData.connections && networkData.connections.slice(0, 6).map((connection, index) => {
-                            // Calculate position in a circle around the center
-                            const angle = (index * (360 / Math.min(6, networkData.connections.length))) * (Math.PI / 180);
-                            const radius = 150; // Distance from center
-                            const left = `calc(50% + ${Math.cos(angle) * radius}px)`;
-                            const top = `calc(50% + ${Math.sin(angle) * radius}px)`;
-                            
-                            return (
-                              <div key={index} 
-                                   className="absolute w-16 h-16 rounded-full bg-green-50 border-2 border-green-400 flex items-center justify-center transform -translate-x-1/2 -translate-y-1/2 shadow-md"
-                                   style={{ left, top }}>
-                                <div className="text-center">
-                                  <div className="text-xs font-medium text-green-800 px-1 truncate">
-                                    {connection.firstName || connection.name || `Contact ${index + 1}`}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                      
-                      {/* Connection lines */}
-                      <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 0 }}>
-                        {networkData.useAnalyzedConnections && networkData.analyzedConnections 
-                          ? networkData.analyzedConnections.slice(0, 8).map((connection, index) => {
-                              const angle = (index * (360 / Math.min(8, networkData.analyzedConnections.length))) * (Math.PI / 180);
-                              const radius = 150;
-                              const x2 = Math.cos(angle) * radius;
-                              const y2 = Math.sin(angle) * radius;
-                              
-                              return (
-                                <line key={index} 
-                                      x1="50%" y1="50%" 
-                                      x2={`calc(50% + ${x2}px)`} y2={`calc(50% + ${y2}px)`}
-                                      stroke="#3B82F6" strokeWidth="2" strokeDasharray="4,4" />
-                              );
-                            })
-                          : networkData.connections && networkData.connections.slice(0, 6).map((connection, index) => {
-                              const angle = (index * (360 / Math.min(6, networkData.connections.length))) * (Math.PI / 180);
-                              const radius = 150;
-                              const x2 = Math.cos(angle) * radius;
-                              const y2 = Math.sin(angle) * radius;
-                              
-                              return (
-                                <line key={index} 
-                                      x1="50%" y1="50%" 
-                                      x2={`calc(50% + ${x2}px)`} y2={`calc(50% + ${y2}px)`}
-                                      stroke="#CBD5E0" strokeWidth="2" strokeDasharray="5,5" />
-                              );
-                            })}
-                      </svg>
-                      </div>
-                    </div>
-                  ) : null}
-                  {(!networkData || !networkData.user) && (
-                    <div className="text-center py-8">
-                      <p className="text-gray-500">Network data visualization</p>
-                      <p className="text-sm text-gray-400 mt-2">Connect to see your network</p>
-                    </div>
-                  )}
-                </div>
-              </div>
+            {mode === 'loading' ? (
+              <span className="muted">Loading your network…</span>
             ) : (
-              <div className="flex flex-col items-center justify-center min-h-[500px]">
-                <div className="text-6xl text-blue-500 mb-4">
-                  <FaProjectDiagram />
+              <Count
+                label="Contacts"
+                value={contacts.length}
+                hint={`${mode === 'saved' ? 'Saved to your account' : 'Kept in this tab only'}${lastImportAny ? ` · last import ${formatTime(lastImportAny)}` : ''}`}
+              />
+            )}
+          </div>
+
+          {mode === 'memory' && !signedIn && sessionStatus !== 'loading' && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <Link href="/signin" className="font-medium underline">Sign in to save your network</Link>. Until then, imports stay in this browser tab and are gone when you close it.
+            </div>
+          )}
+          {loadError && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{loadError}</div>
+          )}
+
+          <div className="grid gap-4 md:grid-cols-3">
+            {/* LinkedIn */}
+            <div className="card card-pad flex flex-col">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <SourceMark source="linkedin" />
+                  <h3 className="text-sm font-semibold text-ink">LinkedIn connections</h3>
                 </div>
-                <h2 className="text-xl font-semibold mb-2">Network Visualization</h2>
-                <p className="text-gray-500 mb-6 text-center max-w-md">
-                  Connect to your accounts using the buttons at the top right to visualize your network
-                </p>
+                <Count label="Imported" value={counts.linkedin} hint={lastImport('linkedin') ? formatTime(lastImport('linkedin')) : null} />
+              </div>
+              <ol className="mb-4 list-decimal space-y-1 pl-4 text-xs text-muted">
+                <li>On LinkedIn, open <span className="font-medium text-slate-700">Settings &amp; Privacy → Data privacy → Get a copy of your data</span>.</li>
+                <li>Choose <span className="font-medium text-slate-700">Connections</span> (or the full archive) and request the archive.</li>
+                <li>LinkedIn emails a download link, usually within minutes. Unzip it.</li>
+                <li>Upload <span className="font-medium text-slate-700">Connections.csv</span> here.</li>
+              </ol>
+              <input ref={linkedinInput} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => handleFile(e, 'linkedin')} data-testid="linkedin-file" />
+              <div className="mt-auto">
+                <button
+                  type="button"
+                  onClick={() => linkedinInput.current?.click()}
+                  disabled={Boolean(busy) || mode === 'loading'}
+                  className="btn-primary w-full"
+                >
+                  <HiOutlineArrowUpTray style={ICON} /> {busy === 'linkedin' ? 'Importing…' : 'Upload LinkedIn Connections.csv'}
+                </button>
+                <div className="mt-3 border-t border-line pt-3 text-xs text-muted">
+                  {linkedin.connected ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Connected as <span className="font-medium text-slate-700">{linkedin.name || 'your LinkedIn profile'}</span> (profile only).</span>
+                      <button type="button" onClick={() => disconnect('linkedin')} className="btn-ghost shrink-0 px-2 py-1 text-xs">Disconnect</button>
+                    </div>
+                  ) : (
+                    <>
+                      <p>Connecting LinkedIn only shares your own profile: LinkedIn does not give apps your connections, so the Connections.csv export above is how they come in.</p>
+                      <button type="button" onClick={connectLinkedIn} className="btn-secondary mt-2 w-full py-2 text-xs">Connect LinkedIn</button>
+                      {unavailable.linkedin && !linkedin.configured && <p className="muted mt-2 text-xs" role="status">{LINKEDIN_UNAVAILABLE}.</p>}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* CSV / XLSX */}
+            <div className="card card-pad flex flex-col">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <SourceMark source="csv" />
+                  <h3 className="text-sm font-semibold text-ink">Other contacts</h3>
+                </div>
+                <Count label="Imported" value={counts.csv} hint={lastImport('csv') ? formatTime(lastImport('csv')) : null} />
+              </div>
+              <p className="mb-4 text-xs text-muted">
+                Any CSV or XLSX with a header row: Name (or First/Last Name), Company, Title, Email, LinkedIn URL, Location, Tags. A new upload replaces your previous CSV/XLSX import.
+              </p>
+              <input ref={genericInput} type="file" accept=".csv,.tsv,.xlsx,.xls,.json,text/csv,application/json" className="hidden" onChange={(e) => handleFile(e, 'auto')} data-testid="generic-file" />
+              <div className="mt-auto">
+                <button
+                  type="button"
+                  onClick={() => genericInput.current?.click()}
+                  disabled={Boolean(busy) || mode === 'loading'}
+                  className="btn-primary w-full"
+                >
+                  <HiOutlineArrowUpTray style={ICON} /> {busy === 'auto' ? 'Importing…' : 'Upload CSV/XLSX contacts'}
+                </button>
+              </div>
+            </div>
+
+            {/* X */}
+            <div className="card card-pad flex flex-col">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <SourceMark source="x" />
+                  <h3 className="text-sm font-semibold text-ink">X following</h3>
+                </div>
+                <Count label="Imported" value={counts.x} hint={lastImport('x') ? formatTime(lastImport('x')) : null} />
+              </div>
+              {xStatus.connected ? (
+                <>
+                  <p className="mb-4 text-xs text-muted">Connected as <span className="font-medium text-slate-700">@{xStatus.username || 'unknown'}</span>. If X does not share who you follow with this app, you will see a note instead; an X following export can be uploaded under Other contacts.</p>
+                  <div className="mt-auto space-y-2">
+                    <button type="button" onClick={importX} disabled={Boolean(busy)} className="btn-primary w-full">
+                      {busy === 'x' ? 'Importing…' : 'Import accounts I follow'}
+                    </button>
+                    <button type="button" onClick={() => disconnect('twitter')} className="btn-ghost w-full justify-center text-xs">Disconnect</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="mb-4 text-xs text-muted">X does not share who you follow with this app yet; upload an X following export (JSON) under Other contacts instead.</p>
+                  <div className="mt-auto">
+                    <button type="button" onClick={connectX} className="btn-secondary w-full">Connect X</button>
+                    {unavailable.x && !xStatus.configured && <p className="muted mt-2 text-xs" role="status">{X_UNAVAILABLE}.</p>}
+                  </div>
+                </>
+              )}
+              {xStatus.note && <p className="mt-2 text-xs text-amber-700">{xStatus.note}</p>}
+            </div>
+          </div>
+
+          {contacts.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+              <p className="muted text-xs">Your contacts are only used to answer your own questions. They are never sent to AI models or other services.</p>
+              <button type="button" onClick={removeAll} disabled={Boolean(busy)} className="btn-danger text-xs disabled:opacity-50">
+                <HiOutlineTrash style={{ width: 13, height: 13 }} /> {busy === 'delete' ? 'Removing…' : 'Remove all my network data'}
+              </button>
+            </div>
+          )}
+        </section>
+
+        {/* ---------------------------------------------------- graph */}
+        <section className="card card-pad" aria-labelledby="graph-heading">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h2 id="graph-heading" className="section-title">Network graph</h2>
+            {contacts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5" aria-label="Sources shown">
+                {['linkedin', 'csv', 'x'].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    role="checkbox"
+                    aria-checked={sourceFilter[s]}
+                    disabled={!counts[s]}
+                    onClick={() => setSourceFilter((f) => ({ ...f, [s]: !f[s] }))}
+                    className={classNames('chip', sourceFilter[s] && 'chip-active', !counts[s] && 'opacity-50')}
+                  >
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: SOURCE_COLORS[s] }} />
+                    {SOURCE_LABELS[s]} <span className="text-muted">{fmt(counts[s])}</span>
+                  </button>
+                ))}
               </div>
             )}
           </div>
-          
-          {/* Network statistics on the right - more subtle */}
-          <div className="bg-gray-50 border border-gray-100 rounded-lg p-3 md:w-44 text-sm self-start ml-auto text-right">
-            <div className="mb-3">
-              <h2 className="text-sm font-medium text-gray-600 uppercase tracking-wider">Statistics</h2>
-            </div>
-            <div className="flex flex-col space-y-3">
-              <div className="border-b border-gray-200 pb-2">
-                <div className="flex items-center justify-end">
-                  <div className="text-base font-medium">{networkData ? networkData.connections?.length || 0 : 0}</div>
-                  <div className="text-lg text-gray-500 ml-2"><FaUsers /></div>
-                </div>
-                <div className="text-xs text-gray-500 mt-1">Connections</div>
-              </div>
-              <div className="border-b border-gray-200 pb-2">
-                <div className="flex items-center justify-end">
-                  <div className="text-base font-medium">{Object.values(connectionStatus).filter(Boolean).length}</div>
-                  <div className="text-lg text-gray-500 ml-2"><FaLink /></div>
-                </div>
-                <div className="text-xs text-gray-500 mt-1">Linked accounts</div>
-              </div>
-              <div className="pb-1">
-                <div className="flex items-center justify-end">
-                  <div className="text-base font-medium">{networkData ? 1 : 0}</div>
-                  <div className="text-lg text-gray-500 ml-2"><FaProjectDiagram /></div>
-                </div>
-                <div className="text-xs text-gray-500 mt-1">Networks</div>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        {/* Add search tips and example queries */}
-        {networkData && (
-          <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-            <h3 className="text-lg font-medium text-gray-800 mb-2">Search Tips</h3>
-            <p className="text-sm text-gray-600 mb-3">Use natural language to explore your professional network. Try queries like:</p>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div onClick={() => {
-                  setSearchQuery("Who are the software engineers in my network?");
-                  setTimeout(() => handleNetworkSearch({ preventDefault: () => {} }), 100);
-                }} 
-                className="bg-blue-50 p-3 rounded-md cursor-pointer border border-blue-100 hover:bg-blue-100 transition">
-                <p className="text-sm font-medium text-blue-800">"Who are the software engineers in my network?"</p>
-              </div>
-              <div onClick={() => {
-                  setSearchQuery("Find connections working at tech companies");
-                  setTimeout(() => handleNetworkSearch({ preventDefault: () => {} }), 100);
-                }} 
-                className="bg-green-50 p-3 rounded-md cursor-pointer border border-green-100 hover:bg-green-100 transition">
-                <p className="text-sm font-medium text-green-800">"Find connections working at tech companies"</p>
-              </div>
-              <div onClick={() => {
-                  setSearchQuery("Show me people in leadership positions");
-                  setTimeout(() => handleNetworkSearch({ preventDefault: () => {} }), 100);
-                }} 
-                className="bg-purple-50 p-3 rounded-md cursor-pointer border border-purple-100 hover:bg-purple-100 transition">
-                <p className="text-sm font-medium text-purple-800">"Show me people in leadership positions"</p>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
 
-      {/* Show debug component only in development mode */}
-      {process.env.NODE_ENV !== 'production' && (
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 mb-8">
-          <NetworkDebug provider="linkedin" />
-        </div>
-      )}
-    </div>
+          {contacts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-14 text-center">
+              <span className="mb-3 grid h-10 w-10 place-items-center rounded-xl bg-brand-50 text-brand-600"><HiOutlineShare style={{ width: 20, height: 20 }} /></span>
+              <p className="text-sm font-medium text-ink">{mode === 'loading' ? 'Loading your network…' : 'No contacts yet'}</p>
+              {mode !== 'loading' && (
+                <>
+                  <p className="muted mt-1 max-w-md">Upload LinkedIn&apos;s Connections.csv or a contacts spreadsheet to see who you know, grouped by company.</p>
+                  <button type="button" onClick={() => linkedinInput.current?.click()} disabled={Boolean(busy)} className="btn-secondary mt-4">
+                    <HiOutlineArrowUpTray style={ICON} /> Upload Connections.csv
+                  </button>
+                </>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="mb-3 flex flex-wrap gap-2">
+                <input
+                  type="search"
+                  value={companyFilter}
+                  onChange={(e) => { setCompanyFilter(e.target.value); setSelected(null); }}
+                  placeholder="Filter by company…"
+                  aria-label="Filter by company"
+                  className="input min-w-[180px] flex-1 py-2"
+                />
+                <input
+                  type="search"
+                  value={graphSearch}
+                  onChange={(e) => setGraphSearch(e.target.value)}
+                  placeholder="Highlight a name, title or company…"
+                  aria-label="Highlight in graph"
+                  className="input min-w-[180px] flex-1 py-2"
+                />
+              </div>
+              <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+                <span><span className="font-semibold text-ink">{fmt(visibleContacts.length)}</span> people · <span className="font-semibold text-ink">{fmt(graph.companyCount)}</span> companies</span>
+                {graph.large && (
+                  <span>
+                    Large network: showing companies only{graph.hiddenCompanies ? ` (largest ${fmt(graph.companyCount - graph.hiddenCompanies)}; filter to find others)` : ''}. Click a company to show its people.
+                  </span>
+                )}
+                {graph.cappedCompanies?.length > 0 && (
+                  <span>
+                    Showing the first {fmt(MAX_PEOPLE_PER_EXPANDED_COMPANY)} people of {graph.cappedCompanies.map((c) => c.label).slice(0, 3).join(', ')}{graph.cappedCompanies.length > 3 ? ` and ${graph.cappedCompanies.length - 3} more` : ''}; everyone is in the company&apos;s details list.
+                  </span>
+                )}
+                {(graphSearch.trim() || answerKeys) && (
+                  <span>
+                    {fmt(highlightedPeople)} highlighted{graph.large && highlightedTotal > highlightedPeople ? ` (${fmt(highlightedTotal)} match; click a company to show its people)` : ''}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-4 lg:flex-row">
+                <div ref={graphBoxRef} className="min-w-0 flex-1 overflow-hidden rounded-xl border border-line bg-white">
+                  {visibleContacts.length === 0 ? (
+                    <div className="flex items-center justify-center text-sm text-muted" style={{ height: 560 }}>No contacts match these filters.</div>
+                  ) : (
+                    <NetworkGraph
+                      graphData={graph}
+                      width={graphWidth}
+                      height={560}
+                      highlightIds={highlightIds}
+                      selectedId={selected?.id}
+                      onNodeClick={onNodeClick}
+                      onBackgroundClick={() => setSelected(null)}
+                    />
+                  )}
+                </div>
+
+                <aside className="card card-pad shrink-0 text-sm lg:w-80" aria-label="Details">
+                  {!selected && (
+                    <div>
+                      <p className="eyebrow mb-1">Details</p>
+                      <p className="muted">Click a person or company in the graph to see details. Indigo circles are companies, sized by how many people you know there.</p>
+                    </div>
+                  )}
+                  {selected?.type === 'person' && (
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="font-semibold text-ink">{selected.contact.name}</h3>
+                        <button type="button" onClick={() => setSelected(null)} aria-label="Close details" className="text-muted hover:text-ink"><HiOutlineXMark style={ICON} /></button>
+                      </div>
+                      {selected.contact.position && <p className="text-slate-700">{selected.contact.position}</p>}
+                      {selected.contact.company && <p className="mt-1"><span className="chip">{selected.contact.company}</span></p>}
+                      <dl className="mt-3 space-y-1 text-xs text-muted">
+                        {selected.contact.location && <div><dt className="inline font-medium text-slate-700">Location: </dt><dd className="inline">{selected.contact.location}</dd></div>}
+                        {selected.contact.connectedOn && <div><dt className="inline font-medium text-slate-700">Connected on: </dt><dd className="inline">{formatDate(selected.contact.connectedOn)}</dd></div>}
+                        {selected.contact.email && <div><dt className="inline font-medium text-slate-700">Email: </dt><dd className="inline break-all">{selected.contact.email}</dd></div>}
+                        <div><dt className="inline font-medium text-slate-700">Source: </dt><dd className="inline"><SourceBadge source={selected.contact.source} /></dd></div>
+                        {selected.contact.tags?.length > 0 && <div><dt className="inline font-medium text-slate-700">Tags: </dt><dd className="inline">{selected.contact.tags.join(', ')}</dd></div>}
+                      </dl>
+                      {selected.contact.profileUrl && (
+                        <a href={selected.contact.profileUrl} target="_blank" rel="noopener noreferrer nofollow" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
+                          Open profile <HiOutlineArrowTopRightOnSquare style={{ width: 12, height: 12 }} />
+                        </a>
+                      )}
+                      <ContactActions name={selected.contact.name} company={selected.contact.company} />
+                    </div>
+                  )}
+                  {selected?.type === 'company' && (
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="font-semibold text-ink">{selected.label}</h3>
+                        <button type="button" onClick={() => setSelected(null)} aria-label="Close details" className="text-muted hover:text-ink"><HiOutlineXMark style={ICON} /></button>
+                      </div>
+                      <p className="muted">{selected.count} {selected.count === 1 ? 'person' : 'people'} you know</p>
+                      {graph.large && expanded.has(selected.key) && (
+                        <button
+                          type="button"
+                          onClick={() => setExpanded((prev) => { const next = new Set(prev); next.delete(selected.key); return next; })}
+                          className="btn-ghost mt-1 px-1.5 py-1 text-xs"
+                        >
+                          Hide these people in the graph
+                        </button>
+                      )}
+                      {selected.key !== NO_COMPANY_KEY && (
+                        <>
+                          <ContactActions company={selected.label} />
+                          <button
+                            type="button"
+                            onClick={() => { const q = `Intro paths to ${selected.label}`; setQuestion(q); ask(q); }}
+                            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline"
+                          >
+                            <HiOutlineSparkles style={{ width: 13, height: 13 }} /> Find intro paths to {selected.label}
+                          </button>
+                        </>
+                      )}
+                      {graph.large && expanded.has(selected.key) && selected.count > MAX_PEOPLE_PER_EXPANDED_COMPANY && (
+                        <p className="muted mt-1 text-xs">The graph draws the first {fmt(MAX_PEOPLE_PER_EXPANDED_COMPANY)} people by name; all {fmt(selected.count)} are listed here.</p>
+                      )}
+                      <ul className="mt-3 max-h-64 divide-y divide-line overflow-y-auto">
+                        {selectedCompanyPeople.map((c) => (
+                          <li key={dedupeKey(c)} className="py-1.5">
+                            <button type="button" className="text-left hover:text-brand-600" onClick={() => selectContact({ ...c, key: dedupeKey(c) })}>
+                              <span className="font-medium text-ink">{c.name}</span>
+                              {c.position && <span className="block text-xs text-muted">{c.position}</span>}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </aside>
+              </div>
+            </>
+          )}
+        </section>
+
+        {/* ---------------------------------------------------- ask */}
+        <section className="card card-pad" aria-labelledby="ask-heading">
+          <h2 id="ask-heading" className="section-title">Ask your network</h2>
+          <p className="muted mt-1">Search by company, role, industry or place. Intro paths also check the company&apos;s investors from public sources.</p>
+          <form
+            onSubmit={(e) => { e.preventDefault(); ask(); }}
+            className="mt-4 flex flex-col gap-2 sm:flex-row"
+          >
+            <div className="relative flex-1">
+              <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" style={{ width: 17, height: 17 }} />
+              <input
+                type="text"
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="Search your network..."
+                aria-label="Ask your network"
+                maxLength={500}
+                className="input py-3 pl-10"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={asking || !question.trim() || !contacts.length}
+              className="btn-primary sm:px-5"
+            >
+              <HiOutlineSparkles style={ICON} /> {asking ? 'Searching…' : 'Ask'}
+            </button>
+          </form>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {EXAMPLES.map((ex) => (
+              <button
+                key={ex}
+                type="button"
+                disabled={asking || !contacts.length}
+                onClick={() => askExample(ex)}
+                className="chip hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 disabled:opacity-50"
+              >
+                {ex}
+              </button>
+            ))}
+          </div>
+          <p className="muted mt-3 text-xs">Your contacts never leave this app. Only the text of your question may be sent to the AI model when the built-in rules cannot interpret it.</p>
+          {!contacts.length && mode !== 'loading' && (
+            <p className="muted mt-3">Import your contacts above to start asking.</p>
+          )}
+          {askError && <p role="alert" className="mt-3 text-sm text-rose-600">{askError}</p>}
+
+          {asking && (
+            <div className="mt-4" aria-busy="true" aria-live="polite">
+              <p className="flex items-center gap-2 text-sm text-ink">
+                <HiOutlineSparkles className="text-brand-500 animate-glow" style={{ width: 16, height: 16 }} />
+                {/intro|path/i.test(question) ? 'Searching your contacts and looking up the company\'s investors…' : 'Searching your contacts…'}
+              </p>
+              <div className="mt-3 space-y-2">
+                <div className="skeleton h-4 w-1/3" />
+                <div className="skeleton h-3 w-2/3" />
+                <div className="skeleton h-4 w-1/4" />
+                <div className="skeleton h-3 w-1/2" />
+              </div>
+            </div>
+          )}
+
+          {answer && !asking && (
+            <div className="mt-4 border-t border-line pt-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm text-slate-700">
+                  {answer.intent === 'intro-path'
+                    ? <>Intro paths to <span className="font-semibold text-ink">{answer.intro?.target}</span></>
+                    : <><span className="font-semibold text-ink">{fmt(answer.total)}</span> {answer.total === 1 ? 'match' : 'matches'}{answer.total > answer.results.length ? ` (top ${answer.results.length} shown)` : ''}</>}
+                </div>
+                <button type="button" onClick={() => setAnswer(null)} className="btn-ghost text-xs">Clear results</button>
+              </div>
+              {filtersShown && (
+                <div className="mb-3 flex flex-wrap gap-1.5">
+                  {filtersShown.companies.map((v) => <span key={`c${v}`} className="chip">Company: {v}</span>)}
+                  {filtersShown.roles.map((v) => <span key={`r${v}`} className="chip">Role: {v}</span>)}
+                  {filtersShown.keywords.map((v) => <span key={`k${v}`} className="chip">Keyword: {v}</span>)}
+                  {filtersShown.locations.map((v) => <span key={`l${v}`} className="chip">Location: {v}</span>)}
+                  {answer.parsedBy === 'llm' && <span className="chip chip-active"><HiOutlineSparkles style={{ width: 12, height: 12 }} /> question interpreted by AI (your contacts were not shared)</span>}
+                </div>
+              )}
+              {(answer.notes || []).filter((n) => !/^Past employees/.test(n)).map((n) => (
+                <p key={n} className="mb-2 text-xs text-amber-700">{n}</p>
+              ))}
+
+              {answer.intent === 'intro-path' && answer.intro ? (
+                <div className="space-y-5">
+                  <div>
+                    <h3 className="text-sm font-semibold text-ink">Direct: people at {answer.intro.target} <span className="chip ml-1">{answer.intro.direct.length}</span></h3>
+                    {answer.intro.direct.length ? (
+                      <ul className="divide-y divide-line">{answer.intro.direct.map((r) => <ResultRow key={r.contact.key} item={r} onShow={selectContact} />)}</ul>
+                    ) : (
+                      <p className="muted mt-1">No one in your network lists {answer.intro.target} as their company.</p>
+                    )}
+                  </div>
+                  {answer.intro.possiblyRelated?.length > 0 && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-ink">Possibly related <span className="chip ml-1">{answer.intro.possiblyRelated.length}</span></h3>
+                      <p className="muted text-xs">Similar company names, or {answer.intro.target} mentioned in a title. They may not work there.</p>
+                      <ul className="divide-y divide-line">{answer.intro.possiblyRelated.map((r) => <ResultRow key={`rel-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
+                    </div>
+                  )}
+                  <div>
+                    <h3 className="text-sm font-semibold text-ink">Via investors <span className="chip ml-1">{answer.intro.viaInvestors.reduce((n, g) => n + g.total, 0)}</span></h3>
+                    {answer.intro.viaInvestors.length ? answer.intro.viaInvestors.map((g) => (
+                      <div key={g.investor} className="mt-2 border-l-2 border-brand-200 pl-3">
+                        <div className="text-sm font-medium text-slate-700">{g.investor} <span className="text-xs font-normal text-muted">({g.evidence}; {g.total} {g.total === 1 ? 'contact' : 'contacts'})</span></div>
+                        <ul className="divide-y divide-line">{g.contacts.map((r) => <ResultRow key={`${g.investor}-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
+                      </div>
+                    )) : (
+                      <p className="muted mt-1">
+                        {answer.intro.investorsChecked.length
+                          ? `You don't know anyone at the investors found for ${answer.intro.target} (${answer.intro.investorsChecked.slice(0, 8).join(', ')}${answer.intro.investorsChecked.length > 8 ? '…' : ''}).`
+                          : 'No investor paths found.'}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-ink">Via past employees</h3>
+                    <p className="muted mt-1">Not available: LinkedIn&apos;s export and contact files only include current company, not employment history.</p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {answer.results.length ? (
+                    <ul className="divide-y divide-line">{answer.results.map((r) => <ResultRow key={r.contact.key} item={r} onShow={selectContact} />)}</ul>
+                  ) : (
+                    <p className="muted">No one in your network matches that. Try a company name, a role like &quot;engineers&quot;, or an industry like &quot;fintech&quot;.</p>
+                  )}
+                  {answer.possiblyRelated?.results?.length > 0 && (
+                    <div className="mt-4">
+                      <h3 className="text-sm font-semibold text-ink">Possibly related <span className="chip ml-1">{fmt(answer.possiblyRelated.total)}</span></h3>
+                      <p className="muted text-xs">Similar company names, or the company mentioned in a title. They may not work there.</p>
+                      <ul className="divide-y divide-line">{answer.possiblyRelated.results.map((r) => <ResultRow key={`rel-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </section>
+      </div>
+    </PageShell>
   );
 }

@@ -52,19 +52,31 @@ describe('/api/auth/twitter', () => {
     process.env = originalEnv;
   });
 
-  it('returns fail-soft payload when twitter credentials are missing', async () => {
+  // A short code the network page maps to user copy; no env var names or file paths.
+  const X_NOT_CONFIGURED = '/network?error=twitter_not_configured';
+
+  it('redirects to /network with a configuration error when TWITTER_CLIENT_ID is missing', async () => {
     const req = createReq();
     const res = createRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      status: 'fail-soft',
-      error: 'Configuration error',
-      details: 'Twitter API key is not configured.',
-      degradedSources: ['twitter-auth'],
-    });
+    expect(res.statusCode).toBe(302);
+    expect(res.body).toBeNull();
+    expect(res.headers['Set-Cookie']).toBeUndefined();
+    expect(res.headers.Location).toBe(X_NOT_CONFIGURED);
+  });
+
+  it('does not fall back to TWITTER_API_KEY when TWITTER_CLIENT_ID is missing', async () => {
+    process.env.TWITTER_API_KEY = 'legacy-api-key';
+
+    const req = createReq();
+    const res = createRes();
+
+    await handler(req, res);
+
+    expect(res.headers.Location).toBe(X_NOT_CONFIGURED);
+    expect(res.headers.Location).not.toContain('legacy-api-key');
   });
 
   it('sets cookies and redirects to the twitter authorize url', async () => {
@@ -90,5 +102,20 @@ describe('/api/auth/twitter', () => {
     expect(cookies[0]).toContain('HttpOnly');
     expect(cookies[1]).toContain('twitter_code_verifier=');
     expect(cookies[1]).toContain('HttpOnly');
+
+    // State is 16 random bytes in hex.
+    const state = cookies[0].match(/twitter_auth_state=([^;]+)/)[1];
+    expect(state).toMatch(/^[0-9a-f]{32}$/);
+
+    // PKCE: S256 challenge derived from a random base64url verifier stored in the cookie.
+    const verifier = cookies[1].match(/twitter_code_verifier=([^;]+)/)[1];
+    expect(verifier).toMatch(/^[A-Za-z0-9_-]{43,128}$/);
+
+    const authorizeUrl = new URL(res.headers.Location);
+    expect(authorizeUrl.searchParams.get('state')).toBe(state);
+    expect(authorizeUrl.searchParams.get('code_challenge_method')).toBe('S256');
+    const expectedChallenge = require('crypto').createHash('sha256').update(verifier).digest('base64url');
+    expect(authorizeUrl.searchParams.get('code_challenge')).toBe(expectedChallenge);
+    expect(authorizeUrl.searchParams.get('code_challenge')).not.toBe(verifier);
   });
 });

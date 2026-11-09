@@ -1,211 +1,199 @@
-import axios from 'axios';
-import { performSimpleSearch, performSimpleVerifiedSearch } from '../../../utils/searchUtils';
+/**
+ * Open Research search: the endpoint behind the main search box.
+ *
+ * Pipeline (src/server/search):
+ *   1. understandQuery  - entity ("open ai"), intent ("funding"), recency ("latest")
+ *   2. retrieve         - every selected source, query rewritten per source
+ *   3. resolveEntity    - confirm the entity from how sources write it ("OpenAI")
+ *   4. filterAndRank    - drop results not about it; date filter; rank by
+ *                         entity, intent, recency and source tier; collapse
+ *                         duplicates; the user's own documents always kept
+ *   5. claim check (cross-source figures, same numbering as the results)
+ *   6. generateAnswer   - free LLM chain with citation checks, else quoted digest
+ * The response contract (results, status, degradedSources, content,
+ * sourceMap, categories, ...) is unchanged for the UI.
+ */
 import { logger } from '../../../utils/logger';
-import { processWithLLM } from '../../../utils/llmProcessing';
 import { processCategories } from '../../../components/search/categories/processors/CategoryProcessor';
 import { normalizeSearchResponseV1 } from '../../../utils/contracts/searchResponse';
+import { getUserId } from '../../../server/auth';
+import { checkClaims } from '../../../utils/claimCheck';
+import { recordSearch } from '../../../server/store';
+import { understandQuery, resolveEntity } from '../../../server/search/queryPlan';
+import { retrieve } from '../../../server/search/retrieve';
+import { filterAndRank } from '../../../server/search/rank';
+import { generateAnswer } from '../../../server/search/answer';
 
-// Define valid sources
-const VALID_SOURCES = ['web', 'linkedin', 'twitter', 'reddit', 'substack', 'medium', 'crunchbase', 'pitchbook', 'verified'];
+/** Save this search to the signed-in user's history (never breaks the search). */
+async function saveToHistory(req, res, { query, sources, workspaceId, content, results }) {
+  try {
+    const userId = await getUserId(req, res);
+    if (!userId) return null;
+    const topSources = (results || []).slice(0, 15).map((r) => ({
+      title: r.title, url: r.url || r.link, source: r.source, sourceName: r.sourceName || null,
+      date: r.date || r.publishedAt || null, snippet: String(r.snippet || r.content || '').slice(0, 400)
+    }));
+    const saved = await recordSearch(userId, {
+      workspaceId: typeof workspaceId === 'string' ? workspaceId : null,
+      query, sources, summary: typeof content === 'string' ? content : '', topSources, resultCount: (results || []).length
+    });
+    return saved?.id || null;
+  } catch (error) {
+    logger.warn('Search history not saved:', error.message);
+    return null;
+  }
+}
 
-function normalizeSources(input) {
+// Must list every source the UI offers; unlisted ones are dropped.
+const VALID_SOURCES = ['curated', 'web', 'linkedin', 'twitter', 'reddit', 'substack', 'medium', 'crunchbase', 'pitchbook', 'carta', 'verified'];
+
+export function normalizeSources(input) {
   const raw = Array.isArray(input)
     ? input
     : typeof input === 'string'
       ? input.split(',').map((s) => s.trim())
       : [];
-
-  const aliasMap = {
-    x: 'twitter',
-    'x.com': 'twitter',
-    'verified sources': 'verified'
-  };
-
+  const aliasMap = { x: 'twitter', 'x.com': 'twitter', 'verified sources': 'verified', 'curated sources': 'curated' };
   const normalized = raw
     .map((source) => String(source || '').trim().toLowerCase())
     .map((source) => aliasMap[source] || source)
     .filter((source) => VALID_SOURCES.includes(source));
-
-  return normalized.length > 0 ? Array.from(new Set(normalized)) : ['web'];
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : ['curated', 'web'];
 }
 
 export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
-  },
+  api: { bodyParser: { sizeLimit: '10mb' } },
+  maxDuration: 60,
 };
 
+const toArray = (value) => (Array.isArray(value) ? value : value == null || value === '' ? [] : [value]);
+const parseFile = (f) => {
+  if (f && typeof f === 'object') return f;
+  try { return JSON.parse(f); } catch { return null; }
+};
+
+// Leave headroom under maxDuration (60s) for categories, history and the response
+const ANSWER_DEADLINE_MS = 50000;
+
 export default async function handler(req, res) {
+  const startedAt = Date.now();
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    // Extract query and other parameters from request body
-    const {
-      query,
-      sources = ['web'],
-      model,
-      customUrls = [],
-      uploadedFiles = [],
-      files = [],
-      useLLM = true
-    } = req.body;
-
+    const body = req.body || {};
+    const query = String(body.query || '').trim();
     if (!query) {
       return res.status(400).json({ error: 'Query is required' });
     }
-
-    const normalizedSources = normalizeSources(sources);
-
-    // Log search request
-    logger.info('Open search request:', { query, model, sources: normalizedSources });
-
-    let results = [];
-    let llmResponse = null;
-    let categories = [];
-    const degradedSources = [];
-    const normalizedFiles = Array.isArray(uploadedFiles) && uploadedFiles.length > 0 ? uploadedFiles : files;
-
-    // Check if verified sources is selected
-    if (normalizedSources.includes('verified')) {
-      // Use all verified sources (fmp, sec, edgar)
-      const verifiedResults = await performSimpleVerifiedSearch(query, ['fmp', 'sec', 'edgar'], {
-        model,
-        customUrls,
-        uploadedFiles: normalizedFiles
-      });
-      results = [...results, ...verifiedResults];
-      
-      // Filter out 'verified' from sources for regular search
-      const otherSources = normalizedSources.filter(source => source !== 'verified');
-      
-      // Only perform regular search if there are other sources selected
-      if (otherSources.length > 0) {
-        // Perform regular search with selected sources
-        if (otherSources.includes('web')) {
-          console.log(`DEBUG: Executing web search via performSimpleSearch for: "${query}"`);
-          const webResults = await performSimpleSearch(query, ['web'], {
-            model,
-            customUrls,
-            uploadedFiles: normalizedFiles
-          });
-          console.log(`DEBUG: Web search (provider chain) returned ${webResults.length} results`);
-          if (webResults.length === 0) {
-            degradedSources.push('web');
-          }
-          results = [...results, ...webResults];
-        } else {
-          const otherResults = await performSimpleSearch(query, otherSources, {
-            model,
-            customUrls,
-            uploadedFiles: normalizedFiles
-          });
-          results = [...results, ...otherResults];
-        }
-      }
-    } else {
-      // Perform regular search with selected sources
-      if (normalizedSources.includes('web')) {
-        console.log(`DEBUG: Executing web search via performSimpleSearch for: "${query}"`);
-        const webResults = await performSimpleSearch(query, ['web'], {
-          model,
-          customUrls,
-          uploadedFiles: normalizedFiles
-        });
-        console.log(`DEBUG: Web search (provider chain) returned ${webResults.length} results`);
-        if (webResults.length === 0) {
-          degradedSources.push('web');
-        }
-        results = [...results, ...webResults];
-      } else {
-        results = await performSimpleSearch(query, normalizedSources, {
-          model,
-          customUrls,
-          uploadedFiles: normalizedFiles
-        });
-      }
+    if (query.length > 500) {
+      return res.status(400).json({ error: 'Query is too long (500 characters max)' });
     }
 
-    // Generate LLM response if requested
-    if (useLLM && model && results.length > 0) {
-      try {
-        console.log('DEBUG: Attempting to process with LLM - model:', model, 'results:', results.length);
-        llmResponse = await processWithLLM({
-          query,
-          sources: results,
-          model,
-          maxTokens: 1024,
-          temperature: 0.7
-        });
-        
-        // Debug the LLM response
-        console.log('DEBUG: LLM Response received:', {
-          hasContent: !!llmResponse?.content,
-          contentLength: llmResponse?.content?.length || 0,
-          hasFlags: !!llmResponse?.__isImmutableLLMResult,
-          metadata: llmResponse?.metadata || 'none'
-        });
-      } catch (llmError) {
-        console.error('DEBUG: Error generating LLM response:', llmError.message);
-        logger.error('Error generating LLM response:', llmError);
-      }
-    }
+    // The UI posts form-encoded data: single values arrive as strings and
+    // booleans as "true"/"false".
+    const sources = normalizeSources(body.sources);
+    const customUrls = toArray(body.customUrls).map(String).filter((u) => /^https?:\/\//i.test(u));
+    const files = [...toArray(body.uploadedFiles), ...toArray(body.files)].map(parseFile).filter(Boolean);
+    const useLLM = !(body.useLLM === false || body.useLLM === 'false');
+    const maxAgeDays = Math.max(0, Number(body.maxAgeDays) || 0);
+    const model = typeof body.model === 'string' && body.model ? body.model : 'auto';
+    const workspaceId = typeof body.workspaceId === 'string' ? body.workspaceId : null;
 
-    // Generate categories
+    // 1-2. Understand the query and retrieve from every selected source
+    const plan = understandQuery(query);
+    logger.info('Open search:', { query, sources, entity: plan.entityCandidate, intents: plan.intents, recency: plan.recency });
+    const { results: raw, statuses } = await retrieve(plan, sources, { customUrls, files });
+
+    // 3-5. Resolve the entity; keep only relevant results in the date range
+    // (undated kept and flagged), ranked and capped; the user's own
+    // documents are always kept. Then the cross-source claim check, numbered
+    // by the same list the UI shows.
+    const entity = resolveEntity(plan, raw);
+    const { results, droppedForRelevance, olderThanFilter } = filterAndRank(raw, plan, entity, { limit: 15, maxAgeDays });
+    let claimCheck = null;
     try {
-      // Process categories based on query and search results
-      categories = await processCategories(results, query, {
-        includeBusinessMetrics: true,
-        llmResponse
-      });
-    } catch (categoryError) {
-      logger.error('Error generating categories:', categoryError);
-      categories = [];
+      claimCheck = checkClaims(results, { entity: entity.mode === 'entity' ? entity.name : null });
+    } catch (claimError) {
+      logger.warn('Claim check failed:', claimError.message);
     }
 
-    // Debug the final response structure
-    console.log('DEBUG: Final API response structure:', {
-      hasResults: !!results,
-      resultsCount: results?.length || 0,
-      hasLLMResponse: !!llmResponse,
-      hasLLMContent: !!llmResponse?.content,
-      hasCategories: !!categories,
-      categoriesCount: categories?.length || 0
-    });
-    
-    // Merge only display-safe LLM fields; never let LLM payload override top-level contract status
-    const llmPayload = llmResponse ? {
-      content: llmResponse.content ?? null,
-      sourceMap: llmResponse.sourceMap || {},
-      metadata: llmResponse.metadata || {},
-      __isImmutableLLMResult: !!llmResponse.__isImmutableLLMResult,
-      isLLMResult: !!llmResponse.isLLMResult,
-      llmProcessed: llmResponse.llmProcessed !== false
-    } : {
-      content: null
-    };
+    // Degraded = a selected source failed. A source that is not configured
+    // (no web search key) or that worked but had nothing is not degraded.
+    const degradedSources = statuses.filter((s) => s.status === 'error').map((s) => s.source);
+
+    // 6. Answer
+    let answer = { content: null, sourceMap: {}, llm: null };
+    if (results.length > 0) {
+      answer = await generateAnswer(plan, entity, results, { model, useLLM, deadline: startedAt + ANSWER_DEADLINE_MS });
+    }
+
+    let categories = [];
+    try {
+      categories = results.length ? await processCategories(results, query, { includeBusinessMetrics: true }) : [];
+    } catch (categoryError) {
+      logger.warn('Category generation failed:', categoryError.message);
+    }
+    if ((!categories || categories.length === 0) && answer.categories) categories = answer.categories;
+
+    const historyId = results.length > 0
+      ? await saveToHistory(req, res, { query, sources, workspaceId, content: answer.content, results })
+      : null;
 
     return res.status(200).json(normalizeSearchResponseV1({
-      results,
-      status: results.length > 0 ? (degradedSources.length > 0 ? 'degraded' : 'ok') : 'fail-soft',
-      degradedSources: Array.from(new Set(degradedSources)),
+      historyId,
       query,
       timestamp: new Date().toISOString(),
-      ...llmPayload,
+      results,
+      status: results.length > 0 ? (degradedSources.length > 0 ? 'degraded' : 'ok') : 'fail-soft',
+      degradedSources,
+      sourceStatuses: statuses,
+      queryPlan: {
+        entity: entity.mode === 'entity' ? entity.name : null,
+        mode: entity.mode,
+        confidence: entity.confidence || null,
+        intents: plan.intents,
+        recency: plan.recency,
+        droppedForRelevance,
+        olderThanFilter,
+      },
+      claimCheck,
+      maxAgeDays: maxAgeDays || null,
+      olderThanFilter,
+      content: answer.content,
+      sourceMap: answer.sourceMap,
+      isLLMResult: Boolean(answer.content),
+      __isImmutableLLMResult: Boolean(answer.content),
+      llmProcessed: Boolean(answer.llm),
+      synthesis: {
+        enabled: Boolean(answer.llm),
+        provider: answer.llm?.providerLabel || null,
+        model: answer.llm?.model || null,
+        content: null,
+      },
+      answerInfo: answer.llm
+        ? { mode: 'ai', provider: answer.llm.providerLabel, model: answer.llm.model, confidence: answer.llm.confidence, skipped: answer.llm.skipped || [], ...(answer.llm.modelNote ? { modelNote: answer.llm.modelNote } : {}) }
+        : results.length > 0
+          ? { mode: 'quoted', reason: answer.fallbackReason || null, ...(answer.modelNote ? { modelNote: answer.modelNote } : {}) }
+          : null,
+      metadata: { generatedAt: new Date().toISOString(), totalSources: results.length },
+      categories,
       ...(results.length === 0 ? {
         failSoftContent: {
-          message: 'No live sources returned results right now.',
+          message: olderThanFilter > 0
+            ? `No results within the selected date range: ${olderThanFilter} result${olderThanFilter === 1 ? ' was' : 's were'} older than the filter.`
+            : entity.mode === 'entity' || plan.entityCandidate
+              ? `No source returned results about "${entity.name || plan.entityCandidate || query}".`
+              : 'No live sources returned results right now.',
           suggestions: [
-            'Try a more specific query',
-            'Check provider readiness at /api/debug/env-check',
-            'Try Web + HackerNews sources'
+            ...(olderThanFilter > 0 ? ['Widen the Published filter to see older results'] : []),
+            'Check the spelling of the company or person',
+            ...(statuses.some((s) => s.source === 'web' && s.status === 'not_configured') ? ['Enable web search for broader coverage'] : []),
+            'Try fewer words, e.g. just the company name'
           ]
         }
       } : {}),
-      categories
     }));
   } catch (error) {
     logger.error('Error in open search API:', error);

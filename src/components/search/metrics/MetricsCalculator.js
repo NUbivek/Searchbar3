@@ -10,6 +10,8 @@ import calculateCredibility from './calculators/CredibilityCalculator';
 import calculateRecency from './calculators/RecencyCalculator';
 import calculateRelevanceBase from './calculators/RelevanceCalculator';
 import { detectQueryContext } from './utils/contextDetector';
+import { measureResult } from './MeasuredMetrics';
+
 
 /**
  * Calculate combined relevance and recency score
@@ -36,82 +38,50 @@ const calculateRelevanceAndRecency = (result, query) => {
  */
 const calculateMetrics = (result, query, options = {}) => {
   if (!result) {
-    return {
-      relevance: 0,
-      accuracy: 0,
-      credibility: 0,
-      overall: 0
-    };
+    return { relevance: null, accuracy: null, credibility: null, overall: null };
   }
 
+  // Every component is measured from evidence in the result (see
+  // MeasuredMetrics.js and docs/METRICS_SYSTEM.md). Scores are 0-1, or null
+  // when nothing measurable was available. No default or flat boost is added.
+  const measured = measureResult(result, query, {
+    context: options.context || {
+      isBusinessQuery: options.isBusinessQuery,
+      isFinancialQuery: options.isFinancialQuery,
+      isTechnicalQuery: options.isTechnicalQuery,
+      isMedicalQuery: options.isMedicalQuery,
+      isNewsQuery: options.isNewsQuery,
+      isAcademicQuery: options.isAcademicQuery,
+    },
+    corpus: options.corpus || null,
+    userPreferences: options.userPreferences || null,
+  });
+
+  // Ranking-only boost for verified sources (unchanged): applied to the
+  // boosted* fields, never to the displayed scores.
   const isVerified = result.isVerified || false;
-  const isBusinessQuery = options.isBusinessQuery || false;
+  const BOOST_FACTORS = { relevance: 0.25, accuracy: 0.40, credibility: 0.60 };
+  const boost = (v, f) => (v == null ? null : Math.min(isVerified ? v + (f * v * (1 - v)) : v, 0.95));
+  const boostedRelevance = boost(measured.relevance, BOOST_FACTORS.relevance);
+  const boostedAccuracy = boost(measured.accuracy, BOOST_FACTORS.accuracy);
+  const boostedCredibility = boost(measured.credibility, BOOST_FACTORS.credibility);
+  const w = measured.weights;
+  const parts = [[boostedRelevance, w.RELEVANCE], [boostedAccuracy, w.ACCURACY], [boostedCredibility, w.CREDIBILITY]].filter(([v]) => v != null);
+  const wsum = parts.reduce((sum, [, x]) => sum + x, 0);
 
-  // Component-specific non-linear boost factors for verified sources
-  const BOOST_FACTORS = {
-    relevance: 0.25, // modest boost for relevance
-    accuracy: 0.40,  // medium boost for accuracy
-    credibility: 0.60 // highest boost for credibility
-  };
-  
-  // Base relevance calculation
-  let relevance = calculateRelevanceAndRecency(result, query);
-  
-  // Base accuracy calculation
-  let accuracy = calculateAccuracy(result);
-  
-  // Base credibility calculation
-  let credibility = calculateCredibility(result);
-  
-  // Boost for business queries
-  if (isBusinessQuery) {
-    relevance += 0.15;
-    accuracy += 0.10;
-    credibility += 0.10;
-  }
-  
-  // Cap the base scores at 0.95 to prevent overflow after boosting
-  relevance = Math.min(relevance, 0.95);
-  accuracy = Math.min(accuracy, 0.95);
-  credibility = Math.min(credibility, 0.95);
-  
-  // Apply non-linear boost for verified sources
-  let boostedRelevance = relevance;
-  let boostedAccuracy = accuracy;
-  let boostedCredibility = credibility;
-  
-  if (isVerified) {
-    // Non-linear boost formula: score + (boostFactor * score * (1 - score))
-    // This gives maximum boost to mid-range scores (~0.5)
-    boostedRelevance = relevance + (BOOST_FACTORS.relevance * relevance * (1 - relevance));
-    boostedAccuracy = accuracy + (BOOST_FACTORS.accuracy * accuracy * (1 - accuracy));
-    boostedCredibility = credibility + (BOOST_FACTORS.credibility * credibility * (1 - credibility));
-    
-    // Cap at 0.95 to prevent rounding issues
-    boostedRelevance = Math.min(boostedRelevance, 0.95);
-    boostedAccuracy = Math.min(boostedAccuracy, 0.95);
-    boostedCredibility = Math.min(boostedCredibility, 0.95);
-  }
-  
-  // Calculate overall scores - original and boosted
-  const overall = (relevance + accuracy + credibility) / 3;
-  const boostedOverall = (boostedRelevance + boostedAccuracy + boostedCredibility) / 3;
-  
-  // Return both the original and boosted metrics
   return {
-    relevance: relevance,
-    accuracy: accuracy,
-    credibility: credibility,
-    overall: overall,
-    
-    // Include the boosted values for ranking algorithms
-    boostedRelevance: boostedRelevance,
-    boostedAccuracy: boostedAccuracy, 
-    boostedCredibility: boostedCredibility,
-    boostedOverall: boostedOverall,
-    
-    // Flag if this result is verified
-    isVerified: isVerified
+    relevance: measured.relevance,
+    accuracy: measured.accuracy,
+    credibility: measured.credibility,
+    overall: measured.overall,
+    boostedRelevance,
+    boostedAccuracy,
+    boostedCredibility,
+    boostedOverall: wsum > 0 ? parts.reduce((sum, [v, x]) => sum + v * x, 0) / wsum : null,
+    isVerified,
+    coverage: measured.coverage,
+    components: measured.components,
+    weights: measured.weights,
   };
 };
 

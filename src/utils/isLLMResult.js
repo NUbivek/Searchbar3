@@ -34,43 +34,26 @@ const LLM_ERROR_TYPES = [
  */
 export function isLLMResult(obj) {
   // Handle null/undefined
-  if (!obj) return false;
-  
-  console.log('Checking if object is LLM result:', JSON.stringify(obj).substring(0, 150) + '...');
-  
+  if (!obj || typeof obj !== 'object') return false;
+
   // Strategy 1: Check for explicit flags (most reliable)
-  if (hasLLMFlag(obj)) {
-    console.log('✅ Detected LLM result via flags');
-    return true;
-  }
-  
+  if (hasLLMFlag(obj)) return true;
+
   // Strategy 1.5: Check for specific properties common in LLM results
-  if (obj.llmResults || obj.llm_results || obj.synthesizedAnswer || 
+  if (obj.llmResults || obj.llm_results || obj.content || obj.synthesizedAnswer ||
       obj.isLLMResults || obj.type === 'llm_summary' || obj.followUpQuestions) {
-    console.log('✅ Detected LLM result via specific properties');
     return true;
   }
-  
+
   // Strategy 2: Check content structure characteristics
-  if (hasLLMContentStructure(obj)) {
-    console.log('✅ Detected LLM result via content structure');
-    return true;
-  }
-  
+  if (hasLLMContentStructure(obj)) return true;
+
   // Strategy 3: Check for common error patterns
-  if (isLLMError(obj)) {
-    console.log('✅ Detected LLM result via error pattern');
-    return true;
-  }
-  
+  if (isLLMError(obj)) return true;
+
   // Strategy 4: Check for nested LLM results
-  if (hasNestedLLMResult(obj)) {
-    console.log('✅ Detected LLM result via nested results');
-    return true;
-  }
-  
-  console.log('❌ Not detected as LLM result');
-  // Not detected as LLM result
+  if (hasNestedLLMResult(obj)) return true;
+
   return false;
 }
 
@@ -87,17 +70,14 @@ function hasLLMFlag(obj) {
  */
 function hasLLMContentStructure(obj) {
   // Check for object with content property (most common case)
-  if (typeof obj.content === 'string' && obj.content.trim().length > 0) {
+  if (obj.content) {
     // If content is a string and reasonably long, it's likely LLM content
     if (typeof obj.content === 'string' && obj.content.length > 20) {
       // More aggressive pattern matching to catch LLM-generated content
       const hasTextPatterns = /\n|\*|#|>|\.|,|:/.test(obj.content) || 
                              obj.content.includes('.');
       
-      if (hasTextPatterns) {
-        console.log('Detected LLM pattern in content string');
-        return true;
-      }
+      if (hasTextPatterns) return true;
     }
     
     // If content is an array (chat-like format)
@@ -110,25 +90,22 @@ function hasLLMContentStructure(obj) {
         item.type === 'llm'
       );
       
-      if (hasMessageStructure) {
-        console.log('Detected assistant/LLM messages in content array');
-        return true;
-      }
+      if (hasMessageStructure) return true;
     }
   }
   
-  // NOTE: plain `results` arrays are common for non-LLM search APIs.
-  // Do not treat them as LLM output without explicit LLM markers.
-  
-  // Check for standard Together.ai structure
+  // Check for other common properties in LLM results
+  if (obj.results && Array.isArray(obj.results) && obj.results.length > 0) {
+    return true;
+  }
+
+  // Check for standard chat-completion API structure
   if (obj.choices && Array.isArray(obj.choices) && obj.choices.length > 0) {
-    if (obj.choices[0].text || obj.choices[0].message?.content) {
-      console.log('Detected standard LLM API response format');
-      return true;
-    }
+    if (obj.choices[0].text || obj.choices[0].message?.content) return true;
   }
-  
-  // Check for any properties that typically indicate LLM results
+
+  // Properties that typically carry written output. An empty array (the
+  // API's `categories: []` on a no-result search) is not written output.
   const llmIndicators = [
     'summary',
     'analysis',
@@ -136,19 +113,16 @@ function hasLLMContentStructure(obj) {
     'answer',
     'generated',
     'followUpQuestions',
-    'keyInsights',
-    'categories'
+    'keyInsights'
   ];
-  
+
   for (const indicator of llmIndicators) {
-    if (obj[indicator] && 
-       (typeof obj[indicator] === 'string' || 
-        Array.isArray(obj[indicator]))) {
-      console.log(`Detected LLM indicator property: ${indicator}`);
+    const value = obj[indicator];
+    if ((typeof value === 'string' && value.trim()) || (Array.isArray(value) && value.length > 0)) {
       return true;
     }
   }
-  
+
   return false;
 }
 
@@ -156,23 +130,18 @@ function hasLLMContentStructure(obj) {
  * Check if object represents an LLM processing error
  */
 export function isLLMError(obj) {
-  if (!obj) return false;
-  
-  // Check for explicit error flags
-  if (obj.isError === true || obj.error || obj.errorType) {
-    return true;
-  }
-  
-  // Check for known error types
-  if (obj.errorType && LLM_ERROR_TYPES.includes(obj.errorType)) {
-    return true;
-  }
-  
-  // Check for Together API error structure
-  if (obj.error && obj.error.type && obj.error.message) {
-    return true;
-  }
-  
+  if (!obj || typeof obj !== 'object') return false;
+
+  // Explicit error flag
+  if (obj.isError === true) return true;
+
+  // Known LLM error types (a plain `error` key on a search response is the
+  // search service's own message, not an LLM result)
+  if (obj.errorType && LLM_ERROR_TYPES.includes(obj.errorType)) return true;
+
+  // Chat-completion API error structure
+  if (obj.error && typeof obj.error === 'object' && obj.error.type && obj.error.message) return true;
+
   return false;
 }
 

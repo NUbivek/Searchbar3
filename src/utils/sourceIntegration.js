@@ -1,8 +1,8 @@
 const axios = require('axios');
+const { selfBaseUrl } = require('./serverBaseUrl');
 const logger = require('./logger');
-const { searchCompany, getFilings } = require('./edgarUtils');
+const { searchCompany, getFilings, getRecentFilings } = require('./edgarUtils');
 const { MARKET_DATA_SOURCES, VC_FIRMS } = require('./dataSources');
-const { deepWebSearch, enrichResults } = require('./deepWebSearch');
 const { fetchUrlContent, buildUrlSearchResult } = require('./urlExtraction');
 const { 
   VERIFIED_DATA_SOURCES, 
@@ -22,9 +22,7 @@ const getBaseUrl = () => {
     return window.location.origin;
   } else {
     // Server-side
-    return process.env.NODE_ENV === 'development' 
-      ? 'http://localhost:3010' 
-      : process.env.NEXT_PUBLIC_BASE_URL || '';
+    return selfBaseUrl();
   }
 };
 
@@ -488,8 +486,8 @@ const sourceHandlers = {
       
       // Get filings for the top 3 companies
       const topCompanies = companies.slice(0, 3);
-      const filingsPromises = topCompanies.map(company => 
-        getFilings(company.cik)
+      const filingsPromises = topCompanies.map(company =>
+        getRecentFilings(company.cik, 5)
       );
       
       const filingSettled = await Promise.allSettled(filingsPromises);
@@ -503,6 +501,7 @@ const sourceHandlers = {
         .map(filing => ({
           title: `${filing.companyName} - ${filing.formType}`,
           content: `Filing Date: ${filing.filingDate} | Description: ${filing.description || 'No description available'}`,
+          date: filing.filingDate,
           url: filing.url || `https://www.sec.gov/edgar/browse/?CIK=${filing.cik}`,
           source: 'sec'
         }));
@@ -534,11 +533,28 @@ const sourceHandlers = {
         }))
       );
 
-      return settled
-        .filter(item => item.status === 'fulfilled')
-        .map(item => buildUrlSearchResult(item.value))
-        .filter(Boolean);
+      // A URL that could not be fetched or had no readable text is reported
+      // (results.errors) instead of silently dropped; when every URL failed
+      // the handler fails so the source shows as an error with the reason.
+      const errors = [];
+      const results = [];
+      settled.forEach((item, index) => {
+        const url = customUrls[index];
+        if (item.status !== 'fulfilled') {
+          errors.push(`${url}: ${item.reason?.message || item.reason || 'fetch failed'}`);
+          return;
+        }
+        const built = buildUrlSearchResult(item.value);
+        if (built) results.push(built);
+        else errors.push(`${url}: ${item.value?.error || (item.value?.status === 'empty' ? 'no readable text on the page' : 'could not be read')}`);
+      });
+      if (results.length === 0 && errors.length > 0) {
+        throw Object.assign(new Error(errors.join('; ')), { customUrlsFailed: true });
+      }
+      if (errors.length) results.errors = errors;
+      return results;
     } catch (error) {
+      if (error.customUrlsFailed) throw error;
       logger.error(`Error processing custom URLs:`, error);
       return [];
     }
@@ -645,6 +661,13 @@ const sourceHandlers = {
   crunchbase: (query) => handleWebsiteScrape(query, 'crunchbase.com'),
   pitchbook: (query) => handleWebsiteScrape(query, 'pitchbook.com'),
   cbinsights: (query) => handleWebsiteScrape(query, 'cbinsights.com'),
+
+  // Curated registry (sources/registry.json): VC portfolios, funding and
+  // startup news, market analysis. Searched directly; no API key needed.
+  curated: async (query) => {
+    const { searchCuratedSources } = await import('./sources/curatedIndex');
+    return searchCuratedSources(query, { limit: 15 });
+  },
   
   // Handler for employee social media handles
   employee_handles: async (query) => {
@@ -711,11 +734,15 @@ const normalizeProviderResponse = (source, rawResults, errorMessage = null) => {
     };
   }
 
+  // Per-item failures a handler reported alongside its results (custom URLs
+  // that could not be fetched) travel with the provider as warnings.
+  const warnings = Array.isArray(rawResults?.errors) ? rawResults.errors.map(String) : [];
   return {
     source,
     status: results.length > 0 ? 'ok' : 'empty',
     results,
-    error: null
+    error: null,
+    ...(warnings.length ? { warnings } : {})
   };
 };
 

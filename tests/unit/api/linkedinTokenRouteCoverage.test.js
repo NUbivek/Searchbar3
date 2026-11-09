@@ -22,6 +22,9 @@ describe('/api/auth/linkedin/token', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
+    // GET reports `configured` from these; keep it deterministic regardless of the host env.
+    delete process.env.LINKEDIN_CLIENT_ID;
+    delete process.env.LINKEDIN_CLIENT_SECRET;
   });
 
   afterAll(() => {
@@ -45,15 +48,16 @@ describe('/api/auth/linkedin/token', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({ isAuthenticated: false });
+    expect(res.body).toEqual({ isAuthenticated: false, configured: false });
   });
 
   it('returns authenticated on get when the linkedin token is valid', async () => {
     axios.get.mockResolvedValueOnce({
       data: {
-        id: 'ln-123',
-        localizedFirstName: 'Ada',
-        localizedLastName: 'Lovelace',
+        sub: 'ln-123',
+        given_name: 'Ada',
+        family_name: 'Lovelace',
+        name: 'Ada Lovelace',
       },
     });
 
@@ -65,7 +69,7 @@ describe('/api/auth/linkedin/token', () => {
 
     await handler(req, res);
 
-    expect(axios.get).toHaveBeenCalledWith('https://api.linkedin.com/v2/me', {
+    expect(axios.get).toHaveBeenCalledWith('https://api.linkedin.com/v2/userinfo', {
       headers: {
         Authorization: 'Bearer valid-token',
       },
@@ -74,6 +78,7 @@ describe('/api/auth/linkedin/token', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
       isAuthenticated: true,
+      configured: false,
       provider: 'linkedin',
       user: {
         id: 'ln-123',
@@ -104,6 +109,7 @@ describe('/api/auth/linkedin/token', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
       isAuthenticated: false,
+      configured: false,
       error: 'Token invalid or expired',
     });
   });
@@ -138,7 +144,7 @@ describe('/api/auth/linkedin/token', () => {
     });
   });
 
-  it('exchanges a code, fetches profile/email, sets cookies, and returns normalized data', async () => {
+  it('exchanges a code, fetches the userinfo profile, sets cookies, and returns normalized data', async () => {
     process.env.LINKEDIN_CLIENT_ID = 'linkedin-client-id';
     process.env.LINKEDIN_CLIENT_SECRET = 'linkedin-client-secret';
     process.env.NEXT_PUBLIC_BASE_URL = 'https://example.com';
@@ -149,25 +155,17 @@ describe('/api/auth/linkedin/token', () => {
         expires_in: 3600,
       },
     });
-    axios.get
-      .mockResolvedValueOnce({
-        data: {
-          id: 'ln-999',
-          localizedFirstName: 'Grace',
-          localizedLastName: 'Hopper',
-        },
-      })
-      .mockResolvedValueOnce({
-        data: {
-          elements: [
-            {
-              'handle~': {
-                emailAddress: 'grace@example.com',
-              },
-            },
-          ],
-        },
-      });
+    // OpenID Connect subject identifiers may contain characters that are
+    // not cookie-safe, so the route must URL-encode the user id cookie.
+    axios.get.mockResolvedValueOnce({
+      data: {
+        sub: 'ln 999/x',
+        given_name: 'Grace',
+        family_name: 'Hopper',
+        name: 'Grace Hopper',
+        email: 'grace@example.com',
+      },
+    });
 
     const req = createMockReq({
       method: 'POST',
@@ -178,19 +176,20 @@ describe('/api/auth/linkedin/token', () => {
     await handler(req, res);
 
     expect(axios.post).toHaveBeenCalledTimes(1);
-    expect(axios.get).toHaveBeenCalledTimes(2);
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    expect(axios.get.mock.calls[0][0]).toBe('https://api.linkedin.com/v2/userinfo');
     expect(res.setHeader).toHaveBeenCalledWith(
       'Set-Cookie',
       expect.arrayContaining([
         expect.stringContaining('linkedin_access_token=linkedin-access-token'),
-        expect.stringContaining('linkedin_user_id=ln-999'),
+        expect.stringContaining(`linkedin_user_id=${encodeURIComponent('ln 999/x')};`),
       ])
     );
     expect(res.statusCode).toBe(200);
     expect(res.body).toEqual({
       success: true,
       profile: {
-        id: 'ln-999',
+        id: 'ln 999/x',
         firstName: 'Grace',
         lastName: 'Hopper',
         email: 'grace@example.com',

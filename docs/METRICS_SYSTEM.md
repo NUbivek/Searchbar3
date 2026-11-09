@@ -152,6 +152,37 @@ const filteredResults = filterResultsByMetrics(results, minThreshold);
 const sortedResults = sortResultsByMetrics(results, 'overallScore');
 ```
 
+## How Each Component Is Measured
+
+Implemented in `src/components/search/metrics/MeasuredMetrics.js` and used by
+`MetricsCalculator.calculateMetrics`. Every component is measured from
+evidence the result actually contains and reports `{ value, measured, evidence }`.
+A component with no evidence is **not measured**: it gets no value and its
+weight is redistributed to the measured components of the same metric. No
+component is ever filled with a default (such as 0.5), and there is no flat
+boost by query type.
+
+| Metric | Component (weight) | Measured from |
+|---|---|---|
+| Relevance | Query match (40%) | Share of query terms in the text and title; exact phrase |
+| | Recency (35%) | Publication date (not measured when undated) |
+| | Content quality (15%) | Length of text; presence of figures |
+| | Domain relevance (10%) | Source's topical focus (known domains, curated category) vs query context |
+| | Personalization (10%) | User's preferred domains (only when preferences exist) |
+| Accuracy | Data verification (30%) | Count of verifiable specifics: amounts, percentages, dates, attributions |
+| | Source reliability (30%) | Filing/government, reputation database entry, curated registry tier, or platform type |
+| | Factual consistency (25%) | Whether the source's figures agree with other sources' figures (claim check) |
+| | External validation (15%) | Other independent sites reporting the same story; filings count as primary records |
+| Credibility | Source reputation (40%) | `SOURCE_REPUTATION_DB` score, curated tier, or source tier |
+| | Author expertise (25%) | Named author and stated credentials (only when an author is known) |
+| | Citation quality (20%) | Attributions, quotations and links in the text (needs 150+ characters) |
+| | Verification factors (15%) | Editorial process by source type (filing > editorial press > blog > forum); peer-review markers |
+
+Cross-source components use a corpus built once per result set
+(`buildCorpus`). The overall score is the context-weighted average above,
+computed over the metrics that were measured. Each source's score breakdown
+is shown on hover in Key Insights (Quality Assessment and Top Sources).
+
 ## Thresholds
 
 The system enforces minimum thresholds for displaying results:

@@ -12,6 +12,7 @@
 
 # next.js
 /.next/
+/.next-*/
 /out/
 
 # production
@@ -53,3 +54,13 @@ research-hub-api/
 /data/source_health.csv
 /data/latest_run_summary.json
 .env*.local
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Local embedded database (PGlite) for development
+.data/
+
+# Local agent config and a key file that must never be committed
+.codex/
+env-config.txt

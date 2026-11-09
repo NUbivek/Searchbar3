@@ -2,7 +2,7 @@
 
 const { spawn } = require('child_process');
 
-const BASE = process.env.API_SMOKE_BASE || 'http://127.0.0.1:3001';
+const BASE = process.env.API_SMOKE_BASE || 'http://127.0.0.1:3000';
 const START_TIMEOUT_MS = 90000;
 
 function sleep(ms) {

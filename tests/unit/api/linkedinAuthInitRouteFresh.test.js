@@ -41,19 +41,15 @@ describe('/api/auth/linkedin', () => {
     };
   }
 
-  it('returns fail-soft payload when LinkedIn client id is missing', async () => {
+  it('redirects to /network with a configuration error when LinkedIn client id is missing', async () => {
     const req = { method: 'GET' };
     const res = createRes();
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(200);
-    expect(res.jsonPayload).toEqual({
-      status: 'fail-soft',
-      error: 'Configuration error',
-      details: 'LinkedIn client ID is not configured.',
-      degradedSources: ['linkedin-auth'],
-    });
+    expect(res.jsonPayload).toBeNull();
+    // A short code the network page maps to user copy; no env var names or file paths.
+    expect(res.redirectedTo).toBe('/network?error=linkedin_not_configured');
   });
 
   it('sets auth state cookie and redirects to LinkedIn auth url', async () => {
@@ -73,7 +69,7 @@ describe('/api/auth/linkedin', () => {
     expect(redirected.searchParams.get('response_type')).toBe('code');
     expect(redirected.searchParams.get('client_id')).toBe('linkedin-client-id');
     expect(redirected.searchParams.get('redirect_uri')).toBe('https://example.com/api/auth/linkedin/callback');
-    expect(redirected.searchParams.get('scope')).toBe('r_emailaddress r_liteprofile');
+    expect(redirected.searchParams.get('scope')).toBe('openid profile email');
     expect(redirected.searchParams.get('state')).toBeTruthy();
   });
 });

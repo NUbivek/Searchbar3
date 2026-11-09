@@ -1,100 +1,103 @@
-/* 
+/*
  * TabNavigation.module.css
- * Clean, minimalist styling for tab navigation
+ * Underline tab bar; colours come from the design tokens in globals.css.
  */
 
 .tabContainer {
   width: 100%;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  overflow: visible;
-  background-color: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  margin: 16px 0;
   display: flex;
   flex-direction: column;
-  position: relative;
-  z-index: 5;
 }
 
 .tabHeaders {
-  display: flex !important;
-  background-color: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
   overflow-x: auto;
-  padding: 0;
-  margin: 0;
+  overflow-y: hidden;
+  padding: 0 20px;
 }
 
 .tabButton {
-  padding: 10px 16px;
+  position: relative;
+  padding: 12px 4px;
+  margin-right: 16px;
   font-size: 14px;
-  font-weight: normal;
-  color: #6b7280;
+  font-weight: 500;
+  color: var(--muted);
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: all 0.2s ease;
   white-space: nowrap;
-  text-align: center;
-  position: relative;
-  border-radius: 4px 4px 0 0;
+  transition: color 0.15s ease;
 }
 
 .tabButton:hover {
-  color: #3b82f6;
-  background-color: #f3f4f6;
+  color: var(--ink);
+}
+
+.tabButton:focus-visible {
+  outline: none;
+  border-radius: 6px;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+}
+
+.tabButton::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--grad);
+  opacity: 0;
+  transform: scaleX(0.6);
+  transition: opacity 0.15s ease, transform 0.15s ease;
 }
 
 .tabButton.active {
-  color: #3b82f6;
-  border-bottom: 2px solid #3b82f6;
-  background-color: #fff;
-  font-weight: bold;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.tabButton.active::after {
+  opacity: 1;
+  transform: scaleX(1);
 }
 
 .tabContent {
-  padding: 16px;
-  min-height: 150px;
-  overflow-y: auto;
-  flex-grow: 1;
-  display: block !important;
-  visibility: visible !important;
+  padding: 20px;
+  animation: fadeIn 0.25s ease-out;
 }
 
-/* Styling for single tab display (no headers) */
-.tabContentSingle {
-  padding: 16px;
-  min-height: 120px;
-  display: block !important;
-}
-
-.emptyContainer {
-  padding: 32px;
+.empty {
+  padding: 32px 16px;
   text-align: center;
-  color: #6b7280;
-  font-style: italic;
-  background-color: #f9fafb;
-  border-radius: 8px;
-  border: 1px dashed #d1d5db;
 }
 
-/* Responsive adjustments */
+.emptyTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.emptyText {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @media (max-width: 640px) {
-  .tabButton {
-    padding: 8px 12px;
-    font-size: 13px;
+  .tabHeaders {
+    padding: 0 16px;
   }
-  
   .tabContent {
-    padding: 12px;
+    padding: 16px;
   }
-}
-
-/* IMPORTANT: Global visibility helper classes */
-.visibilityHelper :global(.tab-navigation-container),
-.visibilityHelper :global(.tab-navigation-headers),
-.visibilityHelper :global(.tab-navigation-content) {
-  display: block !important;
-  visibility: visible !important;
 }

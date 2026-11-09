@@ -2,6 +2,56 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-11-08
+
+### Security
+- Removed routes that allowed unauthenticated file deletion (`/api/cleanup`),
+  reflected request headers including cookies (`/api/debug-info`), and
+  fetched arbitrary URLs server-side (`/api/fetch-url`, `/api/webScrape`),
+  plus the dead OAuth relay, helper modules exposed as routes
+  (`/api/middleware*`), the catch-all route and the Edge middleware that
+  logged every API request and set `Access-Control-Allow-Origin: *` with
+  credentials. Removed the matching CORS headers and legacy `routes` from
+  `vercel.json`.
+- `/api/debug/env-check` now requires a signed-in session in production.
+- `/api/alerts` and `listAlerts` clamp `limit` to 1..500 (a negative limit
+  returned 500).
+- `/api/upload` writes to the OS temp directory (Vercel's filesystem is
+  read-only outside `/tmp`), deletes the uploaded copy right after parsing,
+  and requires the file extension and declared MIME type to agree.
+- Method checks on `/api/network/twitter` and `/api/llm/models`;
+  `maxDuration: 60` on `/api/company`, `/api/workspaces/[id]/ask` and
+  `/api/llm/models`.
+
+### Fixed
+- PDF uploads: the custom page renderer returned objects, so extracted text
+  was `[object Object]`. The default extractor is used; a PDF with no text
+  layer (scan) and an unreadable file now get different messages.
+- `pdf-parse` updated to 1.1.4 (maintained 1.x line, same API).
+
+### Removed
+- 463 unreachable files under `src/` (archived components, `.bak`/`.old`
+  copies, zero-byte placeholders, legacy search/LLM/auth routes and the
+  utilities only they used), the dead Express app in `server/`, root-level
+  backups and scratch scripts, GitHub Pages deploy workflow and `CNAME`,
+  legacy port-switch and category-debug scripts, and tests that only
+  covered deleted code.
+- Unused dependencies (`ai`, `d3`, `date-fns`, `@heroicons/react`,
+  `@tailwindcss/forms`, `jsdom`, `multer`, `node-fetch`, `openai`,
+  `pdf-lib`, `puppeteer`, `react-force-graph`, `react-query`,
+  `react-syntax-highlighter`, `together`, `undici`, `uuid`, `winston`,
+  `zod`, `node-cache`, `react-tooltip`, `lucide-react`, `react-markdown`,
+  `dotenv`) and unused dev dependencies (`concurrently`, `cross-env`,
+  `wait-on`, `style-loader`, `css-loader`, `postcss-loader`, `raw-loader`,
+  `typescript`, `@types/*`). `d3-force` is now an explicit dependency.
+- `env-config.txt`, `.codex/`, `research-hub-api/`, `.vscode/settings.json`
+  and `.DS_Store` files are no longer tracked.
+
+### Changed
+- `npm test` runs jest. `npm run smoke:api` checks the live routes only.
+- README, USER_FLOW and `.env.local.example` rewritten to describe the code
+  that exists; stale design and troubleshooting documents removed.
+
 ## [0.6.0] - 2025-03-01
 
 ### Changed

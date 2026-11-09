@@ -101,8 +101,10 @@ const calculateRelevanceScore = (result, query, options = {}) => {
   // Apply personalization boost if applicable
   const personalizedScore = applyPersonalizationBoost(weightedScore, result, options);
   
-  // Normalize to 0-100 scale
-  return normalizeScore(personalizedScore * 100);
+  // 0-1 scale (callers such as MetricsCalculator and CategoryFinder expect
+  // 0-1; normalizeScore clamps to 0-1, so passing score*100 made every
+  // non-zero score 1.0)
+  return normalizeScore(personalizedScore);
 };
 
 /**

@@ -23,7 +23,9 @@ function normalizeWhitespace(value) {
 function extractTextFromHtml(html, textLimit = DEFAULT_TEXT_LIMIT) {
   const $ = load(html || '');
 
-  $('script, style, noscript, iframe, svg').remove();
+  $('script, style, noscript, iframe, svg, template').remove();
+  // Drop page chrome so the text is the article, not the menu.
+  $('nav, header, footer, aside, form, [role="navigation"], [role="banner"], [role="contentinfo"], [aria-hidden="true"]').remove();
 
   const title = normalizeWhitespace($('title').first().text());
   const description = normalizeWhitespace(
@@ -32,7 +34,16 @@ function extractTextFromHtml(html, textLimit = DEFAULT_TEXT_LIMIT) {
     ''
   );
 
-  const bodyText = normalizeWhitespace($('body').text()).slice(0, textLimit);
+  // Prefer the main content container when the page has one.
+  const textOf = (selector) => {
+    const node = $(selector).first();
+    if (!node.length) return '';
+    // Space out block elements so headings and paragraphs don't run together.
+    node.find('p, div, li, h1, h2, h3, h4, h5, h6, br, td, section, article').each((_, el) => { $(el).append(' '); });
+    return normalizeWhitespace(node.text());
+  };
+  const mainText = textOf('article') || textOf('main') || textOf('[role="main"]');
+  const bodyText = (mainText.length >= 200 ? mainText : textOf('body')).slice(0, textLimit);
 
   return {
     title: title || null,
