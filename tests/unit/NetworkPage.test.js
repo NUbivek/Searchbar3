@@ -46,10 +46,9 @@ describe('NetworkPage', () => {
     expect(screen.getByText('Workspaces').closest('a').getAttribute('href')).toBe('/workspaces');
     expect(screen.getByText('Watchlist').closest('a').getAttribute('href')).toBe('/watchlist');
     expect(screen.queryByText('Research')).toBeNull();
-    expect(screen.getByText('Connect LinkedIn')).toBeTruthy();
     expect(screen.getByText('Connect X')).toBeTruthy();
-    expect(screen.getByText('Upload LinkedIn Connections.csv')).toBeTruthy();
-    expect(screen.getByText('Upload CSV/XLSX contacts')).toBeTruthy();
+    expect(screen.getByText('Upload Connections.csv')).toBeTruthy();
+    expect(screen.getByText('Upload contacts')).toBeTruthy();
     expect(screen.getByText('Sign in to save your network')).toBeTruthy();
     expect(screen.getByText('No contacts yet')).toBeTruthy();
     expect(screen.getByPlaceholderText('Search your network...')).toBeTruthy();
@@ -75,8 +74,8 @@ describe('NetworkPage', () => {
     }));
     render(<NetworkPage />);
     await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
-    expect(screen.getByText('Saved to your account')).toBeTruthy();
-    expect(screen.getByText('Remove all my network data')).toBeTruthy();
+    expect(screen.getByText(/saved to your account/)).toBeTruthy();
+    expect(screen.getByText('Remove all')).toBeTruthy();
   });
 
   it('offers Connect LinkedIn / Connect X even when not configured: an inline note, no redirect', async () => {
@@ -90,9 +89,7 @@ describe('NetworkPage', () => {
     }));
     render(<NetworkPage />);
     await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/auth/twitter/token'));
-    fireEvent.click(screen.getByText('Connect LinkedIn'));
     fireEvent.click(screen.getByText('Connect X'));
-    expect(screen.getByText("LinkedIn connection isn't available on this deployment yet.")).toBeTruthy();
     expect(screen.getByText("X connection isn't available on this deployment yet.")).toBeTruthy();
     expect(screen.queryByText(/paid|tier|API/)).toBeNull();
   });

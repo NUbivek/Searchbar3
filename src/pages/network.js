@@ -675,10 +675,6 @@ export default function NetworkPage() {
 
   // ------------------------------------------------------------ render
 
-  const connectLinkedIn = () => {
-    if (linkedin.configured) { window.location.assign('/api/auth/linkedin'); return; }
-    setUnavailable((u) => ({ ...u, linkedin: true }));
-  };
   const connectX = () => {
     if (xStatus.configured) { window.location.assign('/api/auth/twitter'); return; }
     setUnavailable((u) => ({ ...u, x: true }));
@@ -686,6 +682,7 @@ export default function NetworkPage() {
 
   const hasContacts = contacts.length > 0;
   const loading = mode === 'loading';
+  const firmCount = useMemo(() => contacts.filter((c) => c.relationship === 'firm').length, [contacts]);
 
   const LINKEDIN_HOW = 'LinkedIn: Settings & Privacy → Data privacy → Get a copy of your data → Connections. LinkedIn emails a zip within minutes; upload the Connections.csv inside it. LinkedIn never shares connections with apps, so the export is the only way in.';
   const linkedinInfo = (
@@ -694,62 +691,53 @@ export default function NetworkPage() {
     </span>
   );
 
-  const uploadButtons = (
-    <div className="flex flex-wrap justify-center gap-2">
-      <span className="inline-flex items-center gap-1.5">
-        <button type="button" onClick={() => linkedinInput.current?.click()} disabled={Boolean(busy) || loading} className="btn-primary">
-          <HiOutlineArrowUpTray style={ICON} /> {busy === 'linkedin' ? 'Importing…' : 'Upload LinkedIn Connections.csv'}
-        </button>
-        {linkedinInfo}
-      </span>
-      <button type="button" onClick={() => genericInput.current?.click()} disabled={Boolean(busy) || loading} className="btn-secondary">
-        {busy === 'auto' ? 'Importing…' : 'Upload CSV/XLSX contacts'}
-      </button>
+  /** One tight row: where contacts come from. */
+  const card = (title, note, action) => (
+    <div className="flex flex-col gap-2 rounded-xl border border-line bg-white p-3">
+      <div>
+        <div className="text-sm font-medium text-ink">{title}</div>
+        <div className="mt-0.5 text-xs leading-snug text-muted">{note}</div>
+      </div>
+      <div className="mt-auto">{action}</div>
     </div>
   );
-
-  const firmCount = useMemo(() => contacts.filter((c) => c.relationship === 'firm').length, [contacts]);
-
-  /** The three live connectors: profile sign-ins and the firm CRM. */
   const connectors = (
-    <div className="grid gap-2 sm:grid-cols-3">
-      <div className="flex flex-col gap-2.5 rounded-xl border border-line bg-white p-3.5">
-        <div>
-          <div className="text-sm font-medium text-ink">LinkedIn</div>
-          <div className="mt-0.5 text-xs leading-snug text-muted">{linkedin.connected ? `Connected as ${linkedin.name || 'you'}.` : 'Your own profile. Connections come from the export above.'}</div>
-        </div>
-        {linkedin.connected
-          ? <button type="button" onClick={() => disconnect('linkedin')} className="btn-ghost mt-auto justify-center text-xs">Disconnect</button>
-          : <button type="button" onClick={connectLinkedIn} className="btn-secondary mt-auto w-full py-2 text-xs">Connect LinkedIn</button>}
-      </div>
-      <div className="flex flex-col gap-2.5 rounded-xl border border-line bg-white p-3.5">
-        <div>
-          <div className="text-sm font-medium text-ink">X</div>
-          <div className="mt-0.5 text-xs leading-snug text-muted">{xStatus.connected ? `Connected as @${xStatus.username || 'you'}.` : 'Your profile and, where X allows it, the accounts you follow.'}</div>
-        </div>
-        {xStatus.connected ? (
-          <div className="mt-auto flex gap-1">
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      {card(
+        <span className="inline-flex items-center gap-1.5">LinkedIn {linkedinInfo}</span>,
+        counts.linkedin ? `${fmt(counts.linkedin)} connections${lastImport('linkedin') ? ` · ${formatTime(lastImport('linkedin'))}` : ''}` : 'Your connections, from the Connections.csv export.',
+        <button type="button" onClick={() => linkedinInput.current?.click()} disabled={Boolean(busy) || loading} className="btn-primary w-full py-2 text-xs">
+          <HiOutlineArrowUpTray style={{ width: 13, height: 13 }} /> {busy === 'linkedin' ? 'Importing…' : counts.linkedin ? 'Replace export' : 'Upload Connections.csv'}
+        </button>,
+      )}
+      {card(
+        'CSV / XLSX',
+        counts.csv ? `${fmt(counts.csv)} contacts${lastImport('csv') ? ` · ${formatTime(lastImport('csv'))}` : ''}` : 'Any spreadsheet with names and companies.',
+        <button type="button" onClick={() => genericInput.current?.click()} disabled={Boolean(busy) || loading} className="btn-secondary w-full py-2 text-xs">
+          <HiOutlineArrowUpTray style={{ width: 13, height: 13 }} /> {busy === 'auto' ? 'Importing…' : counts.csv ? 'Replace file' : 'Upload contacts'}
+        </button>,
+      )}
+      {card(
+        'X',
+        xStatus.connected ? `Connected as @${xStatus.username || 'you'}.` : 'The accounts you follow, where X allows it.',
+        xStatus.connected ? (
+          <div className="flex gap-1">
             <button type="button" onClick={importX} disabled={Boolean(busy)} className="btn-secondary flex-1 py-2 text-xs">{busy === 'x' ? 'Importing…' : 'Import follows'}</button>
             <button type="button" onClick={() => disconnect('twitter')} className="btn-ghost text-xs">Disconnect</button>
           </div>
-        ) : <button type="button" onClick={connectX} className="btn-secondary mt-auto w-full py-2 text-xs">Connect X</button>}
-      </div>
-      <div className="flex flex-col gap-2.5 rounded-xl border border-line bg-white p-3.5">
-        <div>
-          <div className="text-sm font-medium text-ink">Attio <span className="font-normal text-muted">· firm CRM</span></div>
-          <div className="mt-0.5 text-xs leading-snug text-muted">{counts.attio ? `${fmt(counts.attio)} people imported, ${fmt(firmCount)} of them firm-wide.` : "The firm's contacts, kept apart from your own connections."}</div>
-        </div>
-        {ATTIO_ENABLED ? (
-          <button type="button" onClick={() => setAttioOpen((v) => !v)} className="btn-secondary mt-auto w-full py-2 text-xs">{counts.attio ? 'Re-import from Attio' : 'Connect Attio'}</button>
-        ) : (
-          <button type="button" disabled className="btn-secondary mt-auto w-full py-2 text-xs" title="Not connected yet">Connect Attio · soon</button>
-        )}
-      </div>
-      {(unavailable.linkedin && !linkedin.configured) && <p className="muted text-xs sm:col-span-3" role="status">{LINKEDIN_UNAVAILABLE}.</p>}
-      {(unavailable.x && !xStatus.configured) && <p className="muted text-xs sm:col-span-3" role="status">{X_UNAVAILABLE}.</p>}
-      {xStatus.note && <p className="text-xs text-amber-700 sm:col-span-3">{xStatus.note}</p>}
+        ) : <button type="button" onClick={connectX} className="btn-secondary w-full py-2 text-xs">Connect X</button>,
+      )}
+      {card(
+        <span>Attio <span className="font-normal text-muted">· firm CRM</span></span>,
+        counts.attio ? `${fmt(counts.attio)} people, ${fmt(firmCount)} firm-wide.` : "The firm's contacts, kept apart from yours.",
+        ATTIO_ENABLED
+          ? <button type="button" onClick={() => setAttioOpen((v) => !v)} className="btn-secondary w-full py-2 text-xs">{counts.attio ? 'Re-import from Attio' : 'Connect Attio'}</button>
+          : <button type="button" disabled className="btn-secondary w-full py-2 text-xs" title="Not connected yet">Connect Attio · soon</button>,
+      )}
+      {(unavailable.x && !xStatus.configured) && <p className="muted text-xs sm:col-span-2 lg:col-span-4" role="status">{X_UNAVAILABLE}.</p>}
+      {xStatus.note && <p className="text-xs text-amber-700 sm:col-span-2 lg:col-span-4">{xStatus.note}</p>}
       {attioOpen && (
-        <form onSubmit={importAttio} className="rounded-xl border border-line bg-slate-50/70 p-3.5 sm:col-span-3">
+        <form onSubmit={importAttio} className="rounded-xl border border-line bg-slate-50/70 p-3.5 sm:col-span-2 lg:col-span-4">
           <p className="text-sm text-ink">Connect Attio</p>
           <p className="mt-0.5 text-xs text-muted">
             Paste an Attio API access token (Attio → Workspace settings → Developers). It is used once to read People, Companies and workspace members, and is not stored.
@@ -962,12 +950,10 @@ export default function NetworkPage() {
                 <>
                   <h2 className="mt-1 text-xl font-semibold tracking-tight text-ink">Drop your contacts here to draw your map</h2>
                   <p className="muted mt-1 max-w-md">LinkedIn&apos;s Connections.csv, or any CSV or XLSX with names and companies. Everything stays private to you.</p>
-                  <div className="mt-6">{uploadButtons}</div>
                 </>
               )}
             </div>
-            <div className="space-y-2 border-t border-line bg-slate-50/60 px-5 py-4">
-              <p className="eyebrow">Connect</p>
+            <div className="space-y-2 border-t border-line px-5 py-4">
               {connectors}
               {mode === 'memory' && !signedIn && sessionStatus !== 'loading' && (
                 <p className="text-xs text-amber-700"><Link href="/signin" className="font-medium underline">Sign in to save your network</Link>; until then imports stay in this tab.</p>
@@ -988,35 +974,17 @@ export default function NetworkPage() {
             <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                 <h2 id="sources-heading" className="section-title">Sources</h2>
-                {['linkedin', 'csv', 'x', 'attio'].filter((s) => counts[s]).map((s) => (
-                  <span key={s} className="flex items-center gap-1.5 text-muted">
-                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: SOURCE_COLORS[s] }} />
-                    <span className="font-medium text-ink">{fmt(counts[s])}</span> {SOURCE_LABELS[s]}{lastImport(s) ? ` · ${formatTime(lastImport(s))}` : ''}
-                  </span>
-                ))}
-                <span className="text-xs text-muted">{mode === 'saved' ? 'Saved to your account' : 'Kept in this tab only'}</span>
+                <span className="text-xs text-muted">{fmt(contacts.length)} contacts · {mode === 'saved' ? 'saved to your account' : 'kept in this tab only'}</span>
               </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button type="button" onClick={() => linkedinInput.current?.click()} disabled={Boolean(busy)} className="btn-secondary px-3 py-1.5 text-xs">
-                  <HiOutlineArrowUpTray style={{ width: 13, height: 13 }} /> {busy === 'linkedin' ? 'Importing…' : 'Upload LinkedIn Connections.csv'}
-                </button>
-                {linkedinInfo}
-                <button type="button" onClick={() => genericInput.current?.click()} disabled={Boolean(busy)} className="btn-secondary px-3 py-1.5 text-xs">
-                  {busy === 'auto' ? 'Importing…' : 'Upload CSV/XLSX contacts'}
-                </button>
-                <button type="button" onClick={removeAll} disabled={Boolean(busy)} className="btn-danger px-3 py-1.5 text-xs disabled:opacity-50">
-                  <HiOutlineTrash style={{ width: 13, height: 13 }} /> {busy === 'delete' ? 'Removing…' : 'Remove all my network data'}
-                </button>
-              </div>
+              <button type="button" onClick={removeAll} disabled={Boolean(busy)} className="btn-danger px-2.5 py-1 text-xs disabled:opacity-50">
+                <HiOutlineTrash style={{ width: 13, height: 13 }} /> {busy === 'delete' ? 'Removing…' : 'Remove all'}
+              </button>
             </div>
-            <div className="space-y-2 border-t border-line bg-slate-50/60 px-4 py-3 sm:px-5">
+            <div className="space-y-2 border-t border-line px-4 py-3 sm:px-5">
               {connectors}
-              <div className="flex flex-wrap items-center gap-x-4 text-xs text-muted">
-                {mode === 'memory' && !signedIn && sessionStatus !== 'loading' && (
-                  <span className="text-amber-700"><Link href="/signin" className="font-medium underline">Sign in to save your network</Link></span>
-                )}
-                <span>A new upload replaces that source. Your contacts never leave this app.</span>
-              </div>
+              {mode === 'memory' && !signedIn && sessionStatus !== 'loading' && (
+                <p className="text-xs text-amber-700"><Link href="/signin" className="font-medium underline">Sign in to save your network</Link></p>
+              )}
             </div>
           </section>
         )}
