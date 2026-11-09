@@ -4,13 +4,33 @@
     {
       "name": "searchbar3-dev",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["next", "dev", "-p", "3007"],
+      "runtimeArgs": [
+        "next",
+        "dev",
+        "-p",
+        "3007"
+      ],
       "port": 3007
     },
     {
       "name": "searchbar3-attach",
       "url": "http://localhost:3007",
       "port": 3007
+    },
+    {
+      "name": "searchbar3-dev-3009",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "PGLITE_DIR=.data/pglite-3009",
+        "ALLOW_DEV_LOGIN=true",
+        "NEXT_DIST_DIR=.next-dev",
+        "npx",
+        "next",
+        "dev",
+        "-p",
+        "3009"
+      ],
+      "port": 3009
     }
   ]
 }

@@ -27,13 +27,28 @@ function getRequestBaseUrl(req) {
 
 export function getCallbackUrl(provider, req = null) {
   // Provider-specific explicit override has highest priority.
+  // Only honoured when it is a real absolute URL: a value such as
+  // "${NEXT_PUBLIC_BASE_URL}/api/auth/twitter/callback" (an unexpanded
+  // template pasted into the host's settings) would be sent to the provider
+  // verbatim and every sign-in would fail.
+  // It is also ignored when it points at a different host than the one the
+  // user is on (an old domain left in the settings): the provider would send
+  // the user, and their sign-in, to that other site.
   const providerEnvKey = `${String(provider || '').toUpperCase()}_REDIRECT_URI`;
-  if (process.env[providerEnvKey]) {
-    return process.env[providerEnvKey];
+  const override = String(process.env[providerEnvKey] || '').trim();
+  const requestBaseUrl = getRequestBaseUrl(req);
+  if (/^https?:\/\/[^\s$`{}]+$/i.test(override)) {
+    let sameHost = true;
+    try {
+      const requestHost = requestBaseUrl ? new URL(requestBaseUrl).host : '';
+      sameHost = !requestHost || new URL(override).host === requestHost;
+    } catch {
+      sameHost = false;
+    }
+    if (sameHost) return override;
   }
 
   // Get base URLs from environment with request-host fallback.
-  const requestBaseUrl = getRequestBaseUrl(req);
   const baseUrl = requestBaseUrl || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
   const productionUrl = process.env.NEXT_PUBLIC_PRODUCTION_URL || baseUrl;
   
