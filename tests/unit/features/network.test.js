@@ -86,6 +86,8 @@ describe('LinkedIn Connections.csv', () => {
       location: '',
       connectedOn: '2026-11-05',
       source: 'linkedin',
+      relationship: 'direct',
+      via: '',
       tags: [],
     });
     expect(contacts[1].position).toBe('Partner "Seed"');
@@ -149,6 +151,8 @@ describe('generic CSV / spreadsheet rows', () => {
       location: 'Austin, USA',
       connectedOn: null,
       source: 'csv',
+      relationship: 'direct',
+      via: '',
       tags: ['vip', 'fintech', 'met at demo day'],
     }]);
   });
@@ -315,7 +319,7 @@ describe('parseQuestionRules', () => {
   test('uses the LLM only when rules find nothing specific, with only the question text', async () => {
     chatComplete.mockResolvedValueOnce({ text: '```json\n{"companies":[],"roles":["recruiters"],"keywords":[],"locations":[],"intent":"role"}\n```' });
     const out = await parseQuestion('who hires people like me');
-    expect(out).toEqual({ parsedBy: 'llm', filters: { companies: [], roles: ['recruiters'], keywords: [], locations: [], intent: 'role' } });
+    expect(out).toEqual({ parsedBy: 'llm', filters: { companies: [], roles: ['recruiters'], keywords: [], locations: [], intent: 'role', lens: null } });
     const sent = JSON.stringify(chatComplete.mock.calls[0][0]);
     expect(sent).toContain('who hires people like me');
 
@@ -496,7 +500,7 @@ describe('network store (mocked query)', () => {
 
   const mockStore = ({ others = 0 } = {}) => db.query.mockImplementation(async (sql, params) => {
     const text = sql.trim();
-    if (/^INSERT/.test(text)) return new Array(params.length / 14).fill({ id: 'x' });
+    if (/^INSERT/.test(text)) return new Array(params.length / 16).fill({ id: 'x' });
     if (/^WITH removed/.test(text)) return [{ saved: 0, duplicates: 0, contacts: [] }];
     if (/COUNT/.test(text)) return [{ n: others }];
     return [];
@@ -517,20 +521,20 @@ describe('network store (mocked query)', () => {
     expect(deletesBefore[0]).toMatch(/dedupe_key LIKE 'staged:%'/);
     expect(deletesBefore[0]).not.toMatch(/source/);
     const inserts = db.query.mock.calls.filter(([sql]) => sql.trim().startsWith('INSERT'));
-    expect(inserts.map(([, p]) => p.length / 14)).toEqual([500, 500, 200]);
+    expect(inserts.map(([, p]) => p.length / 16)).toEqual([500, 500, 200]);
     const [sql, params] = inserts[0];
     expect(sql).toMatch(/ON CONFLICT \(user_id, dedupe_key\) DO NOTHING/);
     expect(sql).not.toMatch(/Person 0/); // values are parameters, never inlined
     expect(params.slice(0, 13)).toEqual([
       'user-1', 'linkedin', 'Person 0', null, null, 'Stripe, Inc.', 'stripe', null, null, null, null, '2026-11-05', '[]',
     ]);
-    expect(params[13]).toMatch(/^staged:[0-9a-f]{16}:n:person 0\|stripe$/);
+    expect(params[15]).toMatch(/^staged:[0-9a-f]{16}:n:person 0\|stripe$/);
     // The swap: delete old rows of the source, drop cross-source duplicates, activate the rest, all in one statement.
     const swap = calls[calls.length - 1];
     expect(swap).toMatch(/^WITH removed AS \(\s*DELETE FROM network_contacts WHERE user_id = \$1 AND source = \$2/);
     expect(swap).toMatch(/activated AS \(\s*UPDATE network_contacts/);
     expect(swap).toMatch(/SELECT COUNT\(\*\) FROM removed/);
-    expect(db.query.mock.calls[db.query.mock.calls.length - 1][1]).toEqual(['user-1', 'linkedin', `${params[13].slice(0, 24)}%`, 24]);
+    expect(db.query.mock.calls[db.query.mock.calls.length - 1][1]).toEqual(['user-1', 'linkedin', `${params[15].slice(0, 24)}%`, 24]);
   });
 
   test('replaceContacts caps the total at 30,000 per user', async () => {
@@ -538,7 +542,7 @@ describe('network store (mocked query)', () => {
     const out = await store.replaceContacts('user-1', 'csv', Array.from({ length: 25 }, (_, i) => ({ name: `P${i}` })));
     expect(out).toMatchObject({ truncated: 15 });
     const inserts = db.query.mock.calls.filter(([sql]) => sql.trim().startsWith('INSERT'));
-    expect(inserts[0][1].length / 14).toBe(10);
+    expect(inserts[0][1].length / 16).toBe(10);
   });
 
   test('a failed batch cleans up its staged rows and rethrows', async () => {
@@ -577,7 +581,7 @@ describe('network store (mocked query)', () => {
     const list = await store.listContacts('user-1');
     expect(list[0]).toEqual({
       id: 'u1', name: 'Ana', firstName: 'Ana', lastName: '', company: 'Stripe', position: 'Eng', email: '',
-      profileUrl: 'https://www.linkedin.com/in/ana', location: '', connectedOn: '2026-11-05', source: 'linkedin', tags: ['a'],
+      profileUrl: 'https://www.linkedin.com/in/ana', location: '', connectedOn: '2026-11-05', source: 'linkedin', tags: ['a'], relationship: 'direct', via: '',
     });
     expect(await store.deleteAllContacts('user-1')).toBe(2);
     expect(await store.countContacts('user-1')).toBe(7);
@@ -598,8 +602,8 @@ describe('network store (mocked query)', () => {
     });
     const out = await store.findContactsAtCompanies('user-1', ['Stripe, Inc.', 'Goldman Sachs', 'stripe']);
     expect(out).toEqual([
-      { name: 'Ana', company: 'Stripe, Inc.', position: 'Eng', profileUrl: '', connectedOn: '2026-11-05', source: 'linkedin', matchedCompany: 'Stripe, Inc.' },
-      { name: 'Gil', company: 'Goldman Sachs Asset Management', position: 'VP', profileUrl: 'https://www.linkedin.com/in/gil', connectedOn: null, source: 'csv', matchedCompany: 'Goldman Sachs' },
+      { name: 'Ana', company: 'Stripe, Inc.', position: 'Eng', profileUrl: '', connectedOn: '2026-11-05', source: 'linkedin', relationship: 'direct', via: '', matchedCompany: 'Stripe, Inc.' },
+      { name: 'Gil', company: 'Goldman Sachs Asset Management', position: 'VP', profileUrl: 'https://www.linkedin.com/in/gil', connectedOn: null, source: 'csv', relationship: 'direct', via: '', matchedCompany: 'Goldman Sachs' },
     ]);
   });
 
@@ -683,7 +687,7 @@ describe('network store (real PGlite)', () => {
     expect(out.failed).toBe('boom');
     expect(out.afterFailure).toEqual(['A:linkedin', 'B:linkedin', 'C:csv']);
     expect(out.staged).toBe(0);
-    expect(out.stats.bySource).toEqual({ linkedin: 2, csv: 1, x: 0 });
+    expect(out.stats.bySource).toEqual({ linkedin: 2, csv: 1, x: 0, attio: 0 });
     expect(out.again).toMatchObject({ saved: 600, duplicates: 0, returned: 600, first: { name: 'P0', source: 'linkedin', company: 'Stripe' } });
     expect(out.count).toBe(601);
     expect(out.keyed.map((c) => c.name)).toEqual(['C']);
@@ -813,5 +817,43 @@ describe('API auth and validation', () => {
       if (saved.ls) process.env.LINKEDIN_CLIENT_SECRET = saved.ls;
       if (saved.tw) process.env.TWITTER_CLIENT_ID = saved.tw;
     }
+  });
+});
+
+
+describe('lenses: raise / source / diligence', () => {
+  const { parseQuestionRules, scoreContacts, validateFilters } = require('../../../src/server/network/query');
+  const cs = [
+    { name: 'Ana LP', position: 'Chief Investment Officer', company: 'Yale Endowment' },
+    { name: 'Vic VC', position: 'Partner', company: 'Sequoia Capital' },
+    { name: 'Fay Founder', position: 'Founder & CEO', company: 'Fintech Co' },
+    { name: 'Eng Eng', position: 'Software Engineer', company: 'Stripe' },
+    { name: 'Rep Press', position: 'Reporter', company: 'Forbes' },
+  ];
+
+  test('questions map to a lens, with no stray keywords', () => {
+    expect(parseQuestionRules('Who can help me raise a fund?')).toMatchObject({ lens: 'raise', intent: 'lens', keywords: [], roles: [] });
+    expect(parseQuestionRules('Who sends me deal flow in fintech?')).toMatchObject({ lens: 'source', keywords: ['fintech'] });
+    expect(parseQuestionRules('Who can diligence an AI company?')).toMatchObject({ lens: 'diligence', keywords: ['ai'] });
+    expect(parseQuestionRules('Who do I know at Stripe?')).toMatchObject({ lens: null, intent: 'who-at' });
+    expect(validateFilters({ companies: [], roles: [], keywords: [], locations: [], lens: 'bogus' })).toBeNull();
+    expect(validateFilters({ companies: [], roles: [], keywords: [], locations: [], lens: 'raise' })).toMatchObject({ lens: 'raise', intent: 'lens' });
+  });
+
+  test('raise: LPs rank above VCs; founders and engineers are excluded', () => {
+    const r = scoreContacts(cs, parseQuestionRules('Who can help me raise a fund?'));
+    expect(r.results.map((x) => x.contact.name)).toEqual(['Ana LP', 'Vic VC']);
+    expect(r.results[0]).toMatchObject({ role: 'lp', roleLabel: 'LP / allocator' });
+  });
+
+  test('source with an industry word: founders first, keyword required', () => {
+    const r = scoreContacts(cs, parseQuestionRules('Who sends me deal flow in fintech?'));
+    expect(r.results.map((x) => x.contact.name)).toEqual(['Fay Founder']);
+  });
+
+  test('diligence: experts and operators, LPs excluded', () => {
+    const names = scoreContacts(cs, { lens: 'diligence' }).results.map((x) => x.contact.name);
+    expect(names).toEqual(expect.arrayContaining(['Fay Founder', 'Eng Eng', 'Rep Press']));
+    expect(names).not.toContain('Ana LP');
   });
 });

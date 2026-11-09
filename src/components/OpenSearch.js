@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { HiOutlineSparkles, HiOutlineMagnifyingGlass, HiOutlineCheckCircle, HiOutlineBuildingOffice2, HiOutlineUserCircle, HiOutlineExclamationCircle } from 'react-icons/hi2';
 import ModelSelector from './ModelSelector';
+import NetworkHelpers from './network/NetworkHelpers';
+import { sectorKeywordsFrom } from '../utils/network/sectors';
 import SourceSelector from './SourceSelector';
 import SimplifiedLLMResults, { FollowUpChat } from './search/results/SimplifiedLLMResults';
 import DegradedBanner from './search/DegradedBanner';
@@ -327,11 +329,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
                   {workspaces.length > 0 ? 'Manage workspaces' : 'New workspace'}
                 </Link>
               </label>
-            ) : (
-              <span className="text-muted">
-                <Link href="/signin" className="font-medium text-brand-600 hover:text-brand-700">Sign in</Link> to save searches to your history and workspaces
-              </span>
-            )}
+            ) : null}
             {savedHistoryId && (
               <Link href={`/history/${savedHistoryId}`} className="chip chip-good">
                 <HiOutlineCheckCircle style={{ width: 13, height: 13 }} />
@@ -358,6 +356,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
               mode="open"
               selectedSources={selectedSources}
               onSourceToggle={handleSourceToggle}
+              onSelectAll={(next) => setSelectedSources(next)}
               onCustomSourceAdd={handleCustomSourceAdd}
               onFileUpload={handleFileUpload}
               isLoading={loading}
@@ -411,6 +410,15 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
                 </span>
               )}
               {apiMeta.olderThanFilter > 0 && <span>{apiMeta.olderThanFilter} result{apiMeta.olderThanFilter === 1 ? ' was' : 's were'} older than the filter</span>}
+            </div>
+          )}
+          {hasSearched && query && profileName && apiMeta.queryPlan?.mode !== 'topic' && (
+            <div className="mb-4">
+              <NetworkHelpers
+                company={profileName}
+                keywords={sectorKeywordsFrom(`${query} ${hasAnswer ? String(results.content).slice(0, 4000) : ''}`)}
+                title={`Your network and ${profileName}`}
+              />
             </div>
           )}
           {hasSearched && query && (

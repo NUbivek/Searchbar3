@@ -6,7 +6,7 @@
 import axios from 'axios';
 import { webQuery, entityRegex, mentionMatches, strictMentions, candidateSubsequences, INTENTS, GENERIC_WORDS } from './queryPlan';
 
-const SITE_SOURCES = ['linkedin', 'twitter', 'reddit', 'substack', 'medium', 'crunchbase', 'pitchbook', 'carta'];
+const SITE_SOURCES = ['linkedin', 'twitter', 'reddit', 'substack', 'medium', 'crunchbase', 'pitchbook', 'carta', 'government', 'ip', 'institutions'];
 const TIMEOUT_MS = 20000;
 
 function withTimeout(promise, ms, label) {
@@ -180,7 +180,9 @@ export async function retrieve(plan, sources, { customUrls = [], files = [] } = 
     else add(site, async () => (await integrationSearch([site], webQuery(plan))).results || []);
   }
   if (sources.includes('verified')) {
-    add('verified', async () => (await integrationSearch(['sec', 'fmp'], plan.entityCandidate || plan.query)).results || []);
+    // Verified = filings and market data; the government group adds the
+    // regulators' own pages (Fed, FDIC, CMS, FDA, USPTO, state registries...).
+    add('verified', async () => (await integrationSearch(['sec', 'fmp', ...(webSearchConfigured() && !sources.includes('government') ? ['government'] : [])], plan.entityCandidate || plan.query)).results || []);
   }
   if (customUrls.length) add('custom', () => customUrlSearch(plan, customUrls));
   if (files.length) add('file', async () => (await integrationSearch(['file'], plan.query, { files })).results || []);

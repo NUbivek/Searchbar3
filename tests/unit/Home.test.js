@@ -63,11 +63,10 @@ describe('Home page', () => {
   it('renders the app shell and wires OpenSearch with the default model', () => {
     render(<Home />);
 
-    const networkLink = screen.getAllByText('Network')[0].closest('a');
+    const networkLink = screen.getAllByText('Network Map')[0].closest('a');
     const openSearch = screen.getByTestId('open-search');
 
     expect(screen.getByRole('heading', { name: 'Research any company, founder or market' })).toBeTruthy();
-    expect(screen.getByText(/written from cited sources/)).toBeTruthy();
     expect(screen.getByText('Research Hub', { selector: 'span' }).closest('a').getAttribute('href')).toBe('/');
     expect(networkLink?.getAttribute('href')).toBe('/network');
     expect(screen.getAllByText('Founder Check')[0].closest('a').getAttribute('href')).toBe('/founder');

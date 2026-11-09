@@ -1,7 +1,8 @@
 /**
- * App shell: a sticky, translucent top bar with the wordmark, the five
- * sections and the account menu; an optional page header; a centred column.
- * Every page uses it so navigation and spacing are identical everywhere.
+ * App shell: a quiet sticky top bar (wordmark; Workspaces, Watchlist and the
+ * account menu on the right), the three-flow switch as the main navigation,
+ * an optional page header and a centred column. Every page uses it so
+ * navigation and spacing are identical everywhere.
  */
 import React from 'react';
 import Head from 'next/head';
@@ -10,6 +11,7 @@ import { useRouter } from 'next/router';
 import { HiOutlineSparkles, HiOutlineMagnifyingGlass, HiOutlineShare, HiOutlineFolder, HiOutlineBell, HiOutlineUserCircle } from 'react-icons/hi2';
 import AccountMenu from '../account/AccountMenu';
 
+/** All pages, for tests and the sign-in page. */
 export const NAV = [
   { href: '/', label: 'Research', Icon: HiOutlineMagnifyingGlass },
   { href: '/founder', label: 'Founder Check', Icon: HiOutlineUserCircle },
@@ -21,46 +23,46 @@ export const NAV = [
 export function Wordmark({ className = '' }) {
   return (
     <Link href="/" className={`inline-flex items-center gap-2 ${className}`} aria-label="Research Hub home">
-      <span className="grid h-8 w-8 place-items-center rounded-xl text-white shadow-sm" style={{ backgroundImage: 'var(--grad)' }}>
-        <HiOutlineSparkles className="h-4.5 w-4.5" style={{ width: 18, height: 18 }} />
+      <span className="grid h-7 w-7 place-items-center rounded-lg bg-ink text-white">
+        <HiOutlineSparkles style={{ width: 15, height: 15 }} />
       </span>
       <span className="text-[15px] font-semibold tracking-tight text-ink">Research Hub</span>
     </Link>
   );
 }
 
+/** Secondary places, kept quiet at the top right; the three flows are the real navigation. */
+export const SECONDARY_NAV = [
+  { href: '/workspaces', label: 'Workspaces', Icon: HiOutlineFolder },
+  { href: '/watchlist', label: 'Watchlist', Icon: HiOutlineBell },
+];
+
 export function TopBar() {
   const router = useRouter();
   return (
-    <header className="sticky top-0 z-40 border-b border-line/80 glass">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-2.5">
+    <header className="sticky top-0 z-40 border-b border-line/70 glass">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-2">
         <Wordmark />
-        <nav className="hidden md:flex items-center gap-1 rounded-full border border-line bg-white/70 p-1" aria-label="Sections">
-          {NAV.map(({ href, label, Icon }) => {
-            const active = href === '/' ? router.pathname === '/' : router.pathname.startsWith(href);
-            return (
-              <Link
-                key={href}
-                href={href}
-                aria-current={active ? 'page' : undefined}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition ${active ? 'bg-ink text-white shadow-sm' : 'text-muted hover:text-ink hover:bg-slate-100'}`}
-              >
-                <Icon style={{ width: 15, height: 15 }} />
-                {label}
-              </Link>
-            );
-          })}
-        </nav>
-        <AccountMenu />
+        <div className="flex items-center gap-1 sm:gap-2">
+          <nav className="flex items-center" aria-label="More">
+            {SECONDARY_NAV.map(({ href, label, Icon }) => {
+              const active = router.pathname.startsWith(href);
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  aria-current={active ? 'page' : undefined}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] transition ${active ? 'text-ink font-medium' : 'text-muted hover:text-ink'}`}
+                >
+                  <Icon style={{ width: 15, height: 15 }} />
+                  <span className="hidden sm:inline">{label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+          <AccountMenu />
+        </div>
       </div>
-      <nav className="md:hidden flex gap-1 overflow-x-auto px-3 pb-2" aria-label="Sections">
-        {NAV.map(({ href, label }) => {
-          const active = href === '/' ? router.pathname === '/' : router.pathname.startsWith(href);
-          return (
-            <Link key={href} href={href} className={`chip whitespace-nowrap ${active ? 'chip-active' : ''}`}>{label}</Link>
-          );
-        })}
-      </nav>
     </header>
   );
 }
@@ -85,8 +87,7 @@ export function SectionSwitch() {
               href={href}
               role="tab"
               aria-selected={active}
-              className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition ${active ? 'text-white shadow-sm' : 'text-muted hover:text-ink hover:bg-slate-50'}`}
-              style={active ? { backgroundImage: 'var(--grad)' } : undefined}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition ${active ? 'bg-ink text-white shadow-sm' : 'text-muted hover:text-ink hover:bg-slate-50'}`}
             >
               <Icon style={{ width: 16, height: 16 }} />
               {label}
@@ -119,8 +120,7 @@ export default function PageShell({ title, subtitle, children, actions = null, w
         )}
         <div>{children}</div>
       </main>
-      <footer className="mx-auto flex max-w-5xl flex-col gap-2 px-4 pb-8 pt-4 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
-        <span>Every statement is quoted from, or cited to, a numbered source. Contact data never leaves this app.</span>
+      <footer className="mx-auto flex max-w-5xl justify-end px-4 pb-8 pt-4 text-xs text-muted">
         <span className="flex items-center gap-3">
           <Link href="/privacy" className="hover:text-ink">Privacy</Link>
           <Link href="/terms" className="hover:text-ink">Terms</Link>

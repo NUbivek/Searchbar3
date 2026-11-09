@@ -286,6 +286,24 @@ const handleVerifiedDataSourcesWithSocial = async (query, verifiedDataSources) =
   }
 };
 
+async function groupSearch(groupKey, query) {
+  const { groupQueries, hostInGroup, SOURCE_GROUPS } = await import('./sources/sourceGroups');
+  const queries = groupQueries(groupKey, query);
+  const settled = await Promise.allSettled(queries.map((q) => searchWithSerperOrTavily(q, { num: 6 })));
+  const seen = new Set();
+  const out = [];
+  for (const s of settled) {
+    if (s.status !== 'fulfilled') continue;
+    for (const r of s.value || []) {
+      const url = r.link || r.url;
+      if (!url || seen.has(url) || !hostInGroup(url, groupKey)) continue;
+      seen.add(url);
+      out.push({ title: r.title, content: r.snippet, url, source: groupKey, sourceName: SOURCE_GROUPS[groupKey].label });
+    }
+  }
+  return out;
+}
+
 // Source handlers
 const sourceHandlers = {
   // Web search using Serper API
@@ -660,6 +678,12 @@ const sourceHandlers = {
   },
   crunchbase: (query) => handleWebsiteScrape(query, 'crunchbase.com'),
   pitchbook: (query) => handleWebsiteScrape(query, 'pitchbook.com'),
+
+  // Source groups (many official / institutional domains behind one toggle):
+  // a few chunked `site:` queries, hits kept only when the host is in the group.
+  government: (query) => groupSearch('government', query),
+  ip: (query) => groupSearch('ip', query),
+  institutions: (query) => groupSearch('institutions', query),
   cbinsights: (query) => handleWebsiteScrape(query, 'cbinsights.com'),
 
   // Curated registry (sources/registry.json): VC portfolios, funding and

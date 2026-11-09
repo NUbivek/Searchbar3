@@ -417,7 +417,7 @@
 .metricFill {
   height: 100%;
   border-radius: 9999px;
-  background-image: var(--grad);
+  background-image: none; background-color: #0F172A;
   transition: width 0.5s ease-out;
 }
 

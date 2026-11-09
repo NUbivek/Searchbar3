@@ -271,7 +271,7 @@ export default function DataRoom({ workspaceId }) {
         <p className="muted mb-3">Upload a deck, financials or memos (PDF, DOCX, CSV, TXT, MD) and ask questions answered from them.</p>
         {uploading && progress > 0 && (
           <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
-            <div className="h-1.5 rounded-full transition-all" style={{ width: `${progress}%`, backgroundImage: 'var(--grad)' }} />
+            <div className="h-1.5 rounded-full transition-all" style={{ width: `${progress}%`, background: '#0F172A' }} />
           </div>
         )}
         {uploadMessage && <p className="mb-2 text-sm text-emerald-700" role="status">{uploadMessage}</p>}

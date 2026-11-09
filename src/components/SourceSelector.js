@@ -6,6 +6,7 @@ export default function SourceSelector({
   mode = 'open',
   selectedSources = [],
   onSourceToggle,
+  onSelectAll,
   setSelectedSources,
   onCustomSourceAdd,
   onFileUpload,
@@ -30,6 +31,9 @@ export default function SourceSelector({
       { id: 'Pitchbook', name: 'Pitchbook' },
       { id: 'Carta', name: 'Carta' },
       { id: 'Verified', name: 'Verified' },
+      { id: 'Government', name: 'Gov & regulators', hint: 'SEC, Federal Reserve, FDIC, CMS, FDA, USPTO, Census, state registries, UK/EU regulators' },
+      { id: 'IP', name: 'Patents & IP', hint: 'USPTO, Google Patents, Copyright Office, WIPO, EPO; DARPA, ARPA-E, NSF, NIST, NASA, NIH, SBIR awards' },
+      { id: 'Institutions', name: 'Institutions', hint: 'UN, World Bank, IMF, OECD; McKinsey, BCG, Bain, Big Four; Brookings, RAND, Pew, NBER; SSRN, arXiv' },
     ],
     verified: [
       { id: 'LinkedIn', name: 'LinkedIn' },
@@ -136,9 +140,31 @@ export default function SourceSelector({
     </div>
   );
 
+  const allIds = sources[mode].map((s) => s.id);
+  const allOn = allIds.every((id) => selectedSources.includes(id));
+  const toggleAll = () => {
+    const next = allOn ? [] : allIds;
+    if (typeof onSelectAll === 'function') { onSelectAll(next); return; }
+    if (typeof setSelectedSources === 'function') { setSelectedSources(next); return; }
+    if (typeof onSourceToggle === 'function') {
+      for (const id of allIds) if (allOn ? selectedSources.includes(id) : !selectedSources.includes(id)) onSourceToggle(id);
+    }
+  };
+
   return (
     <div>
       <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={toggleAll}
+          disabled={isLoading}
+          aria-pressed={allOn}
+          title={allOn ? 'Clear all sources' : 'Select every source'}
+          className={`chip shadow-sm ${allOn ? 'chip-active' : 'hover:border-slate-300 hover:text-ink'} disabled:opacity-50`}
+        >
+          All
+        </button>
+        <span className="mx-0.5 select-none self-center text-line" aria-hidden="true">|</span>
         {sources[mode].map(source => {
           const active = selectedSources.includes(source.id);
           return (
@@ -148,6 +174,7 @@ export default function SourceSelector({
               onClick={() => toggleSource(source.id)}
               disabled={isLoading}
               aria-pressed={active}
+              title={source.hint || undefined}
               className={`chip ${active ? 'chip-active' : 'hover:border-slate-300 hover:text-ink'} disabled:opacity-50`}
             >
               {source.name}
@@ -155,10 +182,13 @@ export default function SourceSelector({
           );
         })}
         {mode === 'open' && (typeof onCustomSourceAdd === 'function' || typeof onFileUpload === 'function') && (
+          <span className="mx-0.5 select-none self-center text-line" aria-hidden="true">|</span>
+        )}
+        {mode === 'open' && (typeof onCustomSourceAdd === 'function' || typeof onFileUpload === 'function') && (
           <button
             type="button"
             onClick={() => setShowCustomOptions(!showCustomOptions)}
-            className={`chip ${showCustomOptions ? 'chip-active' : 'hover:border-slate-300 hover:text-ink'} disabled:opacity-50`}
+            className={`chip shadow-sm ${showCustomOptions ? 'chip-active' : 'hover:border-slate-300 hover:text-ink'} disabled:opacity-50`}
             disabled={isLoading}
             aria-expanded={showCustomOptions}
           >

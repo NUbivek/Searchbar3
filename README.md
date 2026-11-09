@@ -16,12 +16,25 @@ in the navigation.
 
 ### Open Research (`/`)
 - Sources you can toggle: curated registry (on by default, no key), Web,
-  LinkedIn, X, Reddit, Substack, Medium, Crunchbase, Pitchbook, Carta, and
-  Verified (SEC EDGAR, plus FMP market data when `FMP_API_KEY` is set).
+  LinkedIn, X, Reddit, Substack, Medium, Crunchbase, Pitchbook, Carta,
+  Verified (SEC EDGAR, FMP market data when `FMP_API_KEY` is set, plus the
+  government group below), and three source groups
+  (`src/utils/sources/sourceGroups.js`): **Government & regulators** (SEC,
+  Federal Reserve and FRED, FDIC, OCC, CFPB, FTC, DOJ, CMS, FDA, Census, BLS,
+  Treasury, state business registries, UK and EU regulators), **Patents &
+  IP** (USPTO, Google Patents, Copyright Office, WIPO, EPO, UK IPO; DARPA,
+  ARPA-E, IARPA, NSF, NIST, NASA, NIH RePORTER, SBIR awards) and
+  **Institutions & research** (UN, World Bank, IMF, OECD, WHO, WEF; McKinsey,
+  BCG, Bain, the Big Four, Gartner, Forrester; Brookings, RAND, Pew, NBER,
+  CFR; SSRN, arXiv, CB Insights, Statista, HBR). Government and IP hits are
+  tiered as filings, institutional hits as reputable reports.
   Everything except the curated registry, Hacker News and SEC needs a web
-  search key (`SERPER_API_KEY` or `TAVILY_API_KEY`); the LinkedIn/X/Reddit/
-  Substack/Medium/Crunchbase/Pitchbook/Carta toggles are site-restricted web
-  searches, not platform APIs.
+  search key (`SERPER_API_KEY` or `TAVILY_API_KEY`); the platform toggles and
+  the groups are site-restricted web searches, not platform APIs. The
+  curated registry also carries official and institutional feeds (SEC, Fed,
+  FTC, DOJ, CFPB, NSF, DARPA, arXiv, McKinsey, Brookings, Pew, HBR, IMF, CB
+  Insights) under the `government`, `ip_research` and `institutions_research`
+  categories.
 - Custom URLs and uploaded files (PDF, DOCX, CSV, TXT, up to 5 files of
   25 MB) are searched alongside the sources.
 - Date filter: any time, past month, past year, past 3 years. Undated items
@@ -47,20 +60,41 @@ in the navigation.
 Background brief on a person: career timeline, past companies, education,
 litigation mentions (CourtListener, with a free token), press, public profile
 snippets as they appear in web search, disambiguation when several people
-share a name, and backchannel references (people in your imported network at
-the founder's current and past companies). Every item is a sentence copied
+share a name, and *Who can help diligence this founder*: people in your
+imported network at the founder's current and past companies (reference
+calls, backchannel) plus sector experts. Every item is a sentence copied
 from a fetched source; the brief is AI-written with checked citations or
 quoted when no model is configured.
 
 ### Network Map (`/network`)
-Import LinkedIn's own data export (`Connections.csv`), any CSV/XLSX of
-contacts, or your X following list (where the X API tier allows it); see
-them as a company graph; ask "Who do I know at Google?", "Find software
-engineers in my network", "Intro paths to Stripe". Matching is deterministic
-over your contacts; contact data is never sent to an AI provider. LinkedIn's
-API does not give apps your connections, so LinkedIn sign-in only identifies
-you. Signed in, contacts are saved to your account; signed out, they stay in
-the browser tab. See `NETWORK-MAP.md`.
+Your own contacts as a map, sorted by what they can do for a fund. Drop
+LinkedIn's `Connections.csv` or any CSV/XLSX of contacts (X following lists
+as JSON too), or connect the firm's Attio CRM with an API token: Attio
+people are saved as *direct* (their strongest connection in Attio is you)
+or *firm-wide* (a colleague's contact, labelled with the colleague) and the
+two are never confused on the map or in answers. Every contact is classified from its title and company into a
+role (LP, investor, founder, executive, operator, banker, lawyer,
+accountant, consultant, academic, press) and into three lenses: **raise**
+capital, **source** deals, **diligence** a company or founder. The map shows
+you in the centre with three role hubs (Investors & LPs, Founders &
+operators, Experts & advisors) and every company you know people at hanging
+off the hub its people belong to; switch to by-company, by-industry or
+by-country views, filter by lens, highlight a name, go full screen, click
+anything for details. Ask it questions in
+plain words: "Who can help me raise a fund?", "Who sends me deal flow in
+fintech?", "Who can diligence an AI company?", "Who do I know at Google?",
+"Intro paths to Stripe". Matching is deterministic over your contacts;
+contact data is never sent to an AI provider. LinkedIn's API does not give
+apps your connections, so the page offers no LinkedIn sign-in, only the
+export upload. Signed in,
+contacts are saved to your account; signed out, they stay in the browser
+tab. Full description in `NETWORK-MAP.md`.
+
+The same network is used across the product: after an Open Research search
+about a company, on every company profile, and in Founder Check, a **Your
+network** panel lists who you know at the company, at its investors and
+competitors, and which experts and investors in your network cover its
+sector (`POST /api/network/helpers`).
 
 ### Company profile (`/company/<name>`)
 Funding rounds, investors, key people, competitors, headcount and
@@ -131,7 +165,7 @@ Environment variables (all in `.env.local.example`):
 | `FMP_API_KEY` | market data for public companies (Verified source, company profile) |
 | `COURTLISTENER_API_TOKEN` | litigation search in Founder Check (free account) |
 | `DATABASE_URL` | Neon Postgres in production (history, workspaces, notes, watchlists, contacts); omit locally to use PGlite |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL` | Google sign-in (NextAuth) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET` | Google sign-in (NextAuth); leave `NEXTAUTH_URL` unset on Vercel so every domain of the project works |
 | `CRON_SECRET` | authorises the daily watchlist cron (`Authorization: Bearer`) |
 | `RESEND_API_KEY`, `ALERT_EMAIL_FROM` | optional watchlist email digests |
 | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` | LinkedIn sign-in on the Network Map |
@@ -143,11 +177,14 @@ never values). It is open in development and requires a signed-in session in
 production.
 
 ### Google sign-in
-Create an OAuth client in Google Cloud with the redirect URI
+Create an OAuth client in Google Cloud with one redirect URI per host,
 `https://<your-domain>/api/auth/callback/google` (and the localhost
-equivalent), then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
-`NEXTAUTH_SECRET` (any long random string) and `NEXTAUTH_URL`. In
-development `NEXTAUTH_URL` defaults to the dev server's port.
+equivalent), then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and
+`NEXTAUTH_SECRET` (any long random string). Do not set `NEXTAUTH_URL` on
+Vercel: NextAuth then uses the host of each request, so the `.vercel.app`
+URL and the custom domain both sign in. The consent screen needs a home
+page, privacy policy and terms link before Google lets the app leave
+"Testing" mode; the app serves `/privacy` and `/terms` for that.
 
 ### LinkedIn sign-in (Network Map)
 1. Create an app at https://www.linkedin.com/developers/apps and enable the
@@ -157,8 +194,10 @@ development `NEXTAUTH_URL` defaults to the dev server's port.
 2. Add the redirect URL `http://localhost:3000/api/auth/linkedin/callback`
    (and the production one).
 3. Set `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`. The callback URL
-   is derived from the request host; set `LINKEDIN_REDIRECT_URI` to
-   override it.
+   is derived from the host the user is on (`https://<host>/api/auth/linkedin/callback`),
+   so register every host you serve. `LINKEDIN_REDIRECT_URI` overrides it
+   only when it is a real URL on the same host; a value on another host or
+   an unexpanded template such as `${NEXT_PUBLIC_BASE_URL}/...` is ignored.
 
 ### X (Twitter) sign-in (Network Map)
 1. In the X developer portal create a project and app, enable OAuth 2.0
@@ -167,8 +206,9 @@ development `NEXTAUTH_URL` defaults to the dev server's port.
 2. Add the redirect URL `http://localhost:3000/api/auth/twitter/callback`
    (and the production one). Scopes requested: `tweet.read`, `users.read`,
    `follows.read`, `offline.access`.
-3. Set `TWITTER_CLIENT_ID` and `TWITTER_CLIENT_SECRET`; set
-   `TWITTER_REDIRECT_URI` to override the derived callback URL.
+3. Set `TWITTER_CLIENT_ID` and `TWITTER_CLIENT_SECRET`. The callback URL is
+   derived from the request host like LinkedIn's; `TWITTER_REDIRECT_URI`
+   follows the same same-host rule.
 Reading who you follow needs a paid X API tier; on the free tier the page
 says so and you can import your following list as a file instead.
 
@@ -186,9 +226,10 @@ plan, validate and run the registry pipeline (`src/sourcing/`).
 
 ## Deployment (Vercel)
 
-Push the repo, add the environment variables above (Neon via Vercel's
-integration provides `DATABASE_URL`), and set `NEXTAUTH_URL` to the site
-URL. `vercel.json` schedules `/api/cron/watchlists` daily at 06:00 UTC; set
+Push the repo and add the environment variables above (Neon via Vercel's
+integration provides `DATABASE_URL`). Do not set `NEXTAUTH_URL` (see Google
+sign-in). Production builds from the `openclaw-fixes` branch; preview
+deployments build from every other pushed branch. `vercel.json` schedules `/api/cron/watchlists` daily at 06:00 UTC; set
 `CRON_SECRET` so only Vercel can call it. Long routes (`/api/search/open`,
 `/api/founder`, `/api/company`, `/api/workspaces/[id]/ask`,
 `/api/llm/models`, `/api/cron/watchlists`) declare `maxDuration: 60`.
@@ -198,6 +239,8 @@ URL. `vercel.json` schedules `/api/cron/watchlists` daily at 06:00 UTC; set
 ```bash
 npm test                      # jest, tests/unit/**
 NEXT_DIST_DIR=.next-build npm run build   # production build without disturbing a running `next dev`
+# signed-in pages without Google: a second dev server with a local test user
+PGLITE_DIR=.data/pglite-3009 ALLOW_DEV_LOGIN=true NEXT_DIST_DIR=.next-dev npx next dev -p 3009
 npm run smoke:api             # status-code checks against a running server (API_SMOKE_BASE=http://127.0.0.1:3000)
 ```
 
@@ -208,15 +251,16 @@ src/pages/            index, founder, network, signin, watchlist, company/[name]
                       history/*, workspaces/*  (UI)
 src/pages/api/        search/open, founder, company, upload, llm/models,
                       sources/curated, history/*, workspaces/**, watchlist, alerts,
-                      cron/watchlists, network/{contacts,query,twitter},
+                      cron/watchlists, network/{contacts,query,helpers,attio,twitter},
                       auth/[...nextauth], auth/{linkedin,twitter}/*, debug/env-check
 src/server/           search/ (queryPlan, retrieve, rank, answer), llm/providers,
                       founderCheck, companyProfile, dataroom, memo, watchlist,
                       network/, store, db, auth
 src/utils/            sourceTiers, claimCheck, evidence, fallbackSynthesizer,
+                      network/{parseContacts,graph,roles,sectors,grouping},
                       sources/curatedIndex, sourceIntegration, fileProcessing, ...
 src/components/       OpenSearch, SourceSelector, ModelSelector, search/results,
-                      network/NetworkGraph, workspace/, watchlist/
+                      network/{NetworkGraph,NetworkHelpers}, workspace/, watchlist/
 src/sourcing/         curated registry pipeline (used by scripts/sourcing-*.js)
 tests/unit/           jest suites (features/ covers each product feature)
 ```

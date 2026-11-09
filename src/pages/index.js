@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Head from 'next/head';
+import Link from 'next/link';
 import OpenSearch from '../components/OpenSearch';
 import { TopBar, SectionSwitch } from '../components/layout/PageShell';
 
@@ -21,14 +22,12 @@ export default function Home() {
           <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-ink">
             Research any company, founder or market
           </h1>
-          <p className="mx-auto mt-3 max-w-2xl text-base text-muted">
-            Ask in plain language. The answer is written from cited sources, with every figure checked across them.
-          </p>
         </section>
         <OpenSearch selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
       </main>
-      <footer className="mx-auto max-w-5xl px-4 pb-8 text-xs text-muted">
-        Every statement is quoted from, or cited to, a numbered source. Contact data never leaves this app.
+      <footer className="mx-auto flex max-w-5xl justify-end gap-3 px-4 pb-8 text-xs text-muted">
+        <Link href="/privacy" className="hover:text-ink">Privacy</Link>
+        <Link href="/terms" className="hover:text-ink">Terms</Link>
       </footer>
     </div>
   );
