@@ -526,7 +526,7 @@ describe('network store (mocked query)', () => {
     expect(sql).toMatch(/ON CONFLICT \(user_id, dedupe_key\) DO NOTHING/);
     expect(sql).not.toMatch(/Person 0/); // values are parameters, never inlined
     expect(params.slice(0, 13)).toEqual([
-      'user-1', 'linkedin', 'Person 0', null, null, 'Stripe, Inc.', 'stripe', null, null, null, null, '2026-11-05', '[]', 'direct', null,
+      'user-1', 'linkedin', 'Person 0', null, null, 'Stripe, Inc.', 'stripe', null, null, null, null, '2026-11-05', '[]',
     ]);
     expect(params[15]).toMatch(/^staged:[0-9a-f]{16}:n:person 0\|stripe$/);
     // The swap: delete old rows of the source, drop cross-source duplicates, activate the rest, all in one statement.
