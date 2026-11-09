@@ -534,7 +534,7 @@ describe('network store (mocked query)', () => {
     expect(swap).toMatch(/^WITH removed AS \(\s*DELETE FROM network_contacts WHERE user_id = \$1 AND source = \$2/);
     expect(swap).toMatch(/activated AS \(\s*UPDATE network_contacts/);
     expect(swap).toMatch(/SELECT COUNT\(\*\) FROM removed/);
-    expect(db.query.mock.calls[db.query.mock.calls.length - 1][1]).toEqual(['user-1', 'linkedin', `${params[13].slice(0, 24)}%`, 24]);
+    expect(db.query.mock.calls[db.query.mock.calls.length - 1][1]).toEqual(['user-1', 'linkedin', `${params[15].slice(0, 24)}%`, 24]);
   });
 
   test('replaceContacts caps the total at 30,000 per user', async () => {
