@@ -260,7 +260,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         <div className="card card-pad animate-fadeIn">
           <div className="flex flex-col gap-2 md:flex-row">
             <div className="relative flex-1">
-              <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" style={{ width: 18, height: 18 }} />
+              <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink" style={{ width: 18, height: 18 }} />
               <input
                 type="text"
                 value={query}
@@ -268,7 +268,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                 placeholder="Ask about a company, founder or market…"
                 aria-label="Research question"
-                className="input py-3 pl-11 pr-4 text-base"
+                className="input-hero pl-11 pr-4"
               />
             </div>
             <button

@@ -901,7 +901,7 @@ export default function NetworkPage() {
           <h2 id="ask-heading" className="sr-only">Ask your network</h2>
           <form onSubmit={(e) => { e.preventDefault(); ask(); }} className="flex flex-col gap-2 sm:flex-row">
             <div className="relative flex-1">
-              <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" style={{ width: 17, height: 17 }} />
+              <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink" style={{ width: 18, height: 18 }} />
               <input
                 type="text"
                 value={question}
@@ -911,7 +911,7 @@ export default function NetworkPage() {
                 placeholder={hasContacts ? EXAMPLES[exampleIndex] : 'Search your network...'}
                 aria-label="Ask your network"
                 maxLength={500}
-                className="input py-3 pl-10"
+                className="input-hero pl-11"
               />
               {askFocused && !question && hasContacts && (
                 <ul className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-line bg-white py-1 shadow-card" role="listbox" aria-label="Example questions">

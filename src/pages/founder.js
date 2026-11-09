@@ -188,16 +188,16 @@ export default function FounderPage() {
               onChange={(e) => setName(e.target.value)}
               placeholder="Full name (exact spelling, e.g. Arthur Mensch)"
               aria-label="Full name"
-              className="input"
+              className="input-hero"
             />
             <input
               type="text"
               value={company}
               maxLength={120}
               onChange={(e) => setCompany(e.target.value)}
-              placeholder="Company (optional, narrows to the right person)"
+              placeholder="Company (optional)"
               aria-label="Company"
-              className="input"
+              className="input py-3.5 text-base"
             />
             <button type="submit" disabled={loading} className="btn-primary">
               <HiOutlineUserCircle style={ICON} />
