@@ -237,6 +237,12 @@ export default function NetworkPage() {
       const configured = d.configured !== false;
       if (r.status === 429) {
         setXStatus({ checked: true, connected: false, username: '', note: 'X status is temporarily unavailable (rate limited).', configured });
+      } else if (r.status === 403 && d.signedIn) {
+        // Signed in at X, but X refuses API reads for this app.
+        const why = /client-not-enrolled/i.test(d.xReason || '') || /attached to a Project/i.test(d.xDetail || '')
+          ? 'X accepted the sign-in but refuses API access: the X app must be attached to a Project in the X developer portal.'
+          : `X accepted the sign-in but refused API access${d.xReason ? ` (${d.xReason})` : ''}. Check the app's Project and access level in the X developer portal.`;
+        setXStatus({ checked: true, connected: false, username: '', note: why, configured });
       } else {
         setXStatus({ checked: true, connected: Boolean(d.authenticated), username: d.profile?.username || '', note: '', configured });
       }
