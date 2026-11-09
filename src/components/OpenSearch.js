@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { HiOutlineSparkles, HiOutlineMagnifyingGlass, HiOutlineCheckCircle, HiOutlineBuildingOffice2, HiOutlineUserCircle, HiOutlineExclamationCircle } from 'react-icons/hi2';
 import ModelSelector from './ModelSelector';
+import NetworkHelpers from './network/NetworkHelpers';
+import { sectorKeywordsFrom } from '../utils/network/sectors';
 import SourceSelector from './SourceSelector';
 import SimplifiedLLMResults, { FollowUpChat } from './search/results/SimplifiedLLMResults';
 import DegradedBanner from './search/DegradedBanner';
@@ -411,6 +413,15 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
                 </span>
               )}
               {apiMeta.olderThanFilter > 0 && <span>{apiMeta.olderThanFilter} result{apiMeta.olderThanFilter === 1 ? ' was' : 's were'} older than the filter</span>}
+            </div>
+          )}
+          {hasSearched && query && profileName && apiMeta.queryPlan?.mode !== 'topic' && (
+            <div className="mb-4">
+              <NetworkHelpers
+                company={profileName}
+                keywords={sectorKeywordsFrom(`${query} ${hasAnswer ? String(results.content).slice(0, 4000) : ''}`)}
+                title={`Your network and ${profileName}`}
+              />
             </div>
           )}
           {hasSearched && query && (

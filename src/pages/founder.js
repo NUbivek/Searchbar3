@@ -3,6 +3,8 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { HiOutlineSparkles, HiOutlineUserCircle, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import PageShell from '../components/layout/PageShell';
+import NetworkHelpers from '../components/network/NetworkHelpers';
+import { sectorKeywordsFrom } from '../utils/network/sectors';
 import { renderSafeHtml } from '../components/search/results/SimplifiedLLMResults';
 import { skippedNote } from '../utils/skippedNote';
 
@@ -290,45 +292,13 @@ export default function FounderPage() {
               </Section>
             )}
 
-            {data.references && (
-              <section className="card card-pad">
-                <div className="mb-3 flex items-center gap-2">
-                  <h2 className="section-title">Backchannel references</h2>
-                  {data.references.available && data.references.contacts.length > 0 && <span className="chip">{data.references.contacts.length}</span>}
-                </div>
-                {!data.references.available ? (
-                  <p className="muted">
-                    {data.references.reason}{' '}
-                    <Link href="/network" className="font-medium text-brand-600 hover:underline">Open Network Map</Link>
-                  </p>
-                ) : data.references.contacts.length === 0 ? (
-                  <p className="muted">
-                    {data.references.reason
-                      || `Checked your ${Number(data.references.checked || 0).toLocaleString()} saved contacts against ${data.references.companies.join(', ')}: nobody in your network works or worked there.`}
-                  </p>
-                ) : (
-                  <>
-                    <p className="muted mb-2 text-xs">
-                      People in your network at companies linked to {data.name} ({data.references.companies.join(', ')}): potential reference checks. Checked {Number(data.references.checked || 0).toLocaleString()} saved contacts; your network data stays on this site.
-                    </p>
-                    <ul className="divide-y divide-line">
-                      {data.references.contacts.map((c, i) => (
-                        <li key={i} className="flex flex-wrap items-center gap-2 py-2 text-sm">
-                          <span className="font-medium text-ink">{c.name}</span>
-                          <span className="text-muted">{c.position ? `${c.position}` : ''}{c.position && c.company ? ' at ' : ''}{c.company || ''}</span>
-                          {c.matchedCompany && <span className="chip chip-active">via {c.matchedCompany}</span>}
-                          {c.profileUrl && (
-                            <a href={c.profileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
-                              Profile <HiOutlineArrowTopRightOnSquare style={{ width: 12, height: 12 }} />
-                            </a>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-              </section>
-            )}
+            <NetworkHelpers
+              company={data.currentRole?.company || data.company || (data.profiles || [])[0]?.company || ''}
+              related={[...new Set([...(data.profiles || []).map((p) => p.company), ...(data.pastCompanies || []).map((p) => p.company)].filter((v) => v && v !== (data.currentRole?.company || data.company)))].slice(0, 12)}
+              person={data.name}
+              keywords={sectorKeywordsFrom([data.currentRole?.role, data.currentRole?.company, ...(data.pastCompanies || []).map((p) => `${p.role || ''} ${p.company || ''}`), ...(data.press || []).map((p) => p.text || p.title || '')].join(' '))}
+              title={`Who can help diligence ${data.name}`}
+            />
 
             {(data.warnings?.length > 0 || data.unavailableSources?.length > 0) && (
               <section className="card card-pad">

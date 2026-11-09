@@ -56,6 +56,8 @@ const HIGHLIGHT = '#F59E0B';
 const SELECTED = '#E11D48';
 const LABEL = '#0F172A';
 const LABEL_MUTED = '#475569';
+/** Role hubs ("Investors & LPs", ...) and, in role view, their companies and people. */
+export const GROUP_COLORS = { investors: '#4F46E5', founders: '#059669', experts: '#D97706', other: '#64748B' };
 
 export function clusterColor(key) {
   let h = 0;
@@ -101,8 +103,11 @@ export default function NetworkGraph({
     const companyCount = graphData.nodes.filter((n) => n.type === 'company').length;
     let companyRank = 0;
     const nodes = graphData.nodes.map((n) => {
-      const color = n.type === 'company' ? clusterColor(n.key) : n.type === 'person' ? clusterColor(n.companyKey) : ME_COLOR;
+      const color = n.type === 'group' ? (GROUP_COLORS[n.key] || GROUP_COLORS.other)
+        : n.type === 'company' ? (n.hub ? GROUP_COLORS[n.hub] || GROUP_COLORS.other : clusterColor(n.key))
+        : n.type === 'person' ? (n.hub ? GROUP_COLORS[n.hub] || GROUP_COLORS.other : clusterColor(n.companyKey)) : ME_COLOR;
       const p = prev.get(n.id);
+      if (n.type === 'group') return { ...n, color, x: n.fx, y: n.fy };
       if (p && Number.isFinite(p.x)) {
         kept += 1;
         const pin = n.type === 'company' && pinCompanies ? { fx: p.x, fy: p.y, pinned: true } : {};
@@ -113,6 +118,8 @@ export default function NetworkGraph({
       if (n.type === 'company') {
         const angle = (2 * Math.PI * companyRank) / Math.max(1, companyCount) - Math.PI / 2;
         companyRank += 1;
+        const hub = n.hub ? graphData.nodes.find((x) => x.type === 'group' && x.key === n.hub) : null;
+        if (hub) return { ...n, color, x: hub.fx + Math.cos(angle * 7) * 120, y: hub.fy + Math.sin(angle * 7) * 120 };
         const radius = 160 + Math.sqrt(companyCount) * 14;
         return { ...n, color, x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
       }
@@ -156,12 +163,12 @@ export default function NetworkGraph({
     try {
       const n = data.nodes.length;
       // Big clusters push hard (room for their people); one-person companies barely at all.
-      fg.d3Force('charge')?.strength((node) => (node.type === 'company' ? -(30 + 28 * Math.sqrt(node.count || 1)) * (n > 600 ? 0.8 : 1) : node.type === 'me' ? -500 : -5));
+      fg.d3Force('charge')?.strength((node) => (node.type === 'company' ? -(30 + 28 * Math.sqrt(node.count || 1)) * (n > 600 ? 0.8 : 1) : node.type === 'group' ? -2500 : node.type === 'me' ? -500 : -5));
       fg.d3Force('link')
-        ?.distance((link) => (link.kind === 'me' ? 90 + Math.sqrt(link.target?.count || 1) * 24 : 14))
-        .strength((link) => (link.kind === 'me' ? 0.3 : 0.9));
+        ?.distance((link) => (link.kind === 'me' ? (link.target?.type === 'group' ? 320 + Math.sqrt(link.target?.count || 1) * 6 : 90 + Math.sqrt(link.target?.count || 1) * 24) : link.kind === 'group' ? 120 + Math.sqrt(link.target?.count || 1) * 26 : 14))
+        .strength((link) => (link.kind === 'me' ? (link.target?.type === 'group' ? 0.6 : 0.3) : link.kind === 'group' ? 0.25 : 0.9));
       if (ForceGraph2D?.forceCollide && !fg.d3Force('collide')) {
-        fg.d3Force('collide', ForceGraph2D.forceCollide((node) => (node.r || 3) + (node.type === 'company' ? 16 : 1.5)).iterations(2));
+        fg.d3Force('collide', ForceGraph2D.forceCollide((node) => (node.r || 3) + (node.type === 'company' ? 16 : node.type === 'group' ? 40 : 1.5)).iterations(2));
       }
       fg.d3ReheatSimulation();
     } catch {
@@ -235,6 +242,23 @@ export default function NetworkGraph({
       ctx.lineWidth = 2 / scale;
       ctx.strokeStyle = '#FFFFFF';
       ctx.stroke();
+    } else if (node.type === 'group') {
+      // Hub: wide soft halo, white disc with a coloured ring.
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r + 14, 0, 2 * Math.PI);
+      ctx.fillStyle = withAlpha(node.color, hot || lit ? 0.22 : 0.1);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fill();
+      ctx.lineWidth = 3 / scale + 1;
+      ctx.strokeStyle = node.color;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r * 0.45, 0, 2 * Math.PI);
+      ctx.fillStyle = node.color;
+      ctx.fill();
     } else if (node.type === 'company') {
       // Soft halo, then the disc with a white rim.
       ctx.beginPath();
@@ -276,16 +300,16 @@ export default function NetworkGraph({
       if (!Number.isFinite(node.x)) continue;
       const lit = isLit(node.id);
       const hot = node.id === selectedId || node.id === hoverId;
-      const show = node.type === 'me'
+      const show = node.type === 'me' || node.type === 'group'
         || (node.type === 'company' && ((node.labelled && (node.count >= 5 || scale > 1.4)) || scale > 2.2 || lit || hot))
         || (node.type === 'person' && (hot || lit || (labelPeopleOnZoom && scale > 2.5)));
       if (!show) continue;
       ctx.globalAlpha = isDim(node) ? 0.25 : 1;
       const r = node.r || 3;
-      const big = node.type === 'me' || hot || (node.type === 'company' && node.count >= 10);
-      const fontSize = (node.type === 'person' ? 9 : big ? 11 : 10) / scale;
+      const big = node.type === 'me' || node.type === 'group' || hot || (node.type === 'company' && node.count >= 10);
+      const fontSize = (node.type === 'person' ? 9 : node.type === 'group' ? 13 : big ? 11 : 10) / scale;
       ctx.font = `${big ? '600 ' : '500 '}${fontSize}px Inter, ui-sans-serif, system-ui, sans-serif`;
-      const raw = node.type === 'company' ? `${node.label}  ${node.count}` : node.label;
+      const raw = node.type === 'company' || node.type === 'group' ? `${node.label}  ${node.count}` : node.label;
       const label = raw.length > 38 ? `${raw.slice(0, 37)}…` : raw;
       const w = ctx.measureText(label).width;
       const padX = 5 / scale;
@@ -329,7 +353,8 @@ export default function NetworkGraph({
     const targetId = target ? target.id : l.target;
     if (hasHighlight && highlightIds.has(targetId)) return withAlpha(HIGHLIGHT, 0.9);
     if (hasHighlight) return 'rgba(148,163,184,0.08)';
-    if (l.kind === 'me') return withAlpha(target?.color || ME_COLOR, Math.min(0.35, 0.06 + 0.03 * (target?.count || 1)));
+    if (l.kind === 'me') return withAlpha(target?.color || ME_COLOR, target?.type === 'group' ? 0.5 : Math.min(0.35, 0.06 + 0.03 * (target?.count || 1)));
+    if (l.kind === 'group') return withAlpha(target?.color || '#94A3B8', Math.min(0.4, 0.08 + 0.03 * (target?.count || 1)));
     return withAlpha(target?.color || '#94A3B8', 0.35);
   };
 
@@ -347,7 +372,7 @@ export default function NetworkGraph({
         nodePointerAreaPaint={paintArea}
         onRenderFramePost={drawLabels}
         linkColor={linkColor}
-        linkWidth={(l) => (l.kind === 'me' ? 1.2 : 0.7)}
+        linkWidth={(l) => (l.kind === 'me' ? (typeof l.target === 'object' && l.target.type === 'group' ? 2.5 : 1.2) : l.kind === 'group' ? 1 : 0.7)}
         warmupTicks={80}
         cooldownTicks={200}
         onEngineStop={() => {

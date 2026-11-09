@@ -15,7 +15,12 @@ import { chatComplete } from '../llm/providers';
 import { buildCompanyProfile } from '../companyProfile';
 import { normalizeCompanyKey, companyMatch, dedupeKey } from '../../utils/network/parseContacts';
 
-export const INTENTS = ['who-at', 'role', 'intro-path', 'general'];
+import { classifyContact, lensFromQuestion, LENSES, LENS_KEYS } from '../../utils/network/roles';
+import { KEYWORD_GROUPS } from '../../utils/network/sectors';
+
+export { KEYWORD_GROUPS };
+
+export const INTENTS = ['who-at', 'role', 'intro-path', 'general', 'lens'];
 const MAX_RESULTS = 100;
 
 // ------------------------------------------------------------ vocab
@@ -40,24 +45,6 @@ export const ROLE_GROUPS = [
   { label: 'consultants', ask: /\b(consultants?|consulting|advisors?|advisers?)\b/i, match: /\b(consultant|consulting|advisor|adviser)\b/i },
   { label: 'researchers', ask: /\b(researchers?|scientists?|professors?|phds?|academics?)\b/i, match: /\b(research\w*|scientist|professor|ph\.?d|postdoc|lecturer)\b/i },
   { label: 'doctors', ask: /\b(doctors?|physicians?|clinicians?|surgeons?|nurses?)\b/i, match: /\b(md|doctor|physician|surgeon|clinician|nurse)\b/i },
-];
-
-/** Industry / topic keywords: `ask` in the question, `terms` searched in titles and companies. */
-export const KEYWORD_GROUPS = [
-  { label: 'fintech', ask: /\b(fintech|financial\s+services|payments?|banking|finance)\b/i, terms: ['fintech', 'payments', 'payment', 'bank', 'banking', 'financial', 'finance', 'lending', 'insurance', 'capital markets', 'trading', 'wealth'] },
-  { label: 'healthcare', ask: /\b(health\s?care|health|healthtech|medical|medicine|hospitals?|pharma)\b/i, terms: ['health', 'healthcare', 'medical', 'medicine', 'hospital', 'clinic', 'clinical', 'pharma', 'biotech', 'therapeutics', 'patient'] },
-  { label: 'ai', ask: /\b(ai|a\.i\.|artificial\s+intelligence|machine\s+learning|ml|llms?|genai|generative\s+ai|deep\s+learning)\b/i, terms: ['ai', 'artificial intelligence', 'machine learning', 'ml', 'llm', 'deep learning', 'genai', 'nlp', 'computer vision'] },
-  { label: 'crypto', ask: /\b(crypto|web3|blockchain|bitcoin|ethereum|defi)\b/i, terms: ['crypto', 'web3', 'blockchain', 'bitcoin', 'ethereum', 'defi', 'token'] },
-  { label: 'saas', ask: /\b(saas|b2b\s+software|enterprise\s+software)\b/i, terms: ['saas', 'software', 'enterprise', 'cloud', 'platform'] },
-  { label: 'climate', ask: /\b(climate|climatetech|cleantech|energy|sustainability|renewables?)\b/i, terms: ['climate', 'energy', 'solar', 'renewable', 'sustainability', 'carbon', 'battery', 'cleantech'] },
-  { label: 'education', ask: /\b(edtech|education|teaching|schools?|universit(?:y|ies))\b/i, terms: ['education', 'edtech', 'school', 'university', 'teacher', 'learning', 'college', 'academy'] },
-  { label: 'security', ask: /\b(security|cybersecurity|cyber|infosec)\b/i, terms: ['security', 'cyber', 'cybersecurity', 'infosec', 'identity'] },
-  { label: 'gaming', ask: /\b(gaming|games|video\s+games)\b/i, terms: ['gaming', 'games', 'game', 'esports'] },
-  { label: 'ecommerce', ask: /\b(e-?commerce|retail|consumer\s+goods|cpg|dtc)\b/i, terms: ['ecommerce', 'e-commerce', 'retail', 'consumer', 'cpg', 'dtc', 'marketplace'] },
-  { label: 'biotech', ask: /\b(biotech|life\s+sciences|biology|genomics)\b/i, terms: ['biotech', 'bio', 'life sciences', 'genomics', 'therapeutics', 'pharma'] },
-  { label: 'real estate', ask: /\b(real\s+estate|proptech|property)\b/i, terms: ['real estate', 'proptech', 'property', 'realty', 'housing'] },
-  { label: 'media', ask: /\b(media|journalism|journalists?|publishing|news)\b/i, terms: ['media', 'journalist', 'editor', 'publishing', 'news', 'reporter', 'writer'] },
-  { label: 'venture capital', ask: /\b(venture\s+capital|vc\s+firms?|venture)\b/i, terms: ['venture', 'capital', 'ventures', 'vc', 'partners', 'fund'] },
 ];
 
 const LOCATION_ALIASES = {
@@ -157,9 +144,12 @@ const isGenericWord = (entity) => entity.split(' ').length === 1
  */
 export function parseQuestionRules(question, { knownLocations } = {}) {
   const q = String(question || '').replace(/\s+/g, ' ').trim().slice(0, 500);
-  const filters = { companies: [], roles: [], keywords: [], locations: [], intent: 'general' };
+  const filters = { companies: [], roles: [], keywords: [], locations: [], intent: 'general', lens: null };
   if (!q) return filters;
   let rest = q;
+  // "Who can help me raise / source deals / diligence X": a lens over the
+  // network, optionally narrowed by company, industry or place.
+  filters.lens = lensFromQuestion(q);
 
   for (const re of INTRO_PATTERNS) {
     const m = q.match(re);
@@ -239,7 +229,13 @@ export function parseQuestionRules(question, { knownLocations } = {}) {
   if (filters.intent !== 'intro-path') {
     if (filters.companies.length) filters.intent = 'who-at';
     else if (filters.roles.length) filters.intent = 'role';
+    else if (filters.lens) filters.intent = 'lens';
   }
+  // With a lens, generic words ("fund", "deals", "company") are not keywords.
+  if (filters.lens && !filters.companies.length && !filters.roles.length && !filters.keywords.length && !filters.locations.length) {
+    return { ...filters, companies: [], roles: [], keywords: [], locations: [] };
+  }
+  if (filters.lens && filters.roles.includes('investors') && filters.lens === 'raise') filters.roles = filters.roles.filter((r) => r !== 'investors');
 
   // Nothing recognised: fall back to the meaningful words as keywords.
   if (!filters.companies.length && !filters.roles.length && !filters.keywords.length && !filters.locations.length) {
@@ -264,14 +260,16 @@ export function validateFilters(obj) {
     keywords: cleanList(obj.keywords),
     locations: cleanList(obj.locations, 5),
     intent: INTENTS.includes(obj.intent) ? obj.intent : null,
+    lens: LENS_KEYS.includes(obj.lens) ? obj.lens : null,
   };
   if (!f.intent) {
     if (f.companies.length) f.intent = 'who-at';
     else if (f.roles.length) f.intent = 'role';
+    else if (f.lens) f.intent = 'lens';
     else f.intent = 'general';
   }
   if (f.intent === 'intro-path' && !f.companies.length) f.intent = 'general';
-  if (!f.companies.length && !f.roles.length && !f.keywords.length && !f.locations.length) return null;
+  if (!f.companies.length && !f.roles.length && !f.keywords.length && !f.locations.length && !f.lens) return null;
   return f;
 }
 
@@ -284,7 +282,8 @@ function extractJson(text) {
 }
 
 const LLM_SYSTEM = `You turn a question about someone's professional network into search filters.
-Return ONLY a JSON object: {"companies": [], "roles": [], "keywords": [], "locations": [], "intent": "who-at" | "role" | "intro-path" | "general"}.
+Return ONLY a JSON object: {"companies": [], "roles": [], "keywords": [], "locations": [], "intent": "who-at" | "role" | "intro-path" | "general" | "lens", "lens": null | "raise" | "source" | "diligence"}.
+lens: "raise" when the asker wants money or LP/investor introductions, "source" when they want deal flow or founders to meet, "diligence" when they want people who can vet, reference or evaluate a company, founder or market; otherwise null.
 companies: organisation names mentioned. roles: job roles (e.g. "software engineers", "investors", "founders").
 keywords: industries or topics (e.g. "fintech", "ai"). locations: places. intent: "intro-path" when asking for an introduction or path to a company,
 "who-at" when asking who works at a company, "role" when asking for a kind of person, otherwise "general". Use [] when absent. No commentary.`;
@@ -383,12 +382,13 @@ export function scoreContacts(contacts, filters, { limit = MAX_RESULTS } = {}) {
     return { place, res: aliases.map((a) => wordRe(a)) };
   });
 
+  const lens = LENS_KEYS.includes(filters?.lens) ? filters.lens : null;
   const notes = [];
   const list = Array.isArray(contacts) ? contacts : [];
   if (locations.length && !list.some((c) => c.location)) {
     notes.push('None of your contacts have a location (LinkedIn\'s Connections export does not include one), so location filters cannot match.');
   }
-  if (!targets.length && !roles.length && !keywords.length && !locations.length) {
+  if (!targets.length && !roles.length && !keywords.length && !locations.length && !lens) {
     return { results: [], total: 0, notes: ['Ask about a company, a role, an industry or a place, e.g. "Who do I know at Stripe?"'] };
   }
 
@@ -401,6 +401,16 @@ export function scoreContacts(contacts, filters, { limit = MAX_RESULTS } = {}) {
     const tagText = (c.tags || []).join(' ');
 
     let companyMatch = null;
+    let kind = null;
+    if (lens) {
+      kind = classifyContact(c);
+      if (!kind.lenses.includes(lens)) continue;
+      // LPs first when raising, founders first when sourcing, then the rest.
+      const lead = lens === 'raise' ? ['lp', 'investor', 'banker'] : lens === 'source' ? ['founder', 'investor', 'accelerator', 'executive'] : ['founder', 'executive', 'operator', 'academic', 'consultant'];
+      const rank = lead.indexOf(kind.role);
+      score += 30 + (rank >= 0 ? (lead.length - rank) * 4 : 0);
+      reasons.push(`${kind.label}${kind.reason ? ` (${kind.reason.replace(/^(Title|Company): /, '').replace(/^Title and company: /, '')})` : ''}`);
+    }
     if (targets.length) {
       let best = null;
       for (const t of targets) {
@@ -447,7 +457,7 @@ export function scoreContacts(contacts, filters, { limit = MAX_RESULTS } = {}) {
       reasons.push(`Located in ${loc}`);
     }
 
-    scored.push({ contact: publicContact(c), score, reasons, ...(companyMatch ? { companyMatch } : {}) });
+    scored.push({ contact: publicContact(c), score, reasons, ...(companyMatch ? { companyMatch } : {}), ...(kind ? { role: kind.role, roleLabel: kind.label } : {}) });
   }
 
   scored.sort((a, b) => b.score - a.score
@@ -580,6 +590,9 @@ export async function answerQuestion(contacts, { question, target, useLlm = true
     return { ...response, results: intro.direct, total: intro.direct.length, intro, notes: intro.notes };
   }
   const scored = scoreContacts(contacts, filters);
+  if (filters.lens && scored.total === 0) {
+    scored.notes = [...(scored.notes || []), `Nobody in your network is placed under "${LENSES[filters.lens].label}"${filters.keywords.length || filters.companies.length || filters.locations.length ? ' with those filters' : ''}. Roles come from titles and company names in your import.`];
+  }
   if (filters.companies.some((name) => normalizeCompanyKey(name))) {
     // "Who do I know at X": people at X first; similar names and title
     // mentions are listed separately so they are not mistaken for employees.

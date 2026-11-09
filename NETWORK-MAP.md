@@ -1,88 +1,155 @@
 # Network Map
 
-See who you know, ask questions about your network, and find warm intro
-paths to companies you are evaluating.
+Your own contacts, drawn as a map and sorted by what they can do for a fund:
+who can help you **raise**, who can help you **source** deals, and who can
+help you **diligence** a company or founder. Nothing on the page is invented:
+every person comes from a file you uploaded, every role comes from the title
+and company in that file, and your contacts never leave the app.
 
 ## Getting your network in
 
-LinkedIn's API does not give third-party apps a member's connections, so the
-Network Map uses LinkedIn's own data export, which every member can download:
+**LinkedIn** does not give apps your connections, so the export is the only
+way in: *Settings & Privacy → Data privacy → Get a copy of your data →
+Connections*. LinkedIn emails a zip within minutes; drop `Connections.csv`
+on the page (or click *Upload LinkedIn Connections.csv*). The export has
+first name, last name, URL, company, position and the date you connected.
+Email is usually blank (LinkedIn only includes it when the contact allowed it).
 
-1. LinkedIn → **Settings & Privacy** → **Data privacy** → **Get a copy of your data**
-2. Choose **Connections** (or the full archive) and request it
-3. When LinkedIn emails you, download it and upload `Connections.csv` here
+**Any CSV or XLSX** of contacts also works: a header row with a name column
+(`Name`, or `First Name` + `Last Name`) and, ideally, `Company`, `Title`,
+`Email`, `LinkedIn URL`, `Location` and `Tags`. Dates are parsed in US or
+day-first order (detected per file). A new upload replaces the previous
+import from that source; LinkedIn and CSV imports live side by side.
 
-Also supported:
-- **Any CSV or XLSX of contacts** (headers such as name, company, title,
-  email, LinkedIn URL, location are mapped automatically)
-- **X following**: connect X; the following list requires a paid X API tier,
-  and the page says so when it is not available
-- **LinkedIn sign-in**: shows who you are connected as (profile only)
+**X** sign-in identifies you; the accounts you follow are only available on
+paid X API tiers, so the page offers an upload of an X following export
+(JSON, X API format) under *Upload CSV/XLSX contacts*.
 
-Files are parsed in your browser. The "Upload LinkedIn Connections.csv"
-button only accepts LinkedIn's export (First Name, Last Name, Connected On
-columns); any other contacts file is refused with a pointer to the CSV/XLSX
-button, so a stray upload can never overwrite the LinkedIn import. Dates in
-spreadsheets keep their cell values; slash dates are read day-first when a
-file contains a day over 12. The import notice reports rows skipped, duplicate
-rows merged, and anything dropped at the 30,000 limit.
+**Connect LinkedIn / Connect X** add nothing to the map by themselves; they
+are offered for the profile-only sign-in and are shown as "not available on
+this deployment" when the keys are not set.
 
-When you are signed in, contacts are saved to your account
-(`network_contacts`, up to 30,000) so they persist and power Founder Check's
-backchannel references; when signed out they stay in memory only. "Remove all
-my network data" deletes them. A re-import of a source is staged under a
-temporary key and swapped in with a single statement, so a failed upload
-leaves the previous import untouched. The contacts API returns a compact shape
-(empty fields omitted) and an import returns what was saved, so the page does
-not download the whole network again.
+Signed in, contacts are saved to your account (Postgres) and are there on
+every device. Signed out, they stay in the browser tab and are gone when you
+close it. Limits: 25 MB per file, 30,000 contacts per account, 14 MB per
+import request.
 
-## Features
+## The map
 
-- **Graph**: you at the center, company nodes sized by how many people you
-  know there, people colored by source (LinkedIn blue, X black, CSV gray).
-  Large networks (over 1,500 people) show companies first; click to expand.
-  An expanded company draws at most 150 people (everyone is in its details
-  list); person labels appear on zoom only in graphs under 300 nodes,
-  otherwise for highlighted or selected people. Answers auto-expand the
-  companies of the top matches except ones with more than 60 people.
-- **Details panel**: name, position, company, connected-on date, profile link,
-  and shortcuts to Company profile, Search, and Founder Check.
-- **Ask your network**: "Who do I know at Google?", "Find software engineers
-  in my network", "people in fintech", "anyone at Stripe or Brex", "who works
-  in paris". Several companies in one question are all searched; lower-case
-  places count as locations when one of your contacts is there. Company
-  answers list people who work there; similar company names and title
-  mentions ("ex-Stripe") go under "Possibly related". Each match lists why
-  it matched, and matches are highlighted on the graph.
-- **Warm intro paths**: "Intro paths to Stripe" returns contacts at the
-  company and contacts at its investors (investors come from the company
-  profile: VC portfolio listings and reported round leads).
+- **You** are in the centre.
+- **By role** (default): three hubs sit around you, *Investors & LPs*,
+  *Founders & operators* and *Experts & advisors* (plus *Everyone else* for
+  contacts with no placing title or company). Each company you know people
+  at hangs off the hub its people belong to, so a VC firm shows under
+  Investors while the engineers you know at Stripe show under Founders &
+  operators. A company can appear under more than one hub.
+- **By company**: the classic view, every company as one coloured cluster
+  around you, sized by how many people you know there.
+- People are the small dots around their company. Hover for the name and
+  title; click a person, a company or a hub for details. The details panel
+  floats over the map; for a company it lists everyone you know there with
+  *Company profile*, *Search company* and *Find intro paths* shortcuts; for a
+  hub it shows the role breakdown and ready-made questions.
+- **Show me who can help me**: the *raise capital*, *source deals* and
+  *diligence* chips filter the map to that lens.
+- **Find a person or company** highlights matches and pans the map to them;
+  everything else fades.
+- Networks over 1,500 people are drawn as companies only; click a company to
+  show its people (up to 150 drawn, all listed in the panel).
+- *Fit to view* resets the viewport. Scrolling over the map zooms it.
 
-Only first-degree connections exist in the exports, so there is no 2nd/3rd
-degree filter. LinkedIn's export has no location column, so location
-questions only match CSV/X contacts.
+## Roles and lenses
+
+`src/utils/network/roles.js` classifies each contact from title, company and
+tags with ordered regex rules, no model involved. The role decides which
+lenses the contact belongs to:
+
+| Role | Examples | Group | Lenses |
+|---|---|---|---|
+| LP / allocator | family office, endowment, pension, fund of funds, CIO, wealth manager | Investors & LPs | raise |
+| Investor | GP, partner/principal/associate *at a fund-like employer*, angel, scout | Investors & LPs | raise, source |
+| Accelerator / platform | YC, Techstars, program directors | Founders & operators | source |
+| Founder | founder, co-founder, CEO, owner, EIR, stealth | Founders & operators | source, diligence |
+| Executive | CTO, COO, VP, head of, director, GM | Founders & operators | source, diligence |
+| Operator | engineers, product, sales, marketing, ops, analysts | Founders & operators | diligence, source |
+| Banker / M&A | investment banking, corp dev, equity research, bulge-bracket and boutique banks | Experts & advisors | source, diligence, raise |
+| Lawyer | counsel, attorney, startup law firms | Experts & advisors | diligence, source |
+| Accountant / finance | CPA, audit, controller, CFO, Big Four | Experts & advisors | diligence |
+| Consultant / advisor | consultant, advisor, board member, strategy firms | Experts & advisors | diligence |
+| Researcher / academic | professor, research scientist, PhD, universities and labs | Experts & advisors | diligence |
+| Press / analyst | journalist, editor, industry analyst, Gartner/CB Insights | Experts & advisors | diligence, source |
+
+Generic titles ("Partner", "Associate", "Analyst") only count as *Investor*
+when the employer looks like a fund; otherwise later rules apply (a partner
+at a law firm is a lawyer, at McKinsey a consultant). "Vice President" is an
+executive, not a founder's "President". Contacts with neither a placing title
+nor company are *Everyone else* and belong to no lens.
+
+## Ask your network
+
+Deterministic matching over your contacts (`src/server/network/query.js`);
+only the question text may go to a model, never a contact:
+
+- **Who do I know at Stripe?** People whose company matches (exact, "Stripe,
+  Inc.", or a close variant); similar names and title mentions are listed
+  separately as *possibly related*.
+- **Find software engineers in my network / fintech people in London**:
+  role, industry and location filters (`ROLE_GROUPS`, `KEYWORD_GROUPS` in
+  `src/utils/network/sectors.js`, location aliases).
+- **Who can help me raise a fund? / Which LPs do I know?**: the *raise*
+  lens, LPs ranked before VCs and bankers.
+- **Who sends me deal flow in fintech?**: the *source* lens, founders first,
+  narrowed by the industry word.
+- **Who can diligence an AI company? / Who can do reference checks?**: the
+  *diligence* lens, operators and experts in that sector.
+- **Intro paths to Stripe**: direct contacts, then your contacts at the
+  company's investors (from the company profile, public sources), then a
+  note that past-employee paths are not available (exports only carry the
+  current company).
+
+Rules parse the question first; a free model is asked to interpret it only
+when the rules find nothing specific. Results show the role chip, the match
+reasons, and highlight the people on the map.
+
+## In Open Research, company profiles and Founder Check
+
+The same network answers "who can help with *this* company or founder":
+
+- **Open Research**: after a search about a company, a *Your network and
+  <company>* panel lists people you know there, plus experts and investors in
+  your network whose title or company mentions the sector of the question.
+- **Company profile** (`/company/<name>`): people at the company, people at
+  its investors and competitors found in the profile (intro paths and a view
+  from the cap table), sector experts and sector investors.
+- **Founder Check**: *Who can help diligence <name>*: people at the founder's
+  current company (reference calls, backchannel), at their past companies and
+  profile companies, and sector experts.
+
+All of it comes from `POST /api/network/helpers` (`src/pages/api/network/helpers.js`),
+which reads only the signed-in user's saved contacts. Signed out, or with no
+import, the panel says so and links to the Network Map.
 
 ## Privacy
 
-Contact data is never sent to an AI provider. When an AI model is configured,
-only the question text may be sent to interpret it (the page says so next to
-the Ask box); matching runs on the server against your own contacts. Signed
-out, the browser sends only the fields scoring uses (name, company, title,
-location, tags, profile URL, date, source) plus an identity key, never email.
-LinkedIn/X sign-in buttons are hidden when the server has no credentials
-(`configured` in `/api/auth/*/token`), and OAuth redirects carry short error
-codes that the page maps to user copy; the OAuth routes log only one line on
-failure.
+- Contacts are stored per account and only ever returned to that account.
+- Ask your network, intro paths and the helper panels run on the server over
+  your saved contacts; signed out, the browser sends only the fields scoring
+  needs (never email) for that one request and nothing is stored.
+- The AI model, when used, sees the question text only.
+- *Remove all my network data* deletes every imported contact.
 
 ## Implementation
 
-| Part | File |
+| Piece | Where |
 |---|---|
-| Parsing (LinkedIn CSV, generic CSV/XLSX, X) | `src/utils/network/parseContacts.js` |
-| Graph data | `src/utils/network/graph.js`, `src/components/network/NetworkGraph.js` |
-| Storage | `src/server/network/store.js` (`findContactsAtCompanies` used by Founder Check) |
-| Questions and intro paths | `src/server/network/query.js`, `/api/network/query` |
-| Contacts API | `/api/network/contacts` (GET, POST, DELETE; signed in) |
 | Page | `src/pages/network.js` |
-
-Tests: `tests/unit/features/network.test.js`.
+| Graph renderer (force-graph 2D canvas) | `src/components/network/NetworkGraph.js` |
+| Graph data (company clusters, role hubs, large-network collapse) | `src/utils/network/graph.js` |
+| File parsing (LinkedIn export, CSV/XLSX, X JSON), dedupe, limits | `src/utils/network/parseContacts.js` |
+| Role and lens classification | `src/utils/network/roles.js` |
+| Industry vocabulary | `src/utils/network/sectors.js` |
+| Question parsing, scoring, intro paths | `src/server/network/query.js` |
+| Storage (Postgres / PGlite), company lookup | `src/server/network/store.js` |
+| APIs | `src/pages/api/network/{contacts,query,helpers,twitter}.js` |
+| Cross-tab panel | `src/components/network/NetworkHelpers.js` |
+| Tests | `tests/unit/features/network*.test.js`, `tests/unit/NetworkPage.test.js` |

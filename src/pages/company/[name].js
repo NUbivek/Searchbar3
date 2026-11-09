@@ -6,6 +6,8 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { HiOutlineMagnifyingGlass, HiOutlineSparkles } from 'react-icons/hi2';
+import NetworkHelpers from '../../components/network/NetworkHelpers';
+import { sectorKeywordsFrom } from '../../utils/network/sectors';
 import PageShell from '../../components/layout/PageShell';
 
 const NOT_FOUND = 'Not found in available sources';
@@ -256,6 +258,13 @@ export default function CompanyProfilePage() {
           <Card title="Investors" count={profile.investors.length}>
             <Investors investors={profile.investors} sources={sources} />
           </Card>
+
+          <NetworkHelpers
+            company={name}
+            related={[...profile.investors.map((i) => i.name || i.investor || i.text).filter((v) => typeof v === 'string'), ...profile.competitors.map((c) => c.name || c.text).filter((v) => typeof v === 'string')].slice(0, 20)}
+            keywords={sectorKeywordsFrom([name, ...profile.otherFacts.map((f) => f.text || ''), ...profile.keyPeople.map((f) => f.text || '')].join(' '))}
+            title={`Your network and ${name}`}
+          />
 
           <Card title="Key people" count={profile.keyPeople.length}>
             <QuoteList

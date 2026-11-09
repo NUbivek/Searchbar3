@@ -315,7 +315,7 @@ describe('parseQuestionRules', () => {
   test('uses the LLM only when rules find nothing specific, with only the question text', async () => {
     chatComplete.mockResolvedValueOnce({ text: '```json\n{"companies":[],"roles":["recruiters"],"keywords":[],"locations":[],"intent":"role"}\n```' });
     const out = await parseQuestion('who hires people like me');
-    expect(out).toEqual({ parsedBy: 'llm', filters: { companies: [], roles: ['recruiters'], keywords: [], locations: [], intent: 'role' } });
+    expect(out).toEqual({ parsedBy: 'llm', filters: { companies: [], roles: ['recruiters'], keywords: [], locations: [], intent: 'role', lens: null } });
     const sent = JSON.stringify(chatComplete.mock.calls[0][0]);
     expect(sent).toContain('who hires people like me');
 
@@ -813,5 +813,43 @@ describe('API auth and validation', () => {
       if (saved.ls) process.env.LINKEDIN_CLIENT_SECRET = saved.ls;
       if (saved.tw) process.env.TWITTER_CLIENT_ID = saved.tw;
     }
+  });
+});
+
+
+describe('lenses: raise / source / diligence', () => {
+  const { parseQuestionRules, scoreContacts, validateFilters } = require('../../../src/server/network/query');
+  const cs = [
+    { name: 'Ana LP', position: 'Chief Investment Officer', company: 'Yale Endowment' },
+    { name: 'Vic VC', position: 'Partner', company: 'Sequoia Capital' },
+    { name: 'Fay Founder', position: 'Founder & CEO', company: 'Fintech Co' },
+    { name: 'Eng Eng', position: 'Software Engineer', company: 'Stripe' },
+    { name: 'Rep Press', position: 'Reporter', company: 'Forbes' },
+  ];
+
+  test('questions map to a lens, with no stray keywords', () => {
+    expect(parseQuestionRules('Who can help me raise a fund?')).toMatchObject({ lens: 'raise', intent: 'lens', keywords: [], roles: [] });
+    expect(parseQuestionRules('Who sends me deal flow in fintech?')).toMatchObject({ lens: 'source', keywords: ['fintech'] });
+    expect(parseQuestionRules('Who can diligence an AI company?')).toMatchObject({ lens: 'diligence', keywords: ['ai'] });
+    expect(parseQuestionRules('Who do I know at Stripe?')).toMatchObject({ lens: null, intent: 'who-at' });
+    expect(validateFilters({ companies: [], roles: [], keywords: [], locations: [], lens: 'bogus' })).toBeNull();
+    expect(validateFilters({ companies: [], roles: [], keywords: [], locations: [], lens: 'raise' })).toMatchObject({ lens: 'raise', intent: 'lens' });
+  });
+
+  test('raise: LPs rank above VCs; founders and engineers are excluded', () => {
+    const r = scoreContacts(cs, parseQuestionRules('Who can help me raise a fund?'));
+    expect(r.results.map((x) => x.contact.name)).toEqual(['Ana LP', 'Vic VC']);
+    expect(r.results[0]).toMatchObject({ role: 'lp', roleLabel: 'LP / allocator' });
+  });
+
+  test('source with an industry word: founders first, keyword required', () => {
+    const r = scoreContacts(cs, parseQuestionRules('Who sends me deal flow in fintech?'));
+    expect(r.results.map((x) => x.contact.name)).toEqual(['Fay Founder']);
+  });
+
+  test('diligence: experts and operators, LPs excluded', () => {
+    const names = scoreContacts(cs, { lens: 'diligence' }).results.map((x) => x.contact.name);
+    expect(names).toEqual(expect.arrayContaining(['Fay Founder', 'Eng Eng', 'Rep Press']));
+    expect(names).not.toContain('Ana LP');
   });
 });

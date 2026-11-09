@@ -20,7 +20,8 @@ import NetworkGraph, { SOURCE_COLORS, clusterColor } from '../components/network
 import {
   parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, MAX_CONTACTS,
 } from '../utils/network/parseContacts';
-import { buildGraph, personNodeId, companyNodeId, NO_COMPANY_KEY, MAX_PEOPLE_PER_EXPANDED_COMPANY } from '../utils/network/graph';
+import { buildGraph, personNodeId, NO_COMPANY_KEY, MAX_PEOPLE_PER_EXPANDED_COMPANY } from '../utils/network/graph';
+import { classifyContact, roleStats, ROLE_GROUPS, LENSES } from '../utils/network/roles';
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
@@ -28,7 +29,7 @@ function classNames(...classes) {
 
 const ICON = { width: 15, height: 15 };
 const SOURCE_LABELS = { linkedin: 'LinkedIn', csv: 'CSV/XLSX', x: 'X' };
-const EXAMPLES = ['Who do I know at Google?', 'Find software engineers in my network', 'Intro paths to Stripe'];
+const EXAMPLES = ['Who can help me raise a fund?', 'Who sends me deal flow in fintech?', 'Who can diligence an AI company?', 'Who do I know at Google?', 'Intro paths to Stripe'];
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 // The contacts API accepts 15 MB request bodies; stop a little short of it.
 const MAX_BODY_BYTES = 14 * 1024 * 1024;
@@ -108,6 +109,7 @@ function ResultRow({ item, onShow }) {
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={() => onShow(c)} className="text-left text-sm font-medium text-ink hover:text-brand-600">{c.name}</button>
             {c.company && <span className="chip">{c.company}</span>}
+            {item.roleLabel && item.role !== 'other' && <span className="chip chip-active">{item.roleLabel}</span>}
           </div>
           <div className="mt-0.5 truncate text-sm text-slate-600">{c.position || (c.company ? '' : 'No title or company listed')}</div>
           {item.reasons.length > 0 && <p className="mt-1 text-xs text-muted">{item.reasons.join(' · ')}</p>}
@@ -146,6 +148,8 @@ export default function NetworkPage() {
   const [sourceFilter, setSourceFilter] = useState({ linkedin: true, csv: true, x: true });
   const [companyFilter, setCompanyFilter] = useState('');
   const [graphSearch, setGraphSearch] = useState('');
+  const [groupBy, setGroupBy] = useState('role');
+  const [lensFilter, setLensFilter] = useState(null);
   const [expanded, setExpanded] = useState(() => new Set());
   const [selected, setSelected] = useState(null);
   const [hoverId, setHoverId] = useState(null);
@@ -435,16 +439,19 @@ export default function NetworkPage() {
     const qKey = normalizeCompanyKey(companyFilter);
     return contacts.filter((c) => {
       if (!sourceFilter[c.source]) return false;
+      if (lensFilter && !classifyContact(c).lenses.includes(lensFilter)) return false;
       if (!q) return true;
       const company = String(c.company || '').toLowerCase();
       return company.includes(q) || (qKey && normalizeCompanyKey(c.company).includes(qKey));
     });
-  }, [contacts, sourceFilter, companyFilter]);
+  }, [contacts, sourceFilter, companyFilter, lensFilter]);
 
   const graph = useMemo(() => buildGraph(visibleContacts, {
     expanded,
+    groupBy,
     meLabel: session?.user?.name ? `You (${session.user.name.split(' ')[0]})` : 'You',
-  }), [visibleContacts, expanded, session?.user?.name]);
+  }), [visibleContacts, expanded, groupBy, session?.user?.name]);
+  const roleCounts = useMemo(() => roleStats(contacts), [contacts]);
 
   const answerKeys = useMemo(() => {
     if (!answer) return null;
@@ -458,16 +465,21 @@ export default function NetworkPage() {
     const ids = new Set();
     const term = graphSearch.trim().toLowerCase();
     if (!term && !answerKeys) return ids;
+    const hitKeys = new Set();
     for (const c of visibleContacts) {
       const hitSearch = term && [c.name, c.company, c.position].some((v) => String(v || '').toLowerCase().includes(term));
       const hitAnswer = answerKeys && answerKeys.has(dedupeKey(c));
       if (hitSearch || hitAnswer) {
         ids.add(personNodeId(c));
-        ids.add(companyNodeId(normalizeCompanyKey(c.company) || NO_COMPANY_KEY));
+        hitKeys.add(`${classifyContact(c).group}|${normalizeCompanyKey(c.company) || NO_COMPANY_KEY}`);
       }
     }
+    // Company (and role hub) nodes light up when any of their people do.
+    for (const n of graph.nodes) {
+      if (n.type === 'company' && [...hitKeys].some((k) => k.endsWith(`|${n.key}`) && (!n.hub || k.startsWith(`${n.hub}|`)))) { ids.add(n.id); if (n.hub) ids.add(`g:${n.hub}`); }
+    }
     return ids;
-  }, [graphSearch, answerKeys, visibleContacts]);
+  }, [graphSearch, answerKeys, visibleContacts, graph]);
 
   // Count only people actually drawn: in a large network most highlighted
   // people sit in companies that are not expanded.
@@ -486,6 +498,7 @@ export default function NetworkPage() {
   const selectContact = (contact) => {
     const key = normalizeCompanyKey(contact.company) || NO_COMPANY_KEY;
     if (graph.large) setExpanded((prev) => new Set(prev).add(key));
+    if (lensFilter && !classifyContact(contact).lenses.includes(lensFilter)) setLensFilter(null);
     const full = contacts.find((c) => dedupeKey(c) === contact.key) || contact;
     setSelected({ type: 'person', id: personNodeId(full), contact: full });
     graphBoxRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
@@ -498,7 +511,9 @@ export default function NetworkPage() {
       // Clicking always shows the company's people; hiding is an explicit button
       // (a toggle here would collapse again on a double click).
       if (graph.large && !expanded.has(node.key)) setExpanded((prev) => new Set(prev).add(node.key));
-      setSelected({ type: 'company', id: node.id, key: node.key, label: node.label, count: node.count });
+      setSelected({ type: 'company', id: node.id, key: node.key, hub: node.hub, label: node.label, count: node.count });
+    } else if (node.type === 'group') {
+      setSelected({ type: 'group', id: node.id, key: node.key, label: node.label, hint: node.hint, lens: node.lens, count: node.count });
     } else {
       setSelected(null);
     }
@@ -507,8 +522,18 @@ export default function NetworkPage() {
   const selectedCompanyPeople = useMemo(() => {
     if (selected?.type !== 'company') return [];
     return visibleContacts
-      .filter((c) => (normalizeCompanyKey(c.company) || NO_COMPANY_KEY) === selected.key)
+      .filter((c) => (normalizeCompanyKey(c.company) || NO_COMPANY_KEY) === selected.key && (!selected.hub || classifyContact(c).group === selected.hub))
       .sort((a, b) => a.name.localeCompare(b.name));
+  }, [selected, visibleContacts]);
+  const selectedGroupRoles = useMemo(() => {
+    if (selected?.type !== 'group') return [];
+    const counts = new Map();
+    for (const c of visibleContacts) {
+      const k = classifyContact(c);
+      if (k.group !== selected.key) continue;
+      counts.set(k.label, (counts.get(k.label) || 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
   }, [selected, visibleContacts]);
 
   // ------------------------------------------------------------ ask
@@ -643,7 +668,13 @@ export default function NetworkPage() {
             <button type="button" onClick={() => setSelected(null)} aria-label="Close details" className="text-muted hover:text-ink"><HiOutlineXMark style={ICON} /></button>
           </div>
           {selected.contact.position && <p className="mt-1 text-slate-700">{selected.contact.position}</p>}
-          {selected.contact.company && <p className="mt-1.5"><span className="chip">{selected.contact.company}</span></p>}
+          <p className="mt-1.5 flex flex-wrap gap-1.5">
+            {selected.contact.company && <span className="chip">{selected.contact.company}</span>}
+            {classifyContact(selected.contact).role !== 'other' && (
+              <span className="chip chip-active" title={classifyContact(selected.contact).reason}>{classifyContact(selected.contact).label}</span>
+            )}
+            {classifyContact(selected.contact).lenses.map((l) => <span key={l} className="chip">{LENSES[l].short}</span>)}
+          </p>
           <dl className="mt-3 space-y-1 text-xs text-muted">
             {selected.contact.location && <div><dt className="inline font-medium text-slate-700">Location: </dt><dd className="inline">{selected.contact.location}</dd></div>}
             {selected.contact.connectedOn && <div><dt className="inline font-medium text-slate-700">Connected on: </dt><dd className="inline">{formatDate(selected.contact.connectedOn)}</dd></div>}
@@ -657,6 +688,27 @@ export default function NetworkPage() {
             </a>
           )}
           <ContactActions name={selected.contact.name} company={selected.contact.company} />
+        </div>
+      )}
+      {selected.type === 'group' && (
+        <div>
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="font-semibold text-ink">{selected.label}</h3>
+            <button type="button" onClick={() => setSelected(null)} aria-label="Close details" className="text-muted hover:text-ink"><HiOutlineXMark style={ICON} /></button>
+          </div>
+          <p className="muted mt-0.5">{fmt(selected.count)} people · {selected.hint}</p>
+          <ul className="mt-3 space-y-1 text-sm">
+            {selectedGroupRoles.map(([label, n]) => (
+              <li key={label} className="flex items-center justify-between gap-2"><span className="text-slate-700">{label}</span><span className="chip">{fmt(n)}</span></li>
+            ))}
+          </ul>
+          {selected.lens && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {selected.lens === 'raise' && ['Who can help me raise a fund?', 'Which LPs do I know?'].map((q) => <button key={q} type="button" onClick={() => { setQuestion(q); ask(q); }} className="chip hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">{q}</button>)}
+              {selected.lens === 'source' && ['Who sends me deal flow?', 'Which founders do I know in AI?'].map((q) => <button key={q} type="button" onClick={() => { setQuestion(q); ask(q); }} className="chip hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">{q}</button>)}
+              {selected.lens === 'diligence' && ['Who can diligence a fintech company?', 'Who can do reference checks?'].map((q) => <button key={q} type="button" onClick={() => { setQuestion(q); ask(q); }} className="chip hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">{q}</button>)}
+            </div>
+          )}
         </div>
       )}
       {selected.type === 'company' && (
@@ -812,6 +864,11 @@ export default function NetworkPage() {
                 <span className="text-sm text-muted"><span className="font-semibold text-ink">{fmt(visibleContacts.length)}</span> people · <span className="font-semibold text-ink">{fmt(graph.companyCount)}</span> companies</span>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <div className="flex rounded-lg border border-line bg-white p-0.5 text-xs" role="radiogroup" aria-label="Group the map">
+                  {[['role', 'By role'], ['company', 'By company']].map(([v, label]) => (
+                    <button key={v} type="button" role="radio" aria-checked={groupBy === v} onClick={() => { setGroupBy(v); setSelected(null); }} className={classNames('rounded-md px-2.5 py-1 font-medium', groupBy === v ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}>{label}</button>
+                  ))}
+                </div>
                 <div className="relative">
                   <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" style={{ width: 14, height: 14 }} />
                   <input
@@ -837,6 +894,24 @@ export default function NetworkPage() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 border-b border-line bg-slate-50/60 px-4 py-2 text-xs sm:px-5" aria-label="Lenses">
+              <span className="text-muted">Show me who can help me</span>
+              {Object.values(LENSES).map((l) => (
+                <button
+                  key={l.key}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={lensFilter === l.key}
+                  title={l.description}
+                  onClick={() => { setLensFilter((v) => (v === l.key ? null : l.key)); setSelected(null); }}
+                  className={classNames('chip', lensFilter === l.key && 'chip-active')}
+                >
+                  {l.label.toLowerCase()} <span className="text-muted">{fmt(roleCounts.lenses[l.key])}</span>
+                </button>
+              ))}
+              {lensFilter && <span className="text-muted">{LENSES[lensFilter].description}</span>}
             </div>
 
             {(graph.large || graph.cappedCompanies?.length > 0 || (graphSearch.trim() || answerKeys)) && (
@@ -871,6 +946,7 @@ export default function NetworkPage() {
               )}
               <div className="pointer-events-none absolute bottom-3 left-3 hidden items-center gap-3 rounded-lg bg-white/80 px-2.5 py-1.5 text-[11px] text-muted sm:flex">
                 <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-gradient-to-br from-brand-500 to-accent" /> You</span>
+                {groupBy === 'role' && <span className="flex items-center gap-1"><span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-brand-400 bg-white" /> Role group</span>}
                 <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-brand-300" /> Company, sized by people you know</span>
                 <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" /> Person</span>
                 <span>Click to see details</span>
@@ -901,6 +977,7 @@ export default function NetworkPage() {
               <div>
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <div className="text-sm text-slate-700">
+                    {answer.filters?.lens && <span className="chip chip-active mr-2">{LENSES[answer.filters.lens]?.label}</span>}
                     {answer.intent === 'intro-path'
                       ? <>Intro paths to <span className="font-semibold text-ink">{answer.intro?.target}</span></>
                       : <><span className="font-semibold text-ink">{fmt(answer.total)}</span> {answer.total === 1 ? 'match' : 'matches'}{answer.total > answer.results.length ? ` (top ${answer.results.length} shown)` : ''}</>}
