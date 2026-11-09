@@ -6,6 +6,7 @@ export default function SourceSelector({
   mode = 'open',
   selectedSources = [],
   onSourceToggle,
+  onSelectAll,
   setSelectedSources,
   onCustomSourceAdd,
   onFileUpload,
@@ -139,9 +140,30 @@ export default function SourceSelector({
     </div>
   );
 
+  const allIds = sources[mode].map((s) => s.id);
+  const allOn = allIds.every((id) => selectedSources.includes(id));
+  const toggleAll = () => {
+    const next = allOn ? [] : allIds;
+    if (typeof onSelectAll === 'function') { onSelectAll(next); return; }
+    if (typeof setSelectedSources === 'function') { setSelectedSources(next); return; }
+    if (typeof onSourceToggle === 'function') {
+      for (const id of allIds) if (allOn ? selectedSources.includes(id) : !selectedSources.includes(id)) onSourceToggle(id);
+    }
+  };
+
   return (
     <div>
       <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={toggleAll}
+          disabled={isLoading}
+          aria-pressed={allOn}
+          title={allOn ? 'Clear all sources' : 'Select every source'}
+          className={`chip ${allOn ? 'chip-active' : 'hover:border-slate-300 hover:text-ink'} disabled:opacity-50`}
+        >
+          All
+        </button>
         {sources[mode].map(source => {
           const active = selectedSources.includes(source.id);
           return (

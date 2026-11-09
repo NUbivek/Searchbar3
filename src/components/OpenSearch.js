@@ -356,6 +356,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
               mode="open"
               selectedSources={selectedSources}
               onSourceToggle={handleSourceToggle}
+              onSelectAll={(next) => setSelectedSources(next)}
               onCustomSourceAdd={handleCustomSourceAdd}
               onFileUpload={handleFileUpload}
               isLoading={loading}
