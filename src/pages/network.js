@@ -28,7 +28,7 @@ function classNames(...classes) {
 }
 
 const ICON = { width: 15, height: 15 };
-const SOURCE_LABELS = { linkedin: 'LinkedIn', csv: 'CSV/XLSX', x: 'X' };
+const SOURCE_LABELS = { linkedin: 'LinkedIn', csv: 'CSV/XLSX', x: 'X', attio: 'Attio' };
 const EXAMPLES = ['Who can help me raise a fund?', 'Who sends me deal flow in fintech?', 'Who can diligence an AI company?', 'Who do I know at Google?', 'Intro paths to Stripe'];
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 // The contacts API accepts 15 MB request bodies; stop a little short of it.
@@ -110,6 +110,7 @@ function ResultRow({ item, onShow }) {
             <button type="button" onClick={() => onShow(c)} className="text-left text-sm font-medium text-ink hover:text-brand-600">{c.name}</button>
             {c.company && <span className="chip">{c.company}</span>}
             {item.roleLabel && item.role !== 'other' && <span className="chip chip-active">{item.roleLabel}</span>}
+            {c.relationship === 'firm' && <span className="chip chip-warn">Firm{c.via ? ` · via ${c.via}` : ''}</span>}
           </div>
           <div className="mt-0.5 truncate text-sm text-slate-600">{c.position || (c.company ? '' : 'No title or company listed')}</div>
           {item.reasons.length > 0 && <p className="mt-1 text-xs text-muted">{item.reasons.join(' · ')}</p>}
@@ -145,7 +146,10 @@ export default function NetworkPage() {
   // Shown inline when a connection is offered but not available on this deployment.
   const [unavailable, setUnavailable] = useState({ linkedin: false, x: false });
 
-  const [sourceFilter, setSourceFilter] = useState({ linkedin: true, csv: true, x: true });
+  const [sourceFilter, setSourceFilter] = useState({ linkedin: true, csv: true, x: true, attio: true });
+  const [directOnly, setDirectOnly] = useState(false);
+  const [attioOpen, setAttioOpen] = useState(false);
+  const [attioToken, setAttioToken] = useState('');
   const [companyFilter, setCompanyFilter] = useState('');
   const [graphSearch, setGraphSearch] = useState('');
   const [groupBy, setGroupBy] = useState('role');
@@ -395,6 +399,44 @@ export default function NetworkPage() {
     }
   };
 
+  const importAttio = async (event) => {
+    event?.preventDefault?.();
+    const token = attioToken.trim();
+    if (!token) return;
+    setBusy('attio');
+    setNotice(null);
+    try {
+      const response = await fetch('/api/network/attio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+      const data = await readJson(response);
+      if (!response.ok) throw new Error(data.error || `Attio import failed (${response.status})`);
+      setAttioToken('');
+      setAttioOpen(false);
+      if (Array.isArray(data.contacts)) {
+        setContacts((prev) => [...prev.filter((c) => c.source !== 'attio'), ...data.contacts]);
+        if (data.stats) setStats(data.stats);
+      } else {
+        await loadSaved();
+      }
+      const parts = [
+        `Imported ${fmt(data.saved)} people from Attio: ${fmt(data.direct)} your own connections, ${fmt(data.firm)} firm-wide contacts held by colleagues.`,
+        data.duplicates ? `${fmt(data.duplicates)} were already in your network from another source.` : '',
+        data.truncated ? 'The import stopped at the contact limit.' : '',
+        data.note || '',
+      ].filter(Boolean);
+      setNotice({ kind: data.saved ? 'success' : 'info', text: parts.join(' ') });
+      setAnswer(null);
+      setSelected(null);
+    } catch (error) {
+      setNotice({ kind: 'error', text: error.message });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const disconnect = async (service) => {
     try {
       await fetch(`/api/auth/${service}/logout`);
@@ -439,12 +481,13 @@ export default function NetworkPage() {
     const qKey = normalizeCompanyKey(companyFilter);
     return contacts.filter((c) => {
       if (!sourceFilter[c.source]) return false;
+      if (directOnly && c.relationship === 'firm') return false;
       if (lensFilter && !classifyContact(c).lenses.includes(lensFilter)) return false;
       if (!q) return true;
       const company = String(c.company || '').toLowerCase();
       return company.includes(q) || (qKey && normalizeCompanyKey(c.company).includes(qKey));
     });
-  }, [contacts, sourceFilter, companyFilter, lensFilter]);
+  }, [contacts, sourceFilter, companyFilter, lensFilter, directOnly]);
 
   const graph = useMemo(() => buildGraph(visibleContacts, {
     expanded,
@@ -632,24 +675,64 @@ export default function NetworkPage() {
     </details>
   );
 
-  const connectRow = (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-      {linkedin.connected ? (
-        <span className="text-muted">LinkedIn: <span className="font-medium text-slate-700">{linkedin.name || 'connected'}</span> <button type="button" onClick={() => disconnect('linkedin')} className="ml-1 text-xs text-muted underline hover:text-ink">disconnect</button></span>
-      ) : (
-        <button type="button" onClick={connectLinkedIn} className="text-brand-600 hover:underline">Connect LinkedIn</button>
+  const firmCount = useMemo(() => contacts.filter((c) => c.relationship === 'firm').length, [contacts]);
+
+  /** The three live connectors: profile sign-ins and the firm CRM. */
+  const connectors = (
+    <div className="grid gap-2 sm:grid-cols-3">
+      <div className="flex flex-col gap-2.5 rounded-xl border border-line bg-white p-3.5">
+        <div>
+          <div className="text-sm font-medium text-ink">LinkedIn</div>
+          <div className="mt-0.5 text-xs leading-snug text-muted">{linkedin.connected ? `Connected as ${linkedin.name || 'you'}.` : 'Your own profile. Connections come from the export above.'}</div>
+        </div>
+        {linkedin.connected
+          ? <button type="button" onClick={() => disconnect('linkedin')} className="btn-ghost mt-auto justify-center text-xs">Disconnect</button>
+          : <button type="button" onClick={connectLinkedIn} className="btn-secondary mt-auto w-full py-2 text-xs">Connect LinkedIn</button>}
+      </div>
+      <div className="flex flex-col gap-2.5 rounded-xl border border-line bg-white p-3.5">
+        <div>
+          <div className="text-sm font-medium text-ink">X</div>
+          <div className="mt-0.5 text-xs leading-snug text-muted">{xStatus.connected ? `Connected as @${xStatus.username || 'you'}.` : 'Your profile and, where X allows it, the accounts you follow.'}</div>
+        </div>
+        {xStatus.connected ? (
+          <div className="mt-auto flex gap-1">
+            <button type="button" onClick={importX} disabled={Boolean(busy)} className="btn-secondary flex-1 py-2 text-xs">{busy === 'x' ? 'Importing…' : 'Import follows'}</button>
+            <button type="button" onClick={() => disconnect('twitter')} className="btn-ghost text-xs">Disconnect</button>
+          </div>
+        ) : <button type="button" onClick={connectX} className="btn-secondary mt-auto w-full py-2 text-xs">Connect X</button>}
+      </div>
+      <div className="flex flex-col gap-2.5 rounded-xl border border-line bg-white p-3.5">
+        <div>
+          <div className="text-sm font-medium text-ink">Attio <span className="font-normal text-muted">· firm CRM</span></div>
+          <div className="mt-0.5 text-xs leading-snug text-muted">{counts.attio ? `${fmt(counts.attio)} people imported, ${fmt(firmCount)} of them firm-wide.` : "The firm's contacts, kept apart from your own connections."}</div>
+        </div>
+        <button type="button" onClick={() => setAttioOpen((v) => !v)} className={classNames('mt-auto w-full py-2 text-xs', counts.attio ? 'btn-secondary' : 'btn-secondary')}>{counts.attio ? 'Re-import from Attio' : 'Connect Attio'}</button>
+      </div>
+      {(unavailable.linkedin && !linkedin.configured) && <p className="muted text-xs sm:col-span-3" role="status">{LINKEDIN_UNAVAILABLE}.</p>}
+      {(unavailable.x && !xStatus.configured) && <p className="muted text-xs sm:col-span-3" role="status">{X_UNAVAILABLE}.</p>}
+      {xStatus.note && <p className="text-xs text-amber-700 sm:col-span-3">{xStatus.note}</p>}
+      {attioOpen && (
+        <form onSubmit={importAttio} className="rounded-xl border border-line bg-slate-50/70 p-3.5 sm:col-span-3">
+          <p className="text-sm text-ink">Connect Attio</p>
+          <p className="mt-0.5 text-xs text-muted">
+            Paste an Attio API access token (Attio → Workspace settings → Developers). It is used once to read People, Companies and workspace members, and is not stored.
+            People whose strongest connection in Attio is you are saved as <span className="font-medium text-slate-700">direct</span>; everyone else is a <span className="font-medium text-slate-700">firm-wide</span> contact, labelled with the colleague who knows them.
+          </p>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+            <input
+              type="password"
+              value={attioToken}
+              onChange={(e) => setAttioToken(e.target.value)}
+              placeholder="Attio access token"
+              aria-label="Attio access token"
+              autoComplete="off"
+              className="input flex-1 py-2"
+            />
+            <button type="submit" disabled={Boolean(busy) || !attioToken.trim()} className="btn-primary px-4 py-2">{busy === 'attio' ? 'Importing…' : 'Import from Attio'}</button>
+            <button type="button" onClick={() => { setAttioOpen(false); setAttioToken(''); }} className="btn-ghost justify-center">Cancel</button>
+          </div>
+        </form>
       )}
-      {xStatus.connected ? (
-        <span className="text-muted">X: <span className="font-medium text-slate-700">@{xStatus.username || 'connected'}</span>
-          <button type="button" onClick={importX} disabled={Boolean(busy)} className="ml-2 text-xs text-brand-600 hover:underline">{busy === 'x' ? 'Importing…' : 'Import who I follow'}</button>
-          <button type="button" onClick={() => disconnect('twitter')} className="ml-2 text-xs text-muted underline hover:text-ink">disconnect</button>
-        </span>
-      ) : (
-        <button type="button" onClick={connectX} className="text-brand-600 hover:underline">Connect X</button>
-      )}
-      {unavailable.linkedin && !linkedin.configured && <span className="muted text-xs" role="status">{LINKEDIN_UNAVAILABLE}.</span>}
-      {unavailable.x && !xStatus.configured && <span className="muted text-xs" role="status">{X_UNAVAILABLE}.</span>}
-      {xStatus.note && <span className="text-xs text-amber-700">{xStatus.note}</span>}
     </div>
   );
 
@@ -674,6 +757,7 @@ export default function NetworkPage() {
               <span className="chip chip-active" title={classifyContact(selected.contact).reason}>{classifyContact(selected.contact).label}</span>
             )}
             {classifyContact(selected.contact).lenses.map((l) => <span key={l} className="chip">{LENSES[l].short}</span>)}
+            {selected.contact.relationship === 'firm' && <span className="chip chip-warn" title="A firm-wide CRM contact, not your own connection">Firm contact{selected.contact.via ? ` · via ${selected.contact.via}` : ''}</span>}
           </p>
           <dl className="mt-3 space-y-1 text-xs text-muted">
             {selected.contact.location && <div><dt className="inline font-medium text-slate-700">Location: </dt><dd className="inline">{selected.contact.location}</dd></div>}
@@ -833,7 +917,7 @@ export default function NetworkPage() {
             onDrop={onDrop}
           >
             <div className="flex flex-col items-center px-6 py-12 text-center">
-              <span className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-accent text-white shadow-float">
+              <span className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-ink text-white shadow-float">
                 {loading ? <HiOutlineShare style={{ width: 26, height: 26 }} /> : <HiOutlineCloudArrowUp style={{ width: 28, height: 28 }} />}
               </span>
               <p className="eyebrow">{loading ? 'Loading your network…' : 'No contacts yet'}</p>
@@ -846,10 +930,11 @@ export default function NetworkPage() {
                 </>
               )}
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-slate-50/60 px-5 py-3">
-              {connectRow}
+            <div className="space-y-2 border-t border-line bg-slate-50/60 px-5 py-4">
+              <p className="eyebrow">Connect</p>
+              {connectors}
               {mode === 'memory' && !signedIn && sessionStatus !== 'loading' && (
-                <span className="text-xs text-amber-700"><Link href="/signin" className="font-medium underline">Sign in to save your network</Link>; until then imports stay in this tab.</span>
+                <p className="text-xs text-amber-700"><Link href="/signin" className="font-medium underline">Sign in to save your network</Link>; until then imports stay in this tab.</p>
               )}
             </div>
           </section>
@@ -880,7 +965,7 @@ export default function NetworkPage() {
                     className="input w-56 py-1.5 pl-8 text-sm"
                   />
                 </div>
-                {['linkedin', 'csv', 'x'].filter((s) => counts[s]).length > 1 && ['linkedin', 'csv', 'x'].filter((s) => counts[s]).map((s) => (
+                {['linkedin', 'csv', 'x', 'attio'].filter((s) => counts[s]).length > 1 && ['linkedin', 'csv', 'x', 'attio'].filter((s) => counts[s]).map((s) => (
                   <button
                     key={s}
                     type="button"
@@ -911,7 +996,19 @@ export default function NetworkPage() {
                   {l.label.toLowerCase()} <span className="text-muted">{fmt(roleCounts.lenses[l.key])}</span>
                 </button>
               ))}
-              {lensFilter && <span className="text-muted">{LENSES[lensFilter].description}</span>}
+              {firmCount > 0 && (
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={directOnly}
+                  title="Hide firm-wide CRM contacts held by colleagues"
+                  onClick={() => { setDirectOnly((v) => !v); setSelected(null); }}
+                  className={classNames('chip ml-auto', directOnly && 'chip-active')}
+                >
+                  my direct connections only
+                </button>
+              )}
+              {lensFilter && <span className="w-full text-muted">{LENSES[lensFilter].description}</span>}
             </div>
 
             {(graph.large || graph.cappedCompanies?.length > 0 || (graphSearch.trim() || answerKeys)) && (
@@ -945,10 +1042,11 @@ export default function NetworkPage() {
                 />
               )}
               <div className="pointer-events-none absolute bottom-3 left-3 hidden items-center gap-3 rounded-lg bg-white/80 px-2.5 py-1.5 text-[11px] text-muted sm:flex">
-                <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-gradient-to-br from-brand-500 to-accent" /> You</span>
+                <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-ink" /> You</span>
                 {groupBy === 'role' && <span className="flex items-center gap-1"><span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-brand-400 bg-white" /> Role group</span>}
                 <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-brand-300" /> Company, sized by people you know</span>
                 <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" /> Person</span>
+                {firmCount > 0 && <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full border border-brand-400 bg-white" /> Firm contact (via a colleague)</span>}
                 <span>Click to see details</span>
               </div>
               <div className="px-3 pb-3 sm:p-0">{details}</div>
@@ -1064,7 +1162,7 @@ export default function NetworkPage() {
             <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                 <h2 id="sources-heading" className="section-title">Sources</h2>
-                {['linkedin', 'csv', 'x'].filter((s) => counts[s]).map((s) => (
+                {['linkedin', 'csv', 'x', 'attio'].filter((s) => counts[s]).map((s) => (
                   <span key={s} className="flex items-center gap-1.5 text-muted">
                     <span className="inline-block h-2 w-2 rounded-full" style={{ background: SOURCE_COLORS[s] }} />
                     <span className="font-medium text-ink">{fmt(counts[s])}</span> {SOURCE_LABELS[s]}{lastImport(s) ? ` · ${formatTime(lastImport(s))}` : ''}
@@ -1084,8 +1182,8 @@ export default function NetworkPage() {
                 </button>
               </div>
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-slate-50/60 px-4 py-2.5 sm:px-5">
-              {connectRow}
+            <div className="space-y-2 border-t border-line bg-slate-50/60 px-4 py-3 sm:px-5">
+              {connectors}
               <div className="flex flex-wrap items-center gap-x-4 text-xs text-muted">
                 {linkedinSteps}
                 {mode === 'memory' && !signedIn && sessionStatus !== 'loading' && (

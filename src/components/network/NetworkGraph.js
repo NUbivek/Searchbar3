@@ -44,20 +44,20 @@ function loadForceGraph2D() {
 }
 
 // Design tokens (DESIGN.md): brand indigo for "you", amber for highlights, rose for the selection.
-export const SOURCE_COLORS = { linkedin: '#0077B5', x: '#0F172A', csv: '#64748B' };
+export const SOURCE_COLORS = { linkedin: '#0077B5', x: '#0F172A', csv: '#64748B', attio: '#B8742A' };
 /** One hue per company cluster, picked by a stable hash of the company key. */
 export const CLUSTER_COLORS = [
-  '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#06B6D4', '#3B82F6', '#F43F5E', '#84CC16', '#A855F7',
-  '#14B8A6', '#F97316', '#0EA5E9', '#D946EF', '#22C55E',
+  '#3D6A96', '#2E8B6E', '#B8742A', '#7A5C9E', '#C0565A', '#2A8C9E', '#5B7F3F', '#9A6B3C', '#4F6DAF', '#3F8F8A',
+  '#8E5E7A', '#6E8CA8', '#A2763E', '#3C7A68', '#8A5A4A',
 ];
-const ME_COLOR = '#4F46E5';
-const ME_COLOR_2 = '#8B5CF6';
+const ME_COLOR = '#0F172A';
+const ME_COLOR_2 = '#334155';
 const HIGHLIGHT = '#F59E0B';
 const SELECTED = '#E11D48';
 const LABEL = '#0F172A';
 const LABEL_MUTED = '#475569';
 /** Role hubs ("Investors & LPs", ...) and, in role view, their companies and people. */
-export const GROUP_COLORS = { investors: '#4F46E5', founders: '#059669', experts: '#D97706', other: '#64748B' };
+export const GROUP_COLORS = { investors: '#3D6A96', founders: '#2E8B6E', experts: '#B8742A', other: '#7C8A9E' };
 
 export function clusterColor(key) {
   let h = 0;
@@ -271,6 +271,15 @@ export default function NetworkGraph({
       ctx.fill();
       ctx.lineWidth = 1.5 / scale;
       ctx.strokeStyle = '#FFFFFF';
+      ctx.stroke();
+    } else if (node.contact?.relationship === 'firm') {
+      // Firm-wide CRM contact (a colleague's): hollow dot.
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, hot || lit ? r * 1.6 : r, 0, 2 * Math.PI);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fill();
+      ctx.lineWidth = Math.max(0.6, 1 / scale);
+      ctx.strokeStyle = withAlpha(node.color, 0.9);
       ctx.stroke();
     } else {
       ctx.beginPath();

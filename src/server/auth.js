@@ -120,6 +120,16 @@ export async function getUserId(req, res) {
   return user.id;
 }
 
+/** The signed-in user's email (lower-cased), or '' when signed out. */
+export async function getUserEmail(req, res) {
+  try {
+    const session = await getServerSession(req, res, authOptions);
+    return String(session?.user?.email || '').trim().toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
 /**
  * For API routes that need a signed-in user: returns the user id, or sends
  * 401 and returns null.

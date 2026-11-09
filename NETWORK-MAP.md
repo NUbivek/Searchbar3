@@ -25,9 +25,26 @@ import from that source; LinkedIn and CSV imports live side by side.
 paid X API tiers, so the page offers an upload of an X following export
 (JSON, X API format) under *Upload CSV/XLSX contacts*.
 
-**Connect LinkedIn / Connect X** add nothing to the map by themselves; they
-are offered for the profile-only sign-in and are shown as "not available on
+**Connect LinkedIn / Connect X** sign you in with your own profile; LinkedIn
+adds nothing else (its API never shares connections), X adds the accounts
+you follow where the API tier allows. Both are shown as "not available on
 this deployment" when the keys are not set.
+
+**Connect Attio (the firm's CRM)** imports the People object of an Attio
+workspace with an API access token you paste in (Attio → Workspace settings
+→ Developers). The token is used for that one request and never stored.
+Every person is saved with a *relationship*:
+
+- **direct**: Attio's *strongest connection user* for that person is you
+  (matched by the email you sign in with);
+- **firm**: anyone else's contact, saved with `via` = the colleague's name.
+
+The map draws firm contacts as hollow dots, every list labels them *Firm ·
+via <colleague>*, and the *my direct connections only* chip hides them, so a
+colleague's relationship is never mistaken for your own. A token without the
+"user management: read" scope cannot see workspace members; everything is
+then saved as firm-wide and the page says so. The same person imported from
+LinkedIn and Attio is merged once, and a direct connection anywhere wins.
 
 Signed in, contacts are saved to your account (Postgres) and are there on
 every device. Signed out, they stay in the browser tab and are gone when you
@@ -45,7 +62,8 @@ import request.
   operators. A company can appear under more than one hub.
 - **By company**: the classic view, every company as one coloured cluster
   around you, sized by how many people you know there.
-- People are the small dots around their company. Hover for the name and
+- People are the small dots around their company (hollow when they are a
+  firm-wide CRM contact rather than your own). Hover for the name and
   title; click a person, a company or a hub for details. The details panel
   floats over the map; for a company it lists everyone you know there with
   *Company profile*, *Search company* and *Find intro paths* shortcuts; for a
@@ -150,6 +168,6 @@ import, the panel says so and links to the Network Map.
 | Industry vocabulary | `src/utils/network/sectors.js` |
 | Question parsing, scoring, intro paths | `src/server/network/query.js` |
 | Storage (Postgres / PGlite), company lookup | `src/server/network/store.js` |
-| APIs | `src/pages/api/network/{contacts,query,helpers,twitter}.js` |
+| APIs | `src/pages/api/network/{contacts,query,helpers,attio,twitter}.js` |
 | Cross-tab panel | `src/components/network/NetworkHelpers.js` |
 | Tests | `tests/unit/features/network*.test.js`, `tests/unit/NetworkPage.test.js` |

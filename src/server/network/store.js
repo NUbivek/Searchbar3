@@ -38,6 +38,9 @@ const TABLE_SQL = [
     UNIQUE (user_id, dedupe_key)
   )`,
   'CREATE INDEX IF NOT EXISTS network_contacts_user_company_idx ON network_contacts(user_id, company_key)',
+  // Added later: direct connection vs firm-wide CRM contact, and whose contact it is.
+  'ALTER TABLE network_contacts ADD COLUMN IF NOT EXISTS relationship TEXT',
+  'ALTER TABLE network_contacts ADD COLUMN IF NOT EXISTS via TEXT',
 ];
 
 let tablePromise = null;
@@ -60,7 +63,7 @@ export function __resetForTests() {
 }
 
 const COLUMNS = ['user_id', 'source', 'name', 'first_name', 'last_name', 'company', 'company_key', 'position',
-  'email', 'profile_url', 'location', 'connected_on', 'tags', 'dedupe_key'];
+  'email', 'profile_url', 'location', 'connected_on', 'tags', 'relationship', 'via', 'dedupe_key'];
 
 function rowFromDb(r) {
   let tags = r.tags;
@@ -83,6 +86,8 @@ function rowFromDb(r) {
     connectedOn: connected,
     source: r.source,
     tags: Array.isArray(tags) ? tags : [],
+    relationship: r.relationship === 'firm' ? 'firm' : 'direct',
+    via: r.via || '',
   };
 }
 
@@ -126,7 +131,8 @@ export async function replaceContacts(userId, source, contacts) {
         params.push(
           userId, source, c.name, c.firstName || null, c.lastName || null, c.company || null,
           normalizeCompanyKey(c.company) || null, c.position || null, c.email || null, c.profileUrl || null,
-          c.location || null, c.connectedOn || null, JSON.stringify(c.tags || []), `${token}${dedupeKey(c)}`
+          c.location || null, c.connectedOn || null, JSON.stringify(c.tags || []),
+          c.relationship === 'firm' ? 'firm' : 'direct', c.via || null, `${token}${dedupeKey(c)}`
         );
         const ph = COLUMNS.map((col, i) => {
           const p = `$${base + i + 1}`;
@@ -171,7 +177,7 @@ export async function replaceContacts(userId, source, contacts) {
           AND NOT EXISTS (SELECT 1 FROM network_contacts a
                            WHERE a.user_id = $1 AND a.source <> $2 AND a.${ACTIVE_WHERE}
                              AND a.dedupe_key = substr(s.dedupe_key, $4 + 1))
-        RETURNING s.id, s.source, s.name, s.company, s.position, s.email, s.profile_url, s.location, s.connected_on, s.tags
+        RETURNING s.id, s.source, s.name, s.company, s.position, s.email, s.profile_url, s.location, s.connected_on, s.tags, s.relationship, s.via
      )
      SELECT (SELECT COUNT(*)::int FROM activated) AS saved,
             (SELECT COUNT(*)::int FROM dupes) AS duplicates,
@@ -201,6 +207,7 @@ export function compactContact(c) {
     if (c[field]) out[field] = c[field];
   }
   if (Array.isArray(c.tags) && c.tags.length) out.tags = c.tags;
+  if (c.relationship === 'firm') { out.relationship = 'firm'; if (c.via) out.via = c.via; }
   return out;
 }
 
@@ -209,7 +216,7 @@ export async function listContacts(userId) {
   await ensureTable();
   const rows = await query(
     `SELECT id, source, name, first_name, last_name, company, position, email, profile_url, location,
-            connected_on, tags
+            connected_on, tags, relationship, via
        FROM network_contacts WHERE user_id = $1 AND ${ACTIVE_WHERE} ORDER BY lower(name) LIMIT ${MAX_CONTACTS_PER_USER}`,
     [userId]
   );
@@ -224,7 +231,7 @@ export async function contactStats(userId) {
        FROM network_contacts WHERE user_id = $1 AND ${ACTIVE_WHERE} GROUP BY source`,
     [userId]
   );
-  const bySource = { linkedin: 0, csv: 0, x: 0 };
+  const bySource = { linkedin: 0, csv: 0, x: 0, attio: 0 };
   const lastImportBySource = {};
   let lastImportAt = null;
   for (const r of rows) {
@@ -278,7 +285,7 @@ export async function findContactsAtCompanies(userId, companyNames) {
     // Pre-filter in SQL (exact keys, or a multi-word key inside the contact's
     // key, or the contact's multi-word key inside a target); verify in JS.
     const rows = await query(
-      `SELECT name, company, company_key, position, profile_url, connected_on, source
+      `SELECT name, company, company_key, position, profile_url, connected_on, source, relationship, via
          FROM network_contacts
         WHERE user_id = $1 AND company_key IS NOT NULL AND company_key <> '' AND ${ACTIVE_WHERE}
           AND (company_key = ANY($2::text[])
@@ -301,6 +308,8 @@ export async function findContactsAtCompanies(userId, companyNames) {
         profileUrl: c.profileUrl,
         connectedOn: c.connectedOn,
         source: c.source,
+        relationship: c.relationship,
+        via: c.via,
         matchedCompany: hit.name,
       });
     }

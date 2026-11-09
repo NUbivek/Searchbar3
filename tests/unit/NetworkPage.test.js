@@ -40,9 +40,12 @@ describe('NetworkPage', () => {
     useSession.mockReturnValue({ data: null, status: 'unauthenticated' });
     render(<NetworkPage />);
     expect(screen.getByRole('heading', { name: 'Network Map' })).toBeTruthy();
-    // The shell's section links (desktop and mobile nav)
-    expect(screen.getAllByText('Research')[0].closest('a').getAttribute('href')).toBe('/');
+    // The shell: the three-flow switch and the quiet secondary links
+    expect(screen.getAllByText('Open Research')[0].closest('a').getAttribute('href')).toBe('/');
     expect(screen.getAllByText('Founder Check')[0].closest('a').getAttribute('href')).toBe('/founder');
+    expect(screen.getByText('Workspaces').closest('a').getAttribute('href')).toBe('/workspaces');
+    expect(screen.getByText('Watchlist').closest('a').getAttribute('href')).toBe('/watchlist');
+    expect(screen.queryByText('Research')).toBeNull();
     expect(screen.getByText('Connect LinkedIn')).toBeTruthy();
     expect(screen.getByText('Connect X')).toBeTruthy();
     expect(screen.getByText('Upload LinkedIn Connections.csv')).toBeTruthy();

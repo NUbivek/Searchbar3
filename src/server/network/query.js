@@ -350,6 +350,7 @@ const publicContact = (c) => ({
   profileUrl: c.profileUrl || '',
   connectedOn: c.connectedOn || null,
   source: c.source,
+  ...(c.relationship === 'firm' ? { relationship: 'firm', via: c.via || '' } : {}),
 });
 
 /** A company relation that means the contact actually works there. */

@@ -56,7 +56,10 @@ quoted when no model is configured.
 ### Network Map (`/network`)
 Your own contacts as a map, sorted by what they can do for a fund. Drop
 LinkedIn's `Connections.csv` or any CSV/XLSX of contacts (X following lists
-as JSON too); every contact is classified from its title and company into a
+as JSON too), or connect the firm's Attio CRM with an API token: Attio
+people are saved as *direct* (their strongest connection in Attio is you)
+or *firm-wide* (a colleague's contact, labelled with the colleague) and the
+two are never confused on the map or in answers. Every contact is classified from its title and company into a
 role (LP, investor, founder, executive, operator, banker, lawyer,
 accountant, consultant, academic, press) and into three lenses: **raise**
 capital, **source** deals, **diligence** a company or founder. The map shows
@@ -233,7 +236,7 @@ src/pages/            index, founder, network, signin, watchlist, company/[name]
                       history/*, workspaces/*  (UI)
 src/pages/api/        search/open, founder, company, upload, llm/models,
                       sources/curated, history/*, workspaces/**, watchlist, alerts,
-                      cron/watchlists, network/{contacts,query,helpers,twitter},
+                      cron/watchlists, network/{contacts,query,helpers,attio,twitter},
                       auth/[...nextauth], auth/{linkedin,twitter}/*, debug/env-check
 src/server/           search/ (queryPlan, retrieve, rank, answer), llm/providers,
                       founderCheck, companyProfile, dataroom, memo, watchlist,

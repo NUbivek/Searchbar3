@@ -329,11 +329,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
                   {workspaces.length > 0 ? 'Manage workspaces' : 'New workspace'}
                 </Link>
               </label>
-            ) : (
-              <span className="text-muted">
-                <Link href="/signin" className="font-medium text-brand-600 hover:text-brand-700">Sign in</Link> to save searches to your history and workspaces
-              </span>
-            )}
+            ) : null}
             {savedHistoryId && (
               <Link href={`/history/${savedHistoryId}`} className="chip chip-good">
                 <HiOutlineCheckCircle style={{ width: 13, height: 13 }} />

@@ -15,7 +15,9 @@
  *     location, connectedOn (YYYY-MM-DD | null), source, tags }
  */
 
-export const SOURCES = ['linkedin', 'csv', 'x'];
+export const SOURCES = ['linkedin', 'csv', 'x', 'attio'];
+/** How the contact relates to the user: a direct connection, or a firm-wide CRM contact held by a colleague. */
+export const RELATIONSHIPS = ['direct', 'firm'];
 export const MAX_CONTACTS = 30000;
 
 export const LIMITS = {
@@ -27,6 +29,7 @@ export const LIMITS = {
   email: 254,
   profileUrl: 500,
   location: 200,
+  via: 120,
   tag: 80,
   tags: 20,
 };
@@ -261,6 +264,8 @@ export function normalizeContact(raw, source, { dayFirst = false } = {}) {
     connectedOn: parseDate(raw.connectedOn, { dayFirst }),
     source: src,
     tags: cleanTags(raw.tags),
+    relationship: RELATIONSHIPS.includes(raw.relationship) ? raw.relationship : 'direct',
+    via: clean(raw.via, LIMITS.via),
   };
 }
 
@@ -282,9 +287,11 @@ export function dedupeContacts(contacts) {
     const key = dedupeKey(c);
     const prev = byKey.get(key);
     if (!prev) { byKey.set(key, { ...c }); continue; }
-    for (const field of ['firstName', 'lastName', 'company', 'position', 'email', 'profileUrl', 'location', 'connectedOn']) {
+    for (const field of ['firstName', 'lastName', 'company', 'position', 'email', 'profileUrl', 'location', 'connectedOn', 'via']) {
       if (!prev[field] && c[field]) prev[field] = c[field];
     }
+    // A direct connection anywhere beats a firm-wide one.
+    if (prev.relationship === 'firm' && c.relationship === 'direct') { prev.relationship = 'direct'; prev.via = ''; }
     if (c.tags?.length) prev.tags = cleanTags([...(prev.tags || []), ...c.tags]);
   }
   return [...byKey.values()];
@@ -495,7 +502,7 @@ export async function parseContactsFile(file, { kind = 'auto' } = {}) {
 
 /** Counts per source. */
 export function countBySource(contacts) {
-  const out = { linkedin: 0, csv: 0, x: 0 };
+  const out = { linkedin: 0, csv: 0, x: 0, attio: 0 };
   for (const c of contacts || []) if (out[c.source] !== undefined) out[c.source] += 1;
   return out;
 }
