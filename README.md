@@ -72,7 +72,8 @@ plain words: "Who can help me raise a fund?", "Who sends me deal flow in
 fintech?", "Who can diligence an AI company?", "Who do I know at Google?",
 "Intro paths to Stripe". Matching is deterministic over your contacts;
 contact data is never sent to an AI provider. LinkedIn's API does not give
-apps your connections, so LinkedIn sign-in only identifies you. Signed in,
+apps your connections, so the page offers no LinkedIn sign-in, only the
+export upload. Signed in,
 contacts are saved to your account; signed out, they stay in the browser
 tab. Full description in `NETWORK-MAP.md`.
 

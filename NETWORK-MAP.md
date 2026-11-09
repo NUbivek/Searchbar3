@@ -25,10 +25,11 @@ import from that source; LinkedIn and CSV imports live side by side.
 paid X API tiers, so the page offers an upload of an X following export
 (JSON, X API format) under *Upload CSV/XLSX contacts*.
 
-**Connect LinkedIn / Connect X** sign you in with your own profile; LinkedIn
-adds nothing else (its API never shares connections), X adds the accounts
-you follow where the API tier allows. Both are shown as "not available on
-this deployment" when the keys are not set.
+**Connect X** signs you in with your X profile and, where the API tier
+allows, imports the accounts you follow; it is shown as "not available on
+this deployment" when the keys are not set. There is no LinkedIn sign-in on
+the page: LinkedIn's API only returns your own profile, so it would add
+nothing to the map (the OAuth routes remain in the code base, unused).
 
 **Connect Attio (the firm's CRM)** is shown as a placeholder ("Connect Attio · soon") until `NEXT_PUBLIC_ATTIO_ENABLED=true` is set; the import is built and tested. When enabled it imports the People object of an Attio
 workspace with an API access token you paste in (Attio → Workspace settings
