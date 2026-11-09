@@ -22,9 +22,6 @@ export default function Home() {
           <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-ink">
             Research any company, founder or market
           </h1>
-          <p className="mx-auto mt-3 max-w-2xl text-base text-muted">
-            Ask in plain language. The answer is written from cited sources, with every figure checked across them.
-          </p>
         </section>
         <OpenSearch selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
       </main>
