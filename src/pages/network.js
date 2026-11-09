@@ -584,7 +584,7 @@ export default function NetworkPage() {
   };
 
   return (
-    <PageShell
+    <PageShell flows
       title="Network Map"
       subtitle="Import your own contacts, see who you know grouped by company, and ask who can make an introduction. Nothing is added that is not in your files."
       wide

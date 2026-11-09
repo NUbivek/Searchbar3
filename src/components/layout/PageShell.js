@@ -65,7 +65,40 @@ export function TopBar() {
   );
 }
 
-export default function PageShell({ title, subtitle, children, actions = null, wide = false, headTitle = null }) {
+/** The three main flows, as a segmented switch under the top bar. */
+export const FLOWS = [
+  { href: '/', label: 'Open Research', Icon: HiOutlineMagnifyingGlass },
+  { href: '/network', label: 'Network Map', Icon: HiOutlineShare },
+  { href: '/founder', label: 'Founder Check', Icon: HiOutlineUserCircle },
+];
+
+export function SectionSwitch() {
+  const router = useRouter();
+  return (
+    <div className="mb-8 flex justify-center">
+      <div className="inline-flex w-full max-w-xl rounded-2xl border border-line bg-white p-1 shadow-card" role="tablist" aria-label="Main sections">
+        {FLOWS.map(({ href, label, Icon }) => {
+          const active = href === '/' ? router.pathname === '/' : router.pathname.startsWith(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              role="tab"
+              aria-selected={active}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition ${active ? 'text-white shadow-sm' : 'text-muted hover:text-ink hover:bg-slate-50'}`}
+              style={active ? { backgroundImage: 'var(--grad)' } : undefined}
+            >
+              <Icon style={{ width: 16, height: 16 }} />
+              {label}
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export default function PageShell({ title, subtitle, children, actions = null, wide = false, headTitle = null, flows = false }) {
   return (
     <div className="min-h-screen">
       <Head>
@@ -74,6 +107,7 @@ export default function PageShell({ title, subtitle, children, actions = null, w
       </Head>
       <TopBar />
       <main className={`mx-auto px-4 py-8 ${wide ? 'max-w-6xl' : 'max-w-5xl'}`}>
+        {flows && <SectionSwitch />}
         {(title || actions) && (
           <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>

@@ -171,7 +171,7 @@ export default function FounderPage() {
   const confidence = briefInfo?.confidence;
 
   return (
-    <PageShell
+    <PageShell flows
       title="Founder Check"
       subtitle="Background brief, career timeline, companies and roles, education, litigation mentions, press and backchannel references for a person, every line quoted from a cited source."
     >

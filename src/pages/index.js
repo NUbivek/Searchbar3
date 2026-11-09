@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import Head from 'next/head';
 import OpenSearch from '../components/OpenSearch';
-import { TopBar } from '../components/layout/PageShell';
+import { TopBar, SectionSwitch } from '../components/layout/PageShell';
 
 export default function Home() {
   const [selectedModel, setSelectedModel] = useState('auto');
@@ -15,7 +15,8 @@ export default function Home() {
         <link rel="icon" href="/favicon.ico" />
       </Head>
       <TopBar />
-      <main className="mx-auto max-w-5xl px-4 pb-16 pt-10">
+      <main className="mx-auto max-w-5xl px-4 pb-16 pt-6">
+        <SectionSwitch />
         <section className="mb-6 text-center">
           <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-ink">
             Research any company, founder or market
