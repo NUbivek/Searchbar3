@@ -5,6 +5,7 @@ import { HiOutlineSparkles, HiOutlineUserCircle, HiOutlineArrowTopRightOnSquare 
 import PageShell from '../components/layout/PageShell';
 import NetworkHelpers from '../components/network/NetworkHelpers';
 import { sectorKeywordsFrom } from '../utils/network/sectors';
+import { tavusMark } from '../components/tavus/debug';
 import { renderSafeHtml } from '../components/search/results/SimplifiedLLMResults';
 import { skippedNote } from '../utils/skippedNote';
 
@@ -137,8 +138,10 @@ export default function FounderPage() {
     setData(null);
     const params = new URLSearchParams({ name: qName });
     if (qCompany.trim()) params.set('company', qCompany);
+    tavusMark('backend start', { kind: 'founder', name: qName });
     fetch(`/api/founder?${params}`)
       .then(async (r) => {
+        tavusMark('backend end', { kind: 'founder', status: r.status });
         const body = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(body.error || `Request failed (${r.status})`);
         return body;

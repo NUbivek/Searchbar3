@@ -16,6 +16,7 @@ import '@tavus/widget';
 import { TavusIntegration } from '@tavus/widget';
 import { TAVUS_DEPLOYMENT_ID } from '../../config/tavus';
 import { describePage, initialContext, planToolCall } from './guideTools';
+import { tavusMark, tavusDebugEnabled } from './debug';
 
 export default function TavusGuide() {
   const router = useRouter();
@@ -31,17 +32,21 @@ export default function TavusGuide() {
     const integration = new TavusIntegration('tavus-widget');
     integrationRef.current = integration;
 
-    const onStarted = () => {
+    const onStarted = (e) => {
+      tavusMark('conversation-started', { conversationId: e?.detail?.conversationId });
       liveRef.current = true;
       const r = routerRef.current;
       lastPageRef.current = describePage(r.pathname, r.query);
     };
-    const onEnded = () => { liveRef.current = false; };
+    const onEnded = (e) => { tavusMark('conversation-ended', { conversationId: e?.detail?.conversationId }); liveRef.current = false; };
 
     const onToolCall = (e) => {
       const { name, arguments: rawArguments, tool_call_id: toolCallId } = e.detail || {};
+      tavusMark('tool-call received', { name, toolCallId });
       const plan = planToolCall(name, rawArguments);
+      tavusMark('tool-call validated', { name, toolCallId, ok: !plan.error });
       const reply = (status, output) => {
+        tavusMark('tool_result sent', { name, toolCallId, status, paired: Boolean(toolCallId) });
         if (!toolCallId) return; // nothing to pair a reply with: just act
         integration.sendMessage({ event_type: 'conversation.tool_result', properties: { tool_call_id: toolCallId, status, output } });
       };
@@ -51,6 +56,23 @@ export default function TavusGuide() {
         .catch(() => reply('error', 'The page could not be opened.'));
     };
 
+    // Debug only: speaking and utterance events, to see where a stall sits.
+    const onProtocol = (e) => {
+      const d = e.detail || {};
+      const type = d.event_type || d.kind;
+      if (!/utterance|speaking|tool_call|interrupt/.test(String(type || ''))) return;
+      if (type === 'conversation.utterance' && typeof d.properties?.final === 'boolean') return; // skip streaming partials
+      tavusMark(type, { role: d.properties?.role });
+    };
+    const onState = (e) => tavusMark('state', { state: e.detail?.state });
+    const onError = (e) => tavusMark('error', { code: e.detail?.code });
+    const debug = tavusDebugEnabled();
+    if (debug) {
+      integration.on('tavus:protocol-message', onProtocol);
+      integration.on('tavus:state-change', onState);
+      integration.on('tavus:error', onError);
+    }
+
     integration.on('tavus:conversation-started', onStarted);
     integration.on('tavus:conversation-ended', onEnded);
     integration.on('tavus:tool-call', onToolCall);
@@ -58,6 +80,11 @@ export default function TavusGuide() {
       integration.off('tavus:conversation-started', onStarted);
       integration.off('tavus:conversation-ended', onEnded);
       integration.off('tavus:tool-call', onToolCall);
+      if (debug) {
+        integration.off('tavus:protocol-message', onProtocol);
+        integration.off('tavus:state-change', onState);
+        integration.off('tavus:error', onError);
+      }
     };
   }, []);
 

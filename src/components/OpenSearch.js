@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { HiOutlineSparkles, HiOutlineMagnifyingGlass, HiOutlineCheckCircle, HiOutlineBuildingOffice2, HiOutlineUserCircle, HiOutlineExclamationCircle } from 'react-icons/hi2';
 import NetworkHelpers from './network/NetworkHelpers';
+import { tavusMark } from './tavus/debug';
 import { sectorKeywordsFrom } from '../utils/network/sectors';
 import SourceSelector from './SourceSelector';
 import SimplifiedLLMResults, { FollowUpChat } from './search/results/SimplifiedLLMResults';
@@ -199,6 +200,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
     const activeWorkspace = workspaceOverride !== undefined ? workspaceOverride : workspaceId;
     const activeMaxAge = maxAgeOverride !== undefined ? maxAgeOverride : maxAgeDays;
 
+    tavusMark('backend start', { kind: 'research', query: searchQuery.slice(0, 80) });
     try {
       const data = await postSearchRequest({
         query: searchQuery,
@@ -211,6 +213,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
         workspaceId: activeWorkspace || undefined,
         maxAgeDays: activeMaxAge || undefined
       });
+      tavusMark('backend end', { kind: 'research', ok: true });
       setSavedHistoryId(data?.historyId || null);
 
       setApiMeta({
