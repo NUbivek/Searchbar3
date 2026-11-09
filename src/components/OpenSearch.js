@@ -93,7 +93,7 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
   const [workspaceId, setWorkspaceId] = useState('');
   const [maxAgeDays, setMaxAgeDays] = useState('');
   const [savedHistoryId, setSavedHistoryId] = useState(null);
-  const autoRanRef = useRef(false);
+  const autoRanRef = useRef('');
 
   // Signed-in users can file searches under a deal workspace
   useEffect(() => {
@@ -104,18 +104,20 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
       .catch(() => {});
   }, [signedIn]);
 
-  // ?q=...&workspace=... (from History "Run again", workspaces, company pages)
+  // ?q=...&workspace=... (from History "Run again", workspaces, company pages,
+  // and the guide agent's run_research tool). Each new q runs once; a q this
+  // page wrote itself after a typed search (see handleSearch) does not rerun.
   useEffect(() => {
-    if (!router.isReady || autoRanRef.current) return;
+    if (!router.isReady) return;
     const q = typeof router.query.q === 'string' ? router.query.q.trim() : '';
     if (typeof router.query.workspace === 'string') setWorkspaceId(router.query.workspace);
-    if (q) {
-      autoRanRef.current = true;
+    if (q && q !== autoRanRef.current) {
+      autoRanRef.current = q;
       setQuery(q);
       handleSearch(q, typeof router.query.workspace === 'string' ? router.query.workspace : undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router.isReady]);
+  }, [router.isReady, router.query.q]);
 
   // Scroll to the results when a search completes (not while typing)
   useEffect(() => {
@@ -183,6 +185,13 @@ export default function OpenSearch({ selectedModel, setSelectedModel }) {
 
   const handleSearch = async (searchQuery = query, workspaceOverride, maxAgeOverride) => {
     if (!searchQuery.trim()) return;
+    // Keep the current query in the URL (no reload): shareable, and it is how
+    // the guide agent learns what the visitor is researching.
+    const trimmed = searchQuery.trim();
+    if (router.isReady && router.query?.q !== trimmed && typeof router.replace === 'function') {
+      autoRanRef.current = trimmed;
+      router.replace({ pathname: router.pathname, query: { ...router.query, q: trimmed } }, undefined, { shallow: true, scroll: false });
+    }
 
     setLoading(true);
     setError(null);

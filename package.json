@@ -21,6 +21,7 @@
     "@electric-sql/pglite": "0.5.15",
     "@headlessui/react": "^1.7.18",
     "@neondatabase/serverless": "1.2.0",
+    "@tavus/widget": "latest",
     "@vercel/analytics": "^1.6.1",
     "axios": "^1.7.9",
     "cheerio": "^1.0.0",

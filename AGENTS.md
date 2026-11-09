@@ -154,6 +154,15 @@ Key behaviours worth knowing before editing:
   (`src/utils/oauthUtils.js` ignores `*_REDIRECT_URI` overrides that are not
   real URLs or point at another host).
 
+- **Tavus video guide.** `src/components/tavus/TavusGuide.js` renders the one
+  `<tavus-widget>` (deployment id in `src/config/tavus.js`), loaded in
+  `_app.js` with `next/dynamic` and `ssr: false`. Tool logic and page
+  descriptions are in `guideTools.js` (unit-tested in
+  `tests/unit/features/tavusGuide.test.js`); the PAL Maker tool specs are in
+  `docs/tavus/03-pal-tools.md`. Keep `@tavus/widget` on the `latest` tag.
+  Open Research keeps its current query in the URL (`?q=`) so the agent and
+  links stay in sync; do not mount the widget per page (a remount ends calls).
+
 ## 6. Design rules (short; full version in DESIGN.md)
 
 Quiet and modern: light canvas, white cards, near-black (`bg-ink`) primary

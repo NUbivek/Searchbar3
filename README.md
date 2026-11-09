@@ -120,6 +120,18 @@ network** panel lists who you know at the company, at its investors and
 competitors, and which experts and investors in your network cover its
 sector (`POST /api/network/helpers`).
 
+### Video guide (Tavus, every page)
+A floating Tavus video agent (`<tavus-widget>` from `@tavus/widget`, mounted
+once in `src/pages/_app.js` via `src/components/tavus/TavusGuide.js`) can talk
+the visitor through the site and act on it. It knows which page the visitor is
+on and their current query (told at the start of a call and updated on every
+page change), and it has three tools defined on the PAL: `go_to_section`
+(Open Research, Network Map, Founder Check), `run_research` and
+`run_founder_check`. The page performs them with client-side navigation, so a
+call keeps going. Deployment id: `src/config/tavus.js`; tool specs for the PAL
+Maker: `docs/tavus/03-pal-tools.md`; the launcher's look, persona and limits
+are set in the Tavus portal.
+
 ### Company profile (`/company/<name>`)
 Funding rounds, investors, key people, competitors, headcount and
 public-company data gathered from the curated registry, Hacker News, web
