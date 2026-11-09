@@ -1,0 +1,195 @@
+RESEARCH HUB (diligence.bivek.ai) - WALKTHROUGHS, FAQ AND LIMITS
+For the video guide avatar. Last updated November 9, 2026.
+
+=====================================================================
+A. STEP-BY-STEP WALKTHROUGHS (what to say and where to click)
+=====================================================================
+
+A1. RESEARCH A COMPANY
+1. Click "Open Research" in the main switch (or the Research Hub logo).
+2. Type the company and what you want to know, for example
+   "Stripe latest funding round and investors".
+3. Optional: pick sources in the source row. Leave "Curated sources" and
+   "Web" on for most questions. Click "All" to search everything.
+4. Optional: set "Published" to "Past year" for recent news only.
+5. Press Enter or click "Search".
+6. Read the Summary first, then check the claim-check figures and the
+   numbered sources. Click a [Source n] number to open that source.
+7. Scroll to "Your network and Stripe" to see who you know there.
+
+A2. CHECK GOVERNMENT, PATENT OR RESEARCH SOURCES
+1. On Open Research, switch on "Gov & regulators" for filings, enforcement
+   actions, healthcare (CMS, FDA), banking (Federal Reserve, FDIC, OCC) and
+   state business registries.
+2. Switch on "Patents & IP" for patents, trademarks, copyright and research
+   grants (USPTO, Google Patents, WIPO, DARPA, NSF, NIH, SBIR).
+3. Switch on "Institutions" for UN, World Bank, IMF, OECD, consulting-firm
+   reports (McKinsey, BCG, Bain, Big Four) and think tanks (Brookings, RAND).
+4. Search as usual. Government and patent results are labelled
+   "Filing / official"; institutional reports are labelled as reputable.
+
+A3. RESEARCH WITH YOUR OWN DOCUMENTS OR LINKS
+1. On Open Research, click "Custom" at the end of the source row.
+2. Paste a web address and add it, or upload up to 5 files
+   (PDF, DOCX, CSV, TXT, 25 MB each).
+3. Search. Your files and links are searched together with other sources.
+
+A4. RUN A FOUNDER CHECK
+1. Click "Founder Check" in the main switch.
+2. Type the founder's full name, for example "Arthur Mensch".
+3. Optional: add the company, for example "Mistral", to avoid mix-ups with
+   people of the same name.
+4. Click "Run check".
+5. Read the brief. Check the disambiguation warning if it appears.
+6. Scroll to "Who can help diligence <name>" for reference calls.
+
+A5. IMPORT YOUR LINKEDIN CONNECTIONS
+1. On LinkedIn: Settings & Privacy > Data privacy > Get a copy of your data.
+2. Choose "Connections" and request the archive. LinkedIn emails a download
+   link, usually within minutes.
+3. Unzip the download and find "Connections.csv".
+4. On Research Hub, open "Network Map".
+5. In the Sources card, click "Upload Connections.csv" on the LinkedIn card
+   (or drag the file onto the card).
+6. The map appears with your contacts grouped by role.
+Tip: sign in first so the contacts are saved to your account.
+
+A6. IMPORT A SPREADSHEET OF CONTACTS
+1. Make sure the file has a header row with a name column ("Name", or
+   "First Name" and "Last Name") and ideally "Company", "Title", "Email",
+   "LinkedIn URL", "Location" and "Tags".
+2. Click "Upload contacts" on the CSV / XLSX card.
+Note: a new upload replaces the previous upload of the same type.
+
+A7. FIND WHO CAN HELP YOU RAISE A FUND
+1. On Network Map, click into the search bar and pick
+   "Who can help me raise a fund?", or type your own question.
+2. Results list LPs and family offices first, then investors and bankers,
+   each with a role label and the reason they matched.
+3. Or click the "raise capital" chip above the map to show only those people.
+
+A8. FIND DEAL FLOW IN A SECTOR
+1. Ask "Who sends me deal flow in fintech?" (replace fintech with any
+   sector).
+2. Founders in that sector come first, then investors and operators.
+
+A9. FIND WHO CAN DILIGENCE A COMPANY OR SECTOR
+1. Ask "Who can diligence an AI company?" or "Who can do reference checks?".
+2. Or click the "diligence" chip above the map.
+3. Or open the company's profile or run a Founder Check and use the
+   "Your network" panel there.
+
+A10. FIND INTRO PATHS TO A COMPANY
+1. Ask "Intro paths to Stripe".
+2. Results show: people who work there (direct), people at similar names
+   (possibly related), and people at that company's investors.
+
+A11. EXPLORE THE MAP LAYER BY LAYER
+1. Choose a grouping: "By role" (default), "By company", "By industry" or
+   "By country".
+2. Click a group on the map, or its name in the navigator bar at the bottom.
+3. The group's people are regrouped by the next level (for example by
+   industry). Click again to reach companies and people.
+4. Click a company to see the people you know there.
+5. Use the breadcrumb ("All > ...") to go back up.
+6. "Full screen" enlarges the map; "Fit to view" re-centres it.
+7. Scroll on the map to zoom; drag to move around.
+
+A12. CREATE A DEAL WORKSPACE AND MEMO
+1. Sign in. Click "Workspaces" (top right).
+2. Create a workspace with the deal name and company.
+3. On Open Research, set "Save to" to that workspace before searching.
+4. In the workspace, add notes, pin sources and upload data-room documents.
+5. Ask questions in the data room; answers cite [D1], [D2]...
+6. Open "Memo" and download it as Markdown or Word.
+
+A13. WATCH A COMPANY
+1. Sign in. Click "Watchlist" (top right).
+2. Type the company name with its exact capitalisation (for example "Ramp")
+   and click "Watch company".
+3. Alerts appear on the page; "Check now" runs a check immediately.
+
+=====================================================================
+B. FREQUENTLY ASKED QUESTIONS
+=====================================================================
+
+Q: Is the answer made up by AI?
+A: No. The answer is written only from the sources shown, and every
+   sentence carries a [Source n] citation. When no AI is available, the
+   answer is made of direct quotes and is labelled "Quoted from sources".
+
+Q: What does "corroborated", "single-source" and "conflicting" mean?
+A: For funding and valuation figures: corroborated means two or more
+   different websites agree; single-source means only one site says it;
+   conflicting means sources disagree, so check them before relying on it.
+
+Q: What do the source quality labels mean?
+A: Filing / official (government and regulator records) ranks highest,
+   then Reputable press, then Blog / newsletter, then Forum / social.
+
+Q: Are my contacts private?
+A: Yes. They are stored only in your account, shown only to you, and never
+   sent to an AI model or any other service. "Remove all" deletes them.
+
+Q: Why does "Connect LinkedIn" not import my connections?
+A: LinkedIn does not give any app access to a user's connections. The only
+   way to bring them in is LinkedIn's own data export (Connections.csv).
+
+Q: What does Connect X do?
+A: It signs you in with X and can import the accounts you follow, so they
+   appear on your map. The import depends on the site owner's X API plan.
+
+Q: What is a "firm contact" or a hollow dot?
+A: Someone known through a colleague in the firm's CRM rather than your own
+   direct connection. It is labelled "Firm via <colleague>". The
+   "my direct connections only" chip hides them. (CRM import is coming soon.)
+
+Q: Why is someone under "Everyone else" or "Other"?
+A: Their title and company do not say what they do or what industry they
+   are in (for example a blank title, or a small unknown company). LinkedIn
+   exports have no location, so "By country" shows them under "Unknown"
+   unless a spreadsheet with locations is uploaded.
+
+Q: Can I get my second-degree connections?
+A: Not from LinkedIn; its export contains only first-degree connections.
+
+Q: Do I need an account?
+A: No for research, Founder Check and the map. Yes to save history,
+   workspaces, watchlists and to keep contacts between visits.
+
+Q: What file types can I upload?
+A: Research and data room: PDF, DOCX, CSV, TXT. Network Map: CSV, XLSX,
+   and X following export (JSON).
+
+=====================================================================
+C. LIMITS AND WHAT TO SAY WHEN SOMETHING IS MISSING
+=====================================================================
+
+- If a source is unavailable, a banner names the skipped sources and the
+  search continues with the rest.
+- "Not enabled on this deployment" means that capability is switched off on
+  this site, not that the user did something wrong.
+- A scanned PDF without a text layer cannot be read; other files in the same
+  upload still work.
+- Contact limits: 30,000 contacts per account, 25 MB per file.
+- Large networks (over 1,500 people) show companies first; click a company
+  to see its people.
+- Founder Check needs a full name (first and last).
+- The Watchlist matches company names with exact capitalisation.
+- Output is information, not investment, legal or professional advice.
+  Always check the cited sources before relying on anything.
+
+=====================================================================
+D. TONE AND WORDING FOR THE AVATAR
+=====================================================================
+
+- Speak like a calm, precise analyst: short sentences, concrete steps,
+  name the exact button or chip to click.
+- Use the exact on-screen names: "Open Research", "Network Map",
+  "Founder Check", "Search", "All", "Custom", "Gov & regulators",
+  "Patents & IP", "Institutions", "Upload Connections.csv", "Connect X",
+  "By role", "Full screen", "Fit to view", "raise capital",
+  "source deals", "diligence".
+- Do not mention pricing, API keys or technical settings to users.
+- When unsure whether a feature is available, say "If you see ... on your
+  screen, click it; if not, it is not enabled on this site yet."
