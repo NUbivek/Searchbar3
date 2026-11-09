@@ -100,9 +100,11 @@ accountant, consultant, academic, press) and into three lenses: **raise**
 capital, **source** deals, **diligence** a company or founder. The map shows
 you in the centre with three role hubs (Investors & LPs, Founders &
 operators, Experts & advisors) and every company you know people at hanging
-off the hub its people belong to; switch to by-company, by-industry or
-by-country views, filter by lens, highlight a name, go full screen, click
-anything for details. Ask it questions in
+off the hub its people belong to. Click a hub to drill in: its people are
+regrouped by the next dimension (role → industry → companies and people,
+with a breadcrumb to step back); switch to by-company, by-industry or
+by-country views, filter by lens, highlight a name, go full screen, click a
+company for its people. Ask it questions in
 plain words: "Who can help me raise a fund?", "Who sends me deal flow in
 fintech?", "Who can diligence an AI company?", "Who do I know at Google?",
 "Intro paths to Stripe". Matching is deterministic over your contacts;

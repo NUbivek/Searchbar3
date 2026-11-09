@@ -28,14 +28,47 @@ const wordRe = (term) => {
   return re;
 };
 
+/**
+ * Well-known employers by industry. Checked before title words, so "Software
+ * Engineer at Stripe" is Fintech and "Engineer at Google" is Big Tech.
+ * Keys are matched against the normalised company name (whole words).
+ */
+const COMPANY_INDUSTRY = [
+  ['Big Tech', ['google', 'alphabet', 'meta', 'facebook', 'instagram', 'whatsapp', 'amazon', 'aws', 'microsoft', 'linkedin', 'apple', 'netflix', 'nvidia', 'intel', 'ibm', 'oracle', 'salesforce', 'adobe', 'cisco', 'samsung', 'tesla', 'uber', 'airbnb', 'x corp', 'twitter', 'bytedance', 'tiktok', 'tencent', 'alibaba', 'baidu', 'sony', 'qualcomm', 'amd', 'dell', 'hp']],
+  ['AI', ['openai', 'anthropic', 'deepmind', 'google deepmind', 'mistral', 'cohere', 'hugging face', 'huggingface', 'scale ai', 'stability ai', 'perplexity', 'inflection', 'character ai', 'xai', 'runway', 'midjourney', 'databricks', 'anyscale', 'together ai', 'groq', 'cerebras', 'harvey', 'glean', 'cursor', 'anysphere', 'replit', 'adept', 'synthesia', 'elevenlabs', 'writer', 'jasper']],
+  ['Fintech', ['stripe', 'ramp', 'brex', 'plaid', 'square', 'block', 'paypal', 'venmo', 'chime', 'robinhood', 'coinbase', 'affirm', 'klarna', 'revolut', 'wise', 'nubank', 'mercury', 'rippling', 'gusto', 'carta', 'adyen', 'checkout com', 'marqeta', 'sofi', 'monzo', 'n26', 'deel', 'remote']],
+  ['Finance & banking', ['goldman sachs', 'goldman', 'morgan stanley', 'jpmorgan', 'jp morgan', 'chase', 'citi', 'citigroup', 'bank of america', 'wells fargo', 'blackrock', 'blackstone', 'kkr', 'carlyle', 'apollo', 'bridgewater', 'citadel', 'jane street', 'two sigma', 'fidelity', 'vanguard', 'ubs', 'barclays', 'hsbc', 'deutsche bank', 'credit suisse', 'lazard', 'evercore', 'moelis', 'jefferies', 'tpg', 'warburg pincus', 'bain capital', 'thoma bravo', 'vista equity']],
+  ['Venture capital', ['sequoia', 'sequoia capital', 'andreessen horowitz', 'a16z', 'y combinator', 'ycombinator', 'khosla', 'khosla ventures', 'accel', 'benchmark', 'greylock', 'kleiner perkins', 'lightspeed', 'index ventures', 'general catalyst', 'founders fund', 'insight partners', 'tiger global', 'coatue', 'gv', 'google ventures', 'nea', 'bessemer', 'first round', 'union square ventures', 'redpoint', 'ivp', 'battery ventures', 'techstars', '500 global', 'softbank', 'lux capital', 'thrive capital', 'craft ventures', 'initialized', 'felicis', 'spark capital', 'menlo ventures']],
+  ['Consulting', ['mckinsey', 'mckinsey company', 'boston consulting group', 'bcg', 'bain', 'bain company', 'deloitte', 'pwc', 'pricewaterhousecoopers', 'ey', 'ernst young', 'kpmg', 'accenture', 'oliver wyman', 'kearney', 'roland berger', 'lek', 'alixpartners', 'booz allen']],
+  ['Software', ['figma', 'notion', 'atlassian', 'slack', 'zoom', 'dropbox', 'shopify', 'hubspot', 'snowflake', 'datadog', 'mongodb', 'twilio', 'workday', 'servicenow', 'canva', 'airtable', 'asana', 'linear', 'vercel', 'github', 'gitlab', 'zapier', 'retool', 'webflow', 'miro', 'okta', 'cloudflare', 'palantir', 'confluent', 'hashicorp', 'elastic', 'intercom', 'loom', 'calendly']],
+  ['Healthcare', ['kaiser', 'mayo clinic', 'unitedhealth', 'cvs', 'pfizer', 'moderna', 'johnson johnson', 'merck', 'novartis', 'roche', 'genentech', 'oscar health', 'one medical', 'hims', 'ro', 'tempus', 'flatiron']],
+  ['Education', ['university', 'college', 'school of', 'business school', 'institute of technology', 'academy', 'coursera', 'udemy', 'khan academy', 'duolingo', 'chegg']],
+  ['Media', ['techcrunch', 'bloomberg', 'reuters', 'new york times', 'wall street journal', 'forbes', 'the information', 'axios', 'cnbc', 'bbc', 'cnn', 'vox', 'substack', 'medium']],
+  ['Climate & energy', ['tesla energy', 'rivian', 'lucid', 'sunrun', 'enphase', 'northvolt', 'commonwealth fusion', 'helion', 'climeworks']],
+  ['Commerce', ['walmart', 'target', 'instacart', 'doordash', 'shein', 'etsy', 'ebay', 'wayfair', 'faire']],
+];
+const COMPANY_INDUSTRY_RES = COMPANY_INDUSTRY.map(([label, names]) => [label, new RegExp(`(^|[^a-z0-9])(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})([^a-z0-9]|$)`, 'i')]);
+
+/** Title words that place someone in an industry regardless of employer. */
+const TITLE_INDUSTRY = [
+  ['Education', /\b(student|mba candidate|mba student|phd candidate|undergraduate|graduate student|teaching assistant|alumn)/i],
+  ['Venture capital', /\b(venture capital|vc investor|venture partner|general partner|angel investor|scout)\b/i],
+  ['Consulting', /\b(management consultant|consultant|consulting)\b/i],
+];
+
 const industryCache = new WeakMap();
 /** Industry label for a contact from its title, company and tags; 'Other' when nothing matches. */
 export function industryOf(contact) {
   if (!contact || typeof contact !== 'object') return OTHER_INDUSTRY;
   const hit = industryCache.get(contact);
   if (hit) return hit;
-  const text = `${contact.position || ''} ${contact.company || ''} ${(contact.tags || []).join(' ')}`.replace(/\bOpenAI\b/gi, 'open ai').replace(/\b(\w+)AI\b/g, '$1 ai');
+  const companyName = String(contact.company || '').toLowerCase().replace(/[^a-z0-9& ]+/g, ' ').replace(/&/g, ' ').replace(/\s+/g, ' ').trim();
   let out = OTHER_INDUSTRY;
+  // 1. Known employer, 2. decisive title words, 3. sector words anywhere.
+  for (const [label, re] of COMPANY_INDUSTRY_RES) if (companyName && re.test(companyName)) { out = label; break; }
+  if (out === OTHER_INDUSTRY) for (const [label, re] of TITLE_INDUSTRY) if (re.test(String(contact.position || ''))) { out = label; break; }
+  if (out !== OTHER_INDUSTRY) { industryCache.set(contact, out); return out; }
+  const text = `${contact.position || ''} ${contact.company || ''} ${(contact.tags || []).join(' ')}`.replace(/\bOpenAI\b/gi, 'open ai').replace(/\b(\w+)AI\b/g, '$1 ai');
   for (const g of KEYWORD_GROUPS) {
     // "venture capital" terms ("partners", "fund") are too generic for an industry grouping.
     if (g.label === 'venture capital') continue;

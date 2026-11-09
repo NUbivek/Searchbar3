@@ -16,11 +16,11 @@ import {
   HiOutlineShare, HiOutlineSparkles, HiOutlineCloudArrowUp, HiOutlineInformationCircle, HiOutlineArrowsPointingIn, HiOutlineArrowsPointingOut,
 } from 'react-icons/hi2';
 import PageShell from '../components/layout/PageShell';
-import NetworkGraph, { SOURCE_COLORS, clusterColor } from '../components/network/NetworkGraph';
+import NetworkGraph, { SOURCE_COLORS, clusterColor, GROUP_COLORS } from '../components/network/NetworkGraph';
 import {
   parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, MAX_CONTACTS,
 } from '../utils/network/parseContacts';
-import { buildGraph, personNodeId, NO_COMPANY_KEY, MAX_PEOPLE_PER_EXPANDED_COMPANY } from '../utils/network/graph';
+import { buildGraph, personNodeId, NO_COMPANY_KEY, SMALL_COMPANIES_KEY, MAX_PEOPLE_PER_EXPANDED_COMPANY } from '../utils/network/graph';
 import { classifyContact, roleStats, LENSES } from '../utils/network/roles';
 import { GROUPINGS, groupKeyFor } from '../utils/network/grouping';
 
@@ -30,6 +30,17 @@ function classNames(...classes) {
 
 const ICON = { width: 15, height: 15 };
 const SOURCE_LABELS = { linkedin: 'LinkedIn', csv: 'CSV/XLSX', x: 'X', attio: 'Attio' };
+/** Layers of the map for each starting grouping: hubs, then sub-hubs, then companies and people. */
+const DRILL_ORDER = {
+  role: ['role', 'industry', 'company'],
+  industry: ['industry', 'role', 'company'],
+  country: ['country', 'industry', 'company'],
+  company: ['company'],
+};
+const DIM_LABEL = { role: 'role', industry: 'industry', country: 'country', company: 'company' };
+// The graph module is mocked in tests; colours fall back to grey there.
+const hubColorOf = (key) => (GROUP_COLORS && GROUP_COLORS[key]) || (typeof clusterColor === 'function' ? clusterColor(key) : '#64748B');
+const clusterColorOf = (key) => (typeof clusterColor === 'function' ? clusterColor(key) : '#64748B');
 const EXAMPLES = ['Who can help me raise a fund?', 'Who sends me deal flow in fintech?', 'Who can diligence an AI company?', 'Who do I know at Google?', 'Intro paths to Stripe'];
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 // The contacts API accepts 15 MB request bodies; stop a little short of it.
@@ -156,6 +167,11 @@ export default function NetworkPage() {
   const [companyFilter, setCompanyFilter] = useState('');
   const [graphSearch, setGraphSearch] = useState('');
   const [groupBy, setGroupBy] = useState('role');
+  // Drill-down path: each step is { dim, key, label }. Layer 1 groups by
+  // `groupBy`; clicking a hub drills into it and the next layer groups its
+  // people by the next dimension, down to companies and people.
+  const [drill, setDrill] = useState([]);
+  const [focusId, setFocusId] = useState(null);
   const [lensFilter, setLensFilter] = useState(null);
   const [expanded, setExpanded] = useState(() => new Set());
   const [selected, setSelected] = useState(null);
@@ -524,11 +540,17 @@ export default function NetworkPage() {
     });
   }, [contacts, sourceFilter, companyFilter, lensFilter, directOnly]);
 
-  const graph = useMemo(() => buildGraph(visibleContacts, {
+  // Contacts inside the current drill path, and the dimension this layer groups by.
+  const focusContacts = useMemo(
+    () => drill.reduce((list, step) => list.filter((c) => groupKeyFor(c, step.dim) === step.key), visibleContacts),
+    [visibleContacts, drill],
+  );
+  const levelDim = DRILL_ORDER[groupBy][Math.min(drill.length, DRILL_ORDER[groupBy].length - 1)];
+  const graph = useMemo(() => buildGraph(focusContacts, {
     expanded,
-    groupBy,
-    meLabel: session?.user?.name ? `You (${session.user.name.split(' ')[0]})` : 'You',
-  }), [visibleContacts, expanded, groupBy, session?.user?.name]);
+    groupBy: levelDim,
+    meLabel: drill.length ? drill[drill.length - 1].label : (session?.user?.name ? `You (${session.user.name.split(' ')[0]})` : 'You'),
+  }), [focusContacts, expanded, levelDim, drill, session?.user?.name]);
   const roleCounts = useMemo(() => roleStats(contacts), [contacts]);
 
   const answerKeys = useMemo(() => {
@@ -544,12 +566,12 @@ export default function NetworkPage() {
     const term = graphSearch.trim().toLowerCase();
     if (!term && !answerKeys) return ids;
     const hitKeys = new Set();
-    for (const c of visibleContacts) {
+    for (const c of focusContacts) {
       const hitSearch = term && [c.name, c.company, c.position].some((v) => String(v || '').toLowerCase().includes(term));
       const hitAnswer = answerKeys && answerKeys.has(dedupeKey(c));
       if (hitSearch || hitAnswer) {
         ids.add(personNodeId(c));
-        hitKeys.add(`${groupKeyFor(c, groupBy)}|${normalizeCompanyKey(c.company) || NO_COMPANY_KEY}`);
+        hitKeys.add(`${groupKeyFor(c, levelDim)}|${normalizeCompanyKey(c.company) || NO_COMPANY_KEY}`);
       }
     }
     // Company (and role hub) nodes light up when any of their people do.
@@ -557,7 +579,7 @@ export default function NetworkPage() {
       if (n.type === 'company' && [...hitKeys].some((k) => k.endsWith(`|${n.key}`) && (!n.hub || k.startsWith(`${n.hub}|`)))) { ids.add(n.id); if (n.hub) ids.add(`g:${n.hub}`); }
     }
     return ids;
-  }, [graphSearch, answerKeys, visibleContacts, graph, groupBy]);
+  }, [graphSearch, answerKeys, focusContacts, graph, levelDim]);
 
   // Count only people actually drawn: in a large network most highlighted
   // people sit in companies that are not expanded.
@@ -591,7 +613,9 @@ export default function NetworkPage() {
       if (graph.large && !expanded.has(node.key)) setExpanded((prev) => new Set(prev).add(node.key));
       setSelected({ type: 'company', id: node.id, key: node.key, hub: node.hub, label: node.label, count: node.count });
     } else if (node.type === 'group') {
-      setSelected({ type: 'group', id: node.id, key: node.key, label: node.label, hint: node.hint, lens: node.lens, count: node.count });
+      setDrill((prev) => [...prev, { dim: levelDim, key: node.key, label: node.label }]);
+      setSelected(null);
+      setExpanded(new Set());
     } else {
       setSelected(null);
     }
@@ -599,22 +623,34 @@ export default function NetworkPage() {
 
   const selectedCompanyPeople = useMemo(() => {
     if (selected?.type !== 'company') return [];
-    return visibleContacts
-      .filter((c) => (normalizeCompanyKey(c.company) || NO_COMPANY_KEY) === selected.key && (!selected.hub || groupKeyFor(c, groupBy) === selected.hub))
+    return focusContacts
+      .filter((c) => (selected.key === SMALL_COMPANIES_KEY
+        ? graph.nodes.some((n) => n.type === 'person' && n.companyKey === SMALL_COMPANIES_KEY && n.hub === selected.hub && n.contact === c)
+        : (normalizeCompanyKey(c.company) || NO_COMPANY_KEY) === selected.key) && (!selected.hub || groupKeyFor(c, levelDim) === selected.hub))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [selected, visibleContacts, groupBy]);
-  const selectedGroupRoles = useMemo(() => {
-    if (selected?.type !== 'group') return [];
-    const counts = new Map();
-    for (const c of visibleContacts) {
-      if (groupKeyFor(c, groupBy) !== selected.key) continue;
-      const k = classifyContact(c);
-      counts.set(k.label, (counts.get(k.label) || 0) + 1);
-    }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, [selected, visibleContacts, groupBy]);
-
+  }, [selected, focusContacts, levelDim, graph]);
   // ------------------------------------------------------------ ask
+
+  // Footer navigator: the groups of this layer (or its companies at the last
+  // layer), largest first. Clicking drills in or centres the map on it.
+  const navigator = useMemo(() => {
+    const hubs = graph.nodes.filter((n) => n.type === 'group').sort((a, b) => b.count - a.count);
+    if (hubs.length) return { kind: 'group', items: hubs };
+    const companies = graph.nodes.filter((n) => n.type === 'company').sort((a, b) => b.count - a.count).slice(0, 16);
+    return { kind: 'company', items: companies };
+  }, [graph]);
+  const navigateTo = (node) => {
+    if (node.type === 'group') {
+      setDrill((prev) => [...prev, { dim: levelDim, key: node.key, label: node.label }]);
+      setSelected(null);
+      setExpanded(new Set());
+      setFocusId(null);
+      return;
+    }
+    if (graph.large && !expanded.has(node.key)) setExpanded((prev) => new Set(prev).add(node.key));
+    setSelected({ type: 'company', id: node.id, key: node.key, hub: node.hub, label: node.label, count: node.count });
+    setFocusId(node.id);
+  };
 
   const ask = async (text, { target } = {}) => {
     const q = String(text ?? question).trim();
@@ -799,27 +835,6 @@ export default function NetworkPage() {
           <ContactActions name={selected.contact.name} company={selected.contact.company} />
         </div>
       )}
-      {selected.type === 'group' && (
-        <div>
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="font-semibold text-ink">{selected.label}</h3>
-            <button type="button" onClick={() => setSelected(null)} aria-label="Close details" className="text-muted hover:text-ink"><HiOutlineXMark style={ICON} /></button>
-          </div>
-          <p className="muted mt-0.5">{fmt(selected.count)} people · {selected.hint}</p>
-          <ul className="mt-3 space-y-1 text-sm">
-            {selectedGroupRoles.map(([label, n]) => (
-              <li key={label} className="flex items-center justify-between gap-2"><span className="text-slate-700">{label}</span><span className="chip">{fmt(n)}</span></li>
-            ))}
-          </ul>
-          {selected.lens && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {selected.lens === 'raise' && ['Who can help me raise a fund?', 'Which LPs do I know?'].map((q) => <button key={q} type="button" onClick={() => { setQuestion(q); ask(q); }} className="chip hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">{q}</button>)}
-              {selected.lens === 'source' && ['Who sends me deal flow?', 'Which founders do I know in AI?'].map((q) => <button key={q} type="button" onClick={() => { setQuestion(q); ask(q); }} className="chip hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">{q}</button>)}
-              {selected.lens === 'diligence' && ['Who can diligence a fintech company?', 'Who can do reference checks?'].map((q) => <button key={q} type="button" onClick={() => { setQuestion(q); ask(q); }} className="chip hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700">{q}</button>)}
-            </div>
-          )}
-        </div>
-      )}
       {selected.type === 'company' && (
         <div>
           <div className="flex items-start justify-between gap-2">
@@ -839,7 +854,7 @@ export default function NetworkPage() {
               Hide these people in the graph
             </button>
           )}
-          {selected.key !== NO_COMPANY_KEY && (
+          {selected.key !== NO_COMPANY_KEY && selected.key !== SMALL_COMPANIES_KEY && (
             <>
               <ContactActions company={selected.label} />
               <button
@@ -995,7 +1010,7 @@ export default function NetworkPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex rounded-lg border border-line bg-white p-0.5 text-xs" role="radiogroup" aria-label="Group the map">
                   {GROUPINGS.map(({ key: v, label }) => (
-                    <button key={v} type="button" role="radio" aria-checked={groupBy === v} onClick={() => { setGroupBy(v); setSelected(null); }} className={classNames('rounded-md px-2.5 py-1 font-medium', groupBy === v ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}>{label}</button>
+                    <button key={v} type="button" role="radio" aria-checked={groupBy === v} onClick={() => { setGroupBy(v); setDrill([]); setSelected(null); setFocusId(null); }} className={classNames('rounded-md px-2.5 py-1 font-medium', groupBy === v ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}>{label}</button>
                   ))}
                 </div>
                 <div className="relative">
@@ -1023,7 +1038,7 @@ export default function NetworkPage() {
                   </button>
                 ))}
               </div>
-              <span className="ml-auto text-xs text-muted">{fmt(visibleContacts.length)} people · {fmt(graph.companyCount)} companies</span>
+              <span className="ml-auto text-xs text-muted">{fmt(focusContacts.length)} people · {fmt(graph.companyCount)} companies</span>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 border-b border-line bg-slate-50/60 px-4 py-2 text-xs sm:px-5" aria-label="Lenses">
@@ -1035,7 +1050,7 @@ export default function NetworkPage() {
                   role="checkbox"
                   aria-checked={lensFilter === l.key}
                   title={l.description}
-                  onClick={() => { setLensFilter((v) => (v === l.key ? null : l.key)); setSelected(null); }}
+                  onClick={() => { setLensFilter((v) => (v === l.key ? null : l.key)); setDrill([]); setSelected(null); }}
                   className={classNames('chip', lensFilter === l.key && 'chip-active')}
                 >
                   {l.label.toLowerCase()} <span className="text-muted">{fmt(roleCounts.lenses[l.key])}</span>
@@ -1047,7 +1062,7 @@ export default function NetworkPage() {
                   role="checkbox"
                   aria-checked={directOnly}
                   title="Hide firm-wide CRM contacts held by colleagues"
-                  onClick={() => { setDirectOnly((v) => !v); setSelected(null); }}
+                  onClick={() => { setDirectOnly((v) => !v); setDrill([]); setSelected(null); }}
                   className={classNames('chip ml-auto', directOnly && 'chip-active')}
                 >
                   my direct connections only
@@ -1070,8 +1085,29 @@ export default function NetworkPage() {
               </div>
             )}
 
+            {groupBy !== 'company' && (
+              <nav className="flex flex-wrap items-center gap-1 border-b border-line bg-slate-50/60 px-4 py-2 text-xs sm:px-5" aria-label="Map layers">
+                <button type="button" onClick={() => { setDrill([]); setSelected(null); setFocusId(null); }} className={classNames('rounded-md px-1.5 py-0.5', drill.length ? 'text-muted hover:text-ink' : 'font-medium text-ink')}>All</button>
+                {drill.map((step, i) => (
+                  <React.Fragment key={`${step.dim}:${step.key}`}>
+                    <span className="text-line">›</span>
+                    <button
+                      type="button"
+                      onClick={() => { setDrill(drill.slice(0, i + 1)); setSelected(null); setFocusId(null); }}
+                      className={classNames('rounded-md px-1.5 py-0.5', i === drill.length - 1 ? 'font-medium text-ink' : 'text-muted hover:text-ink')}
+                    >
+                      {step.label}
+                    </button>
+                  </React.Fragment>
+                ))}
+                <span className="ml-auto text-muted">
+                  {levelDim === 'company' ? 'Companies and people' : `Grouped by ${DIM_LABEL[levelDim]}`}
+                  {levelDim !== 'company' ? ' · click a group to drill in' : drill.length ? ' · click a company for its people' : ''}
+                </span>
+              </nav>
+            )}
             <div ref={graphBoxRef} className="relative min-w-0 overflow-hidden bg-white">
-              {visibleContacts.length === 0 ? (
+              {focusContacts.length === 0 ? (
                 <div className="flex items-center justify-center text-sm text-muted" style={{ height: graphHeight }}>No contacts match these filters.</div>
               ) : (
                 <NetworkGraph
@@ -1081,19 +1117,29 @@ export default function NetworkPage() {
                   highlightIds={highlightIds}
                   selectedId={selected?.id}
                   hoverId={hoverId}
+                  focusId={focusId}
                   onNodeClick={onNodeClick}
                   onNodeHover={(node) => setHoverId(node ? node.id : null)}
                   onBackgroundClick={() => setSelected(null)}
                 />
               )}
-              <div className="pointer-events-none absolute bottom-3 left-3 hidden items-center gap-3 rounded-lg bg-white/80 px-2.5 py-1.5 text-[11px] text-muted sm:flex">
-                <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-ink" /> You</span>
-                {groupBy !== 'company' && <span className="flex items-center gap-1"><span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-brand-400 bg-white" /> {groupBy === 'role' ? 'Role' : groupBy === 'industry' ? 'Industry' : 'Country'} group</span>}
-                <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-full bg-brand-300" /> Company, sized by people you know</span>
-                <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-brand-400" /> Person</span>
-                {firmCount > 0 && <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full border border-brand-400 bg-white" /> Firm contact (via a colleague)</span>}
-                <span>Click to see details</span>
-              </div>
+              <nav className="glass absolute bottom-0 left-0 right-0 flex items-center gap-1.5 overflow-x-auto border-t border-line px-3 py-2 text-xs" aria-label="Map navigator">
+                <span className="shrink-0 text-muted">{navigator.kind === 'group' ? `${navigator.items.length} groups` : 'Companies'}</span>
+                <span className="text-line">|</span>
+                {navigator.items.map((node) => (
+                  <button
+                    key={node.id}
+                    type="button"
+                    onClick={() => navigateTo(node)}
+                    title={node.type === 'group' ? `Drill into ${node.label}` : `Centre on ${node.label}`}
+                    className={classNames('chip shrink-0', selected?.id === node.id && 'chip-active')}
+                  >
+                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: node.type === 'group' ? hubColorOf(node.key) : clusterColorOf(node.key) }} />
+                    {node.label} <span className="text-muted">{fmt(node.count)}</span>
+                  </button>
+                ))}
+                {firmCount > 0 && <span className="ml-auto shrink-0 text-muted"><span className="inline-block h-2 w-2 rounded-full border border-brand-400 bg-white align-middle" /> hollow = firm contact</span>}
+              </nav>
               <button
                 type="button"
                 onClick={toggleFullscreen}
