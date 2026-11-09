@@ -54,7 +54,7 @@ describe('source groups', () => {
 
   test('normalizeSources accepts the group ids and their labels', () => {
     expect(normalizeSources(['Government', 'IP', 'Institutions'])).toEqual(['government', 'ip', 'institutions']);
-    expect(normalizeSources(['Government & regulators', 'Patents & IP', 'Think tanks'])).toEqual(['government', 'ip', 'institutions']);
+    expect(normalizeSources(['Government & regulators', 'Gov & regulators', 'Patents & IP', 'Think tanks'])).toEqual(['government', 'ip', 'institutions']);
   });
 
   test('the curated registry carries official and institutional feeds', () => {

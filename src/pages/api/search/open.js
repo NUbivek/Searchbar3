@@ -53,7 +53,7 @@ export function normalizeSources(input) {
     : typeof input === 'string'
       ? input.split(',').map((s) => s.trim())
       : [];
-  const aliasMap = { x: 'twitter', 'x.com': 'twitter', 'verified sources': 'verified', 'curated sources': 'curated', 'government & regulators': 'government', 'institutions & research': 'institutions', 'think tanks': 'institutions', 'patents': 'ip', 'patents, ip & research agencies': 'ip', 'patents & ip': 'ip' };
+  const aliasMap = { x: 'twitter', 'x.com': 'twitter', 'verified sources': 'verified', 'curated sources': 'curated', 'government & regulators': 'government', 'gov & regulators': 'government', 'gov': 'government', 'institutions & research': 'institutions', 'think tanks': 'institutions', 'patents': 'ip', 'patents, ip & research agencies': 'ip', 'patents & ip': 'ip' };
   const normalized = raw
     .map((source) => String(source || '').trim().toLowerCase())
     .map((source) => aliasMap[source] || source)

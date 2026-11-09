@@ -31,9 +31,9 @@ export default function SourceSelector({
       { id: 'Pitchbook', name: 'Pitchbook' },
       { id: 'Carta', name: 'Carta' },
       { id: 'Verified', name: 'Verified' },
-      { id: 'Government', name: 'Government & regulators', hint: 'SEC, Federal Reserve, FDIC, CMS, FDA, USPTO, Census, state registries, UK/EU regulators' },
+      { id: 'Government', name: 'Gov & regulators', hint: 'SEC, Federal Reserve, FDIC, CMS, FDA, USPTO, Census, state registries, UK/EU regulators' },
       { id: 'IP', name: 'Patents & IP', hint: 'USPTO, Google Patents, Copyright Office, WIPO, EPO; DARPA, ARPA-E, NSF, NIST, NASA, NIH, SBIR awards' },
-      { id: 'Institutions', name: 'Institutions & research', hint: 'UN, World Bank, IMF, OECD; McKinsey, BCG, Bain, Big Four; Brookings, RAND, Pew, NBER; SSRN, arXiv' },
+      { id: 'Institutions', name: 'Institutions', hint: 'UN, World Bank, IMF, OECD; McKinsey, BCG, Bain, Big Four; Brookings, RAND, Pew, NBER; SSRN, arXiv' },
     ],
     verified: [
       { id: 'LinkedIn', name: 'LinkedIn' },
@@ -160,10 +160,11 @@ export default function SourceSelector({
           disabled={isLoading}
           aria-pressed={allOn}
           title={allOn ? 'Clear all sources' : 'Select every source'}
-          className={`chip ${allOn ? 'chip-active' : 'hover:border-slate-300 hover:text-ink'} disabled:opacity-50`}
+          className={`chip shadow-sm ${allOn ? 'chip-active' : 'hover:border-slate-300 hover:text-ink'} disabled:opacity-50`}
         >
           All
         </button>
+        <span className="mx-0.5 select-none self-center text-line" aria-hidden="true">|</span>
         {sources[mode].map(source => {
           const active = selectedSources.includes(source.id);
           return (
@@ -181,10 +182,13 @@ export default function SourceSelector({
           );
         })}
         {mode === 'open' && (typeof onCustomSourceAdd === 'function' || typeof onFileUpload === 'function') && (
+          <span className="mx-0.5 select-none self-center text-line" aria-hidden="true">|</span>
+        )}
+        {mode === 'open' && (typeof onCustomSourceAdd === 'function' || typeof onFileUpload === 'function') && (
           <button
             type="button"
             onClick={() => setShowCustomOptions(!showCustomOptions)}
-            className={`chip ${showCustomOptions ? 'chip-active' : 'hover:border-slate-300 hover:text-ink'} disabled:opacity-50`}
+            className={`chip shadow-sm ${showCustomOptions ? 'chip-active' : 'hover:border-slate-300 hover:text-ink'} disabled:opacity-50`}
             disabled={isLoading}
             aria-expanded={showCustomOptions}
           >
