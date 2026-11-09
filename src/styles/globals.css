@@ -61,6 +61,8 @@
 
   .input { @apply w-full rounded-xl border border-line bg-white px-3.5 py-2.5 text-sm text-ink placeholder:text-slate-400 focus:outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/15 transition; }
   .select { @apply rounded-xl border border-line bg-white px-3 py-2 text-sm text-ink focus:outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-500/15; }
+  /* Quiet inline controls under the search box: square-ish, no border, blend into the card. */
+  .select-quiet { @apply rounded-md border border-transparent bg-slate-50 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 hover:text-ink focus:outline-none focus:border-brand-300 focus:ring-2 focus:ring-brand-500/15; }
 
   /* AI output: a plain card with a slightly stronger edge, no coloured fill */
   .ai-card { @apply relative bg-white rounded-2xl shadow-card border border-brand-200; }

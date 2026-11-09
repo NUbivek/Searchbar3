@@ -8,7 +8,7 @@ jest.mock('next/router', () => ({ useRouter: () => ({ isReady: true, query: {} }
 jest.mock('next-auth/react', () => ({ useSession: () => ({ status: 'unauthenticated' }) }));
 jest.mock('next/link', () => ({ __esModule: true, default: ({ href, children }) => <a href={href}>{children}</a> }));
 
-jest.mock('../../src/components/ModelSelector', () => function MockModelSelector() {
+jest.mock('../../src/components/ModelSelector', () => function MockModelSelector() { // no longer rendered
   return <div data-testid="model-selector">model-selector</div>;
 });
 
