@@ -1,0 +1,276 @@
+RESEARCH HUB (diligence.bivek.ai) - SITE OVERVIEW AND NAVIGATION GUIDE
+For the video guide avatar. Last updated November 9, 2026.
+
+=====================================================================
+1. WHAT THE SITE IS
+=====================================================================
+
+Research Hub is a due-diligence tool for venture investors. It helps a
+managing partner or investor research a company, a founder or a market,
+check every claim against its sources, and find out who in their own
+network can help them raise capital, source deals or diligence a company.
+
+Website addresses: https://diligence.bivek.ai (main) and
+https://searchbar3.vercel.app (same site).
+
+Three promises the site makes to users:
+- Every statement is cited to a numbered source, or quoted directly from it.
+- Funding and valuation figures are cross-checked across sources and marked
+  as corroborated, single-source or conflicting.
+- A user's contacts stay private to their account. Contacts are never sent
+  to an AI model or to any other service.
+
+=====================================================================
+2. THE SCREEN LAYOUT (WHAT THE USER SEES ON EVERY PAGE)
+=====================================================================
+
+TOP BAR (thin bar at the very top of every page)
+- Left: the "Research Hub" logo and name. Clicking it returns to Open Research.
+- Right, in small grey text: "Workspaces" (folder icon), "Watchlist" (bell
+  icon), and the account button (person icon with the user's name, or
+  "Sign in" when signed out).
+
+MAIN SWITCH (the dark pill-shaped switch under the top bar)
+There are exactly three main sections. The active one is shown in black:
+  1. Open Research   - research a company, founder or market
+  2. Network Map     - see and search your own contacts
+  3. Founder Check   - background brief on one person
+
+FOOTER (bottom right): "Privacy" and "Terms" links.
+
+=====================================================================
+3. SITE MAP (EVERY PAGE)
+=====================================================================
+
+Main sections (in the switch):
+  /                  Open Research
+  /network           Network Map
+  /founder           Founder Check
+
+Top-right links (need sign-in):
+  /workspaces        Deal workspaces (one per deal or company)
+  /workspaces/<id>   One workspace: searches, notes, sources, data room
+  /workspaces/<id>/memo   The assembled investment memo, downloadable
+  /watchlist         Companies being watched, and their alerts
+
+Other pages:
+  /company/<name>    Company profile (reached from Open Research or Network Map)
+  /history           Saved searches (from the account menu)
+  /signin            Sign in with Google
+  /privacy           Privacy policy
+  /terms             Terms of service
+
+=====================================================================
+4. SIGNING IN
+=====================================================================
+
+- Sign-in is with Google only. Click the account button (top right), then
+  "Continue with Google".
+- Without signing in, a user can still use Open Research, Founder Check, the
+  Network Map and company profiles. Contacts imported while signed out stay
+  only in that browser tab and disappear when it closes.
+- Signing in adds: saved search history, deal workspaces, notes, data-room
+  documents, memo export, watchlists with alerts, and contacts saved to the
+  account so they are there on every device.
+- The site stores only name, email and profile picture from Google, and
+  never posts anything on the user's behalf.
+
+=====================================================================
+5. OPEN RESEARCH (the home page, "/")
+=====================================================================
+
+PURPOSE: Ask a question about any company, founder or market and get an
+answer written only from cited sources.
+
+WHAT IS ON THE PAGE, top to bottom:
+1. Heading: "Research any company, founder or market".
+2. The search bar (large box with a magnifier icon) and the black
+   "Search" button. Example: type "Anthropic funding" and press Enter.
+3. A quiet line of options under the search bar:
+   - "Published" date filter: Any time, Past month, Past year, Past 3 years.
+   - "Save to" (signed in only): file the search under a deal workspace, or
+     keep it in History only.
+   - "Add new workspace" link (opens Workspaces).
+4. The source row (chips the user can switch on and off):
+   - "All": selects every source, including Custom. Click again to clear.
+   - "Curated sources": about 800 hand-picked VC, accelerator, funding-news,
+     government and research feeds. On by default.
+   - "Web": general web and news search. On by default.
+   - "LinkedIn", "X", "Reddit", "Substack", "Medium", "Crunchbase",
+     "Pitchbook", "Carta": searches restricted to those websites.
+   - "Verified": official filings and market data (SEC EDGAR, financial
+     market data, and government sites).
+   - "Gov & regulators": SEC, Federal Reserve and FRED, FDIC, OCC, Treasury,
+     CFPB, FTC, DOJ, FINRA, CMS, FDA, HHS, NIH, Census, BLS, BEA, SBA, state
+     business registries (including Delaware, California, New York, Texas,
+     Louisiana), and UK and EU regulators.
+   - "Patents & IP": USPTO, Google Patents, US Copyright Office, WIPO, EPO,
+     UK IPO; and research funders DARPA, ARPA-E, IARPA, NSF, NIST, NASA,
+     NIH RePORTER, SBIR/STTR awards.
+   - "Institutions": UN, World Bank, IMF, OECD, WHO, World Economic Forum;
+     McKinsey, BCG, Bain, Deloitte, PwC, EY, KPMG, Gartner, Forrester;
+     Brookings, RAND, Pew, NBER, CFR; SSRN, arXiv, CB Insights, Statista, HBR.
+   - "Custom": add your own web addresses (URLs) or upload files (PDF, DOCX,
+     CSV, TXT; up to 5 files, 25 MB each) to be searched with the rest.
+   Hovering over a source chip shows what it covers.
+
+AFTER A SEARCH, the results show:
+- An "AI" badge with the model's name when an AI wrote the answer, or
+  "Quoted from sources" when the answer is made of direct quotes.
+- A confidence chip (high, medium, low).
+- The answer in five sections: Summary, Key Points, Detailed Analysis,
+  Different Perspectives, Follow-up Questions. Every sentence ends with a
+  citation such as [Source 3].
+- The claim check: funding and valuation figures marked corroborated (two
+  or more sites agree), single-source, or conflicting.
+- The ranked source list, each with a quality badge (Filing / official,
+  Reputable press, Blog / newsletter, Forum / social) and a date.
+- "Your network and <company>": who the user knows at that company, at its
+  investors and competitors, and which experts and investors in their
+  network cover that sector.
+- Buttons to open the Company profile or run a Founder check.
+
+=====================================================================
+6. NETWORK MAP ("/network")
+=====================================================================
+
+PURPOSE: See your own contacts as a map and find who can help you raise
+capital, source deals, or diligence a company or founder.
+
+WHAT IS ON THE PAGE, top to bottom:
+1. The "Ask your network" search bar. Its grey placeholder rotates through
+   example questions; clicking into the empty box shows all five:
+     "Who can help me raise a fund?"
+     "Who sends me deal flow in fintech?"
+     "Who can diligence an AI company?"
+     "Who do I know at Google?"
+     "Intro paths to Stripe"
+2. "Sources" card: total contacts and four cards in one row:
+   - LinkedIn: "Upload Connections.csv" button. The small (i) icon next to
+     it explains how to get the file from LinkedIn.
+   - CSV / XLSX: "Upload contacts" for any spreadsheet with names and
+     companies.
+   - X: "Connect X" to sign in with X; when connected, "Import follows".
+   - Attio (firm CRM): shown as "Connect Attio - soon" (coming later).
+   - "Remove all" (red, top right of the card) deletes all imported contacts.
+   You can also drag a file onto the card.
+3. The map controls (one line):
+   - Grouping: "By role", "By company", "By industry", "By country".
+   - "Find a person or company" box: highlights matches and moves the map
+     to them.
+   - Right side, small grey text: how many people and companies are shown.
+4. "Show me who can help me" chips: "raise capital", "source deals",
+   "diligence". Each filters the map to the people who fit. If firm contacts
+   exist, a "my direct connections only" chip also appears.
+5. The breadcrumb line: "All > Founders & operators > Fintech". Click any
+   step to go back to that level. The right side explains the current layer.
+6. THE MAP itself (large canvas).
+   - Top right of the map: "Full screen" and "Fit to view".
+   - Bottom of the map: the navigator bar (see below).
+7. Answers to questions appear in a card under the map.
+
+HOW THE MAP IS ORGANISED (BY ROLE, the default view)
+- "You" is in the centre.
+- Four role groups sit at fixed compass points:
+     TOP:    Investors & LPs       (who can fund you or introduce an LP)
+     RIGHT:  Founders & operators  (who sees deals first, vouches for founders)
+     BOTTOM: Everyone else         (no title or company that places them)
+     LEFT:   Experts & advisors    (who can vet a sector, company or founder)
+- Around each group are its companies (circles sized by how many people the
+  user knows there), and each company's people as small dots.
+- Companies where the user knows only one or two people are folded into
+  one node called "N other companies".
+- Hollow dots are firm contacts known through a colleague, not the user's
+  own connections.
+
+THREE LAYERS (DRILL-DOWN)
+- Layer 1: the groups (for example the four role groups).
+- Layer 2: click a group and its people are regrouped by the next relevant
+  dimension:
+     By role     -> role, then industry, then companies and people
+     By industry -> industry, then role, then companies and people
+     By country  -> country, then industry, then companies and people
+- Layer 3: click a sub-group and you see its companies and people.
+- Click a company to open a details panel on the right of the map: the
+  people you know there, plus "Company profile", "Search company" and
+  "Find intro paths to <company>".
+- Click a person to see their title, company, role, which lenses they fit
+  (Raise, Source, Diligence), their LinkedIn profile link and a "Founder
+  check" button.
+
+THE NAVIGATOR BAR (bottom of the map) - the second way to move around
+- It lists the groups of the current layer, largest first (for example
+  "Founders & operators 660 | Everyone else 224 | Experts & advisors 183 |
+  Investors & LPs 133").
+- Clicking a group drills straight into it.
+- At the last layer it lists the biggest companies; clicking one selects it,
+  zooms the map to it and opens its people.
+- The breadcrumb above the map is how to go back up.
+
+INDUSTRIES the map recognises include: Big Tech, AI, Fintech, Finance &
+banking, Venture capital, Consulting, Software, Healthcare, Education,
+Media, Climate & energy, Commerce, Security, Crypto, Biotech, Real estate,
+Gaming. People that match none are under "Other".
+
+ROLES the map recognises: LP / allocator, Investor, Accelerator / platform,
+Founder, Executive, Operator, Banker / M&A, Lawyer, Accountant / finance,
+Consultant / advisor, Researcher / academic, Press / analyst.
+
+=====================================================================
+7. FOUNDER CHECK ("/founder")
+=====================================================================
+
+PURPOSE: A background brief on one person.
+
+HOW TO USE: type the full name (first and last, exact spelling, e.g.
+"Arthur Mensch"), optionally the company to narrow it to the right person,
+then click "Run check".
+
+THE BRIEF SHOWS: career timeline, past companies and roles, education,
+litigation mentions, press, public profile snippets, a warning when several
+people share the name, and "Who can help diligence <name>": people in the
+user's network at the founder's current and past companies (for reference
+calls and backchannel checks), plus sector experts. Every line is quoted
+from, or cited to, a numbered source.
+
+=====================================================================
+8. COMPANY PROFILE ("/company/<name>")
+=====================================================================
+
+Reached from "Company profile" buttons. Shows funding rounds, investors,
+"Your network and <company>", key people, competitors, headcount, other
+facts and, for public companies, market data. Every fact is a quoted
+sentence with a numbered source. "Search this company" runs Open Research.
+
+=====================================================================
+9. WORKSPACES ("/workspaces"), signed in
+=====================================================================
+
+- One workspace per deal or company. Create one with a name and company.
+- A workspace holds: the searches filed to it, analyst notes, pinned
+  sources, a data room, and a watch toggle for the company.
+- DATA ROOM: upload deal documents (PDF, DOCX, CSV, TXT) and ask questions.
+  Answers cite passages as [D1], [D2]... and the passages are shown.
+- MEMO: the "Memo" page assembles the workspace's summaries, notes, sources
+  and documents into one memo with a single numbered source list.
+  Download it as Markdown or Word (DOCX).
+
+=====================================================================
+10. WATCHLIST ("/watchlist"), signed in
+=====================================================================
+
+- Type a company name and click "Watch company" (or use "Watch" on a
+  workspace or company page).
+- The site checks watched companies once a day, and on demand with
+  "Check now", for new funding, people moves, filings, portfolio listings
+  and press from the last 90 days.
+- New items appear as alerts with labels (Funding, People, Filing,
+  Portfolio, Press), each linked to its source. The account menu shows the
+  number of unseen alerts.
+
+=====================================================================
+11. HISTORY ("/history"), signed in
+=====================================================================
+
+Every search is saved. A saved search can be opened, run again, filed
+under a workspace, or deleted.
