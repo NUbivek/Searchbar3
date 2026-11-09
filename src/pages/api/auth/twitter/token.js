@@ -177,9 +177,10 @@ async function handleTokenValidation(req, res) {
         timeout: TWITTER_AUTH_TIMEOUT_MS,
       });
       
-      // Also get user's connections if available
+      // The following list is fetched by /api/network/twitter on demand; the
+      // status check stays to one call so it does not burn X's small quota.
       let connections = [];
-      try {
+      if (false) try {
         const connectionsResponse = await axios.get('https://api.twitter.com/2/users/me/following', {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -282,13 +283,20 @@ async function handleTokenValidation(req, res) {
         }
       }
       
-      // Other errors
-      console.error(`X token validation failed: ${error.response?.status || ''} ${String(error.message || '').slice(0, 120)}`);
+      // Other errors: keep X's own reason (e.g. "client-not-enrolled") so
+      // the page can say what to fix in the developer portal.
+      const xData = error.response?.data || {};
+      const xReason = String(xData.reason || xData.title || xData.detail || '').slice(0, 160);
+      console.error(`X token validation failed: ${error.response?.status || ''} ${xReason || String(error.message || '').slice(0, 120)}`);
       const upstreamStatus = error.response?.status || 500;
       return respondFailSoftWhenServerError(res, upstreamStatus, {
         configured,
         error: 'Failed to validate Twitter token',
         authenticated: false,
+        signedIn: upstreamStatus === 403,
+        xStatus: upstreamStatus,
+        xReason,
+        xDetail: String(xData.detail || '').slice(0, 300),
       }, 'twitter-auth-token');
     }
   } catch (error) {

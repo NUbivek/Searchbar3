@@ -16,7 +16,10 @@ function getNetworkRedirectBase(req) {
   const requestBase = host ? `${proto}://${host}` : '';
   const isLocalHost = /localhost|127\.0\.0\.1/.test(String(host || ''));
   if (isLocalHost) return requestBase;
-  return process.env.FRONTEND_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || requestBase;
+  // Always return to the host the user came from: a configured base URL on
+  // another (possibly retired) domain would strand them there.
+  if (requestBase) return requestBase;
+  return process.env.FRONTEND_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || '';
 }
 
 export default async function handler(req, res) {
