@@ -8,6 +8,7 @@
  * source only decides when the host says nothing.
  */
 import { SOURCE_REPUTATION_DB } from '../components/search/sources/SourceReputationScorer';
+import { hostInGroup } from './sources/sourceGroups';
 
 export const TIERS = {
   filing: { rank: 1, label: 'Filing / official' },
@@ -17,10 +18,11 @@ export const TIERS = {
   other: { rank: 3, label: 'Other web' },
 };
 
-const FILING_DOMAINS = /(^|\.)(sec\.gov|gov|europa\.eu|companieshouse\.gov\.uk|find-and-update\.company-information\.service\.gov\.uk)$/;
+const FILING_DOMAINS = /(^|\.)(sec\.gov|gov|gov\.uk|europa\.eu|stlouisfed\.org|newyorkfed\.org|finra\.org|fca\.org\.uk|bankofengland\.co\.uk|opencorporates\.com|companieshouse\.gov\.uk|find-and-update\.company-information\.service\.gov\.uk)$/;
 const FORUM_DOMAINS = /(^|\.)(reddit\.com|news\.ycombinator\.com|twitter\.com|x\.com|bsky\.app|quora\.com|stocktwits\.com|facebook\.com|linkedin\.com)$/;
 const BLOG_DOMAINS = /(^|\.)(medium\.com|substack\.com|wordpress\.com|blogspot\.com|ghost\.io|beehiiv\.com)$/;
-const FILING_SOURCES = ['sec', 'edgar', 'fmp', 'fred'];
+const FILING_SOURCES = ['sec', 'edgar', 'fmp', 'fred', 'government', 'ip'];
+const REPORT_SOURCES = ['institutions'];
 const FORUM_SOURCES = ['hackernews', 'reddit', 'twitter', 'x', 'linkedin'];
 
 function hostOf(url) {
@@ -39,7 +41,8 @@ export function sourceTier(result = {}) {
   // 1. The host of the page itself
   const host = hostOf(result.url || result.link);
   if (host) {
-    if (FILING_DOMAINS.test(host)) return 'filing';
+    if (FILING_DOMAINS.test(host) || hostInGroup(result.url || result.link, 'government') || hostInGroup(result.url || result.link, 'ip')) return 'filing';
+    if (hostInGroup(result.url || result.link, 'institutions')) return 'press';
     if (FORUM_DOMAINS.test(host)) return 'forum';
     if (BLOG_DOMAINS.test(host)) return 'blog';
     const rep = SOURCE_REPUTATION_DB[host];
@@ -51,8 +54,11 @@ export function sourceTier(result = {}) {
 
   // 2. What the retrieving source knows about it
   if (FILING_SOURCES.includes(source)) return 'filing';
+  if (REPORT_SOURCES.includes(source)) return 'press';
   if (source === 'curated') {
     const category = String(result.sourceCategory || result.metadata?.category || '');
+    if (/^government$|^ip_research$/.test(category)) return 'filing';
+    if (/^institutions_research$/.test(category)) return 'press';
     if (/news|funding/.test(category)) return 'press';
     if (/portfolio|investor|accelerator/.test(category)) return 'press'; // first-party investor listings
     return 'blog'; // market analysis, engineering and company blogs

@@ -37778,5 +37778,517 @@
     "requires_auth": false,
     "adapter": "rss",
     "notes": "Operational analytics, workflow systems, and execution pattern trend coverage."
+  },
+  {
+    "id": "G-SEC-PRESS",
+    "name": "SEC press releases",
+    "region": "Global",
+    "category": "government",
+    "thesis_tags": [
+      "regulation",
+      "public_markets",
+      "fintech"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://www.sec.gov/news/pressreleases.rss",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "SEC enforcement actions and rules."
+  },
+  {
+    "id": "G-FED-PRESS",
+    "name": "Federal Reserve press releases",
+    "region": "Global",
+    "category": "government",
+    "thesis_tags": [
+      "banking",
+      "macro",
+      "fintech"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://www.federalreserve.gov/feeds/press_all.xml",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Fed policy, supervision and enforcement."
+  },
+  {
+    "id": "G-FTC-PRESS",
+    "name": "FTC press releases",
+    "region": "Global",
+    "category": "government",
+    "thesis_tags": [
+      "regulation",
+      "consumer",
+      "antitrust"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://www.ftc.gov/feeds/press-release.xml",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "FTC competition and consumer protection actions."
+  },
+  {
+    "id": "G-DOJ-NEWS",
+    "name": "DOJ press releases",
+    "region": "Global",
+    "category": "government",
+    "thesis_tags": [
+      "regulation",
+      "antitrust",
+      "legal"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://www.justice.gov/feeds/opa/justice-news.xml",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Department of Justice announcements, including antitrust."
+  },
+  {
+    "id": "G-CFPB-NEWS",
+    "name": "CFPB newsroom",
+    "region": "Global",
+    "category": "government",
+    "thesis_tags": [
+      "fintech",
+      "consumer",
+      "regulation"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://www.consumerfinance.gov/about-us/newsroom/feed/",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Consumer Financial Protection Bureau actions and rules."
+  },
+  {
+    "id": "G-NSF-NEWS",
+    "name": "NSF news",
+    "region": "Global",
+    "category": "ip_research",
+    "thesis_tags": [
+      "deeptech",
+      "research",
+      "ai"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://www.nsf.gov/rss/rss_www_news.xml",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "National Science Foundation funding and research news."
+  },
+  {
+    "id": "G-DARPA-NEWS",
+    "name": "DARPA news",
+    "region": "Global",
+    "category": "ip_research",
+    "thesis_tags": [
+      "deeptech",
+      "defense",
+      "ai"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://www.darpa.mil/rss",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "DARPA programme announcements and awards."
+  },
+  {
+    "id": "G-ARXIV-CSAI",
+    "name": "arXiv cs.AI",
+    "region": "Global",
+    "category": "ip_research",
+    "thesis_tags": [
+      "ai",
+      "research"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://rss.arxiv.org/rss/cs.AI",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "New AI papers; useful for technical diligence."
+  },
+  {
+    "id": "I-MCK-INSIGHTS",
+    "name": "McKinsey Insights",
+    "region": "Global",
+    "category": "institutions_research",
+    "thesis_tags": [
+      "strategy",
+      "market_analysis"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://www.mckinsey.com/insights/rss",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "McKinsey reports and articles."
+  },
+  {
+    "id": "I-BROOKINGS",
+    "name": "Brookings",
+    "region": "Global",
+    "category": "institutions_research",
+    "thesis_tags": [
+      "policy",
+      "macro",
+      "market_analysis"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://www.brookings.edu/feed/",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Brookings Institution research."
+  },
+  {
+    "id": "I-PEW",
+    "name": "Pew Research",
+    "region": "Global",
+    "category": "institutions_research",
+    "thesis_tags": [
+      "consumer",
+      "market_analysis"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://www.pewresearch.org/feed/",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "Pew Research Center findings."
+  },
+  {
+    "id": "I-HBR",
+    "name": "Harvard Business Review",
+    "region": "Global",
+    "category": "institutions_research",
+    "thesis_tags": [
+      "strategy",
+      "management"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://feeds.hbr.org/harvardbusiness",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "HBR articles."
+  },
+  {
+    "id": "I-IMF-NEWS",
+    "name": "IMF news",
+    "region": "Global",
+    "category": "institutions_research",
+    "thesis_tags": [
+      "macro",
+      "policy"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://www.imf.org/en/News/RSS?language=eng",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "IMF press releases and reports."
+  },
+  {
+    "id": "I-CBI-RESEARCH",
+    "name": "CB Insights research",
+    "region": "Global",
+    "category": "institutions_research",
+    "thesis_tags": [
+      "venture",
+      "market_analysis"
+    ],
+    "stage_bias": [
+      "seed",
+      "series_a",
+      "growth"
+    ],
+    "method": {
+      "type": "rss",
+      "url": "https://www.cbinsights.com/research/feed/",
+      "extract": {
+        "titleTag": "title",
+        "urlTag": "link",
+        "contentTag": "description",
+        "publishedAtTag": "pubDate",
+        "limit": 15
+      }
+    },
+    "cadence": {
+      "tier": "B",
+      "frequency": "daily"
+    },
+    "query_strategy": {
+      "type": "feed"
+    },
+    "requires_auth": false,
+    "adapter": "rss",
+    "notes": "CB Insights research briefs."
   }
 ]

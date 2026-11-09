@@ -16,12 +16,25 @@ in the navigation.
 
 ### Open Research (`/`)
 - Sources you can toggle: curated registry (on by default, no key), Web,
-  LinkedIn, X, Reddit, Substack, Medium, Crunchbase, Pitchbook, Carta, and
-  Verified (SEC EDGAR, plus FMP market data when `FMP_API_KEY` is set).
+  LinkedIn, X, Reddit, Substack, Medium, Crunchbase, Pitchbook, Carta,
+  Verified (SEC EDGAR, FMP market data when `FMP_API_KEY` is set, plus the
+  government group below), and three source groups
+  (`src/utils/sources/sourceGroups.js`): **Government & regulators** (SEC,
+  Federal Reserve and FRED, FDIC, OCC, CFPB, FTC, DOJ, CMS, FDA, Census, BLS,
+  Treasury, state business registries, UK and EU regulators), **Patents &
+  IP** (USPTO, Google Patents, Copyright Office, WIPO, EPO, UK IPO; DARPA,
+  ARPA-E, IARPA, NSF, NIST, NASA, NIH RePORTER, SBIR awards) and
+  **Institutions & research** (UN, World Bank, IMF, OECD, WHO, WEF; McKinsey,
+  BCG, Bain, the Big Four, Gartner, Forrester; Brookings, RAND, Pew, NBER,
+  CFR; SSRN, arXiv, CB Insights, Statista, HBR). Government and IP hits are
+  tiered as filings, institutional hits as reputable reports.
   Everything except the curated registry, Hacker News and SEC needs a web
-  search key (`SERPER_API_KEY` or `TAVILY_API_KEY`); the LinkedIn/X/Reddit/
-  Substack/Medium/Crunchbase/Pitchbook/Carta toggles are site-restricted web
-  searches, not platform APIs.
+  search key (`SERPER_API_KEY` or `TAVILY_API_KEY`); the platform toggles and
+  the groups are site-restricted web searches, not platform APIs. The
+  curated registry also carries official and institutional feeds (SEC, Fed,
+  FTC, DOJ, CFPB, NSF, DARPA, arXiv, McKinsey, Brookings, Pew, HBR, IMF, CB
+  Insights) under the `government`, `ip_research` and `institutions_research`
+  categories.
 - Custom URLs and uploaded files (PDF, DOCX, CSV, TXT, up to 5 files of
   25 MB) are searched alongside the sources.
 - Date filter: any time, past month, past year, past 3 years. Undated items

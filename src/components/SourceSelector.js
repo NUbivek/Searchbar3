@@ -30,6 +30,9 @@ export default function SourceSelector({
       { id: 'Pitchbook', name: 'Pitchbook' },
       { id: 'Carta', name: 'Carta' },
       { id: 'Verified', name: 'Verified' },
+      { id: 'Government', name: 'Government & regulators', hint: 'SEC, Federal Reserve, FDIC, CMS, FDA, USPTO, Census, state registries, UK/EU regulators' },
+      { id: 'IP', name: 'Patents & IP', hint: 'USPTO, Google Patents, Copyright Office, WIPO, EPO; DARPA, ARPA-E, NSF, NIST, NASA, NIH, SBIR awards' },
+      { id: 'Institutions', name: 'Institutions & research', hint: 'UN, World Bank, IMF, OECD; McKinsey, BCG, Bain, Big Four; Brookings, RAND, Pew, NBER; SSRN, arXiv' },
     ],
     verified: [
       { id: 'LinkedIn', name: 'LinkedIn' },
@@ -148,6 +151,7 @@ export default function SourceSelector({
               onClick={() => toggleSource(source.id)}
               disabled={isLoading}
               aria-pressed={active}
+              title={source.hint || undefined}
               className={`chip ${active ? 'chip-active' : 'hover:border-slate-300 hover:text-ink'} disabled:opacity-50`}
             >
               {source.name}
