@@ -28,7 +28,7 @@ export default function Home() {
         <OpenSearch selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
       </main>
       <footer className="mx-auto max-w-5xl px-4 pb-8 text-xs text-muted">
-        Every statement is quoted from, or cited to, a numbered source. Contact data never leaves this app.
+        Every statement is cited to a numbered source.
       </footer>
     </div>
   );

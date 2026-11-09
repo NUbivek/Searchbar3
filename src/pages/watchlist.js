@@ -158,7 +158,7 @@ export default function WatchlistPage() {
   return (
     <PageShell
       title="Watchlist"
-      subtitle="Alerts for new funding rounds, people moves, filings, portfolio listings and press about the companies you follow. Checked once a day from the curated sources and Hacker News, or on demand with “Check now”."
+      subtitle="Daily alerts for funding, people, filings and press about the companies you follow."
     >
       <div className="space-y-4">
         <form onSubmit={add} className="card card-pad">

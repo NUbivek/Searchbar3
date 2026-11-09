@@ -175,7 +175,7 @@ export default function FounderPage() {
   return (
     <PageShell flows
       title="Founder Check"
-      subtitle="Background brief, career timeline, companies and roles, education, litigation mentions, press and backchannel references for a person, every line quoted from a cited source."
+      subtitle="Career, companies, education, litigation and press for a person, every line cited."
     >
       <div className="space-y-4">
         <form onSubmit={onSubmit} className="card card-pad">

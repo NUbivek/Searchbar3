@@ -121,7 +121,7 @@ export default function PageShell({ title, subtitle, children, actions = null, w
         <div>{children}</div>
       </main>
       <footer className="mx-auto flex max-w-5xl flex-col gap-2 px-4 pb-8 pt-4 text-xs text-muted sm:flex-row sm:items-center sm:justify-between">
-        <span>Every statement is quoted from, or cited to, a numbered source. Contact data never leaves this app.</span>
+        <span>Every statement is cited to a numbered source.</span>
         <span className="flex items-center gap-3">
           <Link href="/privacy" className="hover:text-ink">Privacy</Link>
           <Link href="/terms" className="hover:text-ink">Terms</Link>

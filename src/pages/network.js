@@ -165,6 +165,8 @@ export default function NetworkPage() {
   const [asking, setAsking] = useState(false);
   const [answer, setAnswer] = useState(null);
   const [askError, setAskError] = useState('');
+  const [exampleIndex, setExampleIndex] = useState(0);
+  const [askFocused, setAskFocused] = useState(false);
 
   const graphBoxRef = useRef(null);
   const [graphWidth, setGraphWidth] = useState(0);
@@ -252,6 +254,14 @@ export default function NetworkPage() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [contacts.length > 0]);
+
+  // The example questions live in the search bar: one rotates as the
+  // placeholder, all of them drop down while the empty field has focus.
+  useEffect(() => {
+    if (question) return undefined;
+    const id = setInterval(() => setExampleIndex((i) => (i + 1) % EXAMPLES.length), 3500);
+    return () => clearInterval(id);
+  }, [question]);
 
   // ------------------------------------------------------------ import
 
@@ -853,7 +863,7 @@ export default function NetworkPage() {
   return (
     <PageShell flows
       title="Network Map"
-      subtitle="Your contacts as a map of companies. Ask who you know anywhere, and who can make an introduction."
+      subtitle="Who you know, and who can help you raise, source and diligence."
       wide
     >
       <input ref={linkedinInput} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => handleFile(e, 'linkedin')} data-testid="linkedin-file" />
@@ -888,29 +898,29 @@ export default function NetworkPage() {
                 type="text"
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
-                placeholder="Search your network..."
+                onFocus={() => setAskFocused(true)}
+                onBlur={() => setTimeout(() => setAskFocused(false), 150)}
+                placeholder={hasContacts ? EXAMPLES[exampleIndex] : 'Search your network...'}
                 aria-label="Ask your network"
                 maxLength={500}
                 className="input py-3 pl-10"
               />
+              {askFocused && !question && hasContacts && (
+                <ul className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-line bg-white py-1 shadow-card" role="listbox" aria-label="Example questions">
+                  {EXAMPLES.map((ex) => (
+                    <li key={ex}>
+                      <button type="button" role="option" aria-selected={false} onMouseDown={(e) => e.preventDefault()} onClick={() => { setAskFocused(false); askExample(ex); }} className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 hover:text-ink">
+                        <HiOutlineMagnifyingGlass className="shrink-0 text-muted" style={{ width: 14, height: 14 }} />{ex}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
             <button type="submit" disabled={asking || !question.trim() || !hasContacts} className="btn-primary sm:px-5">
               <HiOutlineSparkles style={ICON} /> {asking ? 'Searching…' : 'Ask'}
             </button>
           </form>
-          <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            {EXAMPLES.map((ex) => (
-              <button
-                key={ex}
-                type="button"
-                disabled={asking || !hasContacts}
-                onClick={() => askExample(ex)}
-                className="chip hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700 disabled:opacity-50"
-              >
-                {ex}
-              </button>
-            ))}
-          </div>
           {askError && <p role="alert" className="mt-3 text-sm text-rose-600">{askError}</p>}
         </section>
 
