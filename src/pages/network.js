@@ -872,7 +872,6 @@ export default function NetworkPage() {
   return (
     <PageShell flows
       title="Network Map"
-      subtitle="Who you know, and who can help you raise, source and diligence."
       wide
     >
       <input ref={linkedinInput} type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => handleFile(e, 'linkedin')} data-testid="linkedin-file" />
