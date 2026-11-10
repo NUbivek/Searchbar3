@@ -5,8 +5,10 @@ project. Read it before you change anything. Human-facing docs are
 `README.md` (product, setup, env vars), `NETWORK-MAP.md` (the Network Map in
 depth), `DESIGN.md` (visual rules) and `USER_FLOW.md`.
 
-Last updated: 2026-11-09, by Claude Code (session that did the audit and
-overhaul, the redesign and the Network Map rebuild).
+Last updated: 2026-11-10, by Claude Code (the session that did the audit and
+overhaul, the redesign, the globe Network Map with its dashboard, the wider
+contact classification and the site-wide night mode). Written as a full
+handoff: the owner expects to continue with Codex alone.
 
 ---
 
@@ -19,7 +21,7 @@ segmented control at the top of every page:
 | Flow | Route | What it does |
 |---|---|---|
 | Open Research | `/` | Searches curated VC/startup sources, Hacker News, the web, SEC and grouped official/institutional sites; writes a cited answer (free LLMs) or quotes sources; checks funding/valuation claims across sources. |
-| Network Map | `/network` | The user's own contacts (LinkedIn export, CSV/XLSX, X, Attio placeholder) as an interactive map grouped by role / company / industry / country with three drill-down layers, plus "ask your network" (raise / source / diligence lenses, intro paths). |
+| Network Map | `/network` | The user's own contacts (LinkedIn export, CSV/XLSX, X, Attio placeholder) on a see-through 3D globe (you → group → sub-group → company → person), with a dashboard beside it, grouped by role / company / industry / country, plus "ask your network" (raise / source / diligence lenses, intro paths). |
 | Founder Check | `/founder` | Background brief on a person, plus who in the user's network can help diligence them. |
 
 Secondary pages: `/company/<name>` (company profile), `/workspaces`
@@ -81,7 +83,7 @@ These come from the owner. Treat them as hard constraints.
 ```bash
 cd /Users/bivekadhikari/Documents/Searchbar3
 npm install
-npm test                                   # jest; currently 564 tests, all passing
+npm test                                   # jest; currently 580 tests, all passing
 NEXT_DIST_DIR=.next-build npm run build    # production build without clobbering a running dev server
 ```
 
@@ -98,9 +100,15 @@ PGLITE_DIR=.data/pglite-3009 ALLOW_DEV_LOGIN=true NEXT_DIST_DIR=.next-dev npx ne
   its PGlite can be in an aborted state — use :3009 for your checks.
 - A realistic 1,200-row LinkedIn `Connections.csv` fixture can be generated
   for testing; the local test user on :3009 already has one imported.
-- `tests/unit/OpenSearch.test.js` occasionally fails only when the whole suite
-  runs under heavy load (dev server + build at the same time); it passes alone
-  and on clean runs. Not a code bug.
+- The suite is stable: an old random failure in `tests/unit/OpenSearch.test.js`
+  was a teardown-order bug in the test and is fixed. A failing test now means
+  a real problem.
+- Node 22 locally; Next.js 14.1.0 (pages router), React 18, Tailwind 3.4.
+- **Checking the UI.** There is no browser test suite. After any visual
+  change, open the page on :3009 and look at it in day and night mode and at
+  phone width. The Network Map needs a few seconds after load (it has an
+  opening animation). Console errors shown by the dev overlay can be stale;
+  reload before trusting them.
 
 ## 5. Architecture map
 
@@ -116,10 +124,14 @@ src/server/                search/ (queryPlan, retrieve, rank, answer), llm/prov
                            network/{store,query}, store, db, auth
 src/utils/                 sourceTiers, claimCheck, evidence, sourceIntegration (search handlers),
                            sources/{curatedIndex,sourceGroups,…},
-                           network/{parseContacts,graph,roles,sectors,grouping}, oauthUtils
+                           network/{parseContacts,atlas,roles,sectors,grouping}, oauthUtils,
+                           theme (day / night)
 src/components/            OpenSearch, SourceSelector, ModelSelector (no longer rendered),
-                           layout/PageShell (TopBar, SectionSwitch), network/{NetworkGraph,NetworkHelpers},
+                           layout/PageShell (TopBar, ThemeToggle, SectionSwitch),
+                           network/{NetworkGraph,NetworkHelpers}, tavus/{TavusGuide,guideTools},
                            search/results/*, workspace/*, watchlist/*
+src/styles/globals.css     colour tokens for day and night, component classes
+docs/tavus/                text the owner uploads to the video guide's knowledge base
 src/sourcing/              curated registry pipeline (scripts/sourcing-*.js)
 sources/registry.json      ~800 curated sources (RSS/HTML/API) incl. government, ip_research,
                            institutions_research categories
@@ -136,20 +148,45 @@ Key behaviours worth knowing before editing:
   `src/utils/sourceTiers.js` (gov/IP = filing, institutions = press).
   `src/pages/api/search/open.js` `VALID_SOURCES` must list every UI source.
 - **Day / night theme.** One attribute (`<html data-theme="dark">`), set by `src/utils/theme.js`; every colour is a CSS variable in `src/styles/globals.css` and Tailwind's colours point at them (`tailwind.config.js`). Use token classes, never hex for surfaces or text, never `dark:` variants. See DESIGN.md "Day and night".
-- **Network Map.** Roles/lenses in `src/utils/network/roles.js`; industry and
-  country in `grouping.js` (known-employer table → decisive titles → sector
-  words); layout in `atlas.js` (`buildAtlas`: a fixed tree you → group →
-  sub-group → company → person with x/y/r per node, packed with
-  d3-hierarchy, no physics; people spiral out from their company ordered by
-  `seniority`); renderer `src/components/network/NetworkGraph.js` (one
-  canvas, no graph library: wraps the atlas into a layered 3D globe, camera
-  = yaw/pitch/radius, drag-spin with momentum, fly-to, labels, picking;
-  `theme` prop: light default, dark ready, colours in `THEMES`).
-  `src/pages/network.js` holds `focus` (where the camera was sent), `viewId`
-  (the cluster in view, reported by the map), the breadcrumb and the two
-  bottom bars ("Zoom to" and "Presets"). `graph.js`, force-graph and
-  react-kapsule are gone. Jest maps `d3-hierarchy` to its UMD build
-  (`jest.config.js`).
+- **Network Map.** Full description in `NETWORK-MAP.md`. The pieces:
+  - `src/utils/network/roles.js`: `classifyContact` puts each contact in a
+    role, one of five first-layer groups (`ROLE_GROUPS`: investors, founders
+    = "Founders & executives", operators = "Operators & talent", experts,
+    other) and the lenses raise / source / diligence. Rules are an ordered
+    list (`ROLES`), first match wins; anyone with a title or employer who
+    matches nothing becomes `professional` under operators, so "Everyone
+    else" holds only contacts with neither.
+  - `src/utils/network/grouping.js`: `industryOf` decides in five steps:
+    known-employer table, decisive titles, sector words, sector words in the
+    company's own name (`COMPANY_WORD_INDUSTRY`), then what the person does
+    (`FUNCTION_GROUP`: Founders & CEOs, Engineering & data, ...). `countryOf`
+    reads the location field. `bucketsFor` makes up to 16 groups per layer.
+    Tests in `tests/unit/features/networkGrouping.test.js` hold both leftover
+    buckets under 5% on a realistic mix; keep them passing.
+  - `src/utils/network/atlas.js`: `buildAtlas(contacts, { groupBy })` returns
+    a fixed tree (root → group → sub-group → company → person) with x/y/r for
+    every node, packed with d3-hierarchy, no physics. `LAYERS` gives the
+    layer order per grouping. People spiral out from their company ordered by
+    `seniority` (0 leaders, 1 heads, 2 team). Sub-groups get a `shade` of
+    their group's colour. Same contacts, same layout, always.
+  - `src/components/network/NetworkGraph.js`: one canvas, no graph library.
+    `wrapOntoGlobe` places each top-level cluster on its own patch of a unit
+    sphere; depth is by level (`SHELL`: you at the core, people on the
+    surface). Camera is yaw / pitch / radius; drag spins with momentum,
+    scroll zooms towards the cursor, a click flies to the node. Deeper
+    layers are ghosted until you zoom in (`reveal`); everything outside the
+    cluster in view fades (`inFocus`). Labels differ per layer (banner, tag,
+    plate). Colours come from `THEMES` (light and dark) via the `theme` prop.
+  - `src/pages/network.js`: `focus` (where the camera was sent; bump `nonce`
+    to fly again), `viewId` (the cluster in view, reported back by the map),
+    the breadcrumb, the two bars under the globe ("Zoom to" and "Presets")
+    and the dashboard on the right (layer stepper, seniority bar, raise /
+    source / diligence gauges, next-layer bars, people list with filter and
+    sort; details of a selection open in the same panel).
+  - "By country" is disabled until some contact has a location: LinkedIn's
+    export has none.
+  - Gone: `graph.js`, force-graph, react-kapsule. Jest maps `d3-hierarchy`
+    to its UMD build (`jest.config.js`).
 - **Contacts store.** `src/server/network/store.js`, table `network_contacts`
   (created lazily; columns include `relationship` 'direct'|'firm' and `via`).
   Imports are staged and swapped atomically.
@@ -170,14 +207,23 @@ Key behaviours worth knowing before editing:
 
 ## 6. Design rules (short; full version in DESIGN.md)
 
-Quiet and modern: light canvas, white cards, near-black (`bg-ink`) primary
-actions, one muted steel-blue accent (`brand-*`, #3D6A96) for links/focus/
+Quiet and modern, in two themes (day is the default, night via the moon
+button in the top bar): a quiet canvas, cards one step lighter, ink
+(`bg-ink`) primary actions, one muted steel-blue accent (`brand-*`, #3D6A96) for links/focus/
 citations, **no gradients or purple/pink**. Minimal top bar (wordmark left;
 Workspaces, Watchlist, account menu as small text right); the three-flow
 switch is the main navigation. Primary search inputs use `.input-hero`;
 secondary controls under it use `.select-quiet`. Example questions live inside
 search bars (rotating placeholder + focus dropdown), not as chip rows. No page
 subtitles/taglines/footer sentences unless the owner asks.
+
+Colour rule that keeps night mode working: use the token classes
+(`text-ink`, `text-muted`, `bg-white`, `border-line`, `brand-*`, `slate-*`,
+`rose-*`, `amber-*`, `emerald-*`). Never write a hex colour for a surface,
+text or border, and never use Tailwind `dark:` variants. In inline styles
+use `rgb(var(--c-ink))` and the like. `bg-white` means "surface": white by
+day, a dark panel at night. `tests/unit/theme.test.js` fails if a token is
+added for day without a night value.
 
 ## 7. Environment variables (names only — values live in Vercel)
 
@@ -197,86 +243,150 @@ Misc: `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_PRODUCTION_URL`, `FEATURE_*`,
 `vercel env ls` shows names; use `vercel env add NAME preview <branch> --value '…' --yes`
 for non-interactive adds (the owner normally pastes secret values himself).
 
-## 8. Current state (2026-11-09, evening)
+## 8. Current state (2026-11-10)
 
-Production `openclaw-fixes` is at `f3b49a5`. The preview branch
-`claude/research-hub-fix` is at `eb29785` and has the **same code**: its two
-extra commits (`a4dde74` and its revert `eb29785`) cancel out. Nothing is
-waiting to be deployed.
+Production `openclaw-fixes` is at `bcacb2b`. The preview branch
+`claude/research-hub-fix` has the same application code, plus one newer
+commit that only updates this file
+(`git diff --stat origin/openclaw-fixes origin/claude/research-hub-fix`
+should list `AGENTS.md` and nothing else). Nothing is waiting to be deployed. 580 tests pass; the production build
+compiles.
 
-Done earlier: full audit and overhaul; free-first LLM chain incl. Gemini;
-redesign (ink + steel blue, quiet top bar, hero search bars); Google sign-in
-on both hosts; custom domain; privacy/terms; Network Map rebuild (roles and
-lenses, role/company/industry/country grouping, three-layer drill-down,
-breadcrumb, navigator, full screen, folded singletons, known-employer
-industries, cross-tab "Your network" panels, Attio import built behind a
-flag); Open Research source groups (Gov, Patents & IP, Institutions),
-All/Custom chips.
+Shipped on 2026-11-09 and 2026-11-10 (all live):
 
-Added since the first handoff (all live):
-- **Tavus video guide** ("Diligence Doctor"), commit `f9d9655`: one
-  `<tavus-widget>` on every page with page-aware context and three PAL tools
-  (`go_to_section`, `run_research`, `run_founder_check`). See section 5 and
-  `docs/tavus/03-pal-tools.md`. Open Research now writes the current query to
-  the URL (`?q=`) and reruns on every new `?q=`.
-- **Avatar knowledge docs**, commit `45eb8a5`:
-  `docs/tavus/01-site-overview-and-navigation.txt` and
-  `02-walkthroughs-faq-and-limits.txt`, written for the avatar (user-facing
-  language). Keep them in sync with UI changes; the owner uploads them to the
-  PAL's knowledge base.
-- **X callbacks and diagnostics**, commit `e635c19`: OAuth callbacks return
-  to the host the user started on; the X status endpoint reports X's own
-  refusal reason (`xReason`, `xDetail`) and makes one API call, not two.
-- A Tavus findings report and `?tavusDebug=1` timing marks were added and then
-  reverted on purpose (`eb29785`). The owner keeps that report outside the
-  repo. Do not re-add it.
-- **Untracked, on purpose:** `docs/tavus/media/` holds banner and avatar
-  background JPGs made for the owner's video. Leave them uncommitted unless he
-  asks.
+- **Network Map rebuilt as a globe** (`ef26cf0` … `9a37132`): fixed layout,
+  layered see-through sphere, bursts per company ordered by seniority,
+  spin / zoom / fly-to, one layer revealed at a time, a label style per
+  layer, shades per sub-group, opening swing-in.
+- **Readability** (`9d0a626`): focus fade, key, at most 14 company names.
+- **Dashboard beside the globe** (`f3b03b7`).
+- **"By country" disabled without locations** (`3dadff6`).
+- **Wider classification** (`51930ed`) and **five first-layer groups**
+  (`5b4c66f`): see section 5.
+- **Night mode** (`cfb6861`): site-wide day / night theme, toggle in the top
+  bar, remembered per browser, no flash on load, printing always in day.
+
+Still true from before: full audit and overhaul; free-first LLM chain;
+Google sign-in on both hosts; custom domain; privacy / terms; Open Research
+source groups (Gov, Patents & IP, Institutions) with All / Custom chips;
+Tavus video guide with three page tools; avatar knowledge docs in
+`docs/tavus/` (keep them in step with UI changes; the owner uploads them to
+the guide's knowledge base himself).
+
+On purpose, do not undo:
+
+- `docs/tavus/media/` is untracked (banner and background JPGs for the
+  owner's video). Leave it uncommitted unless he asks.
+- A Tavus findings report and `?tavusDebug=1` timing marks were added and
+  reverted (`eb29785`). The owner keeps that report outside the repo.
+
+### How production is released
+
+Production is updated by a **merge commit** of the preview branch into
+`openclaw-fixes` (it cannot fast-forward). Only after the owner says "push
+to production":
+
+```bash
+npm test && NEXT_DIST_DIR=.next-build npm run build
+git checkout openclaw-fixes && git merge --ff-only origin/openclaw-fixes
+git merge --no-ff claude/research-hub-fix -m "Merge branch 'claude/research-hub-fix' into openclaw-fixes"
+git diff --stat HEAD claude/research-hub-fix   # must print nothing
+git push origin openclaw-fixes
+git checkout claude/research-hub-fix
+```
+
+Vercel deploys in about a minute. Confirm with
+`curl -s -o /dev/null -w '%{http_code}' https://diligence.bivek.ai/network`
+and by loading the page. To roll back, revert the merge commit on
+`openclaw-fixes` and push (the tag `v-before-audit-2026-11-08` is the state
+before all of this work).
 
 ## 9. Open items — pick up here
 
-1. **X (Twitter) connect — blocked on the owner's X plan.** Sign-in now
-   completes and returns to diligence.bivek.ai, and the app "Diligence Hub" is
-   inside a Project. X still answers `403 client-not-enrolled` because X
-   deprecated its Free API plan (the Project shows a quota of 0). The owner
-   said he will enable X's **Pay Per Use** plan. No code change is needed.
-   After he does: if the OAuth 2.0 Client ID/Secret changed he updates
-   `TWITTER_CLIENT_ID`/`TWITTER_CLIENT_SECRET` in Vercel and production needs a
-   redeploy; then re-test Connect X and `GET /api/auth/twitter/token`
+Not yet verified (worth doing first):
+
+1. **Night mode on pages nobody opened at night:** a live Open Research
+   search and Founder Check run (only a saved result was viewed), workspace
+   detail, memo and company profile pages. They use the same tokens; look
+   for leftover light panels or unreadable text and fix with token classes.
+2. **Classification on the owner's real contacts.** The under-5% result for
+   "Everyone else" and industry "Other" was measured on synthetic test
+   contacts. If the owner reports a large leftover bucket, extend `ROLES`,
+   `COMPANY_WORD_INDUSTRY` or `FUNCTION_GROUP` and add the case to
+   `tests/unit/features/networkGrouping.test.js`. Do not print his contacts.
+3. **Network Map checks not done:** touch pinch on a phone, full-screen mode
+   with the dashboard hidden, and "By company" / "By industry" after the
+   last layout changes.
+
+Waiting on the owner:
+
+4. **X (Twitter) connect.** Sign-in completes, but X answers
+   `403 client-not-enrolled` because X retired its free API plan. The owner
+   said he will enable X's Pay Per Use plan. No code change needed. After
+   he does: if the OAuth client id / secret changed he updates
+   `TWITTER_CLIENT_ID` / `TWITTER_CLIENT_SECRET` in Vercel and production
+   needs a redeploy; then test Connect X and `GET /api/auth/twitter/token`
    (expect `authenticated: true`), then "Import follows".
-2. **Tavus PAL tools — on the owner.** The three tools must be added to the
-   PAL in the Tavus PAL Maker exactly as in `docs/tavus/03-pal-tools.md`
-   (delivery app message, on-resolve `generate_response`). Until then the
-   guide talks but cannot act. The owner reported a freeze in a test call;
-   the page replies to tool calls in under 100 ms, so the likelier causes are
-   the PAL's knowledge base size or the PAL runtime. Not a code task unless he
-   asks.
-3. **Stale env overrides in Vercel** (cleanup; code already ignores them):
-   `TWITTER_REDIRECT_URI` (unexpanded template), `LINKEDIN_REDIRECT_URI` and
-   `NEXT_PUBLIC_LINKEDIN_REDIRECT_URI` (old `airesearch.bivek.ai`), and
-   `NEXT_PUBLIC_BASE_URL` / `NEXT_PUBLIC_PRODUCTION_URL` if they still point at
-   the old domain. Removing env vars needs the owner's OK.
-4. **Key rotation:** keys that were once in `env-config.txt` are in git
-   history; the owner should rotate them, plus the Vercel variables marked
-   "Needs Attention".
-5. **Attio** stays a disabled placeholder until the owner has a workspace
-   token; enable with `NEXT_PUBLIC_ATTIO_ENABLED=true`. Import logic and tests
-   exist (`src/pages/api/network/attio.js`, `tests/unit/features/networkAttio.test.js`).
-6. **Possible rename:** the owner now calls the product "DiligenceHub"
-   (banner, PAL, X app). The site still says "Research Hub" in the logo,
-   titles and sign-in page. Rename only if he asks.
-7. **Ideas the owner liked but not started:** a firm-level LinkedIn import
-   (colleagues' exports attributed to them → "via <colleague>" second-degree
-   paths, reusing the direct/firm model); optional `RESEND_API_KEY` for
-   watchlist email digests.
+5. **Tavus page tools.** The three tools must be added to the guide in the
+   Tavus PAL Maker exactly as in `docs/tavus/03-pal-tools.md`. Until then
+   the guide talks but cannot navigate.
+6. **Stale env overrides in Vercel** (the code already ignores them):
+   `TWITTER_REDIRECT_URI`, `LINKEDIN_REDIRECT_URI`,
+   `NEXT_PUBLIC_LINKEDIN_REDIRECT_URI`, and `NEXT_PUBLIC_BASE_URL` /
+   `NEXT_PUBLIC_PRODUCTION_URL` if they point at the old domain. Removing
+   env vars needs his OK.
+7. **Key rotation.** Keys once in `env-config.txt` are in git history; he
+   should rotate them, plus the Vercel variables marked "Needs Attention".
+8. **Attio** stays a disabled placeholder until he has a workspace token;
+   enable with `NEXT_PUBLIC_ATTIO_ENABLED=true`. Import logic and tests
+   exist (`src/pages/api/network/attio.js`,
+   `tests/unit/features/networkAttio.test.js`).
+
+Ideas discussed, not started (build only if he asks):
+
+9. **A geographic globe:** continents drawn on the sphere and people placed
+   on their countries. Blocked on data: LinkedIn's export has no location.
+   He chose to wait. It becomes possible when contacts carry a location (a
+   CSV with a Location column, or Attio). Guessing from the employer's
+   headquarters was offered and not chosen.
+10. **Colour the people by an attribute** (seniority, lens, how recently
+    connected) with a switch on the map.
+11. **Rename to "DiligenceHub".** He uses that name on the banner, the
+    guide and the X app; the site still says "Research Hub". Rename only if
+    he asks.
+12. A firm-level LinkedIn import (colleagues' exports → "via <colleague>"
+    paths, reusing the direct / firm model); optional `RESEND_API_KEY` for
+    watchlist email digests.
 
 ## 10. How the owner likes to work
 
+- Reviews on the preview or the local server, then says "push to
+  production". Ask before production pushes, destructive actions, or
+  anything that spends money.
 - Wants the site "very clean": fewer words, no repeated navigation, subtle
   secondary controls, prominent primary search.
-- Reviews on the preview, then says "push to production". Ask before
-  production pushes, destructive actions, or anything that spends money.
-- Wants docs (README / NETWORK-MAP.md) updated with every feature change.
+- Gives feedback fast and in fragments while watching the page, and changes
+  direction when he sees the result. Build the smallest version that shows
+  the idea, show it, then refine. Keep what already worked.
+- Wants docs (README, NETWORK-MAP.md, DESIGN.md, `docs/tavus/*.txt`) updated
+  with every feature change.
 - Prefers a short plain summary at the end: what changed, what is verified,
-  what is left on his side.
+  what is not, what is left on his side.
+
+What he decided about the Network Map (do not reopen without him):
+
+- Rejected: a flat packed-bubble map ("too simple"), and a force-directed
+  layout that scatters. Wanted: the "neurons" look (bursts and branches) on
+  a wireframe, see-through globe with layers at different depths, "hyper
+  interactive, modern, sophisticated".
+- The globe must be used all the way round; the far side must not look
+  empty.
+- One layer first, deeper layers on zoom; each layer's labels must differ by
+  more than font and colour; labels need solid backgrounds to be readable.
+- The bars under the globe stay: quick zoom and presets. Choosing a preset
+  must bring that group to the front. Chip dots use a shade per sub-group.
+- He first refused a table beside the globe, then asked for it back as a
+  visual, filterable, layer-focused dashboard. Keep both the globe and the
+  dashboard.
+- Leftover buckets ("Other", "Everyone else") must stay under 5%.
+- Day is the default theme; night mode must look as considered as day.
