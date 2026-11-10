@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import OpenSearch from '../../src/components/OpenSearch';
 
 jest.mock('next/router', () => ({ useRouter: () => ({ isReady: true, query: {} }) }));
@@ -61,7 +61,9 @@ describe('OpenSearch', () => {
     window.HTMLElement.prototype.scrollIntoView = jest.fn();
     global.fetch = jest.fn(async (url) => (url === '/api/search/open' ? jsonResponse({ results: [], status: 'fail-soft' }) : jsonResponse({})));
   });
-  afterEach(() => { delete global.fetch; });
+  // Unmount first: effects that run during unmount still call fetch, and
+  // removing it before they finish made this suite fail at random under load.
+  afterEach(() => { cleanup(); delete global.fetch; });
 
   const search = (text) => {
     fireEvent.change(screen.getByPlaceholderText('Ask about a company, founder or market…'), { target: { value: text } });

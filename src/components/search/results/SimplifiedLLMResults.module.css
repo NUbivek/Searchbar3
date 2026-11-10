@@ -47,22 +47,22 @@
   margin: 14px 20px 0;
   padding: 12px 14px;
   border-radius: 14px;
-  border: 1px solid #FECDD3;
-  background: #FFF1F2;
+  border: 1px solid rgb(var(--c-rose-200));
+  background: rgb(var(--c-rose-50));
 }
 
 .alertTitle {
   margin: 0 0 2px;
   font-size: 14px;
   font-weight: 600;
-  color: #BE123C;
+  color: rgb(var(--c-rose-700));
 }
 
 .alertText {
   margin: 0;
   font-size: 14px;
   line-height: 1.5;
-  color: #9F1239;
+  color: rgb(var(--c-rose-800));
 }
 
 .empty {
@@ -160,7 +160,7 @@
 .prose a:not(:global(.cite)) {
   color: var(--brand-strong);
   text-decoration: underline;
-  text-decoration-color: rgba(79, 70, 229, 0.35);
+  text-decoration-color: rgb(var(--c-brand-500) / 0.4);
   text-underline-offset: 2px;
 }
 
@@ -233,15 +233,15 @@
 }
 
 .followupChip:hover {
-  border-color: #C7D2FE;
-  background: #EEF2FF;
-  color: #4338CA;
+  border-color: rgb(var(--c-brand-200));
+  background: rgb(var(--c-brand-50));
+  color: rgb(var(--c-brand-700));
 }
 
 .followupWrapper {
   padding: 14px 20px 18px;
   border-top: 1px solid var(--line);
-  background: #FAFBFD;
+  background: rgb(var(--c-slate-50));
 }
 
 .followupForm {
@@ -301,7 +301,7 @@
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 16px;
-  background: #fff;
+  background: var(--surface);
   padding: 16px 18px;
 }
 
@@ -361,7 +361,7 @@
   margin: 0;
   font-size: 14px;
   line-height: 1.65;
-  color: #475569;
+  color: rgb(var(--c-slate-600));
 }
 
 .insights :global(.figure) {
@@ -369,8 +369,8 @@
   padding: 0 4px;
   border-radius: 6px;
   font-weight: 600;
-  color: #4338CA;
-  background: #EEF2FF;
+  color: rgb(var(--c-brand-700));
+  background: rgb(var(--c-brand-50));
 }
 
 .insights :global(.indicators) {
@@ -385,10 +385,10 @@
   padding: 4px 10px;
   border: 1px solid var(--line);
   border-radius: 9999px;
-  background: #fff;
+  background: var(--surface);
   font-size: 12px;
   font-weight: 500;
-  color: #475569;
+  color: rgb(var(--c-slate-600));
 }
 
 /* Quality Assessment */
@@ -404,20 +404,20 @@
 .metricLabel {
   font-size: 13px;
   font-weight: 500;
-  color: #475569;
+  color: rgb(var(--c-slate-600));
 }
 
 .metricTrack {
   height: 5px;
   border-radius: 9999px;
-  background: #EEF0F5;
+  background: rgb(var(--c-slate-100));
   overflow: hidden;
 }
 
 .metricFill {
   height: 100%;
   border-radius: 9999px;
-  background-image: none; background-color: #0F172A;
+  background-image: none; background-color: var(--ink);
   transition: width 0.5s ease-out;
 }
 

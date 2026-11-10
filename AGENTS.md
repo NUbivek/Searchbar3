@@ -135,6 +135,7 @@ Key behaviours worth knowing before editing:
   `site:` queries; hits kept only on group hosts). Tiers in
   `src/utils/sourceTiers.js` (gov/IP = filing, institutions = press).
   `src/pages/api/search/open.js` `VALID_SOURCES` must list every UI source.
+- **Day / night theme.** One attribute (`<html data-theme="dark">`), set by `src/utils/theme.js`; every colour is a CSS variable in `src/styles/globals.css` and Tailwind's colours point at them (`tailwind.config.js`). Use token classes, never hex for surfaces or text, never `dark:` variants. See DESIGN.md "Day and night".
 - **Network Map.** Roles/lenses in `src/utils/network/roles.js`; industry and
   country in `grouping.js` (known-employer table → decisive titles → sector
   words); layout in `atlas.js` (`buildAtlas`: a fixed tree you → group →

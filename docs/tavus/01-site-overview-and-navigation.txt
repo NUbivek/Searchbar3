@@ -27,8 +27,11 @@ Three promises the site makes to users:
 TOP BAR (thin bar at the very top of every page)
 - Left: the "Research Hub" logo and name. Clicking it returns to Open Research.
 - Right, in small grey text: "Workspaces" (folder icon), "Watchlist" (bell
-  icon), and the account button (person icon with the user's name, or
-  "Sign in" when signed out).
+  icon), a small moon button, and the account button (person icon with the
+  user's name, or "Sign in" when signed out).
+- The moon button switches the whole site to night mode (a dark theme).
+  At night it shows a sun; click it again to go back to day mode. The
+  choice is remembered on that browser.
 
 MAIN SWITCH (the dark pill-shaped switch under the top bar)
 There are exactly three main sections. The active one is shown in black:

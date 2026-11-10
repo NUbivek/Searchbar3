@@ -211,7 +211,7 @@ export const getSourceBadge = (reputationData) => {
       icon: '✓✓',
       label: 'Premium Source',
       color: '#4285F4', // Blue
-      background: '#E8F0FE'
+      background: 'rgba(66, 133, 244, 0.14)'
     };
   }
   
@@ -220,7 +220,7 @@ export const getSourceBadge = (reputationData) => {
       icon: '✓',
       label: 'Verified Source',
       color: '#0F9D58', // Green
-      background: '#E6F4EA'
+      background: 'rgba(15, 157, 88, 0.14)'
     };
   }
   
@@ -230,14 +230,14 @@ export const getSourceBadge = (reputationData) => {
         icon: 'ℹ️',
         label: 'Informational Source',
         color: '#F4B400', // Yellow
-        background: '#FEF7E0'
+        background: 'rgba(244, 180, 0, 0.16)'
       };
     } else {
       return {
         icon: '⚠️',
         label: 'Basic Source',
         color: '#DB4437', // Red
-        background: '#FCE8E6'
+        background: 'rgba(219, 68, 55, 0.14)'
       };
     }
   }
@@ -246,7 +246,7 @@ export const getSourceBadge = (reputationData) => {
     icon: '🔍',
     label: 'Uncategorized Source',
     color: '#999999',
-    background: '#F1F3F4'
+    background: 'rgba(148, 163, 184, 0.16)'
   };
 };
 

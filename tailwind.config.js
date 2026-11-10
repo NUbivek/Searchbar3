@@ -11,31 +11,32 @@ module.exports = {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
       },
       colors: {
-        // Design tokens (see DESIGN.md)
-        ink: '#0F172A',
-        muted: '#64748B',
-        line: '#E6E8EF',
-        canvas: '#F7F8FA',
-        brand: {
-          50: '#F2F6FA',
-          100: '#E3EBF3',
-          200: '#C7D6E6',
-          300: '#9DB6CF',
-          400: '#6B8FB5',
-          500: '#3D6A96',
-          600: '#2F567C',
-          700: '#244463',
-        },
-        accent: '#3D6A96',
+        // Design tokens (see DESIGN.md). Every colour the site uses is a CSS
+        // variable (src/styles/globals.css), so the night theme is one
+        // override block rather than a class on every element.
+        ink: 'rgb(var(--c-ink) / <alpha-value>)',
+        muted: 'rgb(var(--c-muted) / <alpha-value>)',
+        line: 'rgb(var(--c-line) / <alpha-value>)',
+        canvas: 'rgb(var(--c-canvas) / <alpha-value>)',
+        surface: 'rgb(var(--c-white) / <alpha-value>)',
+        // "white" is the surface colour: white by day, a dark panel at night.
+        // Text set in it sits on ink or on an accent, and flips with them.
+        white: 'rgb(var(--c-white) / <alpha-value>)',
+        brand: { 50: 'rgb(var(--c-brand-50) / <alpha-value>)', 100: 'rgb(var(--c-brand-100) / <alpha-value>)', 200: 'rgb(var(--c-brand-200) / <alpha-value>)', 300: 'rgb(var(--c-brand-300) / <alpha-value>)', 400: 'rgb(var(--c-brand-400) / <alpha-value>)', 500: 'rgb(var(--c-brand-500) / <alpha-value>)', 600: 'rgb(var(--c-brand-600) / <alpha-value>)', 700: 'rgb(var(--c-brand-700) / <alpha-value>)' },
+        accent: 'rgb(var(--c-brand-500) / <alpha-value>)',
+        slate: { 50: 'rgb(var(--c-slate-50) / <alpha-value>)', 100: 'rgb(var(--c-slate-100) / <alpha-value>)', 200: 'rgb(var(--c-slate-200) / <alpha-value>)', 300: 'rgb(var(--c-slate-300) / <alpha-value>)', 400: 'rgb(var(--c-slate-400) / <alpha-value>)', 500: 'rgb(var(--c-slate-500) / <alpha-value>)', 600: 'rgb(var(--c-slate-600) / <alpha-value>)', 700: 'rgb(var(--c-slate-700) / <alpha-value>)', 800: 'rgb(var(--c-slate-800) / <alpha-value>)', 900: 'rgb(var(--c-slate-900) / <alpha-value>)' },
+        rose: { 50: 'rgb(var(--c-rose-50) / <alpha-value>)', 100: 'rgb(var(--c-rose-100) / <alpha-value>)', 200: 'rgb(var(--c-rose-200) / <alpha-value>)', 300: 'rgb(var(--c-rose-300) / <alpha-value>)', 400: 'rgb(var(--c-rose-400) / <alpha-value>)', 500: 'rgb(var(--c-rose-500) / <alpha-value>)', 600: 'rgb(var(--c-rose-600) / <alpha-value>)', 700: 'rgb(var(--c-rose-700) / <alpha-value>)', 800: 'rgb(var(--c-rose-800) / <alpha-value>)', 900: 'rgb(var(--c-rose-900) / <alpha-value>)' },
+        amber: { 50: 'rgb(var(--c-amber-50) / <alpha-value>)', 100: 'rgb(var(--c-amber-100) / <alpha-value>)', 200: 'rgb(var(--c-amber-200) / <alpha-value>)', 300: 'rgb(var(--c-amber-300) / <alpha-value>)', 400: 'rgb(var(--c-amber-400) / <alpha-value>)', 500: 'rgb(var(--c-amber-500) / <alpha-value>)', 600: 'rgb(var(--c-amber-600) / <alpha-value>)', 700: 'rgb(var(--c-amber-700) / <alpha-value>)', 800: 'rgb(var(--c-amber-800) / <alpha-value>)', 900: 'rgb(var(--c-amber-900) / <alpha-value>)' },
+        emerald: { 50: 'rgb(var(--c-emerald-50) / <alpha-value>)', 100: 'rgb(var(--c-emerald-100) / <alpha-value>)', 200: 'rgb(var(--c-emerald-200) / <alpha-value>)', 300: 'rgb(var(--c-emerald-300) / <alpha-value>)', 400: 'rgb(var(--c-emerald-400) / <alpha-value>)', 500: 'rgb(var(--c-emerald-500) / <alpha-value>)', 600: 'rgb(var(--c-emerald-600) / <alpha-value>)', 700: 'rgb(var(--c-emerald-700) / <alpha-value>)', 800: 'rgb(var(--c-emerald-800) / <alpha-value>)', 900: 'rgb(var(--c-emerald-900) / <alpha-value>)' },
         // legacy names still used by older components
-        primary: '#111827',
-        border: '#E6E8EF',
-        'gray-text': '#64748B',
-        'light-bg': '#F6F7FB',
+        primary: 'rgb(var(--c-ink) / <alpha-value>)',
+        border: 'rgb(var(--c-line) / <alpha-value>)',
+        'gray-text': 'rgb(var(--c-muted) / <alpha-value>)',
+        'light-bg': 'rgb(var(--c-canvas) / <alpha-value>)',
       },
       boxShadow: {
-        card: '0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -12px rgba(15, 23, 42, 0.12)',
-        float: '0 12px 40px -12px rgba(15, 23, 42, 0.18)',
+        card: 'var(--shadow-card)',
+        float: 'var(--shadow-float)',
         ring: '0 0 0 4px rgba(61, 106, 150, 0.15)',
       },
       borderRadius: {
