@@ -234,8 +234,8 @@ THE DASHBOARD (to the right of the globe)
 
 THE TWO BARS UNDER THE MAP
 - "Zoom to": lists what is inside the part of the map you are looking at,
-  largest first (for example "Founders & executives 660 | Everyone else 224
-  | Experts & advisors 183 | Investors & LPs 133"). Click one to fly to
+  largest first (for example "Operators & talent 467 | Founders &
+  executives 334 | Experts & advisors 246 | Investors & LPs 153"). Click one to fly to
   it. Inside a group it lists the sub-groups, then the companies, then the
   people of one company. The arrow at the start goes back out one level.
 - "Presets": "Whole network" (everyone, zoomed out), "Raise capital",
