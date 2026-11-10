@@ -131,7 +131,8 @@ src/components/            OpenSearch, SourceSelector, ModelSelector (no longer 
                            network/{NetworkGraph,NetworkHelpers}, tavus/{TavusGuide,guideTools},
                            search/results/*, workspace/*, watchlist/*
 src/styles/globals.css     colour tokens for day and night, component classes
-docs/tavus/                text the owner uploads to the video guide's knowledge base
+docs/tavus/                the video guide's instructions (00-), tool specs (03-) and seven
+                           knowledge files (kb-*); README.md there says what goes where
 src/sourcing/              curated registry pipeline (scripts/sourcing-*.js)
 sources/registry.json      ~800 curated sources (RSS/HTML/API) incl. government, ip_research,
                            institutions_research categories
@@ -327,9 +328,12 @@ Waiting on the owner:
    `TWITTER_CLIENT_ID` / `TWITTER_CLIENT_SECRET` in Vercel and production
    needs a redeploy; then test Connect X and `GET /api/auth/twitter/token`
    (expect `authenticated: true`), then "Import follows".
-5. **Tavus page tools.** The three tools must be added to the guide in the
-   Tavus PAL Maker exactly as in `docs/tavus/03-pal-tools.md`. Until then
-   the guide talks but cannot navigate.
+5. **Tavus setup.** The owner pastes `docs/tavus/00-agent-instructions.txt`
+   into the guide's instructions, creates the three tools from
+   `03-pal-tools.md`, and uploads the seven `kb-*.txt` files (see
+   `docs/tavus/README.md`). Until the tools exist the guide talks but cannot
+   navigate. When the UI changes, update the matching `kb-*.txt` file and
+   tell him to re-upload it.
 6. **Stale env overrides in Vercel** (the code already ignores them):
    `TWITTER_REDIRECT_URI`, `LINKEDIN_REDIRECT_URI`,
    `NEXT_PUBLIC_LINKEDIN_REDIRECT_URI`, and `NEXT_PUBLIC_BASE_URL` /
@@ -368,7 +372,7 @@ Ideas discussed, not started (build only if he asks):
 - Gives feedback fast and in fragments while watching the page, and changes
   direction when he sees the result. Build the smallest version that shows
   the idea, show it, then refine. Keep what already worked.
-- Wants docs (README, NETWORK-MAP.md, DESIGN.md, `docs/tavus/*.txt`) updated
+- Wants docs (README, NETWORK-MAP.md, DESIGN.md, `docs/tavus/kb-*.txt`) updated
   with every feature change.
 - Prefers a short plain summary at the end: what changed, what is verified,
   what is not, what is left on his side.

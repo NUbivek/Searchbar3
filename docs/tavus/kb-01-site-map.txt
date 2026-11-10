@@ -1,0 +1,55 @@
+TOPIC: What Research Hub is, the screen layout, every page, signing in, night mode.
+USE THIS WHEN the visitor asks what the site does, where something is, how to sign in, or about night mode.
+
+WHAT THE SITE IS
+Research Hub (diligence.bivek.ai) is a due-diligence tool for venture
+investors. It researches a company, founder or market from cited sources,
+and shows who in the visitor's own network can help them raise capital,
+source deals or diligence a company.
+
+THREE PROMISES
+- Every statement is cited to a numbered source, or quoted from it.
+- Funding and valuation figures are checked across sources and marked
+  corroborated, single-source or conflicting.
+- Contacts stay private to the visitor's account. They are never sent to an
+  AI model or any other service.
+
+TOP BAR (thin bar at the top of every page)
+- Left: the "Research Hub" logo. Clicking it opens Open Research.
+- Right: "Workspaces" (folder icon), "Watchlist" (bell icon), a small moon
+  button, and the account button (the visitor's name, or "Sign in").
+
+MAIN SWITCH (under the top bar, on the three main pages)
+Three sections. The active one is filled in:
+  1. Open Research  - research a company, founder or market
+  2. Network Map    - the visitor's own contacts on a globe
+  3. Founder Check  - a background brief on one person
+
+NIGHT MODE
+The moon button in the top bar switches the whole site to a dark theme. At
+night it shows a sun; click it to go back to day. The choice is remembered
+on that browser. Everything works the same in both.
+
+EVERY PAGE
+  Open Research        the home page
+  Network Map          /network
+  Founder Check        /founder
+  Workspaces           top right; one workspace per deal (sign-in needed)
+  Memo                 inside a workspace; the assembled deal memo
+  Watchlist            top right; companies watched and their alerts (sign-in needed)
+  History              from the account menu; saved searches (sign-in needed)
+  Company profile      opened from "Company profile" buttons
+  Sign in              Google only
+  Privacy, Terms       links at the bottom right of every page
+
+SIGNING IN
+- Google only. Click the account button (top right), then "Continue with
+  Google".
+- Without signing in: Open Research, Founder Check, the Network Map and
+  company profiles all work. Contacts imported while signed out stay in that
+  browser tab only and are gone when it closes.
+- Signing in adds: saved search history, workspaces, notes, data-room
+  documents, memo download, watchlist alerts, and contacts saved to the
+  account for every device.
+- The site keeps only name, email and profile picture from Google and never
+  posts on the visitor's behalf.

@@ -1,0 +1,98 @@
+TOPIC: Network Map: importing contacts, the globe, the dashboard, groups, and asking the network a question.
+USE THIS WHEN the visitor asks about their contacts, the globe, groups, who can help them raise, source or diligence, or intro paths.
+
+PURPOSE
+See your own contacts on a globe and find who can help you raise capital,
+source deals, or diligence a company or founder.
+
+THE PAGE, TOP TO BOTTOM
+1. The ask bar. Type a question about your network and click "Ask".
+   Examples it offers:
+     "Who can help me raise a fund?"
+     "Who sends me deal flow in fintech?"
+     "Who can diligence an AI company?"
+     "Who do I know at Google?"
+     "Intro paths to Stripe"
+2. "Sources" card, four boxes:
+   - LinkedIn: "Upload Connections.csv" (or "Replace export"). The small (i)
+     explains how to get the file.
+   - CSV / XLSX: "Upload contacts" for any spreadsheet of names and companies.
+   - X: "Connect X"; once connected, "Import follows".
+   - Attio (firm CRM): "Connect Attio - soon". Not available yet.
+   - "Remove all" (red) deletes every imported contact.
+3. One line of map controls: grouping ("By role", "By company", "By
+   industry", "By country"), a "Find a person or company" box, and the count
+   of people and companies.
+4. The breadcrumb, for example "All > Founders & executives > Big Tech >
+   Google". It shows where you are. Click a step to go back to it.
+5. The globe on the left and the dashboard on the right.
+6. Two bars under the globe: "Zoom to" and "Presets".
+7. Answers to questions appear in a card under the map.
+
+THE GLOBE
+- A see-through globe. "You" are the bright point at its centre.
+- Layers go outward: groups, then sub-groups, then companies, then people on
+  the surface. Lines branch out from each to the next.
+- Groups are spread all the way round. Ones on the far side show faintly;
+  spin the globe to bring them forward.
+- Each company is a burst of rays, one ray per person. The most senior
+  people are closest to the company's centre.
+- Hollow dots are firm contacts known through a colleague.
+
+THE FIVE GROUPS (grouping "By role", the default)
+- Investors & LPs: who can fund you or introduce an LP.
+- Founders & executives: founders, CEOs, VPs, directors. They see deals
+  first and can vouch for a founder.
+- Operators & talent: people doing the work inside companies, plus students.
+- Experts & advisors: lawyers, bankers, consultants, academics, clinicians,
+  policy people, press. They can vet a sector, company or founder.
+- Everyone else: contacts with no title and no company. Usually very few.
+Inside each group, people are split by industry, then by company.
+
+MOVING AROUND THE GLOBE
+- Drag to spin. Let go while moving and it keeps turning.
+- Scroll or pinch to zoom in and out.
+- Click a group, company or person and the globe turns to it and flies in.
+- Zoomed out, only the groups are named. Open a group to see its
+  sub-groups; go closer to see companies; closer again to see each person.
+- When you open a group, everything outside it fades.
+- Four small buttons at the top left of the globe: zoom in, zoom out, fit
+  to view, full screen.
+- Hover anything to see its name.
+
+THE DASHBOARD (right of the globe)
+It always describes what is in view on the globe.
+- "Layers": the steps, for example Role > Industry > Company > People.
+  Click a step you already chose to go back.
+- Seniority bar: Leaders, Heads, Team. Click a part to list only them.
+- "Raise", "Source", "Diligence": how many people in view can help with
+  each. Click one to list only them.
+- "Next layer": what is inside, as bars. Click a bar to open it on the globe.
+- People list: everyone in view, with title and company. It has a "Filter
+  these people" box and sorts by Seniority, Recent or A-Z. The letters R, S
+  and D on each row mean Raise, Source and Diligence.
+- Click a person or company and their details open in the same panel, with
+  "Company profile", "Search company", "Find intro paths" or "Founder check".
+
+THE TWO BARS UNDER THE GLOBE
+- "Zoom to": what is inside the part of the globe in view, largest first.
+  Click one to fly to it. The arrow at the start goes back out one level.
+- "Presets": "Whole network", "Raise capital", "Source deals", "Diligence"
+  (each shows only the people who fit and brings that group to the front),
+  and "Largest company".
+
+GROUPINGS
+- "By role": role, then industry, then company, then people.
+- "By industry": industry, then role, then company.
+- "By company": every company as its own burst.
+- "By country": greyed out unless contacts have a location. LinkedIn's
+  export has none; a spreadsheet with a Location column does.
+
+FASTEST WAY TO ANSWER COMMON QUESTIONS
+- "Who can help me raise?"   -> click "Raise capital" in Presets, or ask it
+  in the ask bar.
+- "Who do I know at <company>?"  -> type it in the ask bar, or type the
+  company in "Find a person or company".
+- "Who can introduce me to <company>?"  -> ask "Intro paths to <company>".
+- "Who can vet <sector>?"  -> ask "Who can diligence a <sector> company?"
+- "Show me my investors"  -> click "Investors & LPs" in the "Zoom to" bar.

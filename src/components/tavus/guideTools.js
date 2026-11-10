@@ -17,7 +17,7 @@ export const SECTIONS = {
 
 const PAGE_LABELS = {
   '/': 'Open Research (research a company, founder or market)',
-  '/network': 'Network Map (the visitor\'s own contacts as a map)',
+  '/network': 'Network Map (the visitor\'s own contacts on a globe, with a dashboard beside it, an ask bar above it, and "Zoom to" and "Presets" bars below it)',
   '/founder': 'Founder Check (background brief on one person)',
   '/workspaces': 'Workspaces (deal workspaces)',
   '/workspaces/[id]': 'a deal workspace',
@@ -49,13 +49,21 @@ export function describePage(pathname, query = {}) {
   return parts.join(' ');
 }
 
-/** Context given to the agent when a conversation starts. */
+/**
+ * Context given to the agent when a conversation starts. It carries the
+ * routing rules as well as the page, so the agent can act on the first
+ * request without searching its knowledge documents.
+ */
 export function initialContext(pathname, query) {
   return [
     'You are the video guide for Research Hub, a due-diligence site for venture investors with three sections:',
     'Open Research (cited research on any company, founder or market), Network Map (the visitor\'s own contacts,',
     'grouped by who can help them raise capital, source deals or diligence), and Founder Check (a background brief on one person).',
-    'Use the tools to take the visitor to a section, run a research search, or run a founder check when they ask.',
+    'Use the tools at once, without asking first:',
+    'run_research when they name a company, market or topic (query: name first, then what they want, 3 to 10 words);',
+    'run_founder_check when they name a person (first and last name, plus the company if mentioned);',
+    'go_to_section for a section, and network_map for anything about their own contacts.',
+    'You cannot click inside a page or see results: after a tool runs, say in one sentence where to look.',
     describePage(pathname, query),
   ].join(' ');
 }
