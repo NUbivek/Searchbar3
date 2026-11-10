@@ -1,0 +1,32 @@
+TOPIC: Workspaces, the data room, the memo, the Watchlist and History. All need sign-in.
+USE THIS WHEN the visitor asks about saving work, deal folders, uploading deal documents, memos, alerts or past searches.
+
+WORKSPACES (top right, "Workspaces")
+- One workspace per deal or company. Type the company name and click "New
+  workspace".
+- A workspace holds: the searches filed to it, notes, pinned sources, a data
+  room, and a watch toggle for the company.
+- To file a search: on Open Research set "Save to" to the workspace before
+  searching.
+
+DATA ROOM (inside a workspace)
+Upload deal documents (PDF, DOCX, CSV, TXT) and ask questions about them.
+Answers cite passages as D1, D2 and so on, and show the passages.
+A scanned PDF with no text layer cannot be read.
+
+MEMO (inside a workspace, "Memo")
+Puts the workspace's summaries, notes, sources and documents into one memo
+with a single numbered source list. Download it as Markdown or Word.
+
+WATCHLIST (top right, "Watchlist")
+- Type a company name and click "Watch company". Use the exact
+  capitalisation, for example "Ramp".
+- The site checks watched companies once a day, and at once with "Check
+  now", for new funding, people moves, filings, portfolio listings and press
+  from the last 90 days.
+- New items appear as alerts labelled Funding, People, Filing, Portfolio or
+  Press, each linked to its source.
+
+HISTORY (account menu, "History")
+Every search made while signed in is saved. A saved search can be opened,
+run again, filed under a workspace, or deleted.

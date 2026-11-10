@@ -1,5 +1,8 @@
 # Tavus PAL tools for Research Hub
 
+Not a knowledge document: do not upload this file to the knowledge base.
+Create the three tools below in the PAL Maker from it.
+
 Add these three tools to the PAL in the Tavus PAL Maker (or with the Tools
 API). The page already handles them (`src/components/tavus/guideTools.js`
 and `TavusGuide.js`); the names and parameters must match exactly.
@@ -15,11 +18,14 @@ For every tool:
 ## 1. `go_to_section`
 
 **Description (tells the PAL when to use it):**
-Take the visitor to one of Research Hub's three main sections. Use when the
-visitor asks to go to, open, show or switch to Open Research (research a
-company, founder or market), the Network Map (their own contacts and who can
-help them raise, source deals or diligence) or Founder Check (a background
-brief on one person).
+Open one of Research Hub's three main sections at once. Call it whenever the
+visitor says go to, open, show, take me to or switch to a section, AND
+whenever they ask about their own contacts, network, connections, intros,
+who they know, or who can help them raise, source deals or diligence (use
+network_map for all of those). Sections: open_research (research a company,
+founder or market), network_map (their own contacts on a globe),
+founder_check (a background brief on one person). Do not ask for
+confirmation first.
 
 **Parameters (JSON schema):**
 ```json
@@ -39,10 +45,14 @@ brief on one person).
 ## 2. `run_research`
 
 **Description:**
-Run an Open Research search for the visitor and show the cited answer on the
-page. Use when the visitor asks to research, look up, find out about, or
-search for a company, founder, market, funding round or topic. Pass their
-request as a concise search query.
+Run an Open Research search and show the cited answer on the page. Call it
+immediately, without asking first, whenever the visitor names a company,
+market, sector, funding round, investor, product or topic and wants to know
+about it: "research", "look up", "search", "find out", "what do we know
+about", "tell me about", "who invested in", "how much did they raise", "is
+it any good". Write the query as 3 to 10 words, name first, then what they
+want, nouns only. If they give only a name, use "<name> funding, investors
+and latest news". One subject per call.
 
 **Parameters (JSON schema):**
 ```json
@@ -51,7 +61,7 @@ request as a concise search query.
   "properties": {
     "query": {
       "type": "string",
-      "description": "The search query, e.g. \"Stripe latest funding round and investors\"."
+      "description": "3 to 10 words, name first then what is wanted, e.g. \"Stripe latest funding round and investors\", \"Mistral AI valuation 2026\", \"vertical AI insurance market size and leaders\"."
     }
   },
   "required": ["query"]
@@ -63,10 +73,12 @@ request as a concise search query.
 **Description:**
 Run a Founder Check: a background brief on one person (career, companies,
 education, litigation mentions, press, and who in the visitor's network can
-help diligence them). Use when the visitor asks to check, vet or look into a
-specific founder or person. Needs the person's first and last name; add the
-company when the visitor mentions it, to avoid confusing people with the same
-name.
+help diligence them). Call it immediately whenever the visitor names a
+person and wants background on them: "check", "vet", "look into", "who is",
+"background on", "can we trust", "reference check". Requires first and last
+name; if you have only one name, ask for the other before calling. Always
+pass the company when the visitor mentioned one, to avoid mixing up people
+with the same name. For a company rather than a person, use run_research.
 
 **Parameters (JSON schema):**
 ```json

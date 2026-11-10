@@ -1,0 +1,73 @@
+TOPIC: Frequently asked questions, privacy, and limits.
+USE THIS WHEN the visitor asks whether something is possible, why something looks the way it does, or about privacy and accuracy.
+
+Q: Is the answer made up by AI?
+A: No. It is written only from the sources shown, and each sentence carries
+its source number. When no AI is available the answer is direct quotes and
+is labelled "Quoted from sources".
+
+Q: What do corroborated, single-source and conflicting mean?
+A: For funding and valuation figures. Corroborated: two or more different
+websites agree. Single-source: only one says it. Conflicting: sources
+disagree, so check them.
+
+Q: What do the source quality labels mean?
+A: Filing / official ranks highest, then Reputable press, then Blog /
+newsletter, then Forum / social.
+
+Q: Are my contacts private?
+A: Yes. They are stored only in your account, shown only to you, and never
+sent to an AI model or any other service. "Remove all" deletes them.
+
+Q: Why can't I connect LinkedIn directly?
+A: LinkedIn does not give any app access to a person's connections. The only
+way in is LinkedIn's own export file, Connections.csv.
+
+Q: Can I see second-degree connections?
+A: No. LinkedIn's export has first-degree connections only.
+
+Q: Why is "By country" greyed out?
+A: LinkedIn's export has no location. It switches on when contacts have a
+location, for example from a spreadsheet with a Location column.
+
+Q: What does Connect X do?
+A: It signs you in with X and can import the accounts you follow. If it says
+it is not available, it is not enabled on this site yet.
+
+Q: What is a hollow dot or a "Firm" contact?
+A: Someone known through a colleague in the firm's CRM, not your own
+connection. CRM import is coming later.
+
+Q: How are people put into groups?
+A: From their title and employer in the file you uploaded. Well-known
+companies are recognised by name; otherwise the industry is read from words
+in the company's name, and failing that people are grouped by what they do,
+such as Engineering & data or Sales & marketing. Only contacts with no title
+and no company land in "Everyone else".
+
+Q: What do Leaders, Heads and Team mean?
+A: Seniority read from the title. Leaders: founders, CEOs, partners, chiefs.
+Heads: VPs, directors, heads of a function. Team: everyone else.
+
+Q: Do I need an account?
+A: Not for research, Founder Check or the map. Yes to save history,
+workspaces, watchlists, and to keep contacts between visits.
+
+Q: What files can I upload?
+A: Research and data room: PDF, DOCX, CSV, TXT. Network Map: CSV, XLSX.
+
+Q: Can the guide click things for me?
+A: The guide can open the three main sections, run a research search and
+run a founder check. Everything else it explains and you click.
+
+LIMITS
+- If a source is unavailable, a banner names it and the search continues
+  with the rest.
+- "Not enabled on this deployment" means the feature is switched off on this
+  site, not that the visitor did something wrong.
+- Contacts: up to 30,000 per account, 25 MB per file.
+- On the globe, people appear as separate dots only when zoomed in.
+- Founder Check needs a first and last name.
+- The Watchlist matches company names with exact capitalisation.
+- Everything shown is information, not investment, legal or professional
+  advice. Check the cited sources before relying on it.

@@ -1,0 +1,67 @@
+TOPIC: Open Research: the search page, sources, date filter, and how to read the results.
+USE THIS WHEN the visitor asks how to search, which sources to pick, or what something in the results means.
+
+PURPOSE
+Ask about any company, founder or market and get an answer written only
+from cited sources.
+
+THE PAGE, TOP TO BOTTOM
+1. Heading "Research any company, founder or market".
+2. The search bar and the "Search" button. Type and press Enter.
+3. Options under the bar:
+   - "Published": Any time, Past month, Past year, Past 3 years.
+   - "Save to" (signed in): file the search under a workspace, or "History
+     only".
+   - "Add new workspace": opens Workspaces.
+4. The source row: chips to switch sources on and off. Hover a chip to see
+   what it covers.
+
+THE SOURCES
+- "All": every source, including Custom. Click again to clear.
+- "Curated sources": about 800 hand-picked venture, accelerator, funding
+  news, government and research feeds. On by default.
+- "Web": general web and news. On by default.
+- "LinkedIn", "X", "Reddit", "Substack", "Medium", "Crunchbase",
+  "Pitchbook", "Carta": searches limited to those sites.
+- "Verified": official filings and market data (SEC EDGAR and government
+  sites).
+- "Gov & regulators": SEC, Federal Reserve, FDIC, OCC, Treasury, CFPB, FTC,
+  DOJ, FINRA, CMS, FDA, HHS, NIH, Census, BLS, state business registries,
+  and UK and EU regulators.
+- "Patents & IP": USPTO, Google Patents, US Copyright Office, WIPO, EPO; and
+  research funders DARPA, NSF, NIST, NASA, NIH, SBIR.
+- "Institutions": UN, World Bank, IMF, OECD, WHO; McKinsey, BCG, Bain,
+  Deloitte, PwC, EY, KPMG, Gartner; Brookings, RAND, Pew, NBER; SSRN, arXiv.
+- "Custom": add your own web addresses or upload files (PDF, DOCX, CSV, TXT;
+  up to 5 files, 25 MB each) to search with the rest.
+
+WHICH SOURCES FOR WHICH QUESTION
+- Most questions: leave "Curated sources" and "Web" on.
+- Recent news only: set "Published" to "Past month" or "Past year".
+- Filings, enforcement, banking or healthcare regulation: add "Gov &
+  regulators".
+- Patents, trademarks, research grants: add "Patents & IP".
+- Market size, industry reports, think tanks: add "Institutions".
+- The visitor's own documents: "Custom".
+- Everything at once: "All".
+
+READING THE RESULTS
+- Two tabs: "All Results" (the written answer) and "Key Insights" (key
+  points with figures highlighted, a quality assessment, the claim check
+  and the top sources).
+- A badge shows whether an AI wrote the answer or it is "Quoted from
+  sources" (direct quotes only).
+- The answer has a Summary, Key Points, a Detailed Analysis and follow-up
+  questions. Click "See more" to expand it. Small numbers after a sentence
+  are its sources; click one to open that source.
+- Follow-up questions are chips under the answer. Clicking one runs it.
+- Quality assessment: Relevance, Accuracy, Credibility and Overall, as
+  percentages for this set of sources.
+- Claim check: funding and valuation figures marked corroborated (two or
+  more sites agree), single-source, or conflicting.
+- Each source has a quality label: Filing / official, Reputable press,
+  Blog / newsletter, or Forum / social, and a date.
+- "Your network and <company>": who the visitor knows at that company, at
+  its investors and competitors, and who in their network covers the sector.
+- Buttons open the Company profile or run a Founder check.
+- Signed in, every search is saved to History. "Run again" repeats it.

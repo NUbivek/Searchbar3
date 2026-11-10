@@ -1,0 +1,76 @@
+TOPIC: Step-by-step instructions for the most common tasks.
+USE THIS WHEN the visitor asks "how do I ..." and needs the clicks in order.
+
+RESEARCH A COMPANY
+1. Open "Open Research".
+2. Type the company and what you want, for example "Stripe latest funding
+   round and investors". Press Enter.
+3. Read the Summary, then the numbered sources. Open "Key Insights" for the
+   claim check.
+
+SEARCH GOVERNMENT, PATENT OR RESEARCH SOURCES
+1. On Open Research, switch on "Gov & regulators", "Patents & IP" or
+   "Institutions" in the source row.
+2. Search as usual.
+
+SEARCH YOUR OWN DOCUMENTS OR LINKS
+1. On Open Research, click "Custom" at the end of the source row.
+2. Paste a web address, or upload up to 5 files.
+3. Search.
+
+RUN A FOUNDER CHECK
+1. Open "Founder Check".
+2. Type first and last name. Add the company if you know it.
+3. Click "Run check".
+
+IMPORT LINKEDIN CONNECTIONS
+1. On LinkedIn: Settings & Privacy > Data privacy > Get a copy of your data.
+2. Choose "Connections" and request it. LinkedIn emails a download link,
+   usually within minutes.
+3. Unzip it and find "Connections.csv".
+4. On Research Hub open "Network Map" and click "Upload Connections.csv".
+Tip: sign in first so the contacts are saved to your account.
+
+IMPORT A SPREADSHEET OF CONTACTS
+1. The file needs a header row with a name column ("Name", or "First Name"
+   and "Last Name"), and ideally "Company", "Title", "Email", "LinkedIn URL",
+   "Location" and "Tags".
+2. On Network Map click "Upload contacts".
+A new upload replaces the previous upload of the same type.
+
+FIND WHO CAN HELP YOU RAISE
+On Network Map click "Raise capital" in the "Presets" bar, or ask "Who can
+help me raise a fund?" in the ask bar. LPs and family offices come first.
+
+FIND DEAL FLOW IN A SECTOR
+On Network Map ask "Who sends me deal flow in fintech?" (any sector).
+
+FIND WHO CAN DILIGENCE A COMPANY OR SECTOR
+On Network Map click "Diligence" in "Presets", or ask "Who can diligence an
+AI company?". A company profile and a Founder Check also show a "Your
+network" panel.
+
+FIND AN INTRODUCTION TO A COMPANY
+On Network Map ask "Intro paths to Stripe". Results show people who work
+there, people at similar names, and people at its investors.
+
+EXPLORE THE GLOBE
+1. Click a group on the globe or in the "Zoom to" bar.
+2. Click a sub-group, then a company, then a person.
+3. Go back with the breadcrumb or the arrow in "Zoom to".
+
+SEE ONLY SENIOR PEOPLE IN A GROUP
+Open the group, then click "Leaders" on the seniority bar in the dashboard.
+
+CREATE A WORKSPACE AND A MEMO
+1. Sign in. Click "Workspaces". Type the company and click "New workspace".
+2. On Open Research set "Save to" to that workspace, then search.
+3. In the workspace add notes, pin sources and upload documents.
+4. Open "Memo" and download it.
+
+WATCH A COMPANY
+Sign in. Click "Watchlist". Type the company name exactly and click "Watch
+company".
+
+SWITCH TO NIGHT MODE
+Click the moon button at the top right. Click the sun to switch back.
