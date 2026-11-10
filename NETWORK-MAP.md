@@ -149,6 +149,16 @@ Groupings (the switch above the map):
   countries, then industries, then companies. **By company**: every company
   as its own burst around you. A layer that would not split a group is
   skipped.
+- **Nobody useful is left in "Other".** Roles: students and interns,
+  clinicians, public-sector and policy people and partners at professional
+  firms each have their own rule; anyone else with a title or an employer is
+  placed with the operators, so *Everyone else* holds only contacts with
+  neither. Industry: after the steps below, the sector is read from words
+  in the company's own name ("Acme Capital", "Northside Health", "Orbit
+  Labs"), and failing that people are grouped by what they do (*Founders &
+  CEOs*, *Engineering & data*, *Product & design*, *Sales & marketing*,
+  *Finance & operations*, *Investing*, *Students*, *Self-employed* and
+  more). Tests hold both leftovers under 5% on a realistic mix of titles.
 - Industry is decided in three steps (`src/utils/network/grouping.js`): a
   known-employer table (Google, Meta, Amazon, Microsoft → Big Tech; OpenAI,
   Anthropic, Databricks → AI; Stripe, Ramp, Brex → Fintech; Goldman Sachs,
@@ -156,7 +166,7 @@ Groupings (the switch above the map):
   McKinsey, BCG, Bain, the Big Four → Consulting; Figma, Notion, Snowflake →
   Software; universities → Education; and more), then decisive titles (MBA
   candidate, angel investor, consultant), then sector words in the title,
-  company or tags. Up to twelve groups; the long tail folds into *Other* /
+  company or tags. Up to sixteen groups; the long tail folds into *Other* /
   *Unknown* (LinkedIn's export has no location, so those contacts sit under
   *Unknown* until a CSV adds one).
 

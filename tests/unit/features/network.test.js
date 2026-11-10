@@ -496,6 +496,8 @@ describe('buildAtlas', () => {
       ...Array.from({ length: 12 }, (_, i) => C(`Inv ${i}`, i % 2 ? 'Sequoia Capital' : 'Accel', 'General Partner')),
       ...Array.from({ length: 9 }, (_, i) => C(`Fou ${i}`, `Startup ${i % 3}`, 'Founder')),
       ...Array.from({ length: 7 }, (_, i) => C(`Eng ${i}`, 'Initech', 'Engineer')),
+      // No title and no company: the only people left in "Everyone else".
+      ...Array.from({ length: 3 }, (_, i) => C(`Blank ${i}`, '', '')),
     ];
     const atlas = buildAtlas(list, { groupBy: 'role' });
     expect(atlas.compass).toBe(true);

@@ -181,7 +181,8 @@ HOW THE MAP IS ORGANISED
      Investors & LPs       (who can fund you or introduce an LP)
      Founders & operators  (who sees deals first, vouches for founders)
      Experts & advisors    (who can vet a sector, company or founder)
-     Everyone else         (no title or company that places them)
+     Everyone else         (contacts with no title and no company; usually
+                           very few)
 - Each company is a burst of rays, one ray per person. The most senior
   people (founders, CEOs, partners) are closest to the company's centre.
   Bigger bursts mean more people the user knows there.

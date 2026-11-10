@@ -56,6 +56,46 @@ const TITLE_INDUSTRY = [
   ['Consulting', /\b(management consultant|consultant|consulting)\b/i],
 ];
 
+/**
+ * Words in a company's own name that give its sector away ("Acme Capital",
+ * "Northside Health", "Orbit Labs"). Checked after the known employers.
+ */
+const COMPANY_WORD_INDUSTRY = [
+  ['Venture capital', /\b(capital|ventures?|vc|angels?|seed fund|growth equity|private equity)\b/i],
+  ['Finance & banking', /\b(bank|banking|financial|finance|insurance|assurance|asset management|wealth|securities|investments?|credit union|holdings)\b/i],
+  ['Healthcare', /\b(health\w*|medical|medicine|clinic\w*|hospital|pharma\w*|bio\w*|therapeutics|genomics|care|dental|wellness)\b/i],
+  ['Legal', /\b(law|legal|llp|attorneys?|solicitors)\b/i],
+  ['Consulting', /\b(consulting|consultants?|advisors?|advisory|strategy group)\b/i],
+  ['Education', /\b(university|college|school|academy|education|learning|institute)\b/i],
+  ['Government & nonprofit', /\b(government|department of|ministry|federal|city of|state of|county|agency|foundation|nonprofit|non-profit|ngo|charity|association|council|united nations|world bank)\b/i],
+  ['Media', /\b(media|news|studios?|entertainment|films?|pictures|records|publishing|press|broadcasting|radio|tv|magazine)\b/i],
+  ['Climate & energy', /\b(energy|solar|power|climate|renewables?|utilities|oil|gas|petroleum|nuclear|fusion|battery)\b/i],
+  ['Real estate', /\b(real estate|realty|properties|property|homes|housing|construction|architects?)\b/i],
+  ['Commerce', /\b(retail|foods?|restaurants?|hotels?|hospitality|consumer|brands?|apparel|fashion|beauty|grocery|market|shop|store|travel)\b/i],
+  ['Industrials', /\b(logistics|shipping|freight|airlines?|aviation|aerospace|automotive|motors|manufacturing|industries|industrial|robotics|steel|chemicals?|mining|defen[cs]e|space)\b/i],
+  ['AI', /\b(ai|a\.i\.|machine learning|intelligence|neural|robot\w*)\b/i],
+  ['Software', /\b(software|labs?|technolog\w+|tech|systems|cloud|data|digital|analytics|platform|apps?|io|cyber\w*|security|networks?|computing|solutions|interactive)\b/i],
+];
+
+/**
+ * When the sector cannot be told from the employer, people are grouped by
+ * what they do instead (read from the title), so nobody useful is lost in
+ * "Other". Most specific first.
+ */
+const FUNCTION_GROUP = [
+  ['Self-employed', null, /\b(self[- ]employed|freelance\w*|independent|sole proprietor|stealth)\b/i],
+  ['Founders & CEOs', /\b(co-?founder|founder|founding|owner|ceo|chief executive|(?<!vice )president|entrepreneur)\b/i],
+  ['Students', /\b(student|mba candidate|mba student|ph\.?d\.? (candidate|student)|undergraduate|graduate student|intern|trainee)\b/i],
+  ['Investing', /\b(investor|investing|investment|partner|principal|venture|portfolio|fund)\b/i],
+  ['Engineering & data', /\b(engineer\w*|develop\w*|programmer|software|architect|data|scientist|machine learning|ml|devops|sre|qa|technical|technology|cto|it)\b/i],
+  ['Product & design', /\b(product|design\w*|ux|ui|creative|cpo)\b/i],
+  ['Sales & marketing', /\b(sales|account\w*|business development|bd|market\w*|growth|partnerships?|customer|success|revenue|brand|communications|pr|cmo|cro)\b/i],
+  ['People & talent', /\b(recruit\w*|talent|people|hr|human resources)\b/i],
+  ['Legal & policy', /\b(lawyer|attorney|counsel|legal|policy|compliance|regulat\w*)\b/i],
+  ['Finance & operations', /\b(finance|financial|accounting|accountant|controller|cfo|coo|operations|ops|strategy|chief of staff|supply chain|procurement|program|project|analyst|associate|manag\w*|director|head|vp|vice president|chief|executive|lead|administrator|coordinator|assistant|specialist)\b/i],
+  ['Research & teaching', /\b(research\w*|professor|lecturer|teacher|scientist|faculty)\b/i],
+];
+
 const industryCache = new WeakMap();
 /** Industry label for a contact from its title, company and tags; 'Other' when nothing matches. */
 export function industryOf(contact) {
@@ -73,6 +113,14 @@ export function industryOf(contact) {
     // "venture capital" terms ("partners", "fund") are too generic for an industry grouping.
     if (g.label === 'venture capital') continue;
     if (g.terms.some((t) => wordRe(t).test(text))) { out = INDUSTRY_LABEL[g.label] || g.label; break; }
+  }
+  // 4. Sector words in the company's own name, 5. what the person does.
+  if (out === OTHER_INDUSTRY && companyName) for (const [label, re] of COMPANY_WORD_INDUSTRY) if (re.test(companyName)) { out = label; break; }
+  if (out === OTHER_INDUSTRY) {
+    const title = String(contact.position || '');
+    for (const [label, titleRe, companyRe] of FUNCTION_GROUP) {
+      if ((titleRe && titleRe.test(title)) || (companyRe && companyRe.test(companyName))) { out = label; break; }
+    }
   }
   industryCache.set(contact, out);
   return out;
@@ -122,7 +170,7 @@ export function groupKeyFor(contact, groupBy) {
   return null;
 }
 
-const MAX_HUBS = 12;
+const MAX_HUBS = 16;
 
 /**
  * Buckets for a grouping: [{ key, label, hint, lens?, contacts }], ordered
