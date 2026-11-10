@@ -22,7 +22,7 @@ import {
 } from '../utils/network/parseContacts';
 import { buildAtlas, pathTo, personNodeId, seniority, LAYERS, NO_COMPANY_KEY, ROOT_ID } from '../utils/network/atlas';
 import { classifyContact, roleStats, LENSES } from '../utils/network/roles';
-import { GROUPINGS } from '../utils/network/grouping';
+import { GROUPINGS, countryOf, UNKNOWN_COUNTRY } from '../utils/network/grouping';
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
@@ -555,6 +555,8 @@ export default function NetworkPage() {
   // The whole map is laid out once per filter change; navigating only moves the camera.
   const atlas = useMemo(() => buildAtlas(visibleContacts, { groupBy }), [visibleContacts, groupBy]);
   const roleCounts = useMemo(() => roleStats(contacts), [contacts]);
+  // LinkedIn's export has no location, so grouping by country is only offered once some contact has one.
+  const hasLocations = useMemo(() => contacts.some((c) => countryOf(c) !== UNKNOWN_COUNTRY), [contacts]);
 
   const answerKeys = useMemo(() => {
     if (!answer) return null;
@@ -1005,7 +1007,18 @@ export default function NetworkPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex rounded-lg border border-line bg-white p-0.5 text-xs" role="radiogroup" aria-label="Group the map">
                   {GROUPINGS.map(({ key: v, label }) => (
-                    <button key={v} type="button" role="radio" aria-checked={groupBy === v} onClick={() => { setGroupBy(v); resetMap(); }} className={classNames('rounded-md px-2.5 py-1 font-medium', groupBy === v ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}>{label}</button>
+                    <button
+                      key={v}
+                      type="button"
+                      role="radio"
+                      aria-checked={groupBy === v}
+                      disabled={v === 'country' && !hasLocations}
+                      title={v === 'country' && !hasLocations ? 'None of your contacts has a location yet. LinkedIn exports do not include one; a CSV with a Location column does.' : undefined}
+                      onClick={() => { setGroupBy(v); resetMap(); }}
+                      className={classNames('rounded-md px-2.5 py-1 font-medium disabled:cursor-not-allowed disabled:opacity-40', groupBy === v ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}
+                    >
+                      {label}
+                    </button>
                   ))}
                 </div>
                 <div className="relative">

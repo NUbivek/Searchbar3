@@ -143,6 +143,8 @@ Groupings (the switch above the map):
 - **By role** (default): *Investors & LPs*, *Founders & operators*,
   *Experts & advisors* and *Everyone else*. Inside each: industries, then
   companies, then people.
+- *By country* is greyed out until at least one contact has a location
+  (LinkedIn's export has none; a CSV with a Location column does).
 - **By industry**: industries, then roles, then companies. **By country**:
   countries, then industries, then companies. **By company**: every company
   as its own burst around you. A layer that would not split a group is
