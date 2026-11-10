@@ -214,6 +214,12 @@ LAYERS, FROM THE OUTSIDE IN
      By country  -> country, then industry, then companies and people
      By company  -> companies and people
 
+THE SUMMARY CARD (top right of the map)
+- Says what is in view: its name, how many people, a bar showing leaders,
+  heads and team, and how many of them can help you raise, source and
+  diligence. When you open a group, everything outside it fades so only
+  that group is easy to read.
+
 THE TWO BARS UNDER THE MAP
 - "Zoom to": lists what is inside the part of the map you are looking at,
   largest first (for example "Founders & operators 660 | Everyone else 224

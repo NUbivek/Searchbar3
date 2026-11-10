@@ -20,7 +20,7 @@ import NetworkGraph, { SOURCE_COLORS } from '../components/network/NetworkGraph'
 import {
   parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, MAX_CONTACTS,
 } from '../utils/network/parseContacts';
-import { buildAtlas, pathTo, personNodeId, NO_COMPANY_KEY, ROOT_ID } from '../utils/network/atlas';
+import { buildAtlas, pathTo, personNodeId, seniority, NO_COMPANY_KEY, ROOT_ID } from '../utils/network/atlas';
 import { classifyContact, roleStats, LENSES } from '../utils/network/roles';
 import { GROUPINGS } from '../utils/network/grouping';
 
@@ -34,6 +34,12 @@ const SOURCE_LABELS = { linkedin: 'LinkedIn', csv: 'CSV/XLSX', x: 'X', attio: 'A
 const NAV_HEIGHT = 84;
 /** Most chips shown in the bottom navigator for one bubble. */
 const QUICK_MAX = 40;
+/** Seniority read from the title: the first thing a partner scans a list for. */
+const SENIORITY = [
+  { rank: 0, label: 'Leaders', hint: 'Founders, CEOs, partners, chiefs', tone: '#0F172A' },
+  { rank: 1, label: 'Heads', hint: 'VPs, directors, heads of function', tone: '#64748B' },
+  { rank: 2, label: 'Team', hint: 'Everyone else', tone: '#CBD5E1' },
+];
 const EXAMPLES = ['Who can help me raise a fund?', 'Who sends me deal flow in fintech?', 'Who can diligence an AI company?', 'Who do I know at Google?', 'Intro paths to Stripe'];
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 // The contacts API accepts 15 MB request bodies; stop a little short of it.
@@ -613,6 +619,20 @@ export default function NetworkPage() {
     [atlas],
   );
 
+  // The summary card: who is in view (or lit by a search or an answer), by
+  // seniority and by what they can help with.
+  const panel = useMemo(() => {
+    const lit = highlightIds.size > 0;
+    const base = lit ? visibleContacts.filter((c) => highlightIds.has(personNodeId(c))) : (viewNode.contacts || []);
+    const ranks = [0, 0, 0];
+    const lens = { raise: 0, source: 0, diligence: 0 };
+    for (const c of base) {
+      ranks[seniority(c)] += 1;
+      classifyContact(c).lenses.forEach((l) => { if (lens[l] != null) lens[l] += 1; });
+    }
+    return { lit, total: base.length, ranks, lens };
+  }, [viewNode, highlightIds, visibleContacts]);
+
   // ------------------------------------------------------------ ask
 
   const ask = async (text, { target } = {}) => {
@@ -749,7 +769,7 @@ export default function NetworkPage() {
 
   const details = selected && (
     <aside
-      className="glass mt-3 rounded-xl border border-line p-4 text-sm shadow-card sm:absolute sm:right-3 sm:top-3 sm:mt-0 sm:w-80 sm:max-h-[calc(100%-7rem)] sm:overflow-y-auto"
+      className="glass m-3 rounded-xl border border-line p-4 text-sm shadow-card sm:absolute sm:right-3 sm:top-3 sm:m-0 sm:w-80 sm:max-h-[calc(100%-7rem)] sm:overflow-y-auto"
       aria-label="Details"
     >
       {selected.type === 'person' && (
@@ -994,7 +1014,7 @@ export default function NetworkPage() {
                 </React.Fragment>
               ))}
               <span className="ml-auto text-muted">
-                {highlightIds.size > 0 ? `${fmt(highlightIds.size)} highlighted` : 'Drag to spin · scroll to dive in · click anything to fly to it'}
+                {highlightIds.size > 0 ? `${fmt(highlightIds.size)} highlighted` : 'Drag to spin · scroll to zoom · click to open'}
               </span>
             </nav>
 
@@ -1010,6 +1030,7 @@ export default function NetworkPage() {
                   highlightIds={highlightIds}
                   selectedId={selected?.id}
                   focus={focus}
+                  viewId={viewNode.id}
                   onNodeClick={onNodeClick}
                   onViewNode={setViewId}
                   onBackgroundClick={() => setSelected(null)}
@@ -1096,7 +1117,43 @@ export default function NetworkPage() {
                   )}
                 </div>
               </div>
-              <div className="px-3 pb-3 sm:p-0">{details}</div>
+              {details}
+              {/* What you are looking at, in words and one bar: no list. */}
+              {!selected && panel.total > 0 && (
+                <div className="glass pointer-events-auto absolute right-3 top-3 hidden w-60 rounded-xl border border-line p-3.5 text-sm shadow-card sm:block" aria-label="In view">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted">{panel.lit ? 'Highlighted' : viewNode.id === ROOT_ID ? 'Your network' : viewNode.type === 'company' ? 'Company' : trail.length > 2 ? 'Sub-group' : 'Group'}</p>
+                  <h3 className="mt-0.5 flex items-center gap-2 font-semibold leading-tight text-ink">
+                    {!panel.lit && viewNode.color && <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: viewNode.color }} />}
+                    {panel.lit ? 'Matches' : viewNode.id === ROOT_ID ? 'Everyone you know' : viewNode.label}
+                  </h3>
+                  <p className="mt-1 text-xs text-muted">
+                    <span className="font-medium text-ink">{fmt(panel.total)}</span> {panel.total === 1 ? 'person' : 'people'}
+                    {!panel.lit && viewNode.type !== 'company' && quick.items.length > 0 && <> · {fmt(viewNode.children.length)} {viewNode.children[0]?.type === 'company' ? 'companies' : 'groups'}</>}
+                  </p>
+                  {!panel.lit && viewNode.hint && <p className="mt-1.5 text-xs text-slate-600">{viewNode.hint}</p>}
+                  <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-slate-100" role="img" aria-label={SENIORITY.map((sn) => `${sn.label} ${panel.ranks[sn.rank]}`).join(', ')}>
+                    {SENIORITY.map((sn) => panel.ranks[sn.rank] > 0 && (
+                      <span key={sn.rank} title={`${sn.label}: ${fmt(panel.ranks[sn.rank])} (${sn.hint})`} style={{ width: `${(panel.ranks[sn.rank] / panel.total) * 100}%`, background: sn.tone }} />
+                    ))}
+                  </div>
+                  <div className="mt-1.5 flex justify-between text-[11px] text-muted">
+                    {SENIORITY.map((sn) => (
+                      <span key={sn.rank} title={sn.hint} className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: sn.tone }} />{sn.label} <span className="font-medium text-ink">{fmt(panel.ranks[sn.rank])}</span></span>
+                    ))}
+                  </div>
+                  <p className="mt-2.5 border-t border-line pt-2 text-[11px] text-muted">
+                    Can help you{' '}
+                    {Object.values(LENSES).map((l, i) => (
+                      <React.Fragment key={l.key}>
+                        {i > 0 && ' · '}
+                        <button type="button" onClick={() => pickLens(l.key)} title={l.description} className={classNames('hover:text-ink', lensFilter === l.key && 'font-semibold text-ink underline')}>
+                          {l.short.toLowerCase()} <span className="font-medium text-ink">{fmt(panel.lens[l.key])}</span>
+                        </button>
+                      </React.Fragment>
+                    ))}
+                  </p>
+                </div>
+              )}
             </div>
           </section>
         )}

@@ -206,7 +206,7 @@ function wrapOntoGlobe(atlas) {
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export default function NetworkGraph({
-  atlas, width, height = 620, insetBottom = 0, theme = 'light', highlightIds, selectedId, focus, onNodeClick, onViewNode, onBackgroundClick, children,
+  atlas, width, height = 620, insetBottom = 0, theme = 'light', highlightIds, selectedId, focus, viewId, onNodeClick, onViewNode, onBackgroundClick, children,
 }) {
   const canvasRef = useRef(null);
   const tipRef = useRef(null);
@@ -250,6 +250,19 @@ export default function NetworkGraph({
     return set;
   }, [atlas, selectedId]);
   live.current.trail = trail;
+
+  // What is in focus: the cluster you are in, everything inside it and the
+  // way back to you. Everything else steps back so one thing reads at a time.
+  const inFocus = useMemo(() => {
+    const view = atlas?.byId.get(viewId);
+    if (!view || view.id === ROOT_ID) return null;
+    const set = new Set();
+    for (let n = view; n; n = n.parent) set.add(n.id);
+    const down = (n) => { if (n.type !== 'person') { set.add(n.id); n.children.forEach(down); } };
+    down(view);
+    return set;
+  }, [atlas, viewId]);
+  live.current.inFocus = inFocus;
 
   // ---------------------------------------------------------------- camera
 
@@ -366,13 +379,7 @@ export default function NetworkGraph({
       if (Math.abs(sp.yaw) + Math.abs(sp.pitch) < 0.00002) { spin.current = null; settleSoon(); } else moving = true;
     }
 
-    // At rest and far out, the globe drifts a little so it never looks like a picture.
-    let c = cam.current;
-    const calm = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (!calm && !moving && !gesture.current && !inside.current && c.s <= st.home * 1.3) {
-      c = { ...c, yaw: c.yaw + 0.09 * Math.sin(now / 2900), pitch: c.pitch + 0.045 * Math.sin(now / 3700) };
-      moving = true;
-    }
+    const c = cam.current;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
@@ -498,6 +505,7 @@ export default function NetworkGraph({
     const showSub = clamp((zoom - 1.2) / 0.4, 0, 1);
     const showCompanies = clamp((zoom - 1.75) / 0.45, 0, 1);
     const reveal = (level) => (level <= 1 ? 1 : level === 2 ? showSub : showCompanies);
+    const focusSet = live.current.inFocus;
     const onScreen = (q) => !(q.sx + q.sr < -30 || q.sx - q.sr > w + 30 || q.sy + q.sr < -30 || q.sy - q.sr > h + 30);
 
     const paint = (node, q) => {
@@ -511,7 +519,8 @@ export default function NetworkGraph({
       // Near side at full strength, far side clearly there but quieter; and
       // layers deeper than the one you are at stay ghosted until you come closer.
       const shown = reveal(node.type === 'person' ? node.parent.depth : node.depth);
-      const depth = (q.hz >= 0 ? clamp(0.55 + q.hz * 2, 0.55, 1) : clamp(0.55 + q.hz * 0.15, 0.4, 0.55)) * (0.36 + 0.64 * shown);
+      const aside = focusSet && !focusSet.has(node.type === 'person' ? node.parent.id : node.id);
+      const depth = (q.hz >= 0 ? clamp(0.55 + q.hz * 2, 0.55, 1) : clamp(0.55 + q.hz * 0.15, 0.4, 0.55)) * (0.36 + 0.64 * shown) * (aside ? 0.22 : 1);
       const far = q.z < 0;
 
       if (node.type === 'group') {
@@ -523,8 +532,8 @@ export default function NetworkGraph({
         if (!collapsed) {
           // No outline around a cluster: a glow that fades out from its cell body.
           const glow = ctx.createRadialGradient(hx, hy, 0, sx, sy, sr);
-          glow.addColorStop(0, withAlpha(col, isHot ? 0.3 : node.depth === 1 ? 0.16 : 0.2));
-          glow.addColorStop(0.55, withAlpha(col, isHot ? 0.1 : 0.05));
+          glow.addColorStop(0, withAlpha(col, isHot ? 0.2 : node.depth === 1 ? 0.08 : 0.1));
+          glow.addColorStop(0.55, withAlpha(col, isHot ? 0.07 : 0.025));
           glow.addColorStop(1, withAlpha(col, 0));
           ctx.fillStyle = glow;
           ctx.beginPath(); ctx.arc(sx, sy, sr, 0, 2 * Math.PI); ctx.fill();
@@ -545,13 +554,13 @@ export default function NetworkGraph({
         ctx.beginPath(); ctx.arc(hx, hy, R0 * (T.spark ? 0.5 : 0.62), 0, 2 * Math.PI);
         ctx.fillStyle = T.spark || col; ctx.fill();
         ctx.globalAlpha = 1;
-        if (!collapsed && (sr >= 30 || isHot) && (node.depth === 1 || (!far && shown > 0.5))) {
+        if (!collapsed && (sr >= 30 || isHot) && (node.depth === 1 || (!far && shown > 0.5 && !aside))) {
           // Sits on the top edge like a legend; sticks to the top of the canvas once you are inside the cluster.
           const stickY = 18 + (node.depth - 1) * 27;
           labels.push({
             kind: 'pill', style: node.depth === 1 ? 'banner' : 'tag', sticky: !far, text: node.label, count: node.count,
             x: clamp(sx, 110, Math.max(110, w - 110)), y: far ? sy - sr : Math.max(sy - sr, stickY),
-            size: node.depth === 1 ? 12.5 : 11.5, weight: node.depth === 1 ? 700 : 600, color: node.color, dim: dim || far,
+            size: node.depth === 1 ? 12.5 : 11.5, weight: node.depth === 1 ? 700 : 600, color: node.color, dim: dim || far || aside,
             priority: (isHot ? 100 : 92) - node.depth * 4 - (far ? 6 : 0) + Math.min(3, node.count / 1000),
           });
         }
@@ -584,7 +593,7 @@ export default function NetworkGraph({
         ctx.globalAlpha = 1;
         const named = node.key !== '__none__' || isHot || isSel;
         const text = node.label.length > 28 ? `${node.label.slice(0, 27)}…` : node.label;
-        if (!named || q.z < 0.2 || (shown < 0.5 && !isHot && !isSel)) return;
+        if (!named || q.z < 0.2 || ((shown < 0.5 || aside) && !isHot && !isSel)) return;
         if (isHot || isSel || (open >= 0.5 && sr >= 46)) {
           labels.push({ kind: 'pill', style: 'plate', text, count: node.count, x: hx, y: hy - R0 - 14, size: 11, weight: 600, color: node.color, dim, priority: (isHot || isSel ? 99 : 60) + Math.min(9, node.count / 20) });
         } else if (R0 >= 2 && (sr >= 11 || node.count >= 8)) {
@@ -679,6 +688,7 @@ export default function NetworkGraph({
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const taken = [];
+    let plates = 0;
     const free = (x0, y0, x1, y1) => !taken.some((t) => x0 < t[2] && x1 > t[0] && y0 < t[3] && y1 > t[1]);
     labels.sort((p, q) => (q.priority || 0) - (p.priority || 0));
     for (const l of labels) {
@@ -716,6 +726,7 @@ export default function NetworkGraph({
         const bx = l.sticky ? clamp(l.x - bw / 2, l.y < 160 ? 52 : 4, Math.max(52, w - bw - 4)) : l.x - bw / 2;
         const by = l.y - bh / 2;
         if (l.priority < 99 && !free(bx - 3, by - 2, bx + bw + 3, by + bh + 2)) continue;
+        if (style === 'plate' && l.priority < 99) { if (plates >= 14) continue; plates += 1; }
         taken.push([bx, by, bx + bw, by + bh]);
         ctx.globalAlpha = l.dim ? 0.5 : 1;
         if (style === 'banner') {
@@ -881,7 +892,7 @@ export default function NetworkGraph({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightIds]);
 
-  useEffect(() => { redraw(); }, [selectedId, theme, redraw]);
+  useEffect(() => { redraw(); }, [selectedId, theme, inFocus, redraw]);
   // The frame handle must be cleared too: React re-runs effects in development,
   // and a cancelled but still-set handle would block every later redraw.
   useEffect(() => () => { cancelAnimationFrame(frame.current); frame.current = 0; clearTimeout(settled.current); }, []);
@@ -1056,6 +1067,11 @@ export default function NetworkGraph({
         <button type="button" className={tool} onClick={() => zoomBy(1 / 1.6, undefined, undefined, 250)} aria-label="Zoom out" title="Zoom out"><HiOutlineMinus style={{ width: 15, height: 15 }} /></button>
         <button type="button" className={tool} onClick={() => fitNode(atlas.byId.get(ROOT_ID), 650)} aria-label="Fit to view" title="Fit to view"><HiOutlineArrowsPointingOut style={{ width: 15, height: 15 }} /></button>
         {children}
+      </div>
+      <div className="pointer-events-none absolute left-3 flex items-center gap-3 text-[11px] text-muted" style={{ bottom: insetBottom + 8 }} aria-hidden="true">
+        <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-500 ring-2 ring-slate-300" />group</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-500" />company, with a ray to each person</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-900" />dark tip = leader</span>
       </div>
       <div
         ref={tipRef}

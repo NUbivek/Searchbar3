@@ -83,11 +83,19 @@ Getting around:
 
 - **Drag** to spin the globe; let go while moving and it keeps turning and
   slows down. **Scroll or pinch** to dive in towards the cursor. The grid on
-  the surface gets finer as you get closer. At rest and zoomed out, the globe
-  drifts slightly (off when the system asks for reduced motion).
+  the surface gets finer as you get closer.
 - **Click anything** and the globe turns it to face you and flies down to
   it. Click a company for the people you know there; click a person for
   their details. The branch from you to the selected node pulses.
+- **One thing at a time.** Open a cluster and everything outside it (and
+  outside the way back to you) fades right back, so only what you opened
+  reads. At most fourteen company names are shown at once, biggest first.
+- **Summary card** (top right of the map): what you are looking at, in
+  words: its name and level, how many people and groups or companies, a
+  seniority bar (leaders, heads, team) and how many can help you raise,
+  source and diligence (click one to apply that lens). It is replaced by
+  the details of a person or company when you select one.
+- **Key** (bottom left): what the marks mean.
 - **One layer at a time.** Zoomed out, only the groups are named; the
   layers inside them are ghosted. Come closer (or click a group) and its
   sub-groups appear; closer again and the companies and their bursts do.
