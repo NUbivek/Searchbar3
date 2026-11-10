@@ -505,7 +505,11 @@ describe('buildAtlas', () => {
     expect(top.founders.x).toBeGreaterThan(0);
     expect(top.other.y).toBeGreaterThan(0);
     const person = atlas.byId.get(personNodeId(list[1]));
-    expect(person.color).toBe(top.investors.color);
+    // The group sets the hue; a sub-group takes a shade of it, and companies and people inherit that.
+    expect(person.color).toBe(person.parent.color);
+    expect(atlas.root.children.every((g) => /^#[0-9a-f]{6}$/i.test(g.color))).toBe(true);
+    const subs = top.founders.children.filter((n) => n.type === 'group');
+    expect(new Set(subs.map((n) => n.color)).size).toBe(subs.length);
     const trail = pathTo(person);
     expect(trail[0].id).toBe(ROOT_ID);
     expect(trail[1]).toBe(top.investors);

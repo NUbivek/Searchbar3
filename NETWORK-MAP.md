@@ -67,6 +67,13 @@ The map is a globe you can spin, with your network inside it in layers:
   function, then everyone else (`seniority` in `src/utils/network/atlas.js`,
   read from the title). A company's size on the map is its headcount.
   Firm-wide CRM contacts are hollow.
+- **The whole globe is used.** Each top-level group gets its own patch of
+  the sphere, largest first and as far from the others as possible, so the
+  far side is as full as the near side. The globe is glass: the layers and
+  the far side show through, drawn more quietly than what faces you.
+- **Light by default, dark ready.** `NetworkGraph` takes `theme="light"`
+  (default) or `theme="dark"`; every colour the canvas paints comes from
+  `THEMES` in that file, so a site-wide night mode only has to pass the prop.
 - **Nothing moves by itself.** Positions are computed once from your
   contacts (`buildAtlas`), with no physics: the same contacts always give
   the same globe, clusters never overlap, and a branch is always where you
@@ -81,6 +88,14 @@ Getting around:
 - **Click anything** and the globe turns it to face you and flies down to
   it. Click a company for the people you know there; click a person for
   their details. The branch from you to the selected node pulses.
+- **One layer at a time.** Zoomed out, only the groups are named; the
+  layers inside them are ghosted. Come closer (or click a group) and its
+  sub-groups appear; closer again and the companies and their bursts do.
+- **Each layer has its own label**, so the level is clear at a glance:
+  groups are solid capsules in the group's colour, in capitals; sub-groups
+  are squared cards with a colour bar down the left edge; companies are
+  small plates with a colour underline (plain text when small); people are
+  plain names. Groups on the far side keep a faded capsule.
 - **What you see depends on how close you are**: from far away, groups,
   sub-groups and companies as sparks; closer, company names; closer still,
   each person as a dot with initials; closest, names and titles. Hover
@@ -105,9 +120,9 @@ Getting around:
 
 Groupings (the switch above the map):
 
-- **By role** (default): *Investors & LPs* (top), *Founders & operators*
-  (right), *Everyone else* (bottom) and *Experts & advisors* (left). Inside
-  each: industries, then companies, then people.
+- **By role** (default): *Investors & LPs*, *Founders & operators*,
+  *Experts & advisors* and *Everyone else*. Inside each: industries, then
+  companies, then people.
 - **By industry**: industries, then roles, then companies. **By country**:
   countries, then industries, then companies. **By company**: every company
   as its own burst around you. A layer that would not split a group is

@@ -567,6 +567,15 @@ export default function NetworkPage() {
   /** Fly the map to a bubble. */
   const goTo = (id) => { setViewId(id); setFocus((f) => ({ id, nonce: f.nonce + 1 })); };
   const resetMap = () => { setSelected(null); goTo(ROOT_ID); };
+  // Choosing a lens filters the globe and turns the group it is about to the
+  // front (investors for raise, founders for source, experts for diligence).
+  const LENS_GROUP = { raise: 'investors', source: 'founders', diligence: 'experts' };
+  const pickLens = (key) => {
+    const on = lensFilter !== key;
+    setLensFilter(on ? key : null);
+    setSelected(null);
+    goTo(on && groupBy === 'role' ? `g/role:${LENS_GROUP[key]}` : ROOT_ID);
+  };
 
   const selectContact = (contact) => {
     if (lensFilter && !classifyContact(contact).lenses.includes(lensFilter)) setLensFilter(null);
@@ -989,7 +998,7 @@ export default function NetworkPage() {
               </span>
             </nav>
 
-            <div ref={graphBoxRef} className="relative min-w-0 overflow-hidden bg-[#0B1220]">
+            <div ref={graphBoxRef} className="relative min-w-0 overflow-hidden bg-white">
               {atlas.peopleCount === 0 ? (
                 <div className="flex items-center justify-center text-sm text-muted" style={{ height: graphHeight }}>No contacts match these filters.</div>
               ) : (
@@ -1016,16 +1025,16 @@ export default function NetworkPage() {
                   </button>
                 </NetworkGraph>
               )}
-              <div className="absolute bottom-0 left-0 right-0 border-t border-white/10 bg-slate-950/70 text-xs backdrop-blur">
+              <div className="glass absolute bottom-0 left-0 right-0 border-t border-line text-xs">
                 <nav className="scroll-quiet flex items-center gap-1.5 overflow-x-auto px-3 py-2" aria-label="Map navigator">
                   {viewNode.parent ? (
                     <button type="button" onClick={() => { setSelected(null); goTo(viewNode.parent.id); }} className="chip shrink-0" title={`Back out to ${viewNode.parent.id === ROOT_ID ? 'the whole map' : viewNode.parent.label}`}>
                       ← {viewNode.parent.id === ROOT_ID ? 'All' : viewNode.parent.label}
                     </button>
                   ) : (
-                    <span className="shrink-0 font-medium text-slate-100">Zoom to</span>
+                    <span className="shrink-0 font-medium text-ink">Zoom to</span>
                   )}
-                  <span className="text-slate-600">|</span>
+                  <span className="text-line">|</span>
                   {quick.items.map((node) => (
                     <button
                       key={node.id}
@@ -1038,11 +1047,11 @@ export default function NetworkPage() {
                       {node.label} {node.type !== 'person' && <span className="text-muted">{fmt(node.count)}</span>}
                     </button>
                   ))}
-                  {quick.more > 0 && <span className="shrink-0 text-slate-400">+{fmt(quick.more)} more on the map</span>}
+                  {quick.more > 0 && <span className="shrink-0 text-muted">+{fmt(quick.more)} more on the map</span>}
                 </nav>
-                <div className="scroll-quiet flex items-center gap-1.5 overflow-x-auto border-t border-white/10 px-3 py-2" role="group" aria-label="Presets">
-                  <span className="shrink-0 text-slate-400">Presets</span>
-                  <span className="text-slate-600">|</span>
+                <div className="scroll-quiet flex items-center gap-1.5 overflow-x-auto border-t border-line/70 px-3 py-2" role="group" aria-label="Presets">
+                  <span className="shrink-0 text-muted">Presets</span>
+                  <span className="text-line">|</span>
                   <button
                     type="button"
                     onClick={() => { setLensFilter(null); setGraphSearch(''); resetMap(); }}
@@ -1058,7 +1067,7 @@ export default function NetworkPage() {
                       role="checkbox"
                       aria-checked={lensFilter === l.key}
                       title={l.description}
-                      onClick={() => { setLensFilter((v) => (v === l.key ? null : l.key)); resetMap(); }}
+                      onClick={() => pickLens(l.key)}
                       className={classNames('chip shrink-0', lensFilter === l.key && 'chip-active')}
                     >
                       {l.label} <span className="text-muted">{fmt(roleCounts.lenses[l.key])}</span>
@@ -1071,7 +1080,7 @@ export default function NetworkPage() {
                   )}
                   {firmCount > 0 && (
                     <>
-                      <span className="text-slate-600">|</span>
+                      <span className="text-line">|</span>
                       <button
                         type="button"
                         role="checkbox"
@@ -1082,7 +1091,7 @@ export default function NetworkPage() {
                       >
                         My direct connections only
                       </button>
-                      <span className="ml-auto shrink-0 text-slate-400"><span className="inline-block h-2 w-2 rounded-full border border-slate-300 align-middle" /> hollow = firm contact</span>
+                      <span className="ml-auto shrink-0 text-muted"><span className="inline-block h-2 w-2 rounded-full border border-brand-400 bg-white align-middle" /> hollow = firm contact</span>
                     </>
                   )}
                 </div>

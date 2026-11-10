@@ -22,11 +22,8 @@ import { PERSON_R, ROOT_ID } from '../../utils/network/atlas';
 
 export const SOURCE_COLORS = { linkedin: '#0077B5', x: '#0F172A', csv: '#64748B', attio: '#B8742A' };
 
-/** The map is a globe in a night sky. */
-const BG = '#0B1220';
-const INK = '#F1F5F9';
-const MUTED = '#94A3B8';
-const GRID = '148,163,184';
+/** Stands for "the theme's text colour" wherever a label is not tinted by a node. */
+const INK = 'ink';
 const HIGHLIGHT = '#F59E0B';
 const SELECTED = '#FB7185';
 const FONT = 'Inter, ui-sans-serif, system-ui, sans-serif';
@@ -40,12 +37,13 @@ const CAM = 3;
 /** Magnification of the point facing the viewer, and of the globe's outline. */
 const FRONT = CAM / (CAM - 1);
 const OUTLINE = CAM / Math.sqrt(CAM * CAM - 1);
-/** The network covers a cap of the globe this far from its pole (radians). */
-const SPAN = 0.46 * Math.PI;
+const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+/** Share of the globe's surface the clusters may cover; the rest is breathing room between them. */
+const COVER = 0.62;
 /** The globe's layers, as a fraction of its radius: you are the core, people are the surface. */
 const SHELL = { root: 0, group: 0.5, subgroup: 0.7, company: 0.86, person: 1 };
 const shellOf = (node) => (node.type === 'group' ? (node.depth === 1 ? SHELL.group : SHELL.subgroup) : SHELL[node.type]);
-const MAX_PITCH = 1.35;
+const MAX_PITCH = 1.5;
 const OPENING_MS = 2600;
 
 function withAlpha(hex, alpha) {
@@ -54,8 +52,8 @@ function withAlpha(hex, alpha) {
 }
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const liteCache = new Map();
-/** A colour lifted towards white so it reads on the dark canvas. */
-function lite(hex) {
+/** A colour lifted towards white so it reads on a dark canvas. */
+function lift(hex) {
   let out = liteCache.get(hex);
   if (!out) {
     const n = parseInt(String(hex || '#7C8A9E').slice(1), 16);
@@ -67,6 +65,30 @@ function lite(hex) {
 }
 /** 0 = a company is a single dot; 1 = it is open and shows one dot per person. */
 const openness = (k) => clamp((PERSON_R * k - 2.5) / 1.5, 0, 1);
+/**
+ * Light is the default. Dark is complete and used when the page passes
+ * theme="dark" (for the site-wide night mode). Everything the canvas
+ * paints takes its colours from here.
+ */
+export const THEMES = {
+  light: {
+    bg: '#F8FAFC', backdrop: 'radial-gradient(ellipse at 50% 42%, #FFFFFF 0%, #F6F8FB 55%, #EEF2F7 100%)',
+    ink: '#0F172A', muted: '#64748B', grid: '71,85,105', gridStrength: 1,
+    tone: (hex) => hex || '#7C8A9E', spark: null, senior: '#0F172A', onNode: '#FFFFFF',
+    pill: 'rgba(255,255,255,0.94)', halo: 'rgba(255,255,255,0.95)', me: '15,23,42',
+    air: '61,106,150', airStrength: 0.1, body: ['rgba(255,255,255,0.5)', 'rgba(226,232,240,0.16)', 'rgba(148,163,184,0.1)'], stars: false,
+    glow: 0.7,
+  },
+  dark: {
+    bg: '#0B1220', backdrop: 'radial-gradient(ellipse at 50% 42%, #18253F 0%, #0F192D 45%, #0B1220 100%)',
+    ink: '#F1F5F9', muted: '#94A3B8', grid: '148,163,184', gridStrength: 1,
+    tone: lift, spark: '#FFFFFF', senior: '#FFFFFF', onNode: '#0B1220',
+    pill: 'rgba(11,18,32,0.9)', halo: 'rgba(11,18,32,0.92)', me: '255,255,255',
+    air: '96,140,200', airStrength: 0.16, body: ['rgba(46,70,112,0.22)', 'rgba(20,32,56,0.12)', 'rgba(11,18,32,0.18)'], stars: true,
+    glow: 1,
+  },
+};
+
 const initials = (name) => String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - ((-2 * t + 2) ** 3) / 2);
 
@@ -110,32 +132,78 @@ const STARS = (() => {
 })();
 
 /**
- * Wrap the atlas into a unit globe. The middle of the map is the pole and
- * distance from it becomes angle from the pole; how deep a node sits is set
- * by its level (see SHELL). Returns the place of every node
- * ([x, y, z, shrink, shell]) and the scale that turns map units into radians.
+ * Wrap the atlas into a unit globe, all the way round. Every top-level
+ * cluster gets its own patch of the sphere (largest first, each placed as
+ * far from the others as possible), and everything inside it is laid on
+ * the sphere around that point, so the far side of the globe is as full as
+ * the near side. How deep a node sits is set by its level (see SHELL).
+ * Returns the place of every node ([x, y, z, shrink, shell]) and the scale
+ * that turns map units into radians.
  */
 function wrapOntoGlobe(atlas) {
-  const { box } = atlas;
-  const reach = Math.hypot(box.rx, box.ry) || 1;
-  const kappa = SPAN / reach;
-  const at = (x, y) => {
-    const dx = x - box.x; const dy = y - box.y;
-    const polar = Math.hypot(dx, dy) * kappa;
-    const around = Math.atan2(dy, dx);
-    // Circles of latitude get shorter away from the pole; clusters shrink to match.
-    const shrink = polar > 1e-6 ? Math.sqrt(Math.sin(polar) / polar) : 1;
-    return [Math.sin(polar) * Math.cos(around), Math.sin(polar) * Math.sin(around), Math.cos(polar), shrink];
-  };
+  const tops = [...atlas.root.children].sort((p, q) => q.r - p.r);
+  const spots = [[0, 0, 1]];
+  for (let i = 0; i < 700; i += 1) {
+    const y = 1 - (2 * (i + 0.5)) / 700; const r = Math.sqrt(1 - y * y);
+    spots.push([r * Math.cos(i * GOLDEN), y, r * Math.sin(i * GOLDEN)]);
+  }
+  const apart = (p, q) => Math.acos(clamp(p[0] * q[0] + p[1] * q[1] + p[2] * q[2], -1, 1));
+  const biggest = tops.length ? tops[0].r : 1;
+  // Start with the largest cluster spanning a good part of a hemisphere, then
+  // shrink everything until the patches cover no more than COVER of the globe and fit.
+  let kappa = 0.95 / biggest;
+  const covered = () => tops.reduce((sum, t) => sum + (1 - Math.cos(Math.min(Math.PI, t.r * kappa))) / 2, 0);
+  while (covered() > COVER) kappa *= 0.96;
+  const centre = new Map();
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    centre.clear();
+    let ok = true;
+    for (const t of tops) {
+      let best = null; let bestGap = -Infinity;
+      for (const spot of spots) {
+        let gap = Infinity;
+        for (const [other, c] of centre) gap = Math.min(gap, apart(spot, c) - (t.r + other.r) * kappa);
+        if (gap > bestGap) { bestGap = gap; best = spot; }
+        if (!centre.size) break; // the largest cluster faces the viewer
+      }
+      if (centre.size && bestGap < 0.015) { ok = false; break; }
+      centre.set(t, best);
+    }
+    if (ok) break;
+    kappa *= 0.93;
+  }
+
   const place = new Map();
-  for (const node of atlas.nodes) place.set(node, [...at(node.x, node.y), shellOf(node)]);
-  return { place, at, kappa };
+  place.set(atlas.root, [0, 0, 1, 1, 0]);
+  for (const top of tops) {
+    const c = centre.get(top) || [0, 0, 1];
+    // Two directions along the surface at the cluster's centre.
+    let e1 = [c[2], 0, -c[0]];
+    const n1 = Math.hypot(e1[0], e1[2]);
+    e1 = n1 < 1e-6 ? [1, 0, 0] : [e1[0] / n1, 0, e1[2] / n1];
+    const e2 = [c[1] * e1[2] - c[2] * e1[1], c[2] * e1[0] - c[0] * e1[2], c[0] * e1[1] - c[1] * e1[0]];
+    const lay = (node) => {
+      const dx = node.x - top.x; const dy = node.y - top.y;
+      const away = Math.hypot(dx, dy) * kappa;
+      const dir = Math.atan2(dy, dx);
+      const ca = Math.cos(away); const sa = Math.sin(away); const cd = Math.cos(dir); const sd = Math.sin(dir);
+      // Circles around the centre get shorter with distance; things shrink to match.
+      const shrink = away > 1e-6 ? Math.sqrt(Math.abs(sa) / away) : 1;
+      place.set(node, [
+        c[0] * ca + (e1[0] * cd + e2[0] * sd) * sa, c[1] * ca + (e1[1] * cd + e2[1] * sd) * sa, c[2] * ca + (e1[2] * cd + e2[2] * sd) * sa,
+        shrink, shellOf(node),
+      ]);
+      node.children.forEach(lay);
+    };
+    lay(top);
+  }
+  return { place, kappa };
 }
 
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export default function NetworkGraph({
-  atlas, width, height = 620, insetBottom = 0, highlightIds, selectedId, focus, onNodeClick, onViewNode, onBackgroundClick, children,
+  atlas, width, height = 620, insetBottom = 0, theme = 'light', highlightIds, selectedId, focus, onNodeClick, onViewNode, onBackgroundClick, children,
 }) {
   const canvasRef = useRef(null);
   const tipRef = useRef(null);
@@ -159,7 +227,7 @@ export default function NetworkGraph({
   const globe = useMemo(() => (atlas ? wrapOntoGlobe(atlas) : null), [atlas]);
   // Latest props for the draw loop, which lives outside React's render.
   const live = useRef({});
-  live.current = { atlas, globe, width, height, insetBottom, highlightIds, selectedId, onNodeClick, onViewNode, onBackgroundClick };
+  live.current = { atlas, globe, width, height, insetBottom, theme, highlightIds, selectedId, onNodeClick, onViewNode, onBackgroundClick };
 
   // Containers that hold a highlighted person, so they stay bright too.
   const litContainers = useMemo(() => {
@@ -208,22 +276,27 @@ export default function NetworkGraph({
     const u = g.place.get(node);
     // Its cluster is measured where it meets the surface; the node itself sits on its own layer.
     const [sx, sy, z, mag] = pr(u[0], u[1], u[2]);
-    const m = c.s * mag * g.kappa * u[3] * (0.42 + 0.58 * Math.max(0, z));
+    // Things turn edge-on at the rim and face you again on the far side.
+    const m = c.s * mag * g.kappa * u[3] * (0.42 + 0.58 * Math.abs(z));
     if (u[4] === 1) return { sx, sy, z, m, sr: node.r * m, hx: sx, hy: sy, hz: z };
     const [hx, hy, hz] = pr(u[0], u[1], u[2], u[4]);
     return { sx, sy, z, m, sr: node.r * m, hx, hy, hz };
   };
 
-  /** The camera that turns a box of the flat plan to face the viewer and fills the stage with it. */
-  const cameraFor = useCallback((box, capPersonPx = MAX_FIT_PERSON_PX) => {
+  /** The camera that turns a direction of the globe to face the viewer, at radius `s`. */
+  const facing = (u, radius) => ({ yaw: Math.atan2(-u[0], u[2]), pitch: clamp(Math.atan2(u[1], Math.hypot(u[0], u[2])), -MAX_PITCH, MAX_PITCH), s: radius });
+  /** The camera that turns a cluster to face the viewer and fills the stage with it. */
+  const cameraFor = useCallback((node, capPersonPx = MAX_FIT_PERSON_PX) => {
     const g = live.current.globe;
     const st = stage();
-    const u = g.at(box.x, box.y);
-    const perUnit = FRONT * g.kappa * u[3];
-    const fit = Math.min((st.w - 56) / (2 * box.rx), (st.hh - 28) / (2 * box.ry), capPersonPx / PERSON_R);
-    return { yaw: Math.atan2(-u[0], u[2]), pitch: clamp(Math.atan2(u[1], Math.hypot(u[0], u[2])), -MAX_PITCH, MAX_PITCH), s: Math.max(st.home, fit / perUnit) };
+    const u = g.place.get(node);
+    const fit = Math.min(Math.min(st.w - 56, st.hh - 28) / (2 * node.r * 0.94), capPersonPx / PERSON_R);
+    // Always come in far enough to open the layer inside what you flew to.
+    const least = node.type === 'group' && node.depth === 1 ? 1.75 : 2.4;
+    return facing(u, Math.max(st.home * least, fit / (FRONT * g.kappa * u[3])));
   }, []);
-  const homeCamera = () => ({ yaw: 0, pitch: 0, s: stage().home });
+  // Home: the whole globe, tipped a little so its layers can be seen through it.
+  const homeCamera = () => ({ yaw: 0.3, pitch: 0.22, s: stage().home });
 
   /** The deepest cluster the viewer is "inside": it sits under the middle of the stage and fills most of it. */
   const reportView = useCallback(() => {
@@ -259,6 +332,9 @@ export default function NetworkGraph({
     const canvas = canvasRef.current;
     const { atlas: a, globe: g, width: w, height: h, highlightIds: lit, selectedId: sel, litContainers: litC } = live.current;
     if (!canvas || !a || !g || !w) return;
+    const T = THEMES[live.current.theme] || THEMES.light;
+    const BG = T.bg; const MUTED = T.muted; const GRID = T.grid; const lite = T.tone;
+    const paintOf = (color) => (color === INK ? T.ink : lite(color));
     const now = performance.now();
     const dt = Math.min(64, now - (lastFrame.current || now));
     lastFrame.current = now;
@@ -316,7 +392,7 @@ export default function NetworkGraph({
 
     // Stars: a far shell that turns with the globe, for depth.
     const shell = 0.75 * Math.max(w, h);
-    for (const [x, y, z, size, glow] of STARS) {
+    for (const [x, y, z, size, glow] of T.stars ? STARS : []) {
       const x1 = x * Math.cos(c.yaw * 0.35) + z * Math.sin(c.yaw * 0.35); const z1 = -x * Math.sin(c.yaw * 0.35) + z * Math.cos(c.yaw * 0.35);
       const y2 = y * Math.cos(c.pitch * 0.35) - z1 * Math.sin(c.pitch * 0.35);
       if (y * Math.sin(c.pitch * 0.35) + z1 * Math.cos(c.pitch * 0.35) < 0) continue;
@@ -325,17 +401,17 @@ export default function NetworkGraph({
     }
 
     // The globe itself: a soft atmosphere, a faintly lit body and its outline.
+    // The globe itself is glass: a thin atmosphere, the faintest shading and
+    // an outline, so every layer and the far side show through.
     const R = c.s * OUTLINE;
     if (R < 6 * Math.max(w, h)) {
-      const air = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.22);
-      air.addColorStop(0, 'rgba(96,140,200,0)'); air.addColorStop(0.42, 'rgba(96,140,200,0.16)'); air.addColorStop(1, 'rgba(96,140,200,0)');
-      ctx.fillStyle = air; ctx.beginPath(); ctx.arc(cx, cy, R * 1.22, 0, 2 * Math.PI); ctx.fill();
+      const air = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.2);
+      air.addColorStop(0, `rgba(${T.air},0)`); air.addColorStop(0.42, `rgba(${T.air},${T.airStrength})`); air.addColorStop(1, `rgba(${T.air},0)`);
+      ctx.fillStyle = air; ctx.beginPath(); ctx.arc(cx, cy, R * 1.2, 0, 2 * Math.PI); ctx.fill();
       const body = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.05, cx, cy, R);
-      body.addColorStop(0, 'rgba(46,70,112,0.55)'); body.addColorStop(0.7, 'rgba(20,32,56,0.5)'); body.addColorStop(1, 'rgba(11,18,32,0.75)');
+      body.addColorStop(0, T.body[0]); body.addColorStop(0.7, T.body[1]); body.addColorStop(1, T.body[2]);
       ctx.fillStyle = body; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2 * Math.PI); ctx.fill();
-      ctx.lineWidth = 1; ctx.strokeStyle = `rgba(${GRID},0.45)`; ctx.stroke();
-    } else {
-      ctx.fillStyle = 'rgba(24,38,64,0.5)'; ctx.fillRect(0, 0, w, h);
+      ctx.lineWidth = 1; ctx.strokeStyle = `rgba(${GRID},0.4)`; ctx.stroke();
     }
 
     // Graticule: lines of latitude and longitude around the network's pole.
@@ -361,7 +437,7 @@ export default function NetworkGraph({
           for (const [x, y, z] of points) {
             if ((pass === 1) === (z >= 0)) { if (pen) ctx.lineTo(x, y); else ctx.moveTo(x, y); pen = true; } else pen = false;
           }
-          ctx.strokeStyle = `rgba(${GRID},${pass === 1 ? 0.17 : 0.05})`;
+          ctx.strokeStyle = `rgba(${GRID},${pass === 1 ? 0.17 : 0.08})`;
           ctx.stroke();
         }
       };
@@ -396,7 +472,7 @@ export default function NetworkGraph({
         if (q[2] < 0) behind += 1;
         if (i) ctx.lineTo(q[0], q[1]); else ctx.moveTo(q[0], q[1]);
       }
-      const fade = behind > steps / 2 ? 0.25 : 1;
+      const fade = behind > steps / 2 ? 0.45 : 1;
       ctx.lineWidth = lw; ctx.strokeStyle = withAlpha(color, alpha * fade); ctx.stroke();
       if (pulse) {
         ctx.setLineDash([4, 10]); ctx.lineDashOffset = -now / 36;
@@ -414,6 +490,11 @@ export default function NetworkGraph({
         ctx.setLineDash([]);
       }
     };
+    // One layer at a time: groups first, sub-groups as you move in, then companies.
+    const zoom = c.s / st.home;
+    const showSub = clamp((zoom - 1.2) / 0.4, 0, 1);
+    const showCompanies = clamp((zoom - 1.75) / 0.45, 0, 1);
+    const reveal = (level) => (level <= 1 ? 1 : level === 2 ? showSub : showCompanies);
     const onScreen = (q) => !(q.sx + q.sr < -30 || q.sx - q.sr > w + 30 || q.sy + q.sr < -30 || q.sy - q.sr > h + 30);
 
     const paint = (node, q) => {
@@ -424,7 +505,10 @@ export default function NetworkGraph({
       const isSel = sel === node.id;
       const col = lite(node.color);
       // Things fade as they turn away, and nearly vanish on the far side.
-      const depth = q.hz >= 0 ? clamp(0.4 + q.hz * 2.4, 0.4, 1) : 0.16;
+      // Near side at full strength, far side clearly there but quieter; and
+      // layers deeper than the one you are at stay ghosted until you come closer.
+      const shown = reveal(node.type === 'person' ? node.parent.depth : node.depth);
+      const depth = (q.hz >= 0 ? clamp(0.55 + q.hz * 2, 0.55, 1) : clamp(0.55 + q.hz * 0.15, 0.4, 0.55)) * (0.36 + 0.64 * shown);
       const far = q.z < 0;
 
       if (node.type === 'group') {
@@ -444,8 +528,8 @@ export default function NetworkGraph({
           if (isHot) { ctx.setLineDash([2, 6]); ctx.lineWidth = 1; ctx.strokeStyle = withAlpha(col, 0.5); ctx.stroke(); ctx.setLineDash([]); }
           for (const [child, cq] of kids) {
             const faded = hasLit && !litC.has(child.id);
-            if (child.type === 'group') arc(node, child, lite(child.color), faded ? 0.1 : 0.55, 1.6, tr.has(child.id));
-            else if (child.dot * cq.m > 0.7 && cq.z > -0.1) arc(node, child, lite(child.color), faded ? 0.06 : Math.min(0.55, 0.2 + 0.03 * child.count), child.count >= 10 ? 1.2 : 0.8, tr.has(child.id), 8);
+            if (child.type === 'group') arc(node, child, lite(child.color), (faded ? 0.1 : 0.55) * (0.25 + 0.75 * reveal(child.depth)), 1.6, tr.has(child.id));
+            else if (child.dot * cq.m > 0.7) arc(node, child, lite(child.color), (faded ? 0.06 : Math.min(0.55, 0.2 + 0.03 * child.count)) * (0.25 + 0.75 * reveal(child.depth)), child.count >= 10 ? 1.2 : 0.8, tr.has(child.id), 8);
           }
           ctx.globalAlpha = 1;
           for (const [child, cq] of kids) paint(child, cq);
@@ -455,16 +539,17 @@ export default function NetworkGraph({
         const halo = ctx.createRadialGradient(hx, hy, 0, hx, hy, R0 * 2.4);
         halo.addColorStop(0, withAlpha(col, isHot ? 0.95 : 0.8)); halo.addColorStop(0.35, withAlpha(col, 0.35)); halo.addColorStop(1, withAlpha(col, 0));
         ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(hx, hy, R0 * 2.4, 0, 2 * Math.PI); ctx.fill();
-        ctx.beginPath(); ctx.arc(hx, hy, R0 * 0.5, 0, 2 * Math.PI);
-        ctx.fillStyle = '#FFFFFF'; ctx.fill();
+        ctx.beginPath(); ctx.arc(hx, hy, R0 * (T.spark ? 0.5 : 0.62), 0, 2 * Math.PI);
+        ctx.fillStyle = T.spark || col; ctx.fill();
         ctx.globalAlpha = 1;
-        if (!collapsed && !far && (sr >= 30 || isHot)) {
+        if (!collapsed && (sr >= 30 || isHot) && (node.depth === 1 || (!far && shown > 0.5))) {
           // Sits on the top edge like a legend; sticks to the top of the canvas once you are inside the cluster.
           const stickY = 18 + (node.depth - 1) * 27;
           labels.push({
-            kind: 'pill', sticky: true, text: node.label, count: node.count, x: clamp(sx, 110, Math.max(110, w - 110)), y: Math.max(sy - sr, stickY),
-            size: node.depth === 1 ? 13 : 11.5, weight: node.depth === 1 ? 700 : 600, color: node.color, dim: dim || q.z < 0.25,
-            priority: (isHot ? 100 : 92) - node.depth * 4 + Math.min(3, node.count / 1000),
+            kind: 'pill', style: node.depth === 1 ? 'banner' : 'tag', sticky: !far, text: node.label, count: node.count,
+            x: clamp(sx, 110, Math.max(110, w - 110)), y: far ? sy - sr : Math.max(sy - sr, stickY),
+            size: node.depth === 1 ? 12.5 : 11.5, weight: node.depth === 1 ? 700 : 600, color: node.color, dim: dim || far,
+            priority: (isHot ? 100 : 92) - node.depth * 4 - (far ? 6 : 0) + Math.min(3, node.count / 1000),
           });
         }
         return;
@@ -473,12 +558,6 @@ export default function NetworkGraph({
       if (node.type === 'company') {
         const R0 = clamp(node.dot * m, 1.2, 11);
         if (R0 < 1.25 && sr < 2) return;
-        if (far) {
-          ctx.globalAlpha = depth;
-          ctx.beginPath(); ctx.arc(hx, hy, R0, 0, 2 * Math.PI); ctx.fillStyle = col; ctx.fill();
-          ctx.globalAlpha = 1;
-          return;
-        }
         // The burst: a ray from the core to every person. Drawn at every zoom,
         // so from far away a company reads as a spark sized by its headcount.
         const personPx = PERSON_R * m;
@@ -488,13 +567,13 @@ export default function NetworkGraph({
           for (const [, pq] of people) { ctx.moveTo(hx, hy); ctx.lineTo(pq.sx, pq.sy); }
           ctx.lineWidth = personPx > 6 ? 1 : 0.7;
           ctx.strokeStyle = withAlpha(col, (dim ? 0.06 : isHot || isSel ? 0.6 : hasLit ? 0.14 : 0.34) * depth); ctx.stroke();
-          if (personPx >= 0.5) for (const [child, pq] of people) paint(child, pq);
+          if (personPx >= 0.5 && !far && shown > 0.3) for (const [child, pq] of people) paint(child, pq);
         }
         ctx.globalAlpha = (dim ? 0.22 : 1) * depth;
         const core = ctx.createRadialGradient(hx, hy, 0, hx, hy, R0 * 2);
         core.addColorStop(0, withAlpha(col, 1)); core.addColorStop(0.45, withAlpha(col, isHot || isSel ? 0.7 : 0.4)); core.addColorStop(1, withAlpha(col, 0));
         ctx.fillStyle = core; ctx.beginPath(); ctx.arc(hx, hy, R0 * 2, 0, 2 * Math.PI); ctx.fill();
-        if (R0 > 2) { ctx.beginPath(); ctx.arc(hx, hy, Math.max(1, R0 * 0.38), 0, 2 * Math.PI); ctx.fillStyle = '#FFFFFF'; ctx.fill(); }
+        if (R0 > 2) { ctx.beginPath(); ctx.arc(hx, hy, Math.max(1, R0 * 0.38), 0, 2 * Math.PI); ctx.fillStyle = T.spark || col; ctx.fill(); }
         if ((isSel || (hasLit && !dim && open < 0.5)) && R0 > 1.5) {
           ctx.beginPath(); ctx.arc(hx, hy, R0 + 5, 0, 2 * Math.PI);
           ctx.lineWidth = 2; ctx.strokeStyle = isSel ? SELECTED : HIGHLIGHT; ctx.stroke();
@@ -502,9 +581,9 @@ export default function NetworkGraph({
         ctx.globalAlpha = 1;
         const named = node.key !== '__none__' || isHot || isSel;
         const text = node.label.length > 28 ? `${node.label.slice(0, 27)}…` : node.label;
-        if (!named || q.z < 0.2) return;
+        if (!named || q.z < 0.2 || (shown < 0.5 && !isHot && !isSel)) return;
         if (isHot || isSel || (open >= 0.5 && sr >= 46)) {
-          labels.push({ kind: 'pill', text, count: node.count, x: hx, y: hy - R0 - 14, size: 11, weight: 600, color: INK, dim, priority: (isHot || isSel ? 99 : 60) + Math.min(9, node.count / 20) });
+          labels.push({ kind: 'pill', style: 'plate', text, count: node.count, x: hx, y: hy - R0 - 14, size: 11, weight: 600, color: node.color, dim, priority: (isHot || isSel ? 99 : 60) + Math.min(9, node.count / 20) });
         } else if (R0 >= 2 && (sr >= 11 || node.count >= 8)) {
           labels.push({ kind: 'plain', text, tail: node.count > 1 ? node.count.toLocaleString('en-US') : '', x: hx, y: hy + R0 + 9, size: node.count >= 10 ? 11 : 10, weight: node.count >= 10 ? 600 : 500, color: INK, dim, priority: 20 + Math.min(30, node.count) });
         }
@@ -527,7 +606,7 @@ export default function NetworkGraph({
         ctx.fillStyle = BG; ctx.fill();
         ctx.lineWidth = Math.max(0.8, pr0 * 0.28); ctx.strokeStyle = col; ctx.stroke();
       } else {
-        ctx.fillStyle = grown < 1 && node.rank === 0 && !isHot ? '#FFFFFF' : col;
+        ctx.fillStyle = grown < 1 && node.rank === 0 && !isHot ? T.senior : col;
         ctx.fill();
         if (grown < 1 && sr > 1.5) { ctx.beginPath(); ctx.arc(sx, sy, pr0 * 2.2, 0, 2 * Math.PI); ctx.fillStyle = withAlpha(col, 0.16 * (1 - grown)); ctx.fill(); }
       }
@@ -579,15 +658,17 @@ export default function NetworkGraph({
       if (child.type === 'group') arc(a.root, child, lite(child.color), faded ? 0.12 : 0.7, 2.2, tr.has(child.id), 6);
       else if (child.dot * cq.m > 0.7) arc(a.root, child, lite(child.color), faded ? 0.06 : Math.min(0.5, 0.14 + 0.03 * child.count), child.count >= 10 ? 1.2 : 0.8, tr.has(child.id), 4);
     }
+    // Far side first, so the near side is drawn over it.
+    tops.sort((p, q) => p[1].hz - q[1].hz);
     for (const [child, cq] of tops) paint(child, cq);
     const mr = clamp(a.root.dot * me.m, 6, 13);
     // Dive into a cluster and the core is straight behind it: let it fade so it does not sit on top.
     const coreAlpha = clamp(2.2 - c.s / st.home, 0, 1);
     ctx.globalAlpha = coreAlpha;
     const sun = ctx.createRadialGradient(me.hx, me.hy, 0, me.hx, me.hy, mr * 3.2);
-    sun.addColorStop(0, 'rgba(255,255,255,0.95)'); sun.addColorStop(0.3, 'rgba(226,232,240,0.4)'); sun.addColorStop(1, 'rgba(226,232,240,0)');
+    sun.addColorStop(0, `rgba(${T.me},0.95)`); sun.addColorStop(0.3, `rgba(${T.me},0.28)`); sun.addColorStop(1, `rgba(${T.me},0)`);
     ctx.fillStyle = sun; ctx.beginPath(); ctx.arc(me.hx, me.hy, mr * 3.2, 0, 2 * Math.PI); ctx.fill();
-    ctx.beginPath(); ctx.arc(me.hx, me.hy, mr * 0.6, 0, 2 * Math.PI); ctx.fillStyle = '#FFFFFF'; ctx.fill();
+    ctx.beginPath(); ctx.arc(me.hx, me.hy, mr * 0.6, 0, 2 * Math.PI); ctx.fillStyle = `rgb(${T.me})`; ctx.fill();
     ctx.globalAlpha = 1;
     if (coreAlpha > 0.6) labels.push({ kind: 'plain', text: 'You', x: me.hx, y: me.hy + mr + 12, size: 12, weight: 700, color: INK, priority: 95 });
 
@@ -602,38 +683,67 @@ export default function NetworkGraph({
       if (l.kind === 'initials') {
         ctx.globalAlpha = l.dim ? 0.3 : 1;
         ctx.font = `600 ${l.size}px ${FONT}`;
-        ctx.fillStyle = BG;
+        ctx.fillStyle = T.onNode;
         ctx.fillText(l.text, l.x, l.y + 0.5);
         ctx.globalAlpha = 1;
         continue;
       }
       if (l.kind === 'pill') {
-        const name = l.text.length > 34 ? `${l.text.slice(0, 33)}…` : l.text;
+        // One box per layer, so the level is clear before the words are read:
+        //   banner  group       solid capsule in the group's colour, capitals
+        //   tag     sub-group   squared card with a colour bar down its left edge
+        //   plate   company     small plate with a colour underline
+        //   pill    a person or anything hovered: outlined capsule
+        const style = l.style || 'pill';
+        const tone = paintOf(l.color);
+        const raw = l.text.length > 34 ? `${l.text.slice(0, 33)}…` : l.text;
+        const name = style === 'banner' ? raw.toUpperCase() : raw;
+        const nameFont = style === 'banner' ? `700 ${l.size - 1.5}px ${FONT}` : `${l.weight} ${l.size}px ${FONT}`;
         const count = l.count != null ? l.count.toLocaleString('en-US') : '';
+        ctx.font = nameFont;
+        if (style === 'banner') ctx.letterSpacing = '0.7px';
         const nameW = ctx.measureText(name).width;
+        ctx.letterSpacing = '0px';
         ctx.font = `500 ${l.size - 1}px ${FONT}`;
         const countW = count ? ctx.measureText(count).width + 7 : 0;
-        const bw = nameW + countW + 18;
-        const bh = l.size + 11;
+        const lead = style === 'tag' ? 13 : style === 'banner' ? 11 : 9;
+        const bw = nameW + countW + lead + (style === 'banner' ? 11 : 9);
+        const bh = l.size + (style === 'banner' ? 12 : 11);
         // Keep clear of the zoom buttons in the top-left corner.
         const bx = l.sticky ? clamp(l.x - bw / 2, l.y < 160 ? 52 : 4, Math.max(52, w - bw - 4)) : l.x - bw / 2;
         const by = l.y - bh / 2;
         if (l.priority < 99 && !free(bx - 3, by - 2, bx + bw + 3, by + bh + 2)) continue;
         taken.push([bx, by, bx + bw, by + bh]);
-        ctx.globalAlpha = l.dim ? 0.45 : 1;
-        roundRect(ctx, bx, by, bw, bh, bh / 2);
-        const tone = l.color === INK ? INK : lite(l.color);
-        ctx.fillStyle = 'rgba(11,18,32,0.9)';
-        ctx.fill();
-        ctx.lineWidth = 1; ctx.strokeStyle = withAlpha(tone, l.color === INK ? 0.35 : 0.65); ctx.stroke();
+        ctx.globalAlpha = l.dim ? 0.5 : 1;
+        if (style === 'banner') {
+          roundRect(ctx, bx, by, bw, bh, bh / 2);
+          ctx.fillStyle = tone; ctx.fill();
+        } else if (style === 'tag') {
+          roundRect(ctx, bx, by, bw, bh, 4);
+          ctx.fillStyle = T.pill; ctx.fill();
+          ctx.lineWidth = 1; ctx.strokeStyle = withAlpha(tone, 0.5); ctx.stroke();
+          roundRect(ctx, bx + 3, by + 3, 3, bh - 6, 1.5);
+          ctx.fillStyle = tone; ctx.fill();
+        } else if (style === 'plate') {
+          roundRect(ctx, bx, by, bw, bh, 3);
+          ctx.fillStyle = T.pill; ctx.fill();
+          ctx.fillStyle = tone; ctx.fillRect(bx + 5, by + bh - 2.5, bw - 10, 1.5);
+        } else {
+          roundRect(ctx, bx, by, bw, bh, bh / 2);
+          ctx.fillStyle = T.pill; ctx.fill();
+          ctx.lineWidth = 1; ctx.strokeStyle = withAlpha(tone, l.color === INK ? 0.35 : 0.65); ctx.stroke();
+        }
         ctx.textAlign = 'left';
-        ctx.font = `${l.weight} ${l.size}px ${FONT}`;
-        ctx.fillStyle = tone;
-        ctx.fillText(name, bx + 9, l.y + 0.5);
+        ctx.font = nameFont;
+        if (style === 'banner') ctx.letterSpacing = '0.7px';
+        ctx.fillStyle = style === 'banner' ? T.onNode : style === 'pill' ? tone : T.ink;
+        ctx.fillText(name, bx + lead, l.y + 0.5);
+        ctx.letterSpacing = '0px';
         if (count) {
           ctx.font = `500 ${l.size - 1}px ${FONT}`;
-          ctx.fillStyle = MUTED;
-          ctx.fillText(count, bx + 9 + nameW + 7, l.y + 0.5);
+          ctx.fillStyle = style === 'banner' ? T.onNode : MUTED;
+          ctx.globalAlpha *= style === 'banner' ? 0.78 : 1;
+          ctx.fillText(count, bx + lead + nameW + 7, l.y + 0.5);
         }
         ctx.textAlign = 'center';
         ctx.globalAlpha = 1;
@@ -648,19 +758,19 @@ export default function NetworkGraph({
       if (!free(l.x - tw / 2 - 2, l.y - l.size / 2, l.x + tw / 2 + 2, l.y - l.size / 2 + th)) continue;
       taken.push([l.x - tw / 2, l.y - l.size / 2, l.x + tw / 2, l.y - l.size / 2 + th]);
       ctx.lineJoin = 'round';
-      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(11,18,32,0.92)';
+      ctx.lineWidth = 3; ctx.strokeStyle = T.halo;
       ctx.globalAlpha = l.dim ? 0.35 : 1;
       if (tail) {
         // Name in ink, headcount in grey, as one centred line.
         ctx.textAlign = 'left';
         const x0 = l.x - tw / 2;
         ctx.strokeText(text + tail, x0, l.y);
-        ctx.fillStyle = l.color; ctx.fillText(text, x0, l.y);
+        ctx.fillStyle = paintOf(l.color); ctx.fillText(text, x0, l.y);
         ctx.fillStyle = MUTED; ctx.fillText(tail, x0 + ctx.measureText(text).width, l.y);
         ctx.textAlign = 'center';
       } else {
         ctx.strokeText(text, l.x, l.y);
-        ctx.fillStyle = l.color;
+        ctx.fillStyle = paintOf(l.color);
         ctx.fillText(text, l.x, l.y);
       }
       ctx.globalAlpha = 1;
@@ -714,7 +824,7 @@ export default function NetworkGraph({
   const fitNode = useCallback((node, ms) => {
     if (!node || !live.current.globe) return;
     const target = node.type === 'person' ? node.parent : node;
-    flyTo(target.id === ROOT_ID ? homeCamera() : cameraFor(target.box), ms, target.id);
+    flyTo(target.id === ROOT_ID ? homeCamera() : cameraFor(target), ms, target.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flyTo, cameraFor]);
 
@@ -724,7 +834,8 @@ export default function NetworkGraph({
   useEffect(() => {
     if (!atlas || !width) return;
     const size = `${width}x${height}x${insetBottom}`;
-    const fresh = lastAtlas.current !== atlas || lastSize.current !== size;
+    // A new canvas size is applied at once; new data (a filter, a preset) is flown to.
+    const fresh = lastSize.current !== size;
     lastAtlas.current = atlas;
     lastSize.current = size;
     hover.current = null;
@@ -745,18 +856,23 @@ export default function NetworkGraph({
   // A search or an answer lit people up: turn to them and bring them all into view.
   useEffect(() => {
     if (!atlas || !width || !highlightIds || !highlightIds.size) { redraw(); return; }
-    let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
-    highlightIds.forEach((id) => {
-      const n = atlas.byId.get(id);
-      if (!n) return;
-      x0 = Math.min(x0, n.x - n.r); x1 = Math.max(x1, n.x + n.r); y0 = Math.min(y0, n.y - n.r); y1 = Math.max(y1, n.y + n.r);
-    });
-    if (!Number.isFinite(x0)) { redraw(); return; }
-    flyTo(cameraFor({ x: (x0 + x1) / 2, y: (y0 + y1) / 2, rx: (x1 - x0) / 2 + 40, ry: (y1 - y0) / 2 + 40 }, 9), 750);
+    // Face the middle of the lit people; come in as close as still shows them all.
+    const lit = [];
+    highlightIds.forEach((id) => { const u = globe.place.get(atlas.byId.get(id)); if (u) lit.push(u); });
+    if (!lit.length) { redraw(); return; }
+    const mid = lit.reduce((m, u) => [m[0] + u[0], m[1] + u[1], m[2] + u[2]], [0, 0, 0]);
+    const len = Math.hypot(mid[0], mid[1], mid[2]);
+    const st = stage();
+    if (len < 1e-6) { flyTo(homeCamera(), 750); return; }
+    const dir = [mid[0] / len, mid[1] / len, mid[2] / len];
+    const spread = Math.max(...lit.map((u) => Math.acos(clamp(u[0] * dir[0] + u[1] * dir[1] + u[2] * dir[2], -1, 1))));
+    if (spread > 1.1) { flyTo({ ...facing(dir, st.home) }, 750); return; }
+    const room = 0.42 * Math.min(st.w, st.hh);
+    flyTo(facing(dir, clamp(room / (FRONT * Math.max(0.02, Math.sin(spread) + 0.03)), st.home, 9 / (PERSON_R * FRONT * globe.kappa))), 750);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightIds]);
 
-  useEffect(() => { redraw(); }, [selectedId, redraw]);
+  useEffect(() => { redraw(); }, [selectedId, theme, redraw]);
   // The frame handle must be cleared too: React re-runs effects in development,
   // and a cancelled but still-set handle would block every later redraw.
   useEffect(() => () => { cancelAnimationFrame(frame.current); frame.current = 0; clearTimeout(settled.current); }, []);
@@ -910,8 +1026,8 @@ export default function NetworkGraph({
       className="relative select-none"
       style={{
         height,
-        backgroundColor: BG,
-        backgroundImage: 'radial-gradient(ellipse at 50% 42%, #18253F 0%, #0F192D 45%, #0B1220 100%)',
+        backgroundColor: (THEMES[theme] || THEMES.light).bg,
+        backgroundImage: (THEMES[theme] || THEMES.light).backdrop,
       }}
     >
       <canvas

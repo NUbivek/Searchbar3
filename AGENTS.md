@@ -142,7 +142,8 @@ Key behaviours worth knowing before editing:
   d3-hierarchy, no physics; people spiral out from their company ordered by
   `seniority`); renderer `src/components/network/NetworkGraph.js` (one
   canvas, no graph library: wraps the atlas into a layered 3D globe, camera
-  = yaw/pitch/radius, drag-spin with momentum, fly-to, labels, picking).
+  = yaw/pitch/radius, drag-spin with momentum, fly-to, labels, picking;
+  `theme` prop: light default, dark ready, colours in `THEMES`).
   `src/pages/network.js` holds `focus` (where the camera was sent), `viewId`
   (the cluster in view, reported by the map), the breadcrumb and the two
   bottom bars ("Zoom to" and "Presets"). `graph.js`, force-graph and

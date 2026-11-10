@@ -42,6 +42,15 @@ export function clusterColor(key) {
   return CLUSTER_COLORS[h % CLUSTER_COLORS.length];
 }
 
+/** A shade of a colour: t < 0 mixes towards ink, t > 0 towards white. */
+export function shade(hex, t) {
+  const n = parseInt(String(hex || NEUTRAL_COLOR).slice(1), 16);
+  const to = t < 0 ? [15, 23, 42] : [255, 255, 255];
+  const k = Math.min(1, Math.abs(t));
+  const mix = (c, target) => Math.round(c + (target - c) * k).toString(16).padStart(2, '0');
+  return `#${mix((n >> 16) & 255, to[0])}${mix((n >> 8) & 255, to[1])}${mix(n & 255, to[2])}`;
+}
+
 /** World-space sizes. A person is always this radius; everything else follows from packing. */
 export const PERSON_R = 4;
 const GAP = { person: 1.8, company: 10, group: 26, top: 54 };
@@ -207,8 +216,15 @@ export function buildAtlas(contacts, { groupBy = 'role' } = {}) {
     node.children.forEach((child, i) => {
       child.x += node.x;
       child.y += node.y;
-      // Colour is set by the outermost layer and inherited all the way down.
+      // The outermost layer sets the hue. Each sub-group inside it gets its
+      // own shade of that hue (largest darkest), and everything below a
+      // sub-group inherits its shade.
       let c = color;
+      if (node.id !== ROOT_ID && child.type === 'group') {
+        const order = [...node.children].sort((p, q) => q.count - p.count || String(p.label).localeCompare(String(q.label)));
+        const rank = order.indexOf(child);
+        c = shade(color, order.length > 1 ? -0.32 + (0.8 * rank) / (order.length - 1) : 0);
+      }
       if (node.id === ROOT_ID) {
         c = child.type === 'company' ? clusterColor(child.key)
           : GROUP_COLORS[child.key] || (child.key === OTHER_INDUSTRY || child.key === UNKNOWN_COUNTRY ? NEUTRAL_COLOR : CLUSTER_COLORS[i % CLUSTER_COLORS.length]);

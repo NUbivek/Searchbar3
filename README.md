@@ -107,8 +107,10 @@ to turn it towards you and fly down to it. A breadcrumb shows where you
 are; the two bars under the map are quick zoom (what is inside the cluster
 in view) and presets (whole network, the three lenses, largest company).
 Group by role, company, industry or country, highlight a name, go full
-screen. The layout is computed once with no physics, so the same contacts
-always give the same globe. Ask it questions in
+screen. The globe is see-through and used all the way round, so the far side shows
+behind the near side; it is light by default with a dark palette ready
+(`theme` prop). The layout is computed once with no physics, so the same
+contacts always give the same globe. Ask it questions in
 plain words: "Who can help me raise a fund?", "Who sends me deal flow in
 fintech?", "Who can diligence an AI company?", "Who do I know at Google?",
 "Intro paths to Stripe". Matching is deterministic over your contacts;
