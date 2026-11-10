@@ -214,10 +214,20 @@ LAYERS, FROM THE OUTSIDE IN
      By country  -> country, then industry, then companies and people
      By company  -> companies and people
 
-THE SUMMARY CARD (top right of the map)
-- Says what is in view: its name, how many people, a bar showing leaders,
-  heads and team, and how many of them can help you raise, source and
-  diligence. When you open a group, everything outside it fades so only
+THE DASHBOARD (to the right of the globe)
+- It always describes the part of the globe that is in view.
+- "Layers" at the top shows the steps, for example Role > Industry >
+  Company > People. Click a step already chosen to go back to it.
+- A seniority bar shows Leaders, Heads and Team. Click a part of the bar to
+  list only those people.
+- Three boxes, "Raise", "Source" and "Diligence", show how many people in
+  view can help with each. Click one to list only those people.
+- "Next layer" shows what is inside as bars. Click a bar to open it on the
+  globe.
+- The people list shows everyone in view with their title and company. It
+  has a "Filter these people" box and can be sorted by Seniority, Recent or
+  A-Z. Click a person to fly to them and see their details.
+- When you open a group, everything outside it fades on the globe so only
   that group is easy to read.
 
 THE TWO BARS UNDER THE MAP

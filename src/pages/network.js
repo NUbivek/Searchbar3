@@ -20,7 +20,7 @@ import NetworkGraph, { SOURCE_COLORS } from '../components/network/NetworkGraph'
 import {
   parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, MAX_CONTACTS,
 } from '../utils/network/parseContacts';
-import { buildAtlas, pathTo, personNodeId, seniority, NO_COMPANY_KEY, ROOT_ID } from '../utils/network/atlas';
+import { buildAtlas, pathTo, personNodeId, seniority, LAYERS, NO_COMPANY_KEY, ROOT_ID } from '../utils/network/atlas';
 import { classifyContact, roleStats, LENSES } from '../utils/network/roles';
 import { GROUPINGS } from '../utils/network/grouping';
 
@@ -40,6 +40,11 @@ const SENIORITY = [
   { rank: 1, label: 'Heads', hint: 'VPs, directors, heads of function', tone: '#64748B' },
   { rank: 2, label: 'Team', hint: 'Everyone else', tone: '#CBD5E1' },
 ];
+const LAYER_LABEL = { role: 'Role', industry: 'Industry', country: 'Country', company: 'Company' };
+/** People listed in the dashboard before "Show more". */
+const PEOPLE_PAGE = 50;
+const PEOPLE_SORTS = [{ key: 'senior', label: 'Seniority' }, { key: 'recent', label: 'Recent' }, { key: 'name', label: 'A–Z' }];
+const initialsOf = (name) => String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 const EXAMPLES = ['Who can help me raise a fund?', 'Who sends me deal flow in fintech?', 'Who can diligence an AI company?', 'Who do I know at Google?', 'Intro paths to Stripe'];
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 // The contacts API accepts 15 MB request bodies; stop a little short of it.
@@ -171,6 +176,12 @@ export default function NetworkPage() {
   const [viewId, setViewId] = useState('root');
   const [lensFilter, setLensFilter] = useState(null);
   const [selected, setSelected] = useState(null);
+  // Dashboard beside the globe: filters that apply to its people list.
+  const [rankFilter, setRankFilter] = useState(null);
+  const [panelLens, setPanelLens] = useState(null);
+  const [panelQuery, setPanelQuery] = useState('');
+  const [panelSort, setPanelSort] = useState('senior');
+  const [peopleShown, setPeopleShown] = useState(PEOPLE_PAGE);
   const [dragging, setDragging] = useState(false);
 
   const [question, setQuestion] = useState('');
@@ -619,19 +630,43 @@ export default function NetworkPage() {
     [atlas],
   );
 
-  // The summary card: who is in view (or lit by a search or an answer), by
-  // seniority and by what they can help with.
+  // The dashboard: who is in the layer in view (or lit by a search or an
+  // answer), broken down by seniority and by what they can help with.
   const panel = useMemo(() => {
     const lit = highlightIds.size > 0;
     const base = lit ? visibleContacts.filter((c) => highlightIds.has(personNodeId(c))) : (viewNode.contacts || []);
     const ranks = [0, 0, 0];
     const lens = { raise: 0, source: 0, diligence: 0 };
-    for (const c of base) {
-      ranks[seniority(c)] += 1;
-      classifyContact(c).lenses.forEach((l) => { if (lens[l] != null) lens[l] += 1; });
-    }
-    return { lit, total: base.length, ranks, lens };
+    const rows = base.map((c) => {
+      const rank = seniority(c);
+      const cl = classifyContact(c);
+      ranks[rank] += 1;
+      cl.lenses.forEach((l) => { if (lens[l] != null) lens[l] += 1; });
+      return { c, rank, cl };
+    });
+    return { lit, total: base.length, ranks, lens, rows };
   }, [viewNode, highlightIds, visibleContacts]);
+  const panelRows = useMemo(() => {
+    const q = panelQuery.trim().toLowerCase();
+    const rows = panel.rows.filter((r) => (rankFilter == null || r.rank === rankFilter)
+      && (!panelLens || r.cl.lenses.includes(panelLens))
+      && (!q || [r.c.name, r.c.company, r.c.position].some((v) => String(v || '').toLowerCase().includes(q))));
+    const byName = (x, y) => String(x.c.name || '').localeCompare(String(y.c.name || ''));
+    const byRecent = (x, y) => String(y.c.connectedOn || '').localeCompare(String(x.c.connectedOn || ''));
+    rows.sort(panelSort === 'name' ? byName : panelSort === 'recent' ? (x, y) => byRecent(x, y) || byName(x, y) : (x, y) => x.rank - y.rank || byRecent(x, y) || byName(x, y));
+    return rows;
+  }, [panel, rankFilter, panelLens, panelQuery, panelSort]);
+  useEffect(() => { setPeopleShown(PEOPLE_PAGE); }, [viewNode.id, rankFilter, panelLens, panelQuery, panelSort, highlightIds]);
+  // The layers of this grouping as steps: the ones already chosen, the one
+  // you are choosing now, and what is still below.
+  const layerSteps = useMemo(() => {
+    const dims = LAYERS[groupBy] || LAYERS.role;
+    const chosen = trail.slice(1).map((n) => ({ dim: n.type === 'company' ? 'company' : n.dim, value: n.label, id: n.id, color: n.color }));
+    const last = chosen.length ? chosen[chosen.length - 1].dim : null;
+    const rest = (last ? dims.slice(dims.indexOf(last) + 1) : dims).map((dim) => ({ dim }));
+    return [...chosen, ...rest, { dim: 'people' }];
+  }, [trail, groupBy]);
+  const panelFiltered = rankFilter != null || panelLens || panelQuery.trim();
 
   // ------------------------------------------------------------ ask
 
@@ -769,7 +804,9 @@ export default function NetworkPage() {
 
   const details = selected && (
     <aside
-      className="glass m-3 rounded-xl border border-line p-4 text-sm shadow-card sm:absolute sm:right-3 sm:top-3 sm:m-0 sm:w-80 sm:max-h-[calc(100%-7rem)] sm:overflow-y-auto"
+      className={fullscreen
+        ? 'glass absolute right-3 top-3 max-h-[calc(100%-7rem)] w-80 overflow-y-auto rounded-xl border border-line p-4 text-sm shadow-card'
+        : 'min-h-0 flex-1 overflow-y-auto p-4 text-sm'}
       aria-label="Details"
     >
       {selected.type === 'person' && (
@@ -1018,7 +1055,8 @@ export default function NetworkPage() {
               </span>
             </nav>
 
-            <div ref={graphBoxRef} className="relative min-w-0 overflow-hidden bg-white">
+            <div className="lg:flex">
+            <div ref={graphBoxRef} className="relative min-w-0 flex-1 overflow-hidden bg-white">
               {atlas.peopleCount === 0 ? (
                 <div className="flex items-center justify-center text-sm text-muted" style={{ height: graphHeight }}>No contacts match these filters.</div>
               ) : (
@@ -1117,43 +1155,166 @@ export default function NetworkPage() {
                   )}
                 </div>
               </div>
-              {details}
-              {/* What you are looking at, in words and one bar: no list. */}
-              {!selected && panel.total > 0 && (
-                <div className="glass pointer-events-auto absolute right-3 top-3 hidden w-60 rounded-xl border border-line p-3.5 text-sm shadow-card sm:block" aria-label="In view">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted">{panel.lit ? 'Highlighted' : viewNode.id === ROOT_ID ? 'Your network' : viewNode.type === 'company' ? 'Company' : trail.length > 2 ? 'Sub-group' : 'Group'}</p>
-                  <h3 className="mt-0.5 flex items-center gap-2 font-semibold leading-tight text-ink">
-                    {!panel.lit && viewNode.color && <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: viewNode.color }} />}
-                    {panel.lit ? 'Matches' : viewNode.id === ROOT_ID ? 'Everyone you know' : viewNode.label}
-                  </h3>
-                  <p className="mt-1 text-xs text-muted">
-                    <span className="font-medium text-ink">{fmt(panel.total)}</span> {panel.total === 1 ? 'person' : 'people'}
-                    {!panel.lit && viewNode.type !== 'company' && quick.items.length > 0 && <> · {fmt(viewNode.children.length)} {viewNode.children[0]?.type === 'company' ? 'companies' : 'groups'}</>}
-                  </p>
-                  {!panel.lit && viewNode.hint && <p className="mt-1.5 text-xs text-slate-600">{viewNode.hint}</p>}
-                  <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-slate-100" role="img" aria-label={SENIORITY.map((sn) => `${sn.label} ${panel.ranks[sn.rank]}`).join(', ')}>
-                    {SENIORITY.map((sn) => panel.ranks[sn.rank] > 0 && (
-                      <span key={sn.rank} title={`${sn.label}: ${fmt(panel.ranks[sn.rank])} (${sn.hint})`} style={{ width: `${(panel.ranks[sn.rank] / panel.total) * 100}%`, background: sn.tone }} />
-                    ))}
+              {fullscreen && details}
+            </div>
+            {/* ---------------------------------------------- dashboard */}
+            <aside className="flex max-h-[560px] min-h-0 flex-col border-t border-line bg-white lg:h-[620px] lg:max-h-none lg:w-[360px] lg:shrink-0 lg:border-l lg:border-t-0" aria-label="Dashboard">
+              {selected && !fullscreen ? details : (
+                <>
+                  <div className="space-y-3 border-b border-line px-4 py-3">
+                    {/* Layers: where you are in the hierarchy, as steps. */}
+                    <ol className="flex items-stretch gap-1" aria-label="Layers">
+                      {layerSteps.map((step, i) => {
+                        const done = Boolean(step.id);
+                        const current = !done && (i === 0 || Boolean(layerSteps[i - 1].id));
+                        return (
+                          <li key={`${step.dim}:${i}`} className="min-w-0 flex-1">
+                            <button
+                              type="button"
+                              disabled={!done}
+                              onClick={() => { setSelected(null); goTo(step.id); }}
+                              title={done ? `Back to ${step.value}` : undefined}
+                              className={classNames('block w-full rounded-md border px-1.5 py-1 text-left', done ? 'border-transparent bg-slate-100 hover:bg-slate-200' : current ? 'border-ink bg-white' : 'border-dashed border-line bg-white opacity-60')}
+                            >
+                              <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+                                <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: done ? step.color || '#0F172A' : current ? '#0F172A' : '#CBD5E1' }} />
+                                {step.dim === 'people' ? 'People' : LAYER_LABEL[step.dim]}
+                              </span>
+                              <span className={classNames('block truncate text-xs', done || current ? 'font-medium text-ink' : 'text-muted')}>
+                                {done ? step.value : current ? (step.dim === 'people' ? `${fmt(panel.total)} here` : `${fmt(viewNode.children.length)} to pick`) : '—'}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                    <div>
+                      <h3 className="flex items-center gap-2 font-semibold leading-tight text-ink">
+                        {!panel.lit && viewNode.color && <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: viewNode.color }} />}
+                        {panel.lit ? 'Highlighted matches' : viewNode.id === ROOT_ID ? 'Everyone you know' : viewNode.label}
+                        <span className="font-normal text-muted">{fmt(panel.total)}</span>
+                      </h3>
+                      {!panel.lit && viewNode.hint && <p className="mt-0.5 text-xs text-muted">{viewNode.hint}</p>}
+                    </div>
+                    {/* Seniority: a bar you can click to filter. */}
+                    {panel.total > 0 && (
+                      <div role="group" aria-label="Filter by seniority">
+                        <div className="flex h-7 gap-0.5 overflow-hidden rounded-md">
+                          {SENIORITY.map((sn) => panel.ranks[sn.rank] > 0 && (
+                            <button
+                              key={sn.rank}
+                              type="button"
+                              role="checkbox"
+                              aria-checked={rankFilter === sn.rank}
+                              title={`${sn.label}: ${fmt(panel.ranks[sn.rank])} · ${sn.hint}`}
+                              onClick={() => setRankFilter((v) => (v === sn.rank ? null : sn.rank))}
+                              style={{ flexGrow: panel.ranks[sn.rank], background: sn.tone, opacity: rankFilter == null || rankFilter === sn.rank ? 1 : 0.3 }}
+                              className={classNames('min-w-[34px] basis-0 px-1.5 text-left text-[11px] font-semibold', sn.rank === 2 ? 'text-slate-700' : 'text-white', rankFilter === sn.rank && 'ring-2 ring-inset ring-amber-400')}
+                            >
+                              {fmt(panel.ranks[sn.rank])}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="mt-1 flex gap-3 text-[11px] text-muted">
+                          {SENIORITY.map((sn) => <span key={sn.rank} title={sn.hint} className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: sn.tone }} />{sn.label}</span>)}
+                        </div>
+                      </div>
+                    )}
+                    {/* What they can help with: three gauges you can click to filter. */}
+                    {panel.total > 0 && (
+                      <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Filter by what they can help with">
+                        {Object.values(LENSES).map((l) => (
+                          <button
+                            key={l.key}
+                            type="button"
+                            role="checkbox"
+                            aria-checked={panelLens === l.key}
+                            title={l.description}
+                            onClick={() => setPanelLens((v) => (v === l.key ? null : l.key))}
+                            className={classNames('rounded-md border px-2 py-1.5 text-left', panelLens === l.key ? 'border-brand-500 bg-brand-50' : 'border-line hover:bg-slate-50')}
+                          >
+                            <span className="block text-[10px] font-medium uppercase tracking-wide text-muted">{l.short}</span>
+                            <span className="block text-sm font-semibold text-ink">{fmt(panel.lens[l.key])}</span>
+                            <span className="mt-1 block h-1 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full bg-brand-500" style={{ width: `${(panel.lens[l.key] / panel.total) * 100}%` }} /></span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div className="mt-1.5 flex justify-between text-[11px] text-muted">
-                    {SENIORITY.map((sn) => (
-                      <span key={sn.rank} title={sn.hint} className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: sn.tone }} />{sn.label} <span className="font-medium text-ink">{fmt(panel.ranks[sn.rank])}</span></span>
-                    ))}
+                  {/* The next layer down, as bars in the colours used on the globe. */}
+                  {!panel.lit && viewNode.type !== 'company' && quick.items.length > 1 && (
+                    <div className="border-b border-line px-4 py-3">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted">Next layer · {viewNode.children[0]?.type === 'company' ? 'companies' : LAYER_LABEL[viewNode.children[0]?.dim]?.toLowerCase() || 'groups'}</p>
+                      <ul className="mt-1.5 max-h-[132px] space-y-1 overflow-y-auto pr-1">
+                        {quick.items.map((node) => (
+                          <li key={node.id}>
+                            <button type="button" onClick={() => onNodeClick(node)} className="group flex w-full items-center gap-2 text-left text-xs" title={`Open ${node.label} on the globe`}>
+                              <span className="w-28 shrink-0 truncate text-ink group-hover:underline">{node.label}</span>
+                              <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full" style={{ width: `${Math.max(3, (node.count / Math.max(1, quick.items[0].count)) * 100)}%`, background: node.color }} /></span>
+                              <span className="w-9 shrink-0 text-right tabular-nums text-muted">{fmt(node.count)}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {/* People in this layer. */}
+                  <div className="flex items-center gap-2 border-b border-line px-4 py-2">
+                    <div className="relative min-w-0 flex-1">
+                      <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted" style={{ width: 13, height: 13 }} />
+                      <input type="search" value={panelQuery} onChange={(e) => setPanelQuery(e.target.value)} placeholder="Filter these people" aria-label="Filter these people" className="input w-full py-1 pl-7 text-xs" />
+                    </div>
+                    <div className="flex shrink-0 rounded-md border border-line p-0.5 text-[11px]" role="radiogroup" aria-label="Sort people">
+                      {PEOPLE_SORTS.map((o) => (
+                        <button key={o.key} type="button" role="radio" aria-checked={panelSort === o.key} onClick={() => setPanelSort(o.key)} className={classNames('rounded px-1.5 py-0.5', panelSort === o.key ? 'bg-slate-100 font-medium text-ink' : 'text-muted hover:text-ink')}>{o.label}</button>
+                      ))}
+                    </div>
                   </div>
-                  <p className="mt-2.5 border-t border-line pt-2 text-[11px] text-muted">
-                    Can help you{' '}
-                    {Object.values(LENSES).map((l, i) => (
-                      <React.Fragment key={l.key}>
-                        {i > 0 && ' · '}
-                        <button type="button" onClick={() => pickLens(l.key)} title={l.description} className={classNames('hover:text-ink', lensFilter === l.key && 'font-semibold text-ink underline')}>
-                          {l.short.toLowerCase()} <span className="font-medium text-ink">{fmt(panel.lens[l.key])}</span>
-                        </button>
-                      </React.Fragment>
-                    ))}
-                  </p>
-                </div>
+                  {panelFiltered && (
+                    <p className="flex items-center justify-between border-b border-line bg-slate-50/70 px-4 py-1.5 text-[11px] text-muted">
+                      <span>{fmt(panelRows.length)} of {fmt(panel.total)}</span>
+                      <button type="button" onClick={() => { setRankFilter(null); setPanelLens(null); setPanelQuery(''); }} className="font-medium text-brand-600 hover:underline">Clear filters</button>
+                    </p>
+                  )}
+                  <ul className="min-h-0 flex-1 divide-y divide-line overflow-y-auto">
+                    {panelRows.slice(0, peopleShown).map(({ c, rank, cl }) => {
+                      const tone = atlas.byId.get(personNodeId(c))?.color || '#94A3B8';
+                      return (
+                        <li key={dedupeKey(c)}>
+                          <button type="button" onClick={() => selectContact({ ...c, key: dedupeKey(c) })} className="flex w-full items-center gap-2.5 px-4 py-2 text-left hover:bg-slate-50">
+                            <span
+                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold"
+                              style={c.relationship === 'firm' ? { border: `1.5px solid ${tone}`, color: tone } : { background: tone, color: '#FFFFFF' }}
+                              title={c.relationship === 'firm' ? 'A firm-wide CRM contact, not your own connection' : undefined}
+                            >
+                              {initialsOf(c.name)}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-1.5">
+                                <span className="truncate text-sm font-medium text-ink">{c.name}</span>
+                                {rank < 2 && <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: SENIORITY[rank].tone }} title={SENIORITY[rank].label} />}
+                              </span>
+                              <span className="block truncate text-xs text-muted">{[c.position, c.company].filter(Boolean).join(' · ') || 'No title or company'}</span>
+                            </span>
+                            <span className="flex shrink-0 gap-0.5">
+                              {Object.values(LENSES).map((l) => (
+                                <span key={l.key} title={cl.lenses.includes(l.key) ? `Can help you ${l.short.toLowerCase()}` : undefined} className={classNames('flex h-4 w-4 items-center justify-center rounded text-[9px] font-semibold', cl.lenses.includes(l.key) ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-300')}>{l.short[0]}</span>
+                              ))}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                    {panelRows.length === 0 && <li className="px-4 py-8 text-center text-xs text-muted">No one in this layer matches.</li>}
+                    {panelRows.length > peopleShown && (
+                      <li className="px-4 py-2 text-center">
+                        <button type="button" onClick={() => setPeopleShown((n) => n + PEOPLE_PAGE)} className="text-xs font-medium text-brand-600 hover:underline">Show {fmt(Math.min(PEOPLE_PAGE, panelRows.length - peopleShown))} more of {fmt(panelRows.length)}</button>
+                      </li>
+                    )}
+                  </ul>
+                </>
               )}
+            </aside>
             </div>
           </section>
         )}

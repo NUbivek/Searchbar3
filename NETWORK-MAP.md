@@ -90,11 +90,23 @@ Getting around:
 - **One thing at a time.** Open a cluster and everything outside it (and
   outside the way back to you) fades right back, so only what you opened
   reads. At most fourteen company names are shown at once, biggest first.
-- **Summary card** (top right of the map): what you are looking at, in
-  words: its name and level, how many people and groups or companies, a
-  seniority bar (leaders, heads, team) and how many can help you raise,
-  source and diligence (click one to apply that lens). It is replaced by
-  the details of a person or company when you select one.
+- **Dashboard** (right of the globe, below it on a phone): the layer in
+  view as numbers and people, always in step with the globe.
+  - *Layers*: the steps of the current grouping (for example Role ›
+    Industry › Company › People). Steps already chosen show their value and
+    fly back to it when clicked; the step you are choosing now is outlined.
+  - *Seniority bar*: leaders, heads and team, sized by headcount; click a
+    segment to filter the list to it.
+  - *Raise / Source / Diligence*: how many in view can help with each, with
+    a gauge; click one to filter the list.
+  - *Next layer*: what is inside, as bars in the colours used on the globe;
+    click a bar to open it on the globe.
+  - *People*: everyone in view with an avatar in their colour (hollow for a
+    firm contact), title and company, a seniority dot and R / S / D marks.
+    Filter by name, company or title; sort by seniority, most recently
+    connected or A–Z. Clicking a person flies to them and shows their
+    details in the same panel (close it to return to the list).
+  A search or an answer switches the dashboard to the highlighted matches.
 - **Key** (bottom left): what the marks mean.
 - **One layer at a time.** Zoomed out, only the groups are named; the
   layers inside them are ghosted. Come closer (or click a group) and its
