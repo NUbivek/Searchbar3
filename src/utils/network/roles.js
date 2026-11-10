@@ -37,12 +37,12 @@ export const ROLES = [
     requireCompanyIf: /\b(partner|principal|associate|analyst|fund|investment)\b/i,
   },
   {
-    key: 'accelerator', label: 'Accelerator / platform', group: 'Founders & operators', lenses: ['source'],
+    key: 'accelerator', label: 'Accelerator / platform', group: 'Founders & executives', lenses: ['source'],
     title: /\b(accelerator|incubator|program (director|manager)|community|platform|ecosystem|startup program)\b/i,
     company: /\b(y combinator|techstars|500 ?(global|startups)|accelerator|incubator|founders? (institute|network)|launchpad|skydeck|alchemist|entrepreneur first|antler)\b/i,
   },
   {
-    key: 'founder', label: 'Founder', group: 'Founders & operators', lenses: ['source', 'diligence'],
+    key: 'founder', label: 'Founder', group: 'Founders & executives', lenses: ['source', 'diligence'],
     title: /\b(co-?founder|founder|founding|owner|ceo|chief executive|(?<!vice )(?<!senior vice )(?<!executive vice )president|entrepreneur in residence|eir|stealth|building something)\b/i,
   },
   {
@@ -67,7 +67,7 @@ export const ROLES = [
   },
   {
     // Before "academic": an MBA candidate at a university is a student, not a professor.
-    key: 'student', label: 'Student / early career', group: 'Founders & operators', lenses: ['source'],
+    key: 'student', label: 'Student / early career', group: 'Operators & talent', lenses: ['source'],
     title: /\b(student|mba candidate|mba student|ph\.?d\.? (candidate|student)|doctoral (candidate|student)|undergraduate|graduate student|intern|internship|trainee|apprentice|class of \d{2,4})\b/i,
   },
   {
@@ -96,23 +96,24 @@ export const ROLES = [
     title: /\bpartner\b/i,
   },
   {
-    key: 'executive', label: 'Executive', group: 'Founders & operators', lenses: ['source', 'diligence'],
+    key: 'executive', label: 'Executive', group: 'Founders & executives', lenses: ['source', 'diligence'],
     title: /\b(cto|coo|cmo|cpo|cro|ciso|chief|c-level|vp|vice president|svp|evp|head of|general manager|gm\b|managing director|director)\b/i,
   },
   {
-    key: 'operator', label: 'Operator', group: 'Founders & operators', lenses: ['diligence', 'source'],
+    key: 'operator', label: 'Operator', group: 'Operators & talent', lenses: ['diligence', 'source'],
     title: /\b(engineer\w*|develop\w*|programmer|architect|product|design\w*|ux|ui|data|scientist|market\w*|growth|sales|account\w*|customer|success|support|operations|ops|program|project|manag\w*|lead|leader|staff|senior|junior|principal|analyst|specialist|associate|assistant|coordinator|administrator|admin|officer|representative|recruit\w*|talent|people|hr|human resources|finance|strategy|partnerships?|business development|bd|researcher|technician|technical|supervisor|executive|head|producer|creative|content|brand|communications|procurement|supply chain|logistics|quality|qa|it|member of technical staff|mts)\b/i,
   },
 ];
 
-// Order is the map's compass: top, right, bottom, left.
+// Order of the first layer of the map.
 export const ROLE_GROUPS = [
   { key: 'investors', label: 'Investors & LPs', hint: 'Who can fund you, co-invest or introduce an LP', lens: 'raise' },
-  { key: 'founders', label: 'Founders & operators', hint: 'Who sees deals first and can vouch for a founder', lens: 'source' },
+  { key: 'founders', label: 'Founders & executives', hint: 'Who runs companies, sees deals first and can vouch for a founder', lens: 'source' },
+  { key: 'operators', label: 'Operators & talent', hint: 'Who does the work inside companies: former colleagues, hires and people who can vet a team', lens: null },
   { key: 'other', label: 'Everyone else', hint: 'No title and no company in the import', lens: null },
   { key: 'experts', label: 'Experts & advisors', hint: 'Who can vet a sector, a company or a founder', lens: 'diligence' },
 ];
-const GROUP_KEY = { 'Investors & LPs': 'investors', 'Founders & operators': 'founders', 'Experts & advisors': 'experts' };
+const GROUP_KEY = { 'Investors & LPs': 'investors', 'Founders & executives': 'founders', 'Operators & talent': 'operators', 'Experts & advisors': 'experts' };
 
 const cache = new WeakMap();
 
@@ -144,7 +145,7 @@ export function classifyContact(contact) {
   // with the operators rather than left unplaced. Only a contact with
   // neither stays in "Everyone else".
   if (!out && (title.trim() || company.trim())) {
-    out = { role: 'professional', label: title.trim() ? 'Professional' : 'Team member', group: 'founders', lenses: ['diligence'], reason: title.trim() ? `Title: "${title.slice(0, 60)}"` : `Company: ${company.slice(0, 60)}` };
+    out = { role: 'professional', label: title.trim() ? 'Professional' : 'Team member', group: 'operators', lenses: ['diligence'], reason: title.trim() ? `Title: "${title.slice(0, 60)}"` : `Company: ${company.slice(0, 60)}` };
   }
   if (!out) out = { role: 'other', label: 'No title', group: 'other', lenses: [], reason: '' };
   cache.set(contact, out);

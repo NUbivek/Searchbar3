@@ -115,10 +115,11 @@ describe('nobody useful is left in "Other"', () => {
     expect(classifyContact(c('A', 'General Partner', 'Accel'))).toMatchObject({ role: 'investor', group: 'investors' });
     expect(classifyContact(c('B', 'Partner', 'a16z'))).toMatchObject({ role: 'investor' });
     expect(classifyContact(c('C', 'Partner', 'Harbor & Finch LLP')).group).toBe('experts');
-    expect(classifyContact(c('D', 'MBA Candidate', 'UC Berkeley Haas School of Business'))).toMatchObject({ role: 'student', group: 'founders' });
-    expect(classifyContact(c('E', 'Senior Product Designer', 'Brightloop')).role).toBe('operator');
+    expect(classifyContact(c('D', 'MBA Candidate', 'UC Berkeley Haas School of Business'))).toMatchObject({ role: 'student', group: 'operators' });
+    expect(classifyContact(c('E', 'Senior Product Designer', 'Brightloop'))).toMatchObject({ role: 'operator', group: 'operators' });
+    expect(classifyContact(c('E2', 'VP Engineering', 'Brightloop'))).toMatchObject({ role: 'executive', group: 'founders' });
     expect(classifyContact(c('F', 'Registered Nurse', 'Northside Health')).role).toBe('clinician');
-    expect(classifyContact(c('G', 'Musician', 'Zephyr'))).toMatchObject({ role: 'professional', group: 'founders' });
+    expect(classifyContact(c('G', 'Musician', 'Zephyr'))).toMatchObject({ role: 'professional', group: 'operators' });
   });
   test('sector from the company name, then function from the title', () => {
     expect(industryOf(c('A', 'Engineer', 'Northside Health'))).toBe('Healthcare');

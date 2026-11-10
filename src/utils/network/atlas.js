@@ -28,7 +28,7 @@ export const LAYERS = {
 };
 
 /** Role groups keep one colour everywhere on the site. */
-export const GROUP_COLORS = { investors: '#3D6A96', founders: '#2E8B6E', experts: '#B8742A', other: '#7C8A9E' };
+export const GROUP_COLORS = { investors: '#3D6A96', founders: '#2E8B6E', operators: '#2A8C9E', experts: '#B8742A', other: '#7C8A9E' };
 export const NEUTRAL_COLOR = '#7C8A9E';
 export const CLUSTER_COLORS = [
   '#3D6A96', '#2E8B6E', '#B8742A', '#7A5C9E', '#C0565A', '#2A8C9E', '#5B7F3F', '#9A6B3C', '#4F6DAF', '#3F8F8A',
@@ -58,8 +58,8 @@ const GAP = { person: 1.8, company: 10, group: 26, top: 54 };
 const dotFor = (node) => (node.type === 'company' ? Math.min(3 + Math.sqrt(node.count) * 1.15, 15) : node.type === 'group' ? Math.min(9 + Math.sqrt(node.count) * 0.55, 22) : node.type === 'root' ? 10 : PERSON_R);
 /** Clear space between a node's dot and the first ring of its children: the visible length of its links. */
 const REACH = { company: 5, group: 34, root: 60 };
-/** Role groups sit on a compass: investors top, founders right, everyone else bottom, experts left. */
-const COMPASS = { investors: [0, -1], founders: [1, 0], other: [0, 1], experts: [-1, 0] };
+/** Role groups sit round a ring in the flat plan: investors at the top, then clockwise. */
+const COMPASS = { investors: [0, -1], founders: [0.95, -0.31], operators: [0.59, 0.81], other: [-0.59, 0.81], experts: [-0.95, -0.31] };
 
 /** 0 = runs the place, 1 = leads a function, 2 = everyone else; read from the title. */
 export function seniority(contact) {

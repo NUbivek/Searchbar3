@@ -121,7 +121,7 @@ Getting around:
   each person as a dot with initials; closest, names and titles. Hover
   anything for its name at any distance.
 - **Breadcrumb** (above the map): where you are, for example *All ›
-  Founders & operators › Big Tech › Google*. It follows you as you spin and
+  Founders & executives › Big Tech › Google*. It follows you as you spin and
   zoom by hand; click a step to fly back out to it.
 - **Zoom to** (first bar under the map): what is inside the cluster you
   are looking at, largest first: the groups, then their sub-groups, then
@@ -140,8 +140,10 @@ Getting around:
 
 Groupings (the switch above the map):
 
-- **By role** (default): *Investors & LPs*, *Founders & operators*,
-  *Experts & advisors* and *Everyone else*. Inside each: industries, then
+- **By role** (default): *Investors & LPs*, *Founders & executives*
+  (founders, CEOs, VPs, directors, accelerators), *Operators & talent*
+  (everyone who does the work inside companies, plus students), *Experts &
+  advisors* and *Everyone else* (no title and no company). Inside each: industries, then
   companies, then people.
 - *By country* is greyed out until at least one contact has a location
   (LinkedIn's export has none; a CSV with a Location column does).
@@ -185,10 +187,10 @@ lenses the contact belongs to:
 |---|---|---|---|
 | LP / allocator | family office, endowment, pension, fund of funds, CIO, wealth manager | Investors & LPs | raise |
 | Investor | GP, partner/principal/associate *at a fund-like employer*, angel, scout | Investors & LPs | raise, source |
-| Accelerator / platform | YC, Techstars, program directors | Founders & operators | source |
-| Founder | founder, co-founder, CEO, owner, EIR, stealth | Founders & operators | source, diligence |
-| Executive | CTO, COO, VP, head of, director, GM | Founders & operators | source, diligence |
-| Operator | engineers, product, sales, marketing, ops, analysts | Founders & operators | diligence, source |
+| Accelerator / platform | YC, Techstars, program directors | Founders & executives | source |
+| Founder | founder, co-founder, CEO, owner, EIR, stealth | Founders & executives | source, diligence |
+| Executive | CTO, COO, VP, head of, director, GM | Founders & executives | source, diligence |
+| Operator | engineers, product, sales, marketing, ops, analysts | Founders & executives | diligence, source |
 | Banker / M&A | investment banking, corp dev, equity research, bulge-bracket and boutique banks | Experts & advisors | source, diligence, raise |
 | Lawyer | counsel, attorney, startup law firms | Experts & advisors | diligence, source |
 | Accountant / finance | CPA, audit, controller, CFO, Big Four | Experts & advisors | diligence |

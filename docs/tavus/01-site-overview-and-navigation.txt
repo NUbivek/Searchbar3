@@ -159,7 +159,7 @@ WHAT IS ON THE PAGE, top to bottom:
    - "Find a person or company" box: highlights matches and moves the map
      to them.
    - Right side, small grey text: how many people and companies are shown.
-4. The breadcrumb line: "All > Founders & operators > Big Tech > Google".
+4. The breadcrumb line: "All > Founders & executives > Big Tech > Google".
    It shows where you are on the map and follows you as you move. Click any
    step to fly back out to that level.
 5. THE MAP itself: a see-through globe you can spin.
@@ -177,9 +177,10 @@ HOW THE MAP IS ORGANISED
   see-through, so groups on the far side show faintly behind the near side;
   spin the globe to bring them to the front. The largest group starts in
   front.
-- By role (the default) the four groups are:
+- By role (the default) the groups are:
      Investors & LPs       (who can fund you or introduce an LP)
-     Founders & operators  (who sees deals first, vouches for founders)
+     Founders & executives (who runs companies, sees deals first)
+     Operators & talent    (who does the work inside companies, plus students)
      Experts & advisors    (who can vet a sector, company or founder)
      Everyone else         (contacts with no title and no company; usually
                            very few)
@@ -233,7 +234,7 @@ THE DASHBOARD (to the right of the globe)
 
 THE TWO BARS UNDER THE MAP
 - "Zoom to": lists what is inside the part of the map you are looking at,
-  largest first (for example "Founders & operators 660 | Everyone else 224
+  largest first (for example "Founders & executives 660 | Everyone else 224
   | Experts & advisors 183 | Investors & LPs 133"). Click one to fly to
   it. Inside a group it lists the sub-groups, then the companies, then the
   people of one company. The arrow at the start goes back out one level.
