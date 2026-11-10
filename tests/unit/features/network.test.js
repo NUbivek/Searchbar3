@@ -30,7 +30,7 @@ const {
   splitByCompanyMatch,
 } = require('../../../src/server/network/query');
 const store = require('../../../src/server/network/store');
-const { buildGraph, MAX_PEOPLE_PER_EXPANDED_COMPANY } = require('../../../src/utils/network/graph');
+const { buildAtlas, pathTo, personNodeId, PERSON_R, ROOT_ID } = require('../../../src/utils/network/atlas');
 
 const ROOT = path.resolve(__dirname, '../../..');
 const FIXTURES = '/private/tmp/claude-501/-Users-bivekadhikari--claude-spares-spare-uhSlqD/b8fe7f3b-1789-4754-bbb1-344a380b0722/scratchpad/fixtures';
@@ -239,8 +239,7 @@ describe('dedupe and company normalisation', () => {
     expect(normalizeCompanyKey('ガンダム')).toBe('ガンダム'); // dakuten is part of the script, not an accent
     expect(normalizeCompanyKey('Łódź SA')).toBe('łodz');
     const list = [C('Ivan', 'Яндекс', 'Engineer'), C('Olga', 'ЯНДЕКС', 'PM'), C('Ken', '株式会社トヨタ', 'Engineer')];
-    const { buildGraph: bg } = require('../../../src/utils/network/graph');
-    const companies = bg(list).nodes.filter((n) => n.type === 'company').map((n) => [n.key, n.count]);
+    const companies = buildAtlas(list, { groupBy: 'company' }).nodes.filter((n) => n.type === 'company').map((n) => [n.key, n.count]);
     expect(companies).toEqual([['яндекс', 2], ['株式会社トヨタ', 1]]);
     expect(scoreContacts(list, { companies: ['Яндекс'] }).results.map((r) => r.contact.name)).toEqual(['Ivan', 'Olga']);
     expect(parseQuestionRules('Who do I know at 株式会社トヨタ?').companies).toEqual(['株式会社トヨタ']);
@@ -459,33 +458,66 @@ describe('intro paths', () => {
   });
 });
 
-describe('buildGraph', () => {
-  test('company nodes sized by contacts; large networks show companies only until expanded', () => {
-    const small = buildGraph(NETWORK);
-    expect(small.nodes.filter((n) => n.type === 'person')).toHaveLength(NETWORK.length);
-    const stripe = small.nodes.find((n) => n.type === 'company' && n.key === 'stripe');
-    expect(stripe.count).toBe(2);
+describe('buildAtlas', () => {
+  const overlap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r - 1e-6;
+  const inside = (child, parent) => Math.hypot(child.x - parent.x, child.y - parent.y) + child.r <= parent.r + 1e-6;
 
-    const big = buildGraph(NETWORK, { maxPeople: 3 });
-    expect(big.large).toBe(true);
-    expect(big.nodes.filter((n) => n.type === 'person')).toHaveLength(0);
-    const expanded = buildGraph(NETWORK, { maxPeople: 3, expanded: new Set(['stripe']) });
-    expect(expanded.nodes.filter((n) => n.type === 'person')).toHaveLength(2);
+  test('every contact is one dot inside its company bubble; bubbles are sized by headcount', () => {
+    const atlas = buildAtlas(NETWORK, { groupBy: 'company' });
+    const people = atlas.nodes.filter((n) => n.type === 'person');
+    expect(people).toHaveLength(NETWORK.length);
+    expect(atlas.peopleCount).toBe(NETWORK.length);
+    expect(people.every((p) => p.r === PERSON_R && p.parent.type === 'company' && inside(p, p.parent))).toBe(true);
+    const companies = atlas.nodes.filter((n) => n.type === 'company');
+    expect(atlas.companyCount).toBe(companies.length);
+    const stripe = companies.find((n) => n.key === 'stripe');
+    expect(stripe.count).toBe(2);
+    expect(stripe.contacts).toHaveLength(2);
+    const single = companies.find((n) => n.count === 1);
+    expect(stripe.r).toBeGreaterThan(single.r);
+    expect(atlas.byId.get(personNodeId(NETWORK[0])).contact).toBe(NETWORK[0]);
   });
 
-  test('an expanded company in a large network draws at most 150 people and says so', () => {
-    const big = Array.from({ length: 400 }, (_, i) => C(`Person ${String(i).padStart(3, '0')}`, 'Megacorp', 'Engineer'));
-    const list = [...big, ...NETWORK];
-    const g = buildGraph(list, { maxPeople: 100, expanded: new Set(['megacorp']) });
-    expect(MAX_PEOPLE_PER_EXPANDED_COMPANY).toBe(150);
-    expect(g.nodes.filter((n) => n.type === 'person')).toHaveLength(150);
-    const mega = g.nodes.find((n) => n.type === 'company' && n.key === 'megacorp');
-    expect(mega).toMatchObject({ count: 400, shownPeople: 150, hiddenPeople: 250 });
-    expect(g.cappedCompanies).toEqual([{ key: 'megacorp', label: 'Megacorp', shown: 150, hidden: 250 }]);
-    expect(g.peopleShown).toBe(150);
-    // small networks are never capped
-    expect(buildGraph(list, { maxPeople: 10000 }).nodes.filter((n) => n.type === 'person')).toHaveLength(list.length);
-    expect(buildGraph(list, { maxPeople: 10000 }).cappedCompanies).toEqual([]);
+  test('the layout is fixed: same contacts, same coordinates, and no two sibling bubbles overlap', () => {
+    const list = Array.from({ length: 300 }, (_, i) => C(`Person ${i}`, `Company ${i % 37}`, i % 5 === 0 ? 'Partner' : i % 5 === 1 ? 'Founder' : 'Engineer'));
+    const a = buildAtlas(list, { groupBy: 'role' });
+    const b = buildAtlas(list, { groupBy: 'role' });
+    expect(a.nodes.map((n) => [n.id, n.x, n.y, n.r])).toEqual(b.nodes.map((n) => [n.id, n.x, n.y, n.r]));
+    for (const node of a.nodes) {
+      if (node.id !== ROOT_ID) expect(inside(node, node.parent)).toBe(true);
+      for (let i = 0; i < node.children.length; i += 1) {
+        for (let j = i + 1; j < node.children.length; j += 1) expect(overlap(node.children[i], node.children[j])).toBe(false);
+      }
+    }
+  });
+
+  test('by role: groups sit on the compass, colour is inherited, and the path leads back to the root', () => {
+    const list = [
+      ...Array.from({ length: 12 }, (_, i) => C(`Inv ${i}`, i % 2 ? 'Sequoia Capital' : 'Accel', 'General Partner')),
+      ...Array.from({ length: 9 }, (_, i) => C(`Fou ${i}`, `Startup ${i % 3}`, 'Founder')),
+      ...Array.from({ length: 7 }, (_, i) => C(`Eng ${i}`, 'Initech', 'Engineer')),
+    ];
+    const atlas = buildAtlas(list, { groupBy: 'role' });
+    expect(atlas.compass).toBe(true);
+    const top = Object.fromEntries(atlas.root.children.map((g) => [g.key, g]));
+    expect(top.investors.y).toBeLessThan(0);
+    expect(Math.abs(top.investors.x)).toBeLessThan(1e-6);
+    expect(top.founders.x).toBeGreaterThan(0);
+    expect(top.other.y).toBeGreaterThan(0);
+    const person = atlas.byId.get(personNodeId(list[1]));
+    expect(person.color).toBe(top.investors.color);
+    const trail = pathTo(person);
+    expect(trail[0].id).toBe(ROOT_ID);
+    expect(trail[1]).toBe(top.investors);
+    expect(trail[trail.length - 2].type).toBe('company');
+    // A layer that would not split a group is skipped, so there is never a bubble with a single bubble inside.
+    expect(atlas.nodes.filter((n) => n.type === 'group' && n.children.length === 1 && n.children[0].type === 'group')).toEqual([]);
+  });
+
+  test('empty input gives an empty atlas', () => {
+    const atlas = buildAtlas([], { groupBy: 'role' });
+    expect(atlas.nodes).toHaveLength(1);
+    expect(atlas.peopleCount).toBe(0);
   });
 });
 

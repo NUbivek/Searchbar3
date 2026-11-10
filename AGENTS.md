@@ -137,14 +137,17 @@ Key behaviours worth knowing before editing:
   `src/pages/api/search/open.js` `VALID_SOURCES` must list every UI source.
 - **Network Map.** Roles/lenses in `src/utils/network/roles.js`; industry and
   country in `grouping.js` (known-employer table → decisive titles → sector
-  words); graph data in `graph.js` (hubs pinned at compass points, companies
-  placed deterministically on outward arcs, one/two-person companies folded
-  into "N other companies"); renderer `src/components/network/NetworkGraph.js`
-  (force-graph 2D). Drill path, breadcrumb and bottom navigator bar are in
-  `src/pages/network.js` (`DRILL_ORDER`, `drill`, `navigator`).
-  **Layout gotchas fixed the hard way:** `warmupTicks` must stay 0 and the
-  `center` force must stay disabled, or people scatter away from pinned
-  companies.
+  words); layout in `atlas.js` (`buildAtlas`: a fixed tree you → group →
+  sub-group → company → person with x/y/r per node, packed with
+  d3-hierarchy, no physics; people spiral out from their company ordered by
+  `seniority`); renderer `src/components/network/NetworkGraph.js` (one
+  canvas, no graph library: wraps the atlas into a layered 3D globe, camera
+  = yaw/pitch/radius, drag-spin with momentum, fly-to, labels, picking).
+  `src/pages/network.js` holds `focus` (where the camera was sent), `viewId`
+  (the cluster in view, reported by the map), the breadcrumb and the two
+  bottom bars ("Zoom to" and "Presets"). `graph.js`, force-graph and
+  react-kapsule are gone. Jest maps `d3-hierarchy` to its UMD build
+  (`jest.config.js`).
 - **Contacts store.** `src/server/network/store.js`, table `network_contacts`
   (created lazily; columns include `relationship` 'direct'|'firm' and `via`).
   Imports are staged and swapped atomically.

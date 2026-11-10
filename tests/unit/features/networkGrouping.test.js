@@ -3,7 +3,7 @@
  * location field, and hub buckets for the map.
  */
 const { industryOf, countryOf, groupKeyFor, bucketsFor, GROUPINGS } = require('../../../src/utils/network/grouping');
-const { buildGraph } = require('../../../src/utils/network/graph');
+const { buildAtlas } = require('../../../src/utils/network/atlas');
 
 const c = (name, position, company, location) => ({ name, position, company, location });
 
@@ -49,15 +49,15 @@ describe('groupKeyFor / bucketsFor', () => {
     const b = bucketsFor(list, 'country');
     expect(b.map((x) => [x.key, x.contacts.length])).toEqual([['United States', 2], ['United Kingdom', 1], ['Unknown', 1]]);
   });
-  test('buildGraph by industry/country adds pinned hubs and links companies under them', () => {
-    const g = buildGraph(list, { groupBy: 'country' });
-    const hubs = g.nodes.filter((n) => n.type === 'group');
-    expect(hubs.map((h) => h.label)).toEqual(['United States', 'United Kingdom', 'Unknown']);
-    expect(hubs.every((h) => Number.isFinite(h.fx) && Number.isFinite(h.fy))).toBe(true);
-    const google = g.nodes.find((n) => n.type === 'company' && n.label === 'Google');
-    expect(google.hub).toBe('Unknown');
-    expect(g.links.some((l) => l.source === 'g:Unknown' && l.target === google.id)).toBe(true);
-    expect(buildGraph(list, { groupBy: 'industry' }).nodes.filter((n) => n.type === 'group').map((h) => h.label)).toEqual(['Big Tech', 'Fintech', 'Media', 'Venture capital']);
+  test('buildAtlas by industry/country makes one bubble per bucket with its companies inside', () => {
+    const atlas = buildAtlas(list, { groupBy: 'country' });
+    const groups = atlas.root.children;
+    expect(groups.map((h) => h.label).sort()).toEqual(['United Kingdom', 'United States', 'Unknown']);
+    expect(groups.every((h) => h.type === 'group' && h.dim === 'country' && Number.isFinite(h.x) && h.r > 0)).toBe(true);
+    expect(atlas.compass).toBe(false);
+    const google = atlas.nodes.find((n) => n.type === 'company' && n.label === 'Google');
+    expect(google.parent.key === 'Unknown' || google.parent.parent.key === 'Unknown').toBe(true);
+    expect(buildAtlas(list, { groupBy: 'industry' }).root.children.map((h) => h.label).sort()).toEqual(['Big Tech', 'Fintech', 'Media', 'Venture capital']);
   });
 });
 

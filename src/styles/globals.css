@@ -348,3 +348,11 @@
     transform: rotate(360deg);
   }
 }
+
+/* Horizontally scrolling chip rows (the map's navigator): scroll without a visible bar. */
+.scroll-quiet {
+  scrollbar-width: none;
+}
+.scroll-quiet::-webkit-scrollbar {
+  display: none;
+}
