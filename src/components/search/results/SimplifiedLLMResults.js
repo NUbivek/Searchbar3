@@ -444,7 +444,7 @@ const ScoreRing = ({ value, size = 22 }) => {
   const v = Math.max(0, Math.min(1, Number(value) || 0));
   return (
     <svg className={styles.ring} width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#EEF0F5" strokeWidth="3" />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" style={{ stroke: 'rgb(var(--c-slate-200))' }} strokeWidth="3" />
       <circle
         cx={size / 2} cy={size / 2} r={r} fill="none"
         stroke={scoreColor(value)} strokeWidth="3" strokeLinecap="round"

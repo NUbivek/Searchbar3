@@ -1071,7 +1071,7 @@ export default function NetworkGraph({
       <div className="pointer-events-none absolute left-3 flex items-center gap-3 text-[11px] text-muted" style={{ bottom: insetBottom + 8 }} aria-hidden="true">
         <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-500 ring-2 ring-slate-300" />group</span>
         <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-500" />company, with a ray to each person</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-900" />dark tip = leader</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-900" />{theme === 'dark' ? 'bright' : 'dark'} tip = leader</span>
       </div>
       <div
         ref={tipRef}

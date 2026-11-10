@@ -18,6 +18,32 @@ mentions pricing tiers, API keys or environment variables.
 - Shadow: `shadow-card` on cards; no other shadows except menus.
 - Motion: `animate-fadeIn` on mounted content, `.skeleton` for loading.
 
+## Day and night
+
+- The site has two themes. Day is the default; night is switched on with the
+  moon button in the top bar (a sun at night) and remembered in the browser.
+- The theme is one attribute, `<html data-theme="dark">`, set by
+  `src/utils/theme.js` (`applyTheme`, `useTheme`). A small script in
+  `_document.js` applies a remembered night theme before the first paint, so
+  there is no flash of day.
+- Every colour is a CSS variable holding "R G B" (`--c-ink`, `--c-white`,
+  `--c-brand-500`, `--c-slate-100`, ...), defined for day in `:root` and for
+  night in `:root[data-theme='dark']` in `globals.css`. Tailwind's colours
+  point at those variables, so `text-ink`, `bg-white`, `border-line`,
+  `bg-brand-50`, `text-slate-600`, `bg-rose-50` and the rest all follow the
+  theme with no extra classes.
+- At night the scales turn over: `ink` is light, `white` is a dark panel,
+  tints (`-50`, `-100`) are deep and text shades (`-600`, `-700`) are light.
+  `bg-ink text-white` therefore stays a high-contrast button in both.
+- **Rules for new code:** use the token classes. Do not write hex colours
+  for surfaces, text or borders; in inline styles use
+  `rgb(var(--c-ink))` and friends. A fixed hex is fine only for a colour
+  that means the same thing in both themes (a category accent, a brand
+  logo). Do not use Tailwind's `dark:` variants.
+- The Network Map canvas takes `theme` as a prop and paints from `THEMES`
+  in `NetworkGraph.js`.
+- Printing always uses the day palette.
+
 ## Components (classes in globals.css)
 - `.card` + `.card-pad`: every panel. `.section-title`, `.muted`, `.eyebrow`.
 - `.btn-primary` (ink), `.btn-secondary` (white), `.btn-ghost`, `.btn-danger`.

@@ -23,6 +23,7 @@ import {
 import { buildAtlas, pathTo, personNodeId, seniority, LAYERS, NO_COMPANY_KEY, ROOT_ID } from '../utils/network/atlas';
 import { classifyContact, roleStats, LENSES } from '../utils/network/roles';
 import { GROUPINGS, countryOf, UNKNOWN_COUNTRY } from '../utils/network/grouping';
+import { useTheme } from '../utils/theme';
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
@@ -36,14 +37,21 @@ const NAV_HEIGHT = 84;
 const QUICK_MAX = 40;
 /** Seniority read from the title: the first thing a partner scans a list for. */
 const SENIORITY = [
-  { rank: 0, label: 'Leaders', hint: 'Founders, CEOs, partners, chiefs', tone: '#0F172A' },
-  { rank: 1, label: 'Heads', hint: 'VPs, directors, heads of function', tone: '#64748B' },
-  { rank: 2, label: 'Team', hint: 'Everyone else', tone: '#CBD5E1' },
+  // Tones are theme variables, so the bar reads in day and night mode.
+  { rank: 0, label: 'Leaders', hint: 'Founders, CEOs, partners, chiefs', tone: 'rgb(var(--c-ink))' },
+  { rank: 1, label: 'Heads', hint: 'VPs, directors, heads of function', tone: 'rgb(var(--c-muted))' },
+  { rank: 2, label: 'Team', hint: 'Everyone else', tone: 'rgb(var(--c-slate-300))' },
 ];
 const LAYER_LABEL = { role: 'Role', industry: 'Industry', country: 'Country', company: 'Company' };
 /** People listed in the dashboard before "Show more". */
 const PEOPLE_PAGE = 50;
 const PEOPLE_SORTS = [{ key: 'senior', label: 'Seniority' }, { key: 'recent', label: 'Recent' }, { key: 'name', label: 'A–Z' }];
+/** Ink or white, whichever reads on a fill of `hex` (avatars come in many shades). */
+const readableOn = (hex) => {
+  const n = parseInt(String(hex || '#94A3B8').slice(1), 16);
+  const lum = (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+  return lum > 0.55 ? '#0F172A' : '#FFFFFF';
+};
 const initialsOf = (name) => String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 const EXAMPLES = ['Who can help me raise a fund?', 'Who sends me deal flow in fintech?', 'Who can diligence an AI company?', 'Who do I know at Google?', 'Intro paths to Stripe'];
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -176,6 +184,7 @@ export default function NetworkPage() {
   const [viewId, setViewId] = useState('root');
   const [lensFilter, setLensFilter] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [theme] = useTheme();
   // Dashboard beside the globe: filters that apply to its people list.
   const [rankFilter, setRankFilter] = useState(null);
   const [panelLens, setPanelLens] = useState(null);
@@ -1081,6 +1090,7 @@ export default function NetworkPage() {
                   highlightIds={highlightIds}
                   selectedId={selected?.id}
                   focus={focus}
+                  theme={theme}
                   viewId={viewNode.id}
                   onNodeClick={onNodeClick}
                   onViewNode={setViewId}
@@ -1190,7 +1200,7 @@ export default function NetworkPage() {
                               className={classNames('block w-full rounded-md border px-1.5 py-1 text-left', done ? 'border-transparent bg-slate-100 hover:bg-slate-200' : current ? 'border-ink bg-white' : 'border-dashed border-line bg-white opacity-60')}
                             >
                               <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted">
-                                <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: done ? step.color || '#0F172A' : current ? '#0F172A' : '#CBD5E1' }} />
+                                <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: done ? step.color || 'rgb(var(--c-ink))' : current ? 'rgb(var(--c-ink))' : 'rgb(var(--c-slate-300))' }} />
                                 {step.dim === 'people' ? 'People' : LAYER_LABEL[step.dim]}
                               </span>
                               <span className={classNames('block truncate text-xs', done || current ? 'font-medium text-ink' : 'text-muted')}>
@@ -1297,7 +1307,7 @@ export default function NetworkPage() {
                           <button type="button" onClick={() => selectContact({ ...c, key: dedupeKey(c) })} className="flex w-full items-center gap-2.5 px-4 py-2 text-left hover:bg-slate-50">
                             <span
                               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold"
-                              style={c.relationship === 'firm' ? { border: `1.5px solid ${tone}`, color: tone } : { background: tone, color: '#FFFFFF' }}
+                              style={c.relationship === 'firm' ? { border: `1.5px solid ${tone}`, color: tone } : { background: tone, color: readableOn(tone) }}
                               title={c.relationship === 'firm' ? 'A firm-wide CRM contact, not your own connection' : undefined}
                             >
                               {initialsOf(c.name)}

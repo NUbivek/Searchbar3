@@ -160,7 +160,7 @@ export default function WorkspaceMemoPage() {
 
       <style jsx global>{`
         .memo-cite { font-size: 0.7em; margin-left: 1px; }
-        .memo-cite a { color: #4338ca; text-decoration: none; }
+        .memo-cite a { color: rgb(var(--c-brand-600)); text-decoration: none; }
         @media print {
           @page { margin: 18mm 16mm; }
           html, body { background: #fff !important; background-image: none !important; }

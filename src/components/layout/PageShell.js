@@ -8,7 +8,8 @@ import React from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { HiOutlineSparkles, HiOutlineMagnifyingGlass, HiOutlineShare, HiOutlineFolder, HiOutlineBell, HiOutlineUserCircle } from 'react-icons/hi2';
+import { HiOutlineSparkles, HiOutlineMagnifyingGlass, HiOutlineShare, HiOutlineFolder, HiOutlineBell, HiOutlineUserCircle, HiOutlineMoon, HiOutlineSun } from 'react-icons/hi2';
+import { useTheme } from '../../utils/theme';
 import AccountMenu from '../account/AccountMenu';
 
 /** All pages, for tests and the sign-in page. */
@@ -37,6 +38,26 @@ export const SECONDARY_NAV = [
   { href: '/watchlist', label: 'Watchlist', Icon: HiOutlineBell },
 ];
 
+/** Day / night switch: a quiet icon button in the top bar, like the links beside it. */
+export function ThemeToggle() {
+  const [theme, toggle] = useTheme();
+  const night = theme === 'dark';
+  const Icon = night ? HiOutlineSun : HiOutlineMoon;
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      role="switch"
+      aria-checked={night}
+      aria-label="Night mode"
+      title={night ? 'Switch to day mode' : 'Switch to night mode'}
+      className="inline-flex items-center justify-center rounded-lg p-1.5 text-muted transition hover:bg-slate-100 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
+    >
+      <Icon style={{ width: 16, height: 16 }} />
+    </button>
+  );
+}
+
 export function TopBar() {
   const router = useRouter();
   return (
@@ -60,6 +81,7 @@ export function TopBar() {
               );
             })}
           </nav>
+          <ThemeToggle />
           <AccountMenu />
         </div>
       </div>
