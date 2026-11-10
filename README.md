@@ -97,14 +97,20 @@ or *firm-wide* (a colleague's contact, labelled with the colleague) and the
 two are never confused on the map or in answers. Every contact is classified from its title and company into a
 role (LP, investor, founder, executive, operator, banker, lawyer,
 accountant, consultant, academic, press) and into three lenses: **raise**
-capital, **source** deals, **diligence** a company or founder. The map shows
-you in the centre with three role hubs (Investors & LPs, Founders &
-operators, Experts & advisors) and every company you know people at hanging
-off the hub its people belong to. Click a hub to drill in: its people are
-regrouped by the next dimension (role → industry → companies and people,
-with a breadcrumb to step back); switch to by-company, by-industry or
-by-country views, filter by lens, highlight a name, go full screen, click a
-company for its people. Ask it questions in
+capital, **source** deals, **diligence** a company or founder. The map is a
+globe you can spin: you are its core, groups sit on the inner shell,
+sub-groups on the middle shell, companies on the outer shell and people on
+the surface, with branches bursting outward through the layers. Each company
+is a burst of rays, one per person, most senior closest to its core. Drag to
+spin (it keeps turning when you let go), scroll to dive in, click anything
+to turn it towards you and fly down to it. A breadcrumb shows where you
+are; the two bars under the map are quick zoom (what is inside the cluster
+in view) and presets (whole network, the three lenses, largest company).
+Group by role, company, industry or country, highlight a name, go full
+screen. The globe is see-through and used all the way round, so the far side shows
+behind the near side; it is light by default with a dark palette ready
+(`theme` prop). The layout is computed once with no physics, so the same
+contacts always give the same globe. Ask it questions in
 plain words: "Who can help me raise a fund?", "Who sends me deal flow in
 fintech?", "Who can diligence an AI company?", "Who do I know at Google?",
 "Intro paths to Stripe". Matching is deterministic over your contacts;

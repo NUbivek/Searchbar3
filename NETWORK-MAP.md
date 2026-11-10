@@ -54,58 +54,128 @@ import request.
 
 ## The map
 
-- **You** are in the centre.
-- **By role** (default): three hubs sit around you, *Investors & LPs*,
-  *Founders & operators* and *Experts & advisors* (plus *Everyone else* for
-  contacts with no placing title or company). Each company you know people
-  at hangs off the hub its people belong to, so a VC firm shows under
-  Investors while the engineers you know at Stripe show under Founders &
-  operators. A company can appear under more than one hub.
-- **By company**: the classic view, every company as one coloured cluster
-  around you, sized by how many people you know there.
-- **By industry** and **By country**: the same hub layout keyed by industry
-  or by the country parsed from the location field
-  (`src/utils/network/grouping.js`). Industry is decided in three steps: a
+The map is a globe you can spin, with your network inside it in layers:
+
+- **You** are the core of the globe.
+- **Groups** sit on the inner shell, **sub-groups** on the middle shell,
+  **companies** on the outer shell and **people** on the surface. A branch
+  runs outward from each node to the ones in the next layer, so the whole
+  network reads as a burst from the centre.
+- **A company is a burst**: one ray per person, in a spiral around the
+  company's core. The most senior people (founders, CEOs, partners, chiefs)
+  sit closest to the core and are drawn a little brighter, then heads of
+  function, then everyone else (`seniority` in `src/utils/network/atlas.js`,
+  read from the title). A company's size on the map is its headcount.
+  Firm-wide CRM contacts are hollow.
+- **The whole globe is used.** Each top-level group gets its own patch of
+  the sphere, largest first and as far from the others as possible, so the
+  far side is as full as the near side. The globe is glass: the layers and
+  the far side show through, drawn more quietly than what faces you.
+- **Light by default, dark ready.** `NetworkGraph` takes `theme="light"`
+  (default) or `theme="dark"`; every colour the canvas paints comes from
+  `THEMES` in that file, so a site-wide night mode only has to pass the prop.
+- **Nothing moves by itself.** Positions are computed once from your
+  contacts (`buildAtlas`), with no physics: the same contacts always give
+  the same globe, clusters never overlap, and a branch is always where you
+  left it. The camera only turns the globe and moves closer.
+
+Getting around:
+
+- **Drag** to spin the globe; let go while moving and it keeps turning and
+  slows down. **Scroll or pinch** to dive in towards the cursor. The grid on
+  the surface gets finer as you get closer.
+- **Click anything** and the globe turns it to face you and flies down to
+  it. Click a company for the people you know there; click a person for
+  their details. The branch from you to the selected node pulses.
+- **One thing at a time.** Open a cluster and everything outside it (and
+  outside the way back to you) fades right back, so only what you opened
+  reads. At most fourteen company names are shown at once, biggest first.
+- **Dashboard** (right of the globe, below it on a phone): the layer in
+  view as numbers and people, always in step with the globe.
+  - *Layers*: the steps of the current grouping (for example Role ›
+    Industry › Company › People). Steps already chosen show their value and
+    fly back to it when clicked; the step you are choosing now is outlined.
+  - *Seniority bar*: leaders, heads and team, sized by headcount; click a
+    segment to filter the list to it.
+  - *Raise / Source / Diligence*: how many in view can help with each, with
+    a gauge; click one to filter the list.
+  - *Next layer*: what is inside, as bars in the colours used on the globe;
+    click a bar to open it on the globe.
+  - *People*: everyone in view with an avatar in their colour (hollow for a
+    firm contact), title and company, a seniority dot and R / S / D marks.
+    Filter by name, company or title; sort by seniority, most recently
+    connected or A–Z. Clicking a person flies to them and shows their
+    details in the same panel (close it to return to the list).
+  A search or an answer switches the dashboard to the highlighted matches.
+- **Key** (bottom left): what the marks mean.
+- **One layer at a time.** Zoomed out, only the groups are named; the
+  layers inside them are ghosted. Come closer (or click a group) and its
+  sub-groups appear; closer again and the companies and their bursts do.
+- **Each layer has its own label**, so the level is clear at a glance:
+  groups are solid capsules in the group's colour, in capitals; sub-groups
+  are squared cards with a colour bar down the left edge; companies are
+  small plates with a colour underline (plain text when small); people are
+  plain names. Groups on the far side keep a faded capsule.
+- **What you see depends on how close you are**: from far away, groups,
+  sub-groups and companies as sparks; closer, company names; closer still,
+  each person as a dot with initials; closest, names and titles. Hover
+  anything for its name at any distance.
+- **Breadcrumb** (above the map): where you are, for example *All ›
+  Founders & executives › Big Tech › Google*. It follows you as you spin and
+  zoom by hand; click a step to fly back out to it.
+- **Zoom to** (first bar under the map): what is inside the cluster you
+  are looking at, largest first: the groups, then their sub-groups, then
+  companies, then the people of one company. Click one to fly to it; the
+  arrow at the start flies back out one level.
+- **Presets** (second bar): *Whole network*, the three lenses (*Raise
+  capital*, *Source deals*, *Diligence*, each filtering the globe to the
+  people who fit), *Largest company*, and, when firm contacts exist, *My
+  direct connections only*.
+- **Buttons** (top left of the map): zoom in, zoom out, fit to view, full
+  screen.
+- **Find a person or company** lights up the matches, turns the globe to
+  them and fades everything else.
+- The first time the map appears, the globe swings in from the side and
+  settles.
+
+Groupings (the switch above the map):
+
+- **By role** (default): *Investors & LPs*, *Founders & executives*
+  (founders, CEOs, VPs, directors, accelerators), *Operators & talent*
+  (everyone who does the work inside companies, plus students), *Experts &
+  advisors* and *Everyone else* (no title and no company). Inside each: industries, then
+  companies, then people.
+- *By country* is greyed out until at least one contact has a location
+  (LinkedIn's export has none; a CSV with a Location column does).
+- **By industry**: industries, then roles, then companies. **By country**:
+  countries, then industries, then companies. **By company**: every company
+  as its own burst around you. A layer that would not split a group is
+  skipped.
+- **Nobody useful is left in "Other".** Roles: students and interns,
+  clinicians, public-sector and policy people and partners at professional
+  firms each have their own rule; anyone else with a title or an employer is
+  placed with the operators, so *Everyone else* holds only contacts with
+  neither. Industry: after the steps below, the sector is read from words
+  in the company's own name ("Acme Capital", "Northside Health", "Orbit
+  Labs"), and failing that people are grouped by what they do (*Founders &
+  CEOs*, *Engineering & data*, *Product & design*, *Sales & marketing*,
+  *Finance & operations*, *Investing*, *Students*, *Self-employed* and
+  more). Tests hold both leftovers under 5% on a realistic mix of titles.
+- Industry is decided in three steps (`src/utils/network/grouping.js`): a
   known-employer table (Google, Meta, Amazon, Microsoft → Big Tech; OpenAI,
   Anthropic, Databricks → AI; Stripe, Ramp, Brex → Fintech; Goldman Sachs,
   Blackstone → Finance & banking; Sequoia, a16z, YC → Venture capital;
   McKinsey, BCG, Bain, the Big Four → Consulting; Figma, Notion, Snowflake →
   Software; universities → Education; and more), then decisive titles (MBA
   candidate, angel investor, consultant), then sector words in the title,
-  company or tags. Up to twelve hubs; the
-  long tail folds into *Other* / *Unknown* (LinkedIn's export has no
-  location, so those contacts sit under *Unknown* until a CSV adds one).
-- **Layers.** Clicking a hub drills into it: the hub becomes the centre and
-  its people are regrouped by the next dimension, then by company. Starting
-  by role the layers are role → industry → companies and people; by
-  industry: industry → role → companies; by country: country → industry →
-  companies. A breadcrumb above the map (All › Founders & operators ›
-  Fintech) steps back; changing the grouping or a filter returns to the top.
-  Clicking a company opens its people in the details panel. In hub layers,
-  companies with fewer than three people you know are folded into one
-  "N other companies" node per hub so the clusters stay readable.
-- **Navigator.** The bar along the bottom of the map lists this layer's
-  groups (largest first) or, at the last layer, its biggest companies.
-  Clicking a group drills into it; clicking a company selects it and centres
-  the map on it. Hubs sit at fixed compass points: Investors & LPs top,
-  Founders & operators right, Everyone else bottom, Experts & advisors left.
-- **Full screen** puts the map, its details panel and legend on the whole
-  screen; *Fit to view* resets the viewport. Sources (imports and connectors)
-  sit above the map; the LinkedIn export steps are behind the ⓘ next to the
-  upload button.
-- People are the small dots around their company (hollow when they are a
-  firm-wide CRM contact rather than your own). Hover for the name and
-  title; click a person, a company or a hub for details. The details panel
-  floats over the map; for a company it lists everyone you know there with
-  *Company profile*, *Search company* and *Find intro paths* shortcuts; for a
-  hub it shows the role breakdown and ready-made questions.
-- **Show me who can help me**: the *raise capital*, *source deals* and
-  *diligence* chips filter the map to that lens.
-- **Find a person or company** highlights matches and pans the map to them;
-  everything else fades.
-- Networks over 1,500 people are drawn as companies only; click a company to
-  show its people (up to 150 drawn, all listed in the panel).
-- *Fit to view* resets the viewport. Scrolling over the map zooms it.
+  company or tags. Up to sixteen groups; the long tail folds into *Other* /
+  *Unknown* (LinkedIn's export has no location, so those contacts sit under
+  *Unknown* until a CSV adds one).
+
+Code: `src/utils/network/atlas.js` (the fixed layout, tested in
+`tests/unit/features/network.test.js`) and
+`src/components/network/NetworkGraph.js` (the globe: projection, camera,
+drawing and input, on one canvas with no graph library).
 
 ## Roles and lenses
 
@@ -117,10 +187,10 @@ lenses the contact belongs to:
 |---|---|---|---|
 | LP / allocator | family office, endowment, pension, fund of funds, CIO, wealth manager | Investors & LPs | raise |
 | Investor | GP, partner/principal/associate *at a fund-like employer*, angel, scout | Investors & LPs | raise, source |
-| Accelerator / platform | YC, Techstars, program directors | Founders & operators | source |
-| Founder | founder, co-founder, CEO, owner, EIR, stealth | Founders & operators | source, diligence |
-| Executive | CTO, COO, VP, head of, director, GM | Founders & operators | source, diligence |
-| Operator | engineers, product, sales, marketing, ops, analysts | Founders & operators | diligence, source |
+| Accelerator / platform | YC, Techstars, program directors | Founders & executives | source |
+| Founder | founder, co-founder, CEO, owner, EIR, stealth | Founders & executives | source, diligence |
+| Executive | CTO, COO, VP, head of, director, GM | Founders & executives | source, diligence |
+| Operator | engineers, product, sales, marketing, ops, analysts | Founders & executives | diligence, source |
 | Banker / M&A | investment banking, corp dev, equity research, bulge-bracket and boutique banks | Experts & advisors | source, diligence, raise |
 | Lawyer | counsel, attorney, startup law firms | Experts & advisors | diligence, source |
 | Accountant / finance | CPA, audit, controller, CFO, Big Four | Experts & advisors | diligence |
@@ -192,8 +262,8 @@ import, the panel says so and links to the Network Map.
 | Piece | Where |
 |---|---|
 | Page | `src/pages/network.js` |
-| Graph renderer (force-graph 2D canvas) | `src/components/network/NetworkGraph.js` |
-| Graph data (company clusters, role hubs, large-network collapse) | `src/utils/network/graph.js` |
+| Globe renderer (one canvas: projection, camera, drawing, input) | `src/components/network/NetworkGraph.js` |
+| Layout (fixed tree of clusters, bursts, seniority) | `src/utils/network/atlas.js` |
 | File parsing (LinkedIn export, CSV/XLSX, X JSON), dedupe, limits | `src/utils/network/parseContacts.js` |
 | Role and lens classification | `src/utils/network/roles.js` |
 | Industry / country grouping | `src/utils/network/grouping.js` |

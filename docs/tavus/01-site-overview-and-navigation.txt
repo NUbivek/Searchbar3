@@ -159,38 +159,50 @@ WHAT IS ON THE PAGE, top to bottom:
    - "Find a person or company" box: highlights matches and moves the map
      to them.
    - Right side, small grey text: how many people and companies are shown.
-4. "Show me who can help me" chips: "raise capital", "source deals",
-   "diligence". Each filters the map to the people who fit. If firm contacts
-   exist, a "my direct connections only" chip also appears.
-5. The breadcrumb line: "All > Founders & operators > Fintech". Click any
-   step to go back to that level. The right side explains the current layer.
-6. THE MAP itself (large canvas).
-   - Top right of the map: "Full screen" and "Fit to view".
-   - Bottom of the map: the navigator bar (see below).
-7. Answers to questions appear in a card under the map.
+4. The breadcrumb line: "All > Founders & executives > Big Tech > Google".
+   It shows where you are on the map and follows you as you move. Click any
+   step to fly back out to that level.
+5. THE MAP itself: a see-through globe you can spin.
+   - Top left of the map: four small buttons: zoom in, zoom out, fit to
+     view, full screen.
+   - Bottom of the map: two bars, "Zoom to" and "Presets" (see below).
+6. Answers to questions appear in a card under the map.
 
-HOW THE MAP IS ORGANISED (BY ROLE, the default view)
-- "You" is in the centre.
-- Four role groups sit at fixed compass points:
-     TOP:    Investors & LPs       (who can fund you or introduce an LP)
-     RIGHT:  Founders & operators  (who sees deals first, vouches for founders)
-     BOTTOM: Everyone else         (no title or company that places them)
-     LEFT:   Experts & advisors    (who can vet a sector, company or founder)
-- Around each group are its companies (circles sized by how many people the
-  user knows there), and each company's people as small dots.
-- Companies where the user knows only one or two people are folded into
-  one node called "N other companies".
+HOW THE MAP IS ORGANISED
+- The map is a globe with layers. "You" are the bright core in the middle.
+- Groups sit on the inner layer, sub-groups on the middle layer, companies
+  on the outer layer and people on the surface. Lines branch outward from
+  each one to the next layer, like a burst from the centre.
+- The groups are spread all the way round the globe. The globe is
+  see-through, so groups on the far side show faintly behind the near side;
+  spin the globe to bring them to the front. The largest group starts in
+  front.
+- By role (the default) the groups are:
+     Investors & LPs       (who can fund you or introduce an LP)
+     Founders & executives (who runs companies, sees deals first)
+     Operators & talent    (who does the work inside companies, plus students)
+     Experts & advisors    (who can vet a sector, company or founder)
+     Everyone else         (contacts with no title and no company; usually
+                           very few)
+- Each company is a burst of rays, one ray per person. The most senior
+  people (founders, CEOs, partners) are closest to the company's centre.
+  Bigger bursts mean more people the user knows there.
 - Hollow dots are firm contacts known through a colleague, not the user's
   own connections.
 
-THREE LAYERS (DRILL-DOWN)
-- Layer 1: the groups (for example the four role groups).
-- Layer 2: click a group and its people are regrouped by the next relevant
-  dimension:
-     By role     -> role, then industry, then companies and people
-     By industry -> industry, then role, then companies and people
-     By country  -> country, then industry, then companies and people
-- Layer 3: click a sub-group and you see its companies and people.
+HOW TO MOVE AROUND THE MAP
+- Drag to spin the globe. Let go while moving and it keeps turning.
+- Scroll (or pinch) to dive in closer or pull back out.
+- Click anything (a group, a company, a person) and the globe turns it to
+  face you and flies to it.
+- Zoomed out, only the main groups are named. Click a group (or zoom in)
+  and its sub-groups appear; go closer and the companies appear.
+- Labels look different at each level: main groups are solid coloured
+  capsules in capital letters, sub-groups are small cards with a coloured
+  bar on the left, companies are small underlined plates.
+- The closer you are, the more you see: first groups and companies, then
+  company names, then each person as a dot with initials, then names and
+  titles. Hover anything to see its name.
 - Click a company to open a details panel on the right of the map: the
   people you know there, plus "Company profile", "Search company" and
   "Find intro paths to <company>".
@@ -198,14 +210,38 @@ THREE LAYERS (DRILL-DOWN)
   (Raise, Source, Diligence), their LinkedIn profile link and a "Founder
   check" button.
 
-THE NAVIGATOR BAR (bottom of the map) - the second way to move around
-- It lists the groups of the current layer, largest first (for example
-  "Founders & operators 660 | Everyone else 224 | Experts & advisors 183 |
-  Investors & LPs 133").
-- Clicking a group drills straight into it.
-- At the last layer it lists the biggest companies; clicking one selects it,
-  zooms the map to it and opens its people.
-- The breadcrumb above the map is how to go back up.
+LAYERS, FROM THE OUTSIDE IN
+     By role     -> role, then industry, then companies and people
+     By industry -> industry, then role, then companies and people
+     By country  -> country, then industry, then companies and people
+     By company  -> companies and people
+
+THE DASHBOARD (to the right of the globe)
+- It always describes the part of the globe that is in view.
+- "Layers" at the top shows the steps, for example Role > Industry >
+  Company > People. Click a step already chosen to go back to it.
+- A seniority bar shows Leaders, Heads and Team. Click a part of the bar to
+  list only those people.
+- Three boxes, "Raise", "Source" and "Diligence", show how many people in
+  view can help with each. Click one to list only those people.
+- "Next layer" shows what is inside as bars. Click a bar to open it on the
+  globe.
+- The people list shows everyone in view with their title and company. It
+  has a "Filter these people" box and can be sorted by Seniority, Recent or
+  A-Z. Click a person to fly to them and see their details.
+- When you open a group, everything outside it fades on the globe so only
+  that group is easy to read.
+
+THE TWO BARS UNDER THE MAP
+- "Zoom to": lists what is inside the part of the map you are looking at,
+  largest first (for example "Operators & talent 467 | Founders &
+  executives 334 | Experts & advisors 246 | Investors & LPs 153"). Click one to fly to
+  it. Inside a group it lists the sub-groups, then the companies, then the
+  people of one company. The arrow at the start goes back out one level.
+- "Presets": "Whole network" (everyone, zoomed out), "Raise capital",
+  "Source deals", "Diligence" (each shows only the people who fit that
+  purpose), and "Largest company". If firm contacts exist, "My direct
+  connections only" also appears.
 
 INDUSTRIES the map recognises include: Big Tech, AI, Fintech, Finance &
 banking, Venture capital, Consulting, Software, Healthcare, Education,

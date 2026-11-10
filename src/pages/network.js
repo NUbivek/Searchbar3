@@ -16,13 +16,13 @@ import {
   HiOutlineShare, HiOutlineSparkles, HiOutlineCloudArrowUp, HiOutlineInformationCircle, HiOutlineArrowsPointingIn, HiOutlineArrowsPointingOut,
 } from 'react-icons/hi2';
 import PageShell from '../components/layout/PageShell';
-import NetworkGraph, { SOURCE_COLORS, clusterColor, GROUP_COLORS } from '../components/network/NetworkGraph';
+import NetworkGraph, { SOURCE_COLORS } from '../components/network/NetworkGraph';
 import {
   parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, MAX_CONTACTS,
 } from '../utils/network/parseContacts';
-import { buildGraph, personNodeId, NO_COMPANY_KEY, SMALL_COMPANIES_KEY, MAX_PEOPLE_PER_EXPANDED_COMPANY } from '../utils/network/graph';
+import { buildAtlas, pathTo, personNodeId, seniority, LAYERS, NO_COMPANY_KEY, ROOT_ID } from '../utils/network/atlas';
 import { classifyContact, roleStats, LENSES } from '../utils/network/roles';
-import { GROUPINGS, groupKeyFor } from '../utils/network/grouping';
+import { GROUPINGS, countryOf, UNKNOWN_COUNTRY } from '../utils/network/grouping';
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
@@ -30,23 +30,25 @@ function classNames(...classes) {
 
 const ICON = { width: 15, height: 15 };
 const SOURCE_LABELS = { linkedin: 'LinkedIn', csv: 'CSV/XLSX', x: 'X', attio: 'Attio' };
-/** Layers of the map for each starting grouping: hubs, then sub-hubs, then companies and people. */
-const DRILL_ORDER = {
-  role: ['role', 'industry', 'company'],
-  industry: ['industry', 'role', 'company'],
-  country: ['country', 'industry', 'company'],
-  company: ['company'],
-};
-const DIM_LABEL = { role: 'role', industry: 'industry', country: 'country', company: 'company' };
-// The graph module is mocked in tests; colours fall back to grey there.
-const hubColorOf = (key) => (GROUP_COLORS && GROUP_COLORS[key]) || (typeof clusterColor === 'function' ? clusterColor(key) : '#64748B');
-const clusterColorOf = (key) => (typeof clusterColor === 'function' ? clusterColor(key) : '#64748B');
+/** Height of the two-row bar at the bottom of the map; the map keeps its content clear of it. */
+const NAV_HEIGHT = 84;
+/** Most chips shown in the bottom navigator for one bubble. */
+const QUICK_MAX = 40;
+/** Seniority read from the title: the first thing a partner scans a list for. */
+const SENIORITY = [
+  { rank: 0, label: 'Leaders', hint: 'Founders, CEOs, partners, chiefs', tone: '#0F172A' },
+  { rank: 1, label: 'Heads', hint: 'VPs, directors, heads of function', tone: '#64748B' },
+  { rank: 2, label: 'Team', hint: 'Everyone else', tone: '#CBD5E1' },
+];
+const LAYER_LABEL = { role: 'Role', industry: 'Industry', country: 'Country', company: 'Company' };
+/** People listed in the dashboard before "Show more". */
+const PEOPLE_PAGE = 50;
+const PEOPLE_SORTS = [{ key: 'senior', label: 'Seniority' }, { key: 'recent', label: 'Recent' }, { key: 'name', label: 'A–Z' }];
+const initialsOf = (name) => String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 const EXAMPLES = ['Who can help me raise a fund?', 'Who sends me deal flow in fintech?', 'Who can diligence an AI company?', 'Who do I know at Google?', 'Intro paths to Stripe'];
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 // The contacts API accepts 15 MB request bodies; stop a little short of it.
 const MAX_BODY_BYTES = 14 * 1024 * 1024;
-// Answers expand the companies of the top matches, but not huge ones.
-const AUTO_EXPAND_MAX_PEOPLE = 60;
 const fmt = (n) => Number(n || 0).toLocaleString('en-US');
 const LINKEDIN_UNAVAILABLE = "LinkedIn connection isn't available on this deployment yet";
 const X_UNAVAILABLE = "X connection isn't available on this deployment yet";
@@ -167,15 +169,19 @@ export default function NetworkPage() {
   const [companyFilter, setCompanyFilter] = useState('');
   const [graphSearch, setGraphSearch] = useState('');
   const [groupBy, setGroupBy] = useState('role');
-  // Drill-down path: each step is { dim, key, label }. Layer 1 groups by
-  // `groupBy`; clicking a hub drills into it and the next layer groups its
-  // people by the next dimension, down to companies and people.
-  const [drill, setDrill] = useState([]);
-  const [focusId, setFocusId] = useState(null);
+  // The map is one fixed layout; `focus` is where the camera was last sent
+  // (the nonce re-triggers a flight to the same place) and `viewId` is the
+  // bubble the viewer is inside right now, as reported by the map.
+  const [focus, setFocus] = useState({ id: 'root', nonce: 0 });
+  const [viewId, setViewId] = useState('root');
   const [lensFilter, setLensFilter] = useState(null);
-  const [expanded, setExpanded] = useState(() => new Set());
   const [selected, setSelected] = useState(null);
-  const [hoverId, setHoverId] = useState(null);
+  // Dashboard beside the globe: filters that apply to its people list.
+  const [rankFilter, setRankFilter] = useState(null);
+  const [panelLens, setPanelLens] = useState(null);
+  const [panelQuery, setPanelQuery] = useState('');
+  const [panelSort, setPanelSort] = useState('senior');
+  const [peopleShown, setPeopleShown] = useState(PEOPLE_PAGE);
   const [dragging, setDragging] = useState(false);
 
   const [question, setQuestion] = useState('');
@@ -546,18 +552,11 @@ export default function NetworkPage() {
     });
   }, [contacts, sourceFilter, companyFilter, lensFilter, directOnly]);
 
-  // Contacts inside the current drill path, and the dimension this layer groups by.
-  const focusContacts = useMemo(
-    () => drill.reduce((list, step) => list.filter((c) => groupKeyFor(c, step.dim) === step.key), visibleContacts),
-    [visibleContacts, drill],
-  );
-  const levelDim = DRILL_ORDER[groupBy][Math.min(drill.length, DRILL_ORDER[groupBy].length - 1)];
-  const graph = useMemo(() => buildGraph(focusContacts, {
-    expanded,
-    groupBy: levelDim,
-    meLabel: drill.length ? drill[drill.length - 1].label : (session?.user?.name ? `You (${session.user.name.split(' ')[0]})` : 'You'),
-  }), [focusContacts, expanded, levelDim, drill, session?.user?.name]);
+  // The whole map is laid out once per filter change; navigating only moves the camera.
+  const atlas = useMemo(() => buildAtlas(visibleContacts, { groupBy }), [visibleContacts, groupBy]);
   const roleCounts = useMemo(() => roleStats(contacts), [contacts]);
+  // LinkedIn's export has no location, so grouping by country is only offered once some contact has one.
+  const hasLocations = useMemo(() => contacts.some((c) => countryOf(c) !== UNKNOWN_COUNTRY), [contacts]);
 
   const answerKeys = useMemo(() => {
     if (!answer) return null;
@@ -571,92 +570,107 @@ export default function NetworkPage() {
     const ids = new Set();
     const term = graphSearch.trim().toLowerCase();
     if (!term && !answerKeys) return ids;
-    const hitKeys = new Set();
-    for (const c of focusContacts) {
+    for (const c of visibleContacts) {
       const hitSearch = term && [c.name, c.company, c.position].some((v) => String(v || '').toLowerCase().includes(term));
       const hitAnswer = answerKeys && answerKeys.has(dedupeKey(c));
-      if (hitSearch || hitAnswer) {
-        ids.add(personNodeId(c));
-        hitKeys.add(`${groupKeyFor(c, levelDim)}|${normalizeCompanyKey(c.company) || NO_COMPANY_KEY}`);
-      }
-    }
-    // Company (and role hub) nodes light up when any of their people do.
-    for (const n of graph.nodes) {
-      if (n.type === 'company' && [...hitKeys].some((k) => k.endsWith(`|${n.key}`) && (!n.hub || k.startsWith(`${n.hub}|`)))) { ids.add(n.id); if (n.hub) ids.add(`g:${n.hub}`); }
+      if (hitSearch || hitAnswer) ids.add(personNodeId(c));
     }
     return ids;
-  }, [graphSearch, answerKeys, focusContacts, graph, levelDim]);
+  }, [graphSearch, answerKeys, visibleContacts]);
 
-  // Count only people actually drawn: in a large network most highlighted
-  // people sit in companies that are not expanded.
-  const highlightedPeople = useMemo(() => {
-    let n = 0;
-    const drawn = new Set(graph.nodes.map((node) => node.id));
-    highlightIds.forEach((id) => { if (id.startsWith('p:') && drawn.has(id)) n += 1; });
-    return n;
-  }, [highlightIds, graph]);
-  const highlightedTotal = useMemo(() => {
-    let n = 0;
-    highlightIds.forEach((id) => { if (id.startsWith('p:')) n += 1; });
-    return n;
-  }, [highlightIds]);
+  // Where the viewer is: the bubble that fills the canvas. The map reports it
+  // as you pan and zoom, and the breadcrumb and navigator follow.
+  const viewed = atlas.byId.get(viewId);
+  const viewNode = !viewed ? atlas.root : viewed.type === 'person' ? viewed.parent : viewed;
+  const trail = useMemo(() => pathTo(viewNode), [viewNode]);
+  /** Fly the map to a bubble. */
+  const goTo = (id) => { setViewId(id); setFocus((f) => ({ id, nonce: f.nonce + 1 })); };
+  const resetMap = () => { setSelected(null); goTo(ROOT_ID); };
+  // Choosing a lens filters the globe and turns the group it is about to the
+  // front (investors for raise, founders for source, experts for diligence).
+  const LENS_GROUP = { raise: 'investors', source: 'founders', diligence: 'experts' };
+  const pickLens = (key) => {
+    const on = lensFilter !== key;
+    setLensFilter(on ? key : null);
+    setSelected(null);
+    goTo(on && groupBy === 'role' ? `g/role:${LENS_GROUP[key]}` : ROOT_ID);
+  };
 
   const selectContact = (contact) => {
-    const key = normalizeCompanyKey(contact.company) || NO_COMPANY_KEY;
-    if (graph.large) setExpanded((prev) => new Set(prev).add(key));
     if (lensFilter && !classifyContact(contact).lenses.includes(lensFilter)) setLensFilter(null);
     const full = contacts.find((c) => dedupeKey(c) === contact.key) || contact;
-    setSelected({ type: 'person', id: personNodeId(full), contact: full });
+    const id = personNodeId(full);
+    setSelected({ type: 'person', id, contact: full, color: atlas.byId.get(id)?.color });
+    goTo(atlas.byId.get(id)?.parent?.id || id);
     graphBoxRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
   };
 
   const onNodeClick = (node) => {
     if (node.type === 'person') {
-      setSelected({ type: 'person', id: node.id, contact: node.contact });
-    } else if (node.type === 'company') {
-      // Clicking always shows the company's people; hiding is an explicit button
-      // (a toggle here would collapse again on a double click).
-      if (graph.large && !expanded.has(node.key)) setExpanded((prev) => new Set(prev).add(node.key));
-      setSelected({ type: 'company', id: node.id, key: node.key, hub: node.hub, label: node.label, count: node.count });
-    } else if (node.type === 'group') {
-      setDrill((prev) => [...prev, { dim: levelDim, key: node.key, label: node.label }]);
-      setSelected(null);
-      setExpanded(new Set());
-    } else {
-      setSelected(null);
-    }
-  };
-
-  const selectedCompanyPeople = useMemo(() => {
-    if (selected?.type !== 'company') return [];
-    return focusContacts
-      .filter((c) => (selected.key === SMALL_COMPANIES_KEY
-        ? graph.nodes.some((n) => n.type === 'person' && n.companyKey === SMALL_COMPANIES_KEY && n.hub === selected.hub && n.contact === c)
-        : (normalizeCompanyKey(c.company) || NO_COMPANY_KEY) === selected.key) && (!selected.hub || groupKeyFor(c, levelDim) === selected.hub))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [selected, focusContacts, levelDim, graph]);
-  // ------------------------------------------------------------ ask
-
-  // Footer navigator: the groups of this layer (or its companies at the last
-  // layer), largest first. Clicking drills in or centres the map on it.
-  const navigator = useMemo(() => {
-    const hubs = graph.nodes.filter((n) => n.type === 'group').sort((a, b) => b.count - a.count);
-    if (hubs.length) return { kind: 'group', items: hubs };
-    const companies = graph.nodes.filter((n) => n.type === 'company').sort((a, b) => b.count - a.count).slice(0, 16);
-    return { kind: 'company', items: companies };
-  }, [graph]);
-  const navigateTo = (node) => {
-    if (node.type === 'group') {
-      setDrill((prev) => [...prev, { dim: levelDim, key: node.key, label: node.label }]);
-      setSelected(null);
-      setExpanded(new Set());
-      setFocusId(null);
+      setSelected({ type: 'person', id: node.id, contact: node.contact, color: node.color });
       return;
     }
-    if (graph.large && !expanded.has(node.key)) setExpanded((prev) => new Set(prev).add(node.key));
-    setSelected({ type: 'company', id: node.id, key: node.key, hub: node.hub, label: node.label, count: node.count });
-    setFocusId(node.id);
+    if (node.type === 'company') setSelected({ type: 'company', id: node.id, key: node.key, label: node.label, count: node.count, color: node.color, contacts: node.contacts });
+    else setSelected(null);
+    goTo(node.id);
   };
+
+  const selectedCompanyPeople = useMemo(
+    () => (selected?.type === 'company' ? [...selected.contacts].sort((a, b) => a.name.localeCompare(b.name)) : []),
+    [selected],
+  );
+
+  // Bottom navigator: what is inside the bubble you are looking at, largest
+  // first (groups, then companies, then the people of one company).
+  const quick = useMemo(() => {
+    const all = viewNode.type === 'company' ? viewNode.children
+      : [...viewNode.children].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    return { items: all.slice(0, QUICK_MAX), more: Math.max(0, all.length - QUICK_MAX) };
+  }, [viewNode]);
+  const biggest = useMemo(
+    () => atlas.nodes.reduce((best, n) => (n.type === 'company' && n.key !== NO_COMPANY_KEY && (!best || n.count > best.count) ? n : best), null),
+    [atlas],
+  );
+
+  // The dashboard: who is in the layer in view (or lit by a search or an
+  // answer), broken down by seniority and by what they can help with.
+  const panel = useMemo(() => {
+    const lit = highlightIds.size > 0;
+    const base = lit ? visibleContacts.filter((c) => highlightIds.has(personNodeId(c))) : (viewNode.contacts || []);
+    const ranks = [0, 0, 0];
+    const lens = { raise: 0, source: 0, diligence: 0 };
+    const rows = base.map((c) => {
+      const rank = seniority(c);
+      const cl = classifyContact(c);
+      ranks[rank] += 1;
+      cl.lenses.forEach((l) => { if (lens[l] != null) lens[l] += 1; });
+      return { c, rank, cl };
+    });
+    return { lit, total: base.length, ranks, lens, rows };
+  }, [viewNode, highlightIds, visibleContacts]);
+  const panelRows = useMemo(() => {
+    const q = panelQuery.trim().toLowerCase();
+    const rows = panel.rows.filter((r) => (rankFilter == null || r.rank === rankFilter)
+      && (!panelLens || r.cl.lenses.includes(panelLens))
+      && (!q || [r.c.name, r.c.company, r.c.position].some((v) => String(v || '').toLowerCase().includes(q))));
+    const byName = (x, y) => String(x.c.name || '').localeCompare(String(y.c.name || ''));
+    const byRecent = (x, y) => String(y.c.connectedOn || '').localeCompare(String(x.c.connectedOn || ''));
+    rows.sort(panelSort === 'name' ? byName : panelSort === 'recent' ? (x, y) => byRecent(x, y) || byName(x, y) : (x, y) => x.rank - y.rank || byRecent(x, y) || byName(x, y));
+    return rows;
+  }, [panel, rankFilter, panelLens, panelQuery, panelSort]);
+  useEffect(() => { setPeopleShown(PEOPLE_PAGE); }, [viewNode.id, rankFilter, panelLens, panelQuery, panelSort, highlightIds]);
+  // The layers of this grouping as steps: the ones already chosen, the one
+  // you are choosing now, and what is still below.
+  const layerSteps = useMemo(() => {
+    const dims = LAYERS[groupBy] || LAYERS.role;
+    const chosen = trail.slice(1).map((n) => ({ dim: n.type === 'company' ? 'company' : n.dim, value: n.label, id: n.id, color: n.color }));
+    const last = chosen.length ? chosen[chosen.length - 1].dim : null;
+    const rest = (last ? dims.slice(dims.indexOf(last) + 1) : dims).map((dim) => ({ dim }));
+    return [...chosen, ...rest, { dim: 'people' }];
+  }, [trail, groupBy]);
+  const panelFiltered = rankFilter != null || panelLens || panelQuery.trim();
+
+  // ------------------------------------------------------------ ask
 
   const ask = async (text, { target } = {}) => {
     const q = String(text ?? question).trim();
@@ -686,19 +700,6 @@ export default function NetworkPage() {
       if (!response.ok) throw new Error(data.error || `Search failed (${response.status})`);
       setAnswer(data);
       setSelected(null);
-      if (graph.large) {
-        // Expand the top matches' companies, except very large ones (they
-        // would bury the answer); those stay as a company node to click.
-        const sizes = new Map(graph.nodes.filter((n) => n.type === 'company').map((n) => [n.key, n.count]));
-        const keys = new Set(expanded);
-        [...(data.results || []), ...((data.intro?.viaInvestors || []).flatMap((g) => g.contacts))]
-          .slice(0, 30)
-          .forEach((r) => {
-            const key = normalizeCompanyKey(r.contact.company) || NO_COMPANY_KEY;
-            if ((sizes.get(key) || 0) <= AUTO_EXPAND_MAX_PEOPLE) keys.add(key);
-          });
-        setExpanded(keys);
-      }
     } catch (error) {
       setAskError(error.message);
     } finally {
@@ -805,14 +806,16 @@ export default function NetworkPage() {
 
   const details = selected && (
     <aside
-      className="glass mt-3 rounded-xl border border-line p-4 text-sm shadow-card sm:absolute sm:right-3 sm:top-3 sm:mt-0 sm:w-80 sm:max-h-[calc(100%-1.5rem)] sm:overflow-y-auto"
+      className={fullscreen
+        ? 'glass absolute right-3 top-3 max-h-[calc(100%-7rem)] w-80 overflow-y-auto rounded-xl border border-line p-4 text-sm shadow-card'
+        : 'min-h-0 flex-1 overflow-y-auto p-4 text-sm'}
       aria-label="Details"
     >
       {selected.type === 'person' && (
         <div>
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: clusterColor(normalizeCompanyKey(selected.contact.company) || NO_COMPANY_KEY) }} />
+              <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: selected.color || '#64748B' }} />
               <h3 className="font-semibold text-ink">{selected.contact.name}</h3>
             </div>
             <button type="button" onClick={() => setSelected(null)} aria-label="Close details" className="text-muted hover:text-ink"><HiOutlineXMark style={ICON} /></button>
@@ -845,22 +848,13 @@ export default function NetworkPage() {
         <div>
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="inline-block h-3 w-3 shrink-0 rounded-full" style={{ background: clusterColor(selected.key) }} />
+              <span className="inline-block h-3 w-3 shrink-0 rounded-full" style={{ background: selected.color || '#64748B' }} />
               <h3 className="font-semibold text-ink">{selected.label}</h3>
             </div>
             <button type="button" onClick={() => setSelected(null)} aria-label="Close details" className="text-muted hover:text-ink"><HiOutlineXMark style={ICON} /></button>
           </div>
           <p className="muted mt-0.5">{fmt(selected.count)} {selected.count === 1 ? 'person' : 'people'} you know</p>
-          {graph.large && expanded.has(selected.key) && (
-            <button
-              type="button"
-              onClick={() => setExpanded((prev) => { const next = new Set(prev); next.delete(selected.key); return next; })}
-              className="btn-ghost mt-1 px-1.5 py-1 text-xs"
-            >
-              Hide these people in the graph
-            </button>
-          )}
-          {selected.key !== NO_COMPANY_KEY && selected.key !== SMALL_COMPANIES_KEY && (
+          {selected.key !== NO_COMPANY_KEY && (
             <>
               <ContactActions company={selected.label} />
               <button
@@ -871,9 +865,6 @@ export default function NetworkPage() {
                 <HiOutlineSparkles style={{ width: 13, height: 13 }} /> Find intro paths to {selected.label}
               </button>
             </>
-          )}
-          {graph.large && expanded.has(selected.key) && selected.count > MAX_PEOPLE_PER_EXPANDED_COMPANY && (
-            <p className="muted mt-1 text-xs">The graph draws the first {fmt(MAX_PEOPLE_PER_EXPANDED_COMPANY)} people by name; all {fmt(selected.count)} are listed here.</p>
           )}
           <ul className="mt-3 max-h-56 divide-y divide-line overflow-y-auto">
             {selectedCompanyPeople.map((c) => (
@@ -1016,7 +1007,18 @@ export default function NetworkPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <div className="flex rounded-lg border border-line bg-white p-0.5 text-xs" role="radiogroup" aria-label="Group the map">
                   {GROUPINGS.map(({ key: v, label }) => (
-                    <button key={v} type="button" role="radio" aria-checked={groupBy === v} onClick={() => { setGroupBy(v); setDrill([]); setSelected(null); setFocusId(null); }} className={classNames('rounded-md px-2.5 py-1 font-medium', groupBy === v ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}>{label}</button>
+                    <button
+                      key={v}
+                      type="button"
+                      role="radio"
+                      aria-checked={groupBy === v}
+                      disabled={v === 'country' && !hasLocations}
+                      title={v === 'country' && !hasLocations ? 'None of your contacts has a location yet. LinkedIn exports do not include one; a CSV with a Location column does.' : undefined}
+                      onClick={() => { setGroupBy(v); resetMap(); }}
+                      className={classNames('rounded-md px-2.5 py-1 font-medium disabled:cursor-not-allowed disabled:opacity-40', groupBy === v ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}
+                    >
+                      {label}
+                    </button>
                   ))}
                 </div>
                 <div className="relative">
@@ -1044,117 +1046,288 @@ export default function NetworkPage() {
                   </button>
                 ))}
               </div>
-              <span className="ml-auto text-xs text-muted">{fmt(focusContacts.length)} people · {fmt(graph.companyCount)} companies</span>
+              <span className="ml-auto text-xs text-muted">{fmt(atlas.peopleCount)} people · {fmt(atlas.companyCount)} companies</span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 border-b border-line bg-slate-50/60 px-4 py-2 text-xs sm:px-5" aria-label="Lenses">
-              <span className="text-muted">Show me who can help me</span>
-              {Object.values(LENSES).map((l) => (
-                <button
-                  key={l.key}
-                  type="button"
-                  role="checkbox"
-                  aria-checked={lensFilter === l.key}
-                  title={l.description}
-                  onClick={() => { setLensFilter((v) => (v === l.key ? null : l.key)); setDrill([]); setSelected(null); }}
-                  className={classNames('chip', lensFilter === l.key && 'chip-active')}
-                >
-                  {l.label.toLowerCase()} <span className="text-muted">{fmt(roleCounts.lenses[l.key])}</span>
-                </button>
+            <nav className="flex flex-wrap items-center gap-1 border-b border-line bg-slate-50/60 px-4 py-2 text-xs sm:px-5" aria-label="Map layers">
+              {trail.map((node, i) => (
+                <React.Fragment key={node.id}>
+                  {i > 0 && <span className="text-line">›</span>}
+                  <button
+                    type="button"
+                    onClick={() => { setSelected(null); goTo(node.id); }}
+                    className={classNames('rounded-md px-1.5 py-0.5', i === trail.length - 1 ? 'font-medium text-ink' : 'text-muted hover:text-ink')}
+                  >
+                    {node.id === ROOT_ID ? 'All' : node.label}
+                    {i === trail.length - 1 && <span className="ml-1 font-normal text-muted">{fmt(node.count)}</span>}
+                  </button>
+                </React.Fragment>
               ))}
-              {firmCount > 0 && (
-                <button
-                  type="button"
-                  role="checkbox"
-                  aria-checked={directOnly}
-                  title="Hide firm-wide CRM contacts held by colleagues"
-                  onClick={() => { setDirectOnly((v) => !v); setDrill([]); setSelected(null); }}
-                  className={classNames('chip ml-auto', directOnly && 'chip-active')}
-                >
-                  my direct connections only
-                </button>
-              )}
-              {lensFilter && <span className="w-full text-muted">{LENSES[lensFilter].description}</span>}
-            </div>
+              <span className="ml-auto text-muted">
+                {highlightIds.size > 0 ? `${fmt(highlightIds.size)} highlighted` : 'Drag to spin · scroll to zoom · click to open'}
+              </span>
+            </nav>
 
-            {(graph.large || graph.cappedCompanies?.length > 0 || (graphSearch.trim() || answerKeys)) && (
-              <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-line bg-slate-50/60 px-4 py-2 text-xs text-muted sm:px-5">
-                {graph.large && (
-                  <span>Large network: companies only{graph.hiddenCompanies ? ` (largest ${fmt(graph.companyCount - graph.hiddenCompanies)})` : ''}. Click a company to show its people.</span>
-                )}
-                {graph.cappedCompanies?.length > 0 && (
-                  <span>First {fmt(MAX_PEOPLE_PER_EXPANDED_COMPANY)} people drawn for {graph.cappedCompanies.map((c) => c.label).slice(0, 3).join(', ')}{graph.cappedCompanies.length > 3 ? ` and ${graph.cappedCompanies.length - 3} more` : ''}; everyone is in the company&apos;s list.</span>
-                )}
-                {(graphSearch.trim() || answerKeys) && (
-                  <span>{fmt(highlightedPeople)} highlighted{graph.large && highlightedTotal > highlightedPeople ? ` (${fmt(highlightedTotal)} match; click a company to show its people)` : ''}</span>
-                )}
-              </div>
-            )}
-
-            {groupBy !== 'company' && (
-              <nav className="flex flex-wrap items-center gap-1 border-b border-line bg-slate-50/60 px-4 py-2 text-xs sm:px-5" aria-label="Map layers">
-                <button type="button" onClick={() => { setDrill([]); setSelected(null); setFocusId(null); }} className={classNames('rounded-md px-1.5 py-0.5', drill.length ? 'text-muted hover:text-ink' : 'font-medium text-ink')}>All</button>
-                {drill.map((step, i) => (
-                  <React.Fragment key={`${step.dim}:${step.key}`}>
-                    <span className="text-line">›</span>
-                    <button
-                      type="button"
-                      onClick={() => { setDrill(drill.slice(0, i + 1)); setSelected(null); setFocusId(null); }}
-                      className={classNames('rounded-md px-1.5 py-0.5', i === drill.length - 1 ? 'font-medium text-ink' : 'text-muted hover:text-ink')}
-                    >
-                      {step.label}
-                    </button>
-                  </React.Fragment>
-                ))}
-                <span className="ml-auto text-muted">
-                  {levelDim === 'company' ? 'Companies and people' : `Grouped by ${DIM_LABEL[levelDim]}`}
-                  {levelDim !== 'company' ? ' · click a group to drill in' : drill.length ? ' · click a company for its people' : ''}
-                </span>
-              </nav>
-            )}
-            <div ref={graphBoxRef} className="relative min-w-0 overflow-hidden bg-white">
-              {focusContacts.length === 0 ? (
+            <div className="lg:flex">
+            <div ref={graphBoxRef} className="relative min-w-0 flex-1 overflow-hidden bg-white">
+              {atlas.peopleCount === 0 ? (
                 <div className="flex items-center justify-center text-sm text-muted" style={{ height: graphHeight }}>No contacts match these filters.</div>
               ) : (
                 <NetworkGraph
-                  graphData={graph}
+                  atlas={atlas}
                   width={graphWidth}
                   height={graphHeight}
+                  insetBottom={NAV_HEIGHT}
                   highlightIds={highlightIds}
                   selectedId={selected?.id}
-                  hoverId={hoverId}
-                  focusId={focusId}
+                  focus={focus}
+                  viewId={viewNode.id}
                   onNodeClick={onNodeClick}
-                  onNodeHover={(node) => setHoverId(node ? node.id : null)}
+                  onViewNode={setViewId}
                   onBackgroundClick={() => setSelected(null)}
-                />
-              )}
-              <nav className="glass absolute bottom-0 left-0 right-0 flex items-center gap-1.5 overflow-x-auto border-t border-line px-3 py-2 text-xs" aria-label="Map navigator">
-                <span className="shrink-0 text-muted">{navigator.kind === 'group' ? `${navigator.items.length} groups` : 'Companies'}</span>
-                <span className="text-line">|</span>
-                {navigator.items.map((node) => (
+                >
                   <button
-                    key={node.id}
                     type="button"
-                    onClick={() => navigateTo(node)}
-                    title={node.type === 'group' ? `Drill into ${node.label}` : `Centre on ${node.label}`}
-                    className={classNames('chip shrink-0', selected?.id === node.id && 'chip-active')}
+                    onClick={toggleFullscreen}
+                    className="glass flex h-8 w-8 items-center justify-center rounded-lg text-ink shadow-card hover:bg-white"
+                    aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+                    title={fullscreen ? 'Exit full screen' : 'Full screen'}
                   >
-                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: node.type === 'group' ? hubColorOf(node.key) : clusterColorOf(node.key) }} />
-                    {node.label} <span className="text-muted">{fmt(node.count)}</span>
+                    {fullscreen ? <HiOutlineArrowsPointingIn style={{ width: 15, height: 15 }} /> : <HiOutlineArrowsPointingOut style={{ width: 15, height: 15, transform: 'rotate(45deg)' }} />}
                   </button>
-                ))}
-                {firmCount > 0 && <span className="ml-auto shrink-0 text-muted"><span className="inline-block h-2 w-2 rounded-full border border-brand-400 bg-white align-middle" /> hollow = firm contact</span>}
-              </nav>
-              <button
-                type="button"
-                onClick={toggleFullscreen}
-                className="glass absolute right-28 top-3 inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-ink shadow-card"
-                title={fullscreen ? 'Exit full screen' : 'Full screen'}
-              >
-                {fullscreen ? <HiOutlineArrowsPointingIn style={{ width: 13, height: 13 }} /> : <HiOutlineArrowsPointingOut style={{ width: 13, height: 13 }} />} {fullscreen ? 'Exit' : 'Full screen'}
-              </button>
-              <div className="px-3 pb-3 sm:p-0">{details}</div>
+                </NetworkGraph>
+              )}
+              <div className="glass absolute bottom-0 left-0 right-0 border-t border-line text-xs">
+                <nav className="scroll-quiet flex items-center gap-1.5 overflow-x-auto px-3 py-2" aria-label="Map navigator">
+                  {viewNode.parent ? (
+                    <button type="button" onClick={() => { setSelected(null); goTo(viewNode.parent.id); }} className="chip shrink-0" title={`Back out to ${viewNode.parent.id === ROOT_ID ? 'the whole map' : viewNode.parent.label}`}>
+                      ← {viewNode.parent.id === ROOT_ID ? 'All' : viewNode.parent.label}
+                    </button>
+                  ) : (
+                    <span className="shrink-0 font-medium text-ink">Zoom to</span>
+                  )}
+                  <span className="text-line">|</span>
+                  {quick.items.map((node) => (
+                    <button
+                      key={node.id}
+                      type="button"
+                      onClick={() => onNodeClick(node)}
+                      title={node.type === 'person' ? [node.label, node.contact.position].filter(Boolean).join(' · ') : `Zoom to ${node.label}`}
+                      className={classNames('chip shrink-0', selected?.id === node.id && 'chip-active')}
+                    >
+                      <span className="inline-block h-2 w-2 rounded-full" style={{ background: node.color }} />
+                      {node.label} {node.type !== 'person' && <span className="text-muted">{fmt(node.count)}</span>}
+                    </button>
+                  ))}
+                  {quick.more > 0 && <span className="shrink-0 text-muted">+{fmt(quick.more)} more on the map</span>}
+                </nav>
+                <div className="scroll-quiet flex items-center gap-1.5 overflow-x-auto border-t border-line/70 px-3 py-2" role="group" aria-label="Presets">
+                  <span className="shrink-0 text-muted">Presets</span>
+                  <span className="text-line">|</span>
+                  <button
+                    type="button"
+                    onClick={() => { setLensFilter(null); setGraphSearch(''); resetMap(); }}
+                    className={classNames('chip shrink-0', !lensFilter && viewNode.id === ROOT_ID && 'chip-active')}
+                    title="Everyone, zoomed all the way out"
+                  >
+                    Whole network
+                  </button>
+                  {Object.values(LENSES).map((l) => (
+                    <button
+                      key={l.key}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={lensFilter === l.key}
+                      title={l.description}
+                      onClick={() => pickLens(l.key)}
+                      className={classNames('chip shrink-0', lensFilter === l.key && 'chip-active')}
+                    >
+                      {l.label} <span className="text-muted">{fmt(roleCounts.lenses[l.key])}</span>
+                    </button>
+                  ))}
+                  {biggest && (
+                    <button type="button" onClick={() => onNodeClick(biggest)} className="chip shrink-0" title={`Zoom to ${biggest.label}, the company you know most people at`}>
+                      Largest company
+                    </button>
+                  )}
+                  {firmCount > 0 && (
+                    <>
+                      <span className="text-line">|</span>
+                      <button
+                        type="button"
+                        role="checkbox"
+                        aria-checked={directOnly}
+                        title="Hide firm-wide CRM contacts held by colleagues"
+                        onClick={() => { setDirectOnly((v) => !v); resetMap(); }}
+                        className={classNames('chip shrink-0', directOnly && 'chip-active')}
+                      >
+                        My direct connections only
+                      </button>
+                      <span className="ml-auto shrink-0 text-muted"><span className="inline-block h-2 w-2 rounded-full border border-brand-400 bg-white align-middle" /> hollow = firm contact</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {fullscreen && details}
+            </div>
+            {/* ---------------------------------------------- dashboard */}
+            <aside className="flex max-h-[560px] min-h-0 flex-col border-t border-line bg-white lg:h-[620px] lg:max-h-none lg:w-[360px] lg:shrink-0 lg:border-l lg:border-t-0" aria-label="Dashboard">
+              {selected && !fullscreen ? details : (
+                <>
+                  <div className="space-y-3 border-b border-line px-4 py-3">
+                    {/* Layers: where you are in the hierarchy, as steps. */}
+                    <ol className="flex items-stretch gap-1" aria-label="Layers">
+                      {layerSteps.map((step, i) => {
+                        const done = Boolean(step.id);
+                        const current = !done && (i === 0 || Boolean(layerSteps[i - 1].id));
+                        return (
+                          <li key={`${step.dim}:${i}`} className="min-w-0 flex-1">
+                            <button
+                              type="button"
+                              disabled={!done}
+                              onClick={() => { setSelected(null); goTo(step.id); }}
+                              title={done ? `Back to ${step.value}` : undefined}
+                              className={classNames('block w-full rounded-md border px-1.5 py-1 text-left', done ? 'border-transparent bg-slate-100 hover:bg-slate-200' : current ? 'border-ink bg-white' : 'border-dashed border-line bg-white opacity-60')}
+                            >
+                              <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted">
+                                <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: done ? step.color || '#0F172A' : current ? '#0F172A' : '#CBD5E1' }} />
+                                {step.dim === 'people' ? 'People' : LAYER_LABEL[step.dim]}
+                              </span>
+                              <span className={classNames('block truncate text-xs', done || current ? 'font-medium text-ink' : 'text-muted')}>
+                                {done ? step.value : current ? (step.dim === 'people' ? `${fmt(panel.total)} here` : `${fmt(viewNode.children.length)} to pick`) : '—'}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                    <div>
+                      <h3 className="flex items-center gap-2 font-semibold leading-tight text-ink">
+                        {!panel.lit && viewNode.color && <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: viewNode.color }} />}
+                        {panel.lit ? 'Highlighted matches' : viewNode.id === ROOT_ID ? 'Everyone you know' : viewNode.label}
+                        <span className="font-normal text-muted">{fmt(panel.total)}</span>
+                      </h3>
+                      {!panel.lit && viewNode.hint && <p className="mt-0.5 text-xs text-muted">{viewNode.hint}</p>}
+                    </div>
+                    {/* Seniority: a bar you can click to filter. */}
+                    {panel.total > 0 && (
+                      <div role="group" aria-label="Filter by seniority">
+                        <div className="flex h-7 gap-0.5 overflow-hidden rounded-md">
+                          {SENIORITY.map((sn) => panel.ranks[sn.rank] > 0 && (
+                            <button
+                              key={sn.rank}
+                              type="button"
+                              role="checkbox"
+                              aria-checked={rankFilter === sn.rank}
+                              title={`${sn.label}: ${fmt(panel.ranks[sn.rank])} · ${sn.hint}`}
+                              onClick={() => setRankFilter((v) => (v === sn.rank ? null : sn.rank))}
+                              style={{ flexGrow: panel.ranks[sn.rank], background: sn.tone, opacity: rankFilter == null || rankFilter === sn.rank ? 1 : 0.3 }}
+                              className={classNames('min-w-[34px] basis-0 px-1.5 text-left text-[11px] font-semibold', sn.rank === 2 ? 'text-slate-700' : 'text-white', rankFilter === sn.rank && 'ring-2 ring-inset ring-amber-400')}
+                            >
+                              {fmt(panel.ranks[sn.rank])}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="mt-1 flex gap-3 text-[11px] text-muted">
+                          {SENIORITY.map((sn) => <span key={sn.rank} title={sn.hint} className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: sn.tone }} />{sn.label}</span>)}
+                        </div>
+                      </div>
+                    )}
+                    {/* What they can help with: three gauges you can click to filter. */}
+                    {panel.total > 0 && (
+                      <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Filter by what they can help with">
+                        {Object.values(LENSES).map((l) => (
+                          <button
+                            key={l.key}
+                            type="button"
+                            role="checkbox"
+                            aria-checked={panelLens === l.key}
+                            title={l.description}
+                            onClick={() => setPanelLens((v) => (v === l.key ? null : l.key))}
+                            className={classNames('rounded-md border px-2 py-1.5 text-left', panelLens === l.key ? 'border-brand-500 bg-brand-50' : 'border-line hover:bg-slate-50')}
+                          >
+                            <span className="block text-[10px] font-medium uppercase tracking-wide text-muted">{l.short}</span>
+                            <span className="block text-sm font-semibold text-ink">{fmt(panel.lens[l.key])}</span>
+                            <span className="mt-1 block h-1 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full bg-brand-500" style={{ width: `${(panel.lens[l.key] / panel.total) * 100}%` }} /></span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* The next layer down, as bars in the colours used on the globe. */}
+                  {!panel.lit && viewNode.type !== 'company' && quick.items.length > 1 && (
+                    <div className="border-b border-line px-4 py-3">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted">Next layer · {viewNode.children[0]?.type === 'company' ? 'companies' : LAYER_LABEL[viewNode.children[0]?.dim]?.toLowerCase() || 'groups'}</p>
+                      <ul className="mt-1.5 max-h-[132px] space-y-1 overflow-y-auto pr-1">
+                        {quick.items.map((node) => (
+                          <li key={node.id}>
+                            <button type="button" onClick={() => onNodeClick(node)} className="group flex w-full items-center gap-2 text-left text-xs" title={`Open ${node.label} on the globe`}>
+                              <span className="w-28 shrink-0 truncate text-ink group-hover:underline">{node.label}</span>
+                              <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full" style={{ width: `${Math.max(3, (node.count / Math.max(1, quick.items[0].count)) * 100)}%`, background: node.color }} /></span>
+                              <span className="w-9 shrink-0 text-right tabular-nums text-muted">{fmt(node.count)}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {/* People in this layer. */}
+                  <div className="flex items-center gap-2 border-b border-line px-4 py-2">
+                    <div className="relative min-w-0 flex-1">
+                      <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted" style={{ width: 13, height: 13 }} />
+                      <input type="search" value={panelQuery} onChange={(e) => setPanelQuery(e.target.value)} placeholder="Filter these people" aria-label="Filter these people" className="input w-full py-1 pl-7 text-xs" />
+                    </div>
+                    <div className="flex shrink-0 rounded-md border border-line p-0.5 text-[11px]" role="radiogroup" aria-label="Sort people">
+                      {PEOPLE_SORTS.map((o) => (
+                        <button key={o.key} type="button" role="radio" aria-checked={panelSort === o.key} onClick={() => setPanelSort(o.key)} className={classNames('rounded px-1.5 py-0.5', panelSort === o.key ? 'bg-slate-100 font-medium text-ink' : 'text-muted hover:text-ink')}>{o.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {panelFiltered && (
+                    <p className="flex items-center justify-between border-b border-line bg-slate-50/70 px-4 py-1.5 text-[11px] text-muted">
+                      <span>{fmt(panelRows.length)} of {fmt(panel.total)}</span>
+                      <button type="button" onClick={() => { setRankFilter(null); setPanelLens(null); setPanelQuery(''); }} className="font-medium text-brand-600 hover:underline">Clear filters</button>
+                    </p>
+                  )}
+                  <ul className="min-h-0 flex-1 divide-y divide-line overflow-y-auto">
+                    {panelRows.slice(0, peopleShown).map(({ c, rank, cl }) => {
+                      const tone = atlas.byId.get(personNodeId(c))?.color || '#94A3B8';
+                      return (
+                        <li key={dedupeKey(c)}>
+                          <button type="button" onClick={() => selectContact({ ...c, key: dedupeKey(c) })} className="flex w-full items-center gap-2.5 px-4 py-2 text-left hover:bg-slate-50">
+                            <span
+                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold"
+                              style={c.relationship === 'firm' ? { border: `1.5px solid ${tone}`, color: tone } : { background: tone, color: '#FFFFFF' }}
+                              title={c.relationship === 'firm' ? 'A firm-wide CRM contact, not your own connection' : undefined}
+                            >
+                              {initialsOf(c.name)}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-1.5">
+                                <span className="truncate text-sm font-medium text-ink">{c.name}</span>
+                                {rank < 2 && <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: SENIORITY[rank].tone }} title={SENIORITY[rank].label} />}
+                              </span>
+                              <span className="block truncate text-xs text-muted">{[c.position, c.company].filter(Boolean).join(' · ') || 'No title or company'}</span>
+                            </span>
+                            <span className="flex shrink-0 gap-0.5">
+                              {Object.values(LENSES).map((l) => (
+                                <span key={l.key} title={cl.lenses.includes(l.key) ? `Can help you ${l.short.toLowerCase()}` : undefined} className={classNames('flex h-4 w-4 items-center justify-center rounded text-[9px] font-semibold', cl.lenses.includes(l.key) ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-300')}>{l.short[0]}</span>
+                              ))}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                    {panelRows.length === 0 && <li className="px-4 py-8 text-center text-xs text-muted">No one in this layer matches.</li>}
+                    {panelRows.length > peopleShown && (
+                      <li className="px-4 py-2 text-center">
+                        <button type="button" onClick={() => setPeopleShown((n) => n + PEOPLE_PAGE)} className="text-xs font-medium text-brand-600 hover:underline">Show {fmt(Math.min(PEOPLE_PAGE, panelRows.length - peopleShown))} more of {fmt(panelRows.length)}</button>
+                      </li>
+                    )}
+                  </ul>
+                </>
+              )}
+            </aside>
             </div>
           </section>
         )}

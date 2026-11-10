@@ -66,7 +66,8 @@ A7. FIND WHO CAN HELP YOU RAISE A FUND
    "Who can help me raise a fund?", or type your own question.
 2. Results list LPs and family offices first, then investors and bankers,
    each with a role label and the reason they matched.
-3. Or click the "raise capital" chip above the map to show only those people.
+3. Or click "Raise capital" in the "Presets" bar under the map to show only
+   those people.
 
 A8. FIND DEAL FLOW IN A SECTOR
 1. Ask "Who sends me deal flow in fintech?" (replace fintech with any
@@ -87,13 +88,15 @@ A10. FIND INTRO PATHS TO A COMPANY
 A11. EXPLORE THE MAP LAYER BY LAYER
 1. Choose a grouping: "By role" (default), "By company", "By industry" or
    "By country".
-2. Click a group on the map, or its name in the navigator bar at the bottom.
-3. The group's people are regrouped by the next level (for example by
-   industry). Click again to reach companies and people.
+2. Click a group on the globe, or its name in the "Zoom to" bar under it.
+   The globe turns and flies to that group.
+3. Click a sub-group (for example an industry), then a company.
 4. Click a company to see the people you know there.
-5. Use the breadcrumb ("All > ...") to go back up.
-6. "Full screen" enlarges the map; "Fit to view" re-centres it.
-7. Scroll on the map to zoom; drag to move around.
+5. Use the breadcrumb ("All > ...") or the arrow in the "Zoom to" bar to go
+   back out.
+6. The buttons at the top left of the map zoom in, zoom out, fit the whole
+   globe and go full screen.
+7. Drag to spin the globe; scroll on the map to dive in or pull back.
 
 A12. CREATE A DEAL WORKSPACE AND MEMO
 1. Sign in. Click "Workspaces" (top right).
@@ -172,8 +175,8 @@ C. LIMITS AND WHAT TO SAY WHEN SOMETHING IS MISSING
 - A scanned PDF without a text layer cannot be read; other files in the same
   upload still work.
 - Contact limits: 30,000 contacts per account, 25 MB per file.
-- Large networks (over 1,500 people) show companies first; click a company
-  to see its people.
+- On the map, people only appear as separate dots once you are close
+  enough; from far away a company is one burst. Click a company to fly to it.
 - Founder Check needs a full name (first and last).
 - The Watchlist matches company names with exact capitalisation.
 - Output is information, not investment, legal or professional advice.
@@ -188,7 +191,7 @@ D. TONE AND WORDING FOR THE AVATAR
 - Use the exact on-screen names: "Open Research", "Network Map",
   "Founder Check", "Search", "All", "Custom", "Gov & regulators",
   "Patents & IP", "Institutions", "Upload Connections.csv", "Connect X",
-  "By role", "Full screen", "Fit to view", "raise capital",
+  "By role", "Zoom to", "Presets", "Whole network", "Raise capital",
   "source deals", "diligence".
 - Do not mention pricing, API keys or technical settings to users.
 - When unsure whether a feature is available, say "If you see ... on your
