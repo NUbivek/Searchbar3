@@ -18,7 +18,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HiOutlineArrowsPointingOut, HiOutlineMinus, HiOutlinePlus } from 'react-icons/hi2';
-import { PERSON_R, ROOT_ID } from '../../utils/network/atlas';
+import { PERSON_R, ROOT_ID, shade } from '../../utils/network/atlas';
 
 export const SOURCE_COLORS = { linkedin: '#0077B5', x: '#0F172A', csv: '#64748B', attio: '#B8742A' };
 
@@ -75,7 +75,9 @@ export const THEMES = {
     bg: '#F8FAFC', backdrop: 'radial-gradient(ellipse at 50% 42%, #FFFFFF 0%, #F6F8FB 55%, #EEF2F7 100%)',
     ink: '#0F172A', muted: '#64748B', grid: '71,85,105', gridStrength: 1,
     tone: (hex) => hex || '#7C8A9E', spark: null, senior: '#0F172A', onNode: '#FFFFFF',
-    pill: 'rgba(255,255,255,0.94)', halo: 'rgba(255,255,255,0.95)', me: '15,23,42',
+    pill: '#FFFFFF', halo: 'rgba(255,255,255,0.95)', me: '15,23,42',
+    // Solid panel behind a label, tinted with its layer's colour.
+    panel: (hex) => shade(hex, 0.86), panelEdge: 0.55,
     air: '61,106,150', airStrength: 0.1, body: ['rgba(255,255,255,0.5)', 'rgba(226,232,240,0.16)', 'rgba(148,163,184,0.1)'], stars: false,
     glow: 0.7,
   },
@@ -83,7 +85,8 @@ export const THEMES = {
     bg: '#0B1220', backdrop: 'radial-gradient(ellipse at 50% 42%, #18253F 0%, #0F192D 45%, #0B1220 100%)',
     ink: '#F1F5F9', muted: '#94A3B8', grid: '148,163,184', gridStrength: 1,
     tone: lift, spark: '#FFFFFF', senior: '#FFFFFF', onNode: '#0B1220',
-    pill: 'rgba(11,18,32,0.9)', halo: 'rgba(11,18,32,0.92)', me: '255,255,255',
+    pill: '#0F1A2E', halo: 'rgba(11,18,32,0.92)', me: '255,255,255',
+    panel: (hex) => shade(hex, -0.74), panelEdge: 0.7,
     air: '96,140,200', airStrength: 0.16, body: ['rgba(46,70,112,0.22)', 'rgba(20,32,56,0.12)', 'rgba(11,18,32,0.18)'], stars: true,
     glow: 1,
   },
@@ -585,7 +588,7 @@ export default function NetworkGraph({
         if (isHot || isSel || (open >= 0.5 && sr >= 46)) {
           labels.push({ kind: 'pill', style: 'plate', text, count: node.count, x: hx, y: hy - R0 - 14, size: 11, weight: 600, color: node.color, dim, priority: (isHot || isSel ? 99 : 60) + Math.min(9, node.count / 20) });
         } else if (R0 >= 2 && (sr >= 11 || node.count >= 8)) {
-          labels.push({ kind: 'plain', text, tail: node.count > 1 ? node.count.toLocaleString('en-US') : '', x: hx, y: hy + R0 + 9, size: node.count >= 10 ? 11 : 10, weight: node.count >= 10 ? 600 : 500, color: INK, dim, priority: 20 + Math.min(30, node.count) });
+          labels.push({ kind: 'pill', style: 'plate', text, count: node.count > 1 ? node.count : null, x: hx, y: hy + R0 + 12, size: node.count >= 10 ? 11 : 10, weight: node.count >= 10 ? 600 : 500, color: node.color, dim, priority: 20 + Math.min(30, node.count) });
         }
         return;
       }
@@ -698,7 +701,7 @@ export default function NetworkGraph({
         const tone = paintOf(l.color);
         const raw = l.text.length > 34 ? `${l.text.slice(0, 33)}…` : l.text;
         const name = style === 'banner' ? raw.toUpperCase() : raw;
-        const nameFont = style === 'banner' ? `700 ${l.size - 1.5}px ${FONT}` : `${l.weight} ${l.size}px ${FONT}`;
+        const nameFont = style === 'banner' ? `700 ${l.size - 1.5}px ${FONT}` : `${style === 'tag' ? 700 : l.weight} ${l.size}px ${FONT}`;
         const count = l.count != null ? l.count.toLocaleString('en-US') : '';
         ctx.font = nameFont;
         if (style === 'banner') ctx.letterSpacing = '0.7px';
@@ -708,7 +711,7 @@ export default function NetworkGraph({
         const countW = count ? ctx.measureText(count).width + 7 : 0;
         const lead = style === 'tag' ? 13 : style === 'banner' ? 11 : 9;
         const bw = nameW + countW + lead + (style === 'banner' ? 11 : 9);
-        const bh = l.size + (style === 'banner' ? 12 : 11);
+        const bh = l.size + (style === 'banner' ? 12 : l.size < 10.5 ? 8 : 11);
         // Keep clear of the zoom buttons in the top-left corner.
         const bx = l.sticky ? clamp(l.x - bw / 2, l.y < 160 ? 52 : 4, Math.max(52, w - bw - 4)) : l.x - bw / 2;
         const by = l.y - bh / 2;
@@ -720,14 +723,15 @@ export default function NetworkGraph({
           ctx.fillStyle = tone; ctx.fill();
         } else if (style === 'tag') {
           roundRect(ctx, bx, by, bw, bh, 4);
-          ctx.fillStyle = T.pill; ctx.fill();
-          ctx.lineWidth = 1; ctx.strokeStyle = withAlpha(tone, 0.5); ctx.stroke();
+          ctx.fillStyle = T.panel(l.color); ctx.fill();
+          ctx.lineWidth = 1; ctx.strokeStyle = withAlpha(tone, T.panelEdge); ctx.stroke();
           roundRect(ctx, bx + 3, by + 3, 3, bh - 6, 1.5);
           ctx.fillStyle = tone; ctx.fill();
         } else if (style === 'plate') {
           roundRect(ctx, bx, by, bw, bh, 3);
           ctx.fillStyle = T.pill; ctx.fill();
-          ctx.fillStyle = tone; ctx.fillRect(bx + 5, by + bh - 2.5, bw - 10, 1.5);
+          ctx.lineWidth = 1; ctx.strokeStyle = withAlpha(tone, 0.28); ctx.stroke();
+          ctx.fillStyle = tone; ctx.fillRect(bx + 4, by + bh - 2.5, bw - 8, 2);
         } else {
           roundRect(ctx, bx, by, bw, bh, bh / 2);
           ctx.fillStyle = T.pill; ctx.fill();
@@ -757,6 +761,11 @@ export default function NetworkGraph({
       const th = l.size + (l.sub ? l.size : 0) + 2;
       if (!free(l.x - tw / 2 - 2, l.y - l.size / 2, l.x + tw / 2 + 2, l.y - l.size / 2 + th)) continue;
       taken.push([l.x - tw / 2, l.y - l.size / 2, l.x + tw / 2, l.y - l.size / 2 + th]);
+      // A solid backing so the words read over rays and grid lines.
+      ctx.globalAlpha = l.dim ? 0.35 : 1;
+      roundRect(ctx, l.x - tw / 2 - 4, l.y - l.size / 2 - 2.5, tw + 8, th + 3, 3);
+      ctx.fillStyle = T.pill; ctx.fill();
+      ctx.globalAlpha = 1;
       ctx.lineJoin = 'round';
       ctx.lineWidth = 3; ctx.strokeStyle = T.halo;
       ctx.globalAlpha = l.dim ? 0.35 : 1;
