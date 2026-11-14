@@ -128,11 +128,9 @@ src/utils/                 sourceTiers, claimCheck, evidence, sourceIntegration 
                            theme (day / night)
 src/components/            OpenSearch, SourceSelector, ModelSelector (no longer rendered),
                            layout/PageShell (TopBar, ThemeToggle, SectionSwitch),
-                           network/{NetworkGraph,NetworkHelpers}, tavus/{TavusGuide,guideTools},
+                           network/{NetworkGraph,NetworkHelpers},
                            search/results/*, workspace/*, watchlist/*
 src/styles/globals.css     colour tokens for day and night, component classes
-docs/tavus/                the video guide's instructions (00-), tool specs (03-) and seven
-                           knowledge files (kb-*); README.md there says what goes where
 src/sourcing/              curated registry pipeline (scripts/sourcing-*.js)
 sources/registry.json      ~800 curated sources (RSS/HTML/API) incl. government, ip_research,
                            institutions_research categories
@@ -197,14 +195,14 @@ Key behaviours worth knowing before editing:
   (`src/utils/oauthUtils.js` ignores `*_REDIRECT_URI` overrides that are not
   real URLs or point at another host).
 
-- **Tavus video guide.** `src/components/tavus/TavusGuide.js` renders the one
-  `<tavus-widget>` (deployment id in `src/config/tavus.js`), loaded in
-  `_app.js` with `next/dynamic` and `ssr: false`. Tool logic and page
-  descriptions are in `guideTools.js` (unit-tested in
-  `tests/unit/features/tavusGuide.test.js`); the PAL Maker tool specs are in
-  `docs/tavus/03-pal-tools.md`. Keep `@tavus/widget` on the `latest` tag.
-  Open Research keeps its current query in the URL (`?q=`) so the agent and
-  links stay in sync; do not mount the widget per page (a remount ends calls).
+- **Video guide (Tavus): removed on 2026-11-14 at the owner's request ("for
+  now").** The widget, its config, tests and the `docs/tavus/` text files
+  are gone from the tree. To bring it back, restore these paths from commit
+  `ddeb651`: `src/components/tavus/`, `src/config/tavus.js`,
+  `tests/unit/features/tavusGuide.test.js`, `docs/tavus/*.txt|*.md`, the
+  mount in `src/pages/_app.js`, and the `@tavus/widget` dependency. Open
+  Research still keeps its query in the URL (`?q=`) and Founder Check accepts
+  `?name=&company=`; both are useful as plain links.
 
 ## 6. Design rules (short; full version in DESIGN.md)
 
@@ -270,16 +268,12 @@ Shipped on 2026-11-09 and 2026-11-10 (all live):
 Still true from before: full audit and overhaul; free-first LLM chain;
 Google sign-in on both hosts; custom domain; privacy / terms; Open Research
 source groups (Gov, Patents & IP, Institutions) with All / Custom chips;
-Tavus video guide with three page tools; avatar knowledge docs in
-`docs/tavus/` (keep them in step with UI changes; the owner uploads them to
-the guide's knowledge base himself).
+(The Tavus video guide was removed on 2026-11-14; see section 5.)
 
 On purpose, do not undo:
 
 - `docs/tavus/media/` is untracked (banner and background JPGs for the
   owner's video). Leave it uncommitted unless he asks.
-- A Tavus findings report and `?tavusDebug=1` timing marks were added and
-  reverted (`eb29785`). The owner keeps that report outside the repo.
 
 ### How production is released
 
@@ -344,12 +338,6 @@ Waiting on the owner:
    `TWITTER_CLIENT_ID` / `TWITTER_CLIENT_SECRET` in Vercel and production
    needs a redeploy; then test Connect X and `GET /api/auth/twitter/token`
    (expect `authenticated: true`), then "Import follows".
-5. **Tavus setup.** The owner pastes `docs/tavus/00-agent-instructions.txt`
-   into the guide's instructions, creates the three tools from
-   `03-pal-tools.md`, and uploads the seven `kb-*.txt` files (see
-   `docs/tavus/README.md`). Until the tools exist the guide talks but cannot
-   navigate. When the UI changes, update the matching `kb-*.txt` file and
-   tell him to re-upload it.
 6. **Stale env overrides in Vercel** (the code already ignores them):
    `TWITTER_REDIRECT_URI`, `LINKEDIN_REDIRECT_URI`,
    `NEXT_PUBLIC_LINKEDIN_REDIRECT_URI`, and `NEXT_PUBLIC_BASE_URL` /
@@ -388,7 +376,7 @@ Ideas discussed, not started (build only if he asks):
 - Gives feedback fast and in fragments while watching the page, and changes
   direction when he sees the result. Build the smallest version that shows
   the idea, show it, then refine. Keep what already worked.
-- Wants docs (README, NETWORK-MAP.md, DESIGN.md, `docs/tavus/kb-*.txt`) updated
+- Wants docs (README, NETWORK-MAP.md, DESIGN.md) updated
   with every feature change.
 - Prefers a short plain summary at the end: what changed, what is verified,
   what is not, what is left on his side.
