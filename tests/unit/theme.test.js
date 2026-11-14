@@ -57,6 +57,16 @@ describe('theme', () => {
     expect(toggle.getAttribute('aria-checked')).toBe('false');
   });
 
+  test('loading placeholders shimmer in place: the animation moves the highlight, never the bar', () => {
+    const css = require('fs').readFileSync(require('path').join(__dirname, '../../src/styles/globals.css'), 'utf8');
+    // .skeleton uses the animation called "shimmer"; exactly one definition, and it must not move the element.
+    const blocks = [...css.matchAll(/@keyframes shimmer\s*\{([\s\S]*?)\n\}/g)].map((m) => m[1]);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatch(/background-position/);
+    expect(blocks[0]).not.toMatch(/transform/);
+    expect(css).toMatch(/animation: shimmer 1\.6s linear infinite/);
+  });
+
   test('every colour token has a night value', () => {
     const css = require('fs').readFileSync(require('path').join(__dirname, '../../src/styles/globals.css'), 'utf8');
     const day = css.slice(css.indexOf(':root {'), css.indexOf(":root[data-theme='dark'] {"));

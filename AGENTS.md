@@ -244,7 +244,7 @@ Misc: `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_PRODUCTION_URL`, `FEATURE_*`,
 `vercel env ls` shows names; use `vercel env add NAME preview <branch> --value '…' --yes`
 for non-interactive adds (the owner normally pastes secret values himself).
 
-## 8. Current state (2026-11-10)
+## 8. Current state (2026-11-14)
 
 Production `openclaw-fixes` is at `bcacb2b`. The preview branch
 `claude/research-hub-fix` has the same application code, plus one newer
@@ -304,20 +304,36 @@ before all of this work).
 
 ## 9. Open items — pick up here
 
-Not yet verified (worth doing first):
+Verified on 2026-11-14 (local server, signed-in test user):
 
-1. **Night mode on pages nobody opened at night:** a live Open Research
-   search and Founder Check run (only a saved result was viewed), workspace
-   detail, memo and company profile pages. They use the same tokens; look
-   for leftover light panels or unreadable text and fix with token classes.
-2. **Classification on the owner's real contacts.** The under-5% result for
+- Night mode on a live Open Research search (both result tabs), a Founder
+  Check run, a company profile, a workspace and its memo. No leftover light
+  panels or unreadable text.
+- Network Map "By company" and "By industry" (including opening a group),
+  and pinch zoom with a simulated two-finger gesture.
+- Fixed while verifying: loading placeholders (`.skeleton`, used in 54
+  places) slid sideways out of their cards because an old
+  `@keyframes shimmer` (a translate) overrode the intended one. The two
+  animations now have separate names; `tests/unit/theme.test.js` guards it.
+
+Still not verified:
+
+1. **Classification on the owner's real contacts.** The under-5% result for
    "Everyone else" and industry "Other" was measured on synthetic test
-   contacts. If the owner reports a large leftover bucket, extend `ROLES`,
-   `COMPANY_WORD_INDUSTRY` or `FUNCTION_GROUP` and add the case to
-   `tests/unit/features/networkGrouping.test.js`. Do not print his contacts.
-3. **Network Map checks not done:** touch pinch on a phone, full-screen mode
-   with the dashboard hidden, and "By company" / "By industry" after the
-   last layout changes.
+   contacts. Reading his private network workbook needs his explicit
+   go-ahead in the conversation; do not read it otherwise. If he reports a
+   large leftover bucket, extend `ROLES`, `COMPANY_WORD_INDUSTRY` or
+   `FUNCTION_GROUP` and add the case to
+   `tests/unit/features/networkGrouping.test.js`. Never print his contacts.
+2. **Full-screen mode on the Network Map.** The embedded test browser blocks
+   the full-screen API, so it has to be checked in a normal browser. In full
+   screen the dashboard is hidden and details float over the globe; consider
+   making the globe and dashboard go full screen together.
+3. **Real touch on a phone** (pinch was only simulated).
+4. `~/Documents/research-hub-private` is a broken link: its target moved
+   from `…/MBA/2027Resume/Operating Jobs/6 Research Hub` to
+   `…/MBA/2027 Job Search/Operating Jobs/6 Research Hub`. Outside the repo;
+   repoint only if the owner asks.
 
 Waiting on the owner:
 
