@@ -1,7 +1,7 @@
 /**
- * GET /api/llm/models -> models the search can use right now.
- * Free providers first (Groq, OpenRouter free); Together only with
- * LLM_ALLOW_PAID=true. Lists only models each provider serves today.
+ * GET /api/llm/models -> models the search can use right now, strongest
+ * first. Only models on the allow-list in src/server/llm/providers.js (ones
+ * that cost nothing) and that each provider serves today.
  */
 import { availableModels, llmStatus } from '../../../server/llm/providers';
 
@@ -16,7 +16,7 @@ export default async function handler(req, res) {
   const models = await availableModels();
   res.setHeader('Cache-Control', 'private, max-age=300');
   return res.status(200).json({
-    models: models.map(({ id, label, free }) => ({ id, label, free })),
+    models: models.map(({ id, label, free, resting }) => ({ id, label, free, resting })),
     providers: llmStatus().map(({ id, label, free, enabled, note }) => ({ id, label, free, enabled, note })),
   });
 }

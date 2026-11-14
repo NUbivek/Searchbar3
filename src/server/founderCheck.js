@@ -753,12 +753,16 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
       : `No source mentions "${displayName}" by full name.`);
   }
 
-  // Brief: AI (free chain) with checked citations, else quoted
+  // Brief: AI (the model chain in llm/providers.js) with checked citations, else quoted
   let brief = null;
   let briefInfo = { mode: 'quoted', reason: 'AI answers are not enabled on this deployment' };
   if (ranked.length > 0 && useLLM && PROVIDERS.some(providerEnabled)) {
     const user = `Today's date: ${new Date().toISOString().slice(0, 10)}\nPerson: ${displayName}${co ? `\nCompany (to disambiguate): ${co}` : ''}\n\nSources:\n${sourcesBlock(ranked)}`;
-    const out = await chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], { preferred: model, maxTokens: 3000, deadline });
+    // An answer that fails the citation checks sends the request to the next model rather than giving up on AI
+    const out = await chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], {
+      preferred: model, maxTokens: 3000, deadline, personal: true,
+      accept: (text) => validateAnswer(text, ranked.length, BRIEF_SECTIONS).ok,
+    });
     if (out) {
       const checked = validateAnswer(out.text, ranked.length, BRIEF_SECTIONS);
       if (checked.ok) {

@@ -6,8 +6,8 @@
  * their own contacts at the founder's current and past companies (never sent
  * to any external service).
  */
-import { runFounderCheck, normalizePersonName } from '../../server/founderCheck';
-import { getUserId } from '../../server/auth';
+import { runFounderCheck, normalizePersonName } from '../../../server/founderCheck';
+import { getUserId } from '../../../server/auth';
 
 export const config = { api: { responseLimit: '4mb' }, maxDuration: 60 };
 
@@ -17,7 +17,7 @@ async function backchannelReferences(req, res, result, typedCompany) {
   try {
     const userId = await getUserId(req, res);
     if (!userId) return { available: false, reason: 'Sign in and import your network to see people you know at these companies.' };
-    const network = await import('../../server/network/store');
+    const network = await import('../../../server/network/store');
     if (typeof network.findContactsAtCompanies !== 'function') return { available: false, reason: 'Network data is not available.' };
     const total = typeof network.countContacts === 'function' ? await network.countContacts(userId) : null;
     if (total === 0) {

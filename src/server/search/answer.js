@@ -123,7 +123,11 @@ Question: ${plan.query}
 ${entity.mode === 'entity' ? `Subject: ${entity.name}\n` : ''}${plan.intents.length ? `The user wants: ${plan.intents.join(', ')}${plan.recency ? ' (latest)' : ''}\n` : plan.recency ? 'The user wants the latest information\n' : ''}
 Sources:
 ${sourcesBlock(top)}`;
-    const out = await chatComplete([{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: user }], { preferred: model, maxTokens: 3000, deadline });
+    // An answer that fails the structure and citation checks sends the request to the next model
+    const out = await chatComplete([{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: user }], {
+      preferred: model, maxTokens: 3000, deadline,
+      accept: (text) => validateAnswer(text, top.length).ok,
+    });
     if (out) {
       const checked = validateAnswer(out.text, top.length);
       if (checked.ok) {
