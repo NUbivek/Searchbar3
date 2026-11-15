@@ -309,3 +309,29 @@ describe('structured answers', () => {
     expect(providers.parseJsonReply('{"a": 1')).toBeNull();
   });
 });
+
+describe('a second attempt', () => {
+  test('models the caller already tried are left out, and every failed attempt is reported back', async () => {
+    const { axios, providers } = load({ keys: { GOOGLE_AI_API_KEY: 'ga' } });
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    axios.post.mockRejectedValue(Object.assign(new Error('timeout of 30000ms exceeded'), { code: 'ECONNABORTED' }));
+    const trace = [];
+    expect(await providers.chatComplete(ask, { task: 'analysis', trace })).toBeNull();
+    expect(trace.map((t) => t.family).slice(0, 2)).toEqual(['gemini-4-hydrogen', 'gemini-3.8-flash']);
+    axios.post.mockReset();
+    axios.post.mockResolvedValue(reply('ok'));
+    const out = await providers.chatComplete(ask, { task: 'analysis', avoid: ['gemini-4-hydrogen', 'gemini-3.8-flash'] });
+    expect(out.model).not.toMatch(/hydrogen|3\.8-flash/);
+    console.warn.mockRestore();
+  });
+
+  test('with little time left a fallback is asked for a quick answer rather than a thorough one', async () => {
+    const { axios, providers } = load({ keys: { GOOGLE_AI_API_KEY: 'ga' } });
+    axios.post.mockResolvedValue(reply('ok'));
+    await providers.chatComplete(ask, { task: 'analysis', deadline: Date.now() + 15000 });
+    expect(axios.post.mock.calls[0][1].reasoning_effort).toBe('low');
+    axios.post.mockClear();
+    await providers.chatComplete(ask, { task: 'analysis', deadline: Date.now() + 50000 });
+    expect(axios.post.mock.calls[0][1].reasoning_effort).toBe('high');
+  });
+});

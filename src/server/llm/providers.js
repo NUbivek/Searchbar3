@@ -375,7 +375,7 @@ const withTimeout = (promise, ms, fallback) => {
  * Every model that may be called for this request, best first, with the
  * reason any model was left out.
  */
-async function buildChain({ task, preferred, personal, promptTokens, deadline }) {
+async function buildChain({ task, preferred, personal, promptTokens, deadline, avoid = [] }) {
   const enabled = PROVIDERS.filter(providerEnabled);
   const lists = await Promise.all(enabled.map(async (p) => ({ p, models: await listAllowed(p).catch(() => []) })));
   await withTimeout(loadSharedRests(), 1500, null);
@@ -397,6 +397,7 @@ async function buildChain({ task, preferred, personal, promptTokens, deadline })
       const rest = resting(p, m.id);
       if (rest) { out(rest.why); continue; }
       if (task === 'analysis' && m.entry.weak) continue; // never trusted with a report
+      if (avoid.includes(m.entry.family) || avoid.includes(`${p.id}:${m.id}`)) continue; // the caller already tried it
       if (personal && m.entry.abroad) continue;
       if (skipGeminiForPeople && p.id === 'gemini') continue;
       if (p.smallPromptsOnly && promptTokens > GROQ_FREE_TPM * 0.75) { out('question too long for this model'); continue; }
@@ -446,8 +447,10 @@ async function buildChain({ task, preferred, personal, promptTokens, deadline })
  * need room for both, and the amount of thinking is set per task: a report
  * gets more, a plain extraction gets little.
  */
-function requestBody(c, messages, { task, maxTokens, temperature, json, promptTokens }) {
-  const effort = task === 'analysis' ? 'high' : task === 'extract' ? 'low' : 'medium';
+function requestBody(c, messages, { task, maxTokens, temperature, json, promptTokens, attemptMs = Infinity }) {
+  // With little time left (a fallback after a slow first model), a quick answer beats a thorough one that never arrives
+  const hurried = attemptMs < 20000;
+  const effort = task === 'extract' ? 'low' : hurried ? 'low' : task === 'analysis' ? 'high' : 'medium';
   const body = { model: c.id, messages, temperature };
   const extras = {};
   const id = c.id.toLowerCase();
@@ -484,12 +487,16 @@ const cleanText = (data) => String(data?.choices?.[0]?.message?.content || '').r
  * @param {Array<{role, content}>} messages
  * @param {{ preferred?: string, task?: 'analysis'|'chat'|'extract', maxTokens?: number, temperature?: number,
  *           timeoutMs?: number, deadline?: number, personal?: boolean, accept?: (text: string) => boolean,
- *           json?: { name?: string, schema: object } }} options
+ *           json?: { name?: string, schema: object }, avoid?: string[], trace?: object[] }} options
  *   preferred: "provider:model" from the model menu, or "auto". Ignored unless it is on the allow-list.
  *   deadline: epoch ms by which the whole chain must finish (serverless time
  *     limit). Each attempt leaves FALLBACK_RESERVE_MS for the next one.
  *   personal: the text is about a named person under review; models served
  *     from another jurisdiction are left out.
+ *   avoid: model families (or "provider:model" ids) to leave out, for a
+ *     retry after they failed.
+ *   trace: an array that receives every failed attempt ({ provider, model,
+ *     family, why }), so a caller can retry without them even when no model answered.
  *   accept: the caller's own check of the answer (structure, citations). An
  *     answer that fails it counts as a failure of that model and the next
  *     model is asked, instead of the caller giving up on AI altogether.
@@ -497,11 +504,11 @@ const cleanText = (data) => String(data?.choices?.[0]?.message?.content || '').r
  *   null when no provider is configured or every model failed.
  *   skipped: models tried first that failed, e.g. [{ model, provider, why }]
  */
-export async function chatComplete(messages, { preferred = 'auto', task = 'chat', maxTokens = 3000, temperature = 0.2, timeoutMs = 60000, deadline = null, personal = false, accept = null, json = null } = {}) {
+export async function chatComplete(messages, { preferred = 'auto', task = 'chat', maxTokens = 3000, temperature = 0.2, timeoutMs = 60000, deadline = null, personal = false, accept = null, json = null, avoid = [], trace = null } = {}) {
   if (!llmConfigured()) return null;
   const kind = TASKS.includes(task) ? task : 'chat';
   const promptTokens = estimateTokens(messages);
-  const { chain, left } = await buildChain({ task: kind, preferred, personal, promptTokens, deadline });
+  const { chain, left } = await buildChain({ task: kind, preferred, personal, promptTokens, deadline, avoid: Array.isArray(avoid) ? avoid : [] });
   const attempts = chain.slice(0, MAX_ATTEMPTS);
   const errors = [];
   const skipped = [];
@@ -527,12 +534,13 @@ export async function chatComplete(messages, { preferred = 'auto', task = 'chat'
     const fail = (why, note, learn = true) => {
       errors.push(`${p.id}:${c.id} ${note || why}`);
       skipped.push({ provider: p.label, model: c.id, why });
+      if (Array.isArray(trace)) trace.push({ provider: p.label, model: c.id, family: c.entry.family, why });
       if (learn) outcomes.push({ key: statKey(kind, c), win: 0, ms: 0 });
     };
     const started = Date.now();
     try {
       const headers = { Authorization: `Bearer ${providerKey(p)}`, 'Content-Type': 'application/json', ...(p.id === 'openrouter' ? { 'X-Title': 'Research Hub' } : {}) };
-      const { body, extras } = requestBody(c, messages, { task: kind, maxTokens, temperature, json, promptTokens });
+      const { body, extras } = requestBody(c, messages, { task: kind, maxTokens, temperature, json, promptTokens, attemptMs });
       if (c.entry.scarce) used.push({ key: `${dayKey(p.resets)}|${p.id}:${c.entry.family}`, win: 1 });
       let response;
       try {

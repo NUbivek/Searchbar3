@@ -159,7 +159,7 @@ test('headline fragments are not followed as companies, and one company under se
       if (task.kind !== 'subject') return { findings: [] };
       const f = finding(subject, { title: 'Ousted Theranos chief Elizabeth Holmes charged', quote: 'Elizabeth Holmes founded Theranos.', category: 'press' });
       const t = (value) => makeThread('company', value, 'from a headline', { trusted: true });
-      return { findings: [f], threads: [t('Ousted Theranos'), t('Why Theranos'), t('SEC Charges Theranos'), t('U.S'), t('Theranos Inc'), t('Theranos, Inc.'), t('Conversation With Theranos'), makeThread('company', 'RealTime Cures, Inc.', 'earlier name of Theranos Inc', { trusted: true })] };
+      return { findings: [f], threads: [t('Ousted Theranos'), t('Why Theranos'), t('SEC Charges Theranos'), t('U.S'), t('Theranos Inc'), t('Theranos, Inc.'), t('Conversation With Theranos'), t('Disgraced'), t('Ousted'), makeThread('company', 'RealTime Cures, Inc.', 'earlier name of Theranos Inc', { trusted: true })] };
     },
   };
   const state = startState({ name: 'Elizabeth Holmes', company: 'Theranos' });

@@ -346,6 +346,13 @@ export default function DeepCheck({ name, company = '', runKey = 0 }) {
         data = await step(jobId);
       }
       if (!alive()) return;
+      // The written summary can outlast the first model's time on a long report: one more try with the next models
+      if (data.done && data.report?.briefInfo?.retry) {
+        setState((s) => ({ ...s, progress: { ...(data.progress || {}), phase: 'report' } }));
+        const again = await call({ action: 'brief', jobId }).catch(() => null);
+        if (!alive()) return;
+        if (again?.done) data = again;
+      }
       if (data.done) setState({ phase: 'done', progress: data.progress, report: data.report, error: '', needSignIn: false });
       else setState((s) => ({ ...s, phase: 'error', error: 'The check did not finish. Run it again.' }));
     } catch (error) {

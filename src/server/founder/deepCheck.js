@@ -72,7 +72,8 @@ const containsWords = (longer, shorter) => longer !== shorter && ` ${longer} `.i
 function sameOrganisation(state, thread) {
   const raw = String(thread.value || '').replace(/\./g, '').trim();
   if (raw.length < 3 || NOT_AN_ORGANISATION.test(raw)) return 'junk';
-  if (thread.kind === 'company' && /\s/.test(raw) && HEADLINE_LEAD.test(raw)) return 'junk';
+  // "Ousted Theranos", and equally a lone "Disgraced" or "Convicted" lifted from a headline
+  if (thread.kind === 'company' && HEADLINE_LEAD.test(raw) && (/\s/.test(raw) || HEADLINE_LEAD.exec(raw)[0].length === raw.length)) return 'junk';
   const key = threadKey(thread).slice(thread.kind.length + 1);
   if (!key) return 'junk';
   for (const [otherKey, other] of Object.entries(state.threads)) {

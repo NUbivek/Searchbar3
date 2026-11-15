@@ -118,3 +118,30 @@ test('twenty reports of one event are one red flag; name-only coverage of it is 
   expect(report.possibleNamesake.map((x) => x.title).sort()).toEqual(['Elizabeth Holmes sentenced for shoplifting in Leeds', 'Theranos associate charged']);
   expect(report.redFlags.every((x) => x.match === 'confirmed' || x.match === 'likely')).toBe(true);
 });
+
+test('when no model answers in time the brief is assembled from the records, and one more attempt can start with other models', async () => {
+  const report = buildReport(sampleState());
+  const complete = jest.fn(async (messages, options) => { options.trace.push({ provider: 'Google Gemini', model: 'gemini-4-hydrogen', family: 'gemini-4-hydrogen', why: 'timed out' }); return null; });
+  const first = await writeDeepBrief(report, { complete });
+  expect(first.briefInfo).toMatchObject({ mode: 'quoted', retry: true, tried: ['gemini-4-hydrogen'] });
+  expect(first.brief).toMatch(/## RED FLAGS/);
+  // the second attempt leaves the first model out, and does not ask for a third
+  const second = await writeDeepBrief(report, { complete, avoid: first.briefInfo.tried });
+  expect(complete.mock.calls[1][1].avoid).toEqual(['gemini-4-hydrogen']);
+  expect(second.briefInfo.retry).toBe(false);
+});
+
+test('a page that only mentions the person in passing is not a red flag about them', () => {
+  const subject = createSubject({ name: 'Trevor Milton', company: 'Nikola' });
+  const f = (o) => makeFinding(subject, { source: 'web', sourceLabel: 'Open-web search', category: 'press', severity: 'high', ...o });
+  const state = startState({ name: 'Trevor Milton', company: 'Nikola' });
+  state.findings = [
+    f({ title: 'Nikola founder Trevor Milton convicted of fraud', quote: 'Trevor Milton was convicted.', url: 'https://a.test/1', date: '2022-10-14' }),
+    f({ title: '2021 in the United States - Wikipedia', quote: 'July 29: Nikola founder Trevor Milton is indicted on fraud charges.', url: 'https://en.wikipedia.org/wiki/2021_in_the_United_States' }),
+    f({ title: 'Nathan Anderson - Wikipedia', quote: 'His report on Nikola led to the fraud conviction of Trevor Milton.', url: 'https://en.wikipedia.org/wiki/Nathan_Anderson' }),
+    f({ title: 'Hindenburg report: Nikola is an intricate fraud', quote: 'Nikola founder Trevor Milton made false statements.', url: 'https://b.test/1', date: '2020-09-10' }),
+  ];
+  const report = buildReport(state);
+  expect(report.redFlags.map((x) => x.title)).toEqual(['Nikola founder Trevor Milton convicted of fraud', 'Hindenburg report: Nikola is an intricate fraud']);
+  expect(report.totals.records).toBe(4); // the passing mentions are still in the report, under press
+});

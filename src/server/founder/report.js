@@ -12,7 +12,7 @@
  * themselves. Nothing in the report is asserted without a source.
  */
 import { CATEGORIES } from './finding';
-import { matchRank } from './identity';
+import { matchRank, restoreSubject } from './identity';
 import { USE_NOTICE } from './guardrails';
 import { chatComplete, PROVIDERS, providerEnabled } from '../llm/providers';
 import { validateAnswer } from '../search/answer';
@@ -116,7 +116,17 @@ export function buildReport(state) {
   // Serious records, grouped into matters. A matter with at least one record tied to the person (or their
   // company) is a red flag, led by its strongest tied record; name-only reports of the same event in the
   // same month are listed under it as further coverage. A matter known only by name is a possible namesake.
-  const serious = cited.filter((f) => f.severity === 'high' || f.severity === 'medium');
+  // A page from the open web that only mentions the person in passing (its own headline is about something
+  // else: "2021 in the United States", another person's biography) is not a red flag about them, however
+  // alarming the sentence that mentions them. It stays in the press section.
+  const subject = restoreSubject({ name: state.name, company: state.company, anchors: state.anchors });
+  const aboutThem = (f) => {
+    if (f.category !== 'press' && f.category !== 'identity') return true;
+    if (f.match === 'company' || f.data?.person) return true;
+    const title = String(f.title || '');
+    return subject.hasName(title) || [...subject.anchors.companies.values()].some((a) => a.test(title));
+  };
+  const serious = cited.filter((f) => (f.severity === 'high' || f.severity === 'medium') && aboutThem(f));
   const matters = new Map();
   for (const f of serious) {
     const key = matterKey(f);
@@ -253,9 +263,10 @@ export function quotedDeepBrief(report, reason) {
 /**
  * Write the brief with the free model chain. Returns { brief, briefInfo }.
  * @param {object} report from buildReport
- * @param {{ deadline?: number, maxRecords?: number, complete?: Function }} options
+ * @param {{ deadline?: number, maxRecords?: number, complete?: Function, avoid?: string[] }} options
+ *   avoid: model families already tried (see briefInfo.tried), for a second attempt
  */
-export async function writeDeepBrief(report, { deadline = null, maxRecords = 70, complete = chatComplete } = {}) {
+export async function writeDeepBrief(report, { deadline = null, maxRecords = 70, complete = chatComplete, avoid = [] } = {}) {
   const all = [...report.redFlags, ...(report.companyMatters || []).slice(0, 12), ...report.sections.flatMap((s) => s.items)];
   const seen = new Set();
   const records = [];
@@ -283,11 +294,16 @@ export async function writeDeepBrief(report, { deadline = null, maxRecords = 70,
   const maxN = report.sources.length;
   // 'analysis': the strongest models, more thinking, and no model with a poor record on made-up facts.
   // An answer that fails the citation checks sends the request to the next model.
+  const trace = [];
   const out = await complete([{ role: 'system', content: DEEP_PROMPT }, { role: 'user', content: user }], {
-    maxTokens: 3500, deadline, task: 'analysis', personal: true,
+    maxTokens: 3500, deadline, task: 'analysis', personal: true, avoid, trace,
     accept: (text) => validateAnswer(text, maxN, DEEP_SECTIONS).ok,
   });
-  if (!out) return { brief: quotedDeepBrief(report, 'The AI model was unavailable'), briefInfo: { mode: 'quoted', reason: 'The AI model was unavailable' } };
+  if (!out) {
+    // Which models were tried, so one more attempt can start with the next ones (a long report can outlast the first model's time)
+    const tried = [...new Set([...avoid, ...trace.map((t) => t.family).filter(Boolean)])];
+    return { brief: quotedDeepBrief(report, 'The AI model was unavailable'), briefInfo: { mode: 'quoted', reason: 'The AI model was unavailable', tried, retry: trace.length > 0 && avoid.length === 0 } };
+  }
   const checked = validateAnswer(out.text, maxN, DEEP_SECTIONS);
   if (!checked.ok) return { brief: quotedDeepBrief(report, `The AI brief failed validation (${checked.reason})`), briefInfo: { mode: 'quoted', reason: `The AI brief failed validation (${checked.reason})` } };
   // A citation is only valid if that record was actually shown to the model.

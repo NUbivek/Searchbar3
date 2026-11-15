@@ -5,6 +5,8 @@
  *   POST { action: 'start', name, company }  -> { jobId, progress }
  *   POST { action: 'step', jobId }           -> { progress }            while collecting
  *                                            -> { done: true, report }  when finished
+ *   POST { action: 'brief', jobId }          -> { done: true, report }  one more try at the written summary,
+ *                                               with other models, when the first ran out of time
  *   GET  ?jobId=                             -> { progress, report? }
  *
  * The browser calls 'step' until it gets `done`. State lives in the job
@@ -103,6 +105,19 @@ export default async function handler(req, res) {
       state.report = publicReport({ ...report, brief, briefInfo });
       state.phase = 'done';
       await saveJob(job.id, { state, status: 'done' });
+      return res.status(200).json({ jobId: job.id, done: true, progress: progressOf(state), report: state.report });
+    }
+
+    if (body.action === 'brief') {
+      const job = await getJob(String(body.jobId || ''), { owner });
+      if (!job || !job.state.report) return res.status(404).json({ error: 'This check was not found. It may have expired; run it again.' });
+      const { state } = job;
+      const info = state.report.briefInfo;
+      if (info?.mode === 'quoted' && info.retry) {
+        const { brief, briefInfo } = await writeDeepBrief(state.report, { deadline: startedAt + REPORT_MS, avoid: info.tried || [] });
+        state.report = { ...state.report, brief, briefInfo: { ...briefInfo, retry: false } };
+        await saveJob(job.id, { state, status: 'done' });
+      }
       return res.status(200).json({ jobId: job.id, done: true, progress: progressOf(state), report: state.report });
     }
 
