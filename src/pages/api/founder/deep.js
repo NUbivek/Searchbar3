@@ -44,7 +44,7 @@ async function ownerOf(req, res) {
 
 /** The report without internal fields, ready for the page. */
 function publicReport(report) {
-  const strip = ({ score, step, via, matchFixed, ...rest }) => rest;
+  const strip = ({ score, step, via, matchFixed, gradeText, ...rest }) => rest;
   return {
     ...report,
     redFlags: report.redFlags.map(strip),

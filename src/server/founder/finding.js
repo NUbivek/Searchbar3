@@ -16,6 +16,8 @@
  *   matchReasons why it was graded that way
  *   severity     'high' | 'medium' | 'low' | 'info'  (how much it matters if true)
  *   data         optional structured extras for the UI (case number, snapshot time, ...)
+ *   matchFixed   true when the source set the grade by hand: it is never re-graded
+ *   gradeText    the text the grade was read from (internal; stripped before the page sees it)
  *
  * Thread: something new worth pulling on, found while reading a source.
  *   { kind: 'company'|'school'|'associate'|'relative'|'handle'|'domain'|'url', value, why,
@@ -59,9 +61,24 @@ function hash(str) {
   return h.toString(36);
 }
 
+/**
+ * Text that is safe to store: no NUL characters and no half of a surrogate
+ * pair (an emoji cut in two, or a stray "&#55357;" decoded from a page).
+ * Either one makes the database refuse the whole saved check.
+ */
+export function cleanText(s) {
+  return String(s ?? '')
+    .replace(/\u0000/g, '')
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '�');
+}
+
 const clip = (s, n) => {
-  const str = String(s || '').replace(/\s+/g, ' ').trim();
-  return str.length > n ? `${str.slice(0, n - 1).trimEnd()}…` : str;
+  const str = cleanText(s).replace(/\s+/g, ' ').trim();
+  if (str.length <= n) return str;
+  let cut = str.slice(0, n - 1);
+  // never cut an emoji (a surrogate pair) in half
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return `${cut.trimEnd()}…`;
 };
 
 const isoDate = (value) => {
@@ -90,6 +107,11 @@ export function makeFinding(subject, f) {
   if (!CATEGORIES[f.category]) throw new Error(`Unknown finding category: ${f.category}`);
   let match = f.match || null;
   let reasons = f.matchReasons || [];
+  // A grade the source set by hand (a company record, a held 'possible') is final: the loop must not
+  // re-read the title later and upgrade it. A graded record remembers the text it was graded on, so a
+  // re-grade reads the same text (the structured context the source supplied), not just title and quote.
+  const matchFixed = Boolean(match) || Boolean(f.matchFixed);
+  const gradeText = match ? null : clip(f.matchText || `${f.title} ${f.quote || ''}`, 4000);
   if (!match) {
     const graded = matchSubject(subject, f.matchText || `${f.title} ${f.quote || ''}`);
     if (graded.level === 'none') return null;
@@ -108,6 +130,8 @@ export function makeFinding(subject, f) {
     match,
     matchReasons: reasons,
     severity: SEVERITIES.includes(f.severity) ? f.severity : 'info',
+    ...(matchFixed ? { matchFixed: true } : {}),
+    ...(gradeText ? { gradeText } : {}),
     ...(f.data ? { data: f.data } : {}),
   });
   return finding;
