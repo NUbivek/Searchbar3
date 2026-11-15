@@ -1,10 +1,15 @@
 import { getUserId } from '../../../server/auth';
 import { chatComplete, chatJson, describeChain, llmStatus } from '../../../server/llm/providers';
+import { sampleState } from '../../../server/founder/sample';
+import { buildReport, writeDeepBrief } from '../../../server/founder/report';
+import { findGaps } from '../../../server/founder/gaps';
 
 /**
  * GET /api/debug/llm-check            -> the order the model chain would use now, per task (no model is called)
  * GET /api/debug/llm-check?run=chat   -> one tiny real call for that task (chat | analysis | extract | json),
  *                                        to confirm a provider accepts the request the chain sends
+ * GET /api/debug/llm-check?run=brief  -> the deep background check's report writer on a fictional sample
+ * GET /api/debug/llm-check?run=gaps   -> its second reader on the same fictional sample
  *
  * Open in development and on preview deployments (which sit behind the
  * host's own sign-in); in production it requires a signed-in session.
@@ -12,7 +17,7 @@ import { chatComplete, chatJson, describeChain, llmStatus } from '../../../serve
  */
 export const config = { maxDuration: 60 };
 
-const RUNS = ['chat', 'analysis', 'extract', 'json'];
+const RUNS = ['chat', 'analysis', 'extract', 'json', 'brief', 'gaps'];
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -36,6 +41,15 @@ export default async function handler(req, res) {
   if (!RUNS.includes(run)) return res.status(400).json({ error: `run must be one of: ${RUNS.join(', ')}` });
 
   const started = Date.now();
+  if (run === 'brief') {
+    const report = buildReport(sampleState());
+    const { brief, briefInfo } = await writeDeepBrief(report, { deadline });
+    return res.status(200).json({ run, ok: briefInfo?.mode === 'ai', ms: Date.now() - started, briefInfo, brief });
+  }
+  if (run === 'gaps') {
+    const found = await findGaps(sampleState(), { deadline: Date.now() + 30000 });
+    return res.status(200).json({ run, ok: Boolean(found.model), ms: Date.now() - started, ...found });
+  }
   if (run === 'json') {
     const schema = { type: 'object', properties: { capital: { type: 'string' }, country: { type: 'string' } }, required: ['capital', 'country'], additionalProperties: false };
     const out = await chatJson([{ role: 'user', content: 'Which city is the capital of France? Answer for the country France.' }], { schema, name: 'capital', deadline, personal, check: (d) => /paris/i.test(String(d?.capital)) });
