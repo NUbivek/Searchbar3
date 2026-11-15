@@ -1,0 +1,148 @@
+/**
+ * The one shape every source connector returns, so the deep check can merge,
+ * rank, cite and display findings from very different sources the same way.
+ *
+ * Finding
+ *   id           stable id (source + url + title)
+ *   source       connector id, e.g. 'sec-fts'
+ *   sourceLabel  what the user sees, e.g. 'SEC EDGAR full-text search'
+ *   category     one of CATEGORIES
+ *   title        one line: what the record is
+ *   quote        text taken from the source that supports it (never written by us)
+ *   url          where to verify it
+ *   date         ISO date of the record itself (filing, snapshot, article), or null
+ *   match        'confirmed' | 'likely' | 'possible' | 'company'
+ *                ('company': a record about the subject's company, not the person)
+ *   matchReasons why it was graded that way
+ *   severity     'high' | 'medium' | 'low' | 'info'  (how much it matters if true)
+ *   data         optional structured extras for the UI (case number, snapshot time, ...)
+ *
+ * Thread: something new worth pulling on, found while reading a source.
+ *   { kind: 'company'|'school'|'associate'|'relative'|'handle'|'domain'|'url', value, why,
+ *     trusted?: boolean   true when it came from a record graded confirmed or likely
+ *     relation?: string   for relatives: 'father', 'spouse', ... }
+ *
+ * A connector's run() resolves to { findings: Finding[], threads: Thread[], notes: string[] }.
+ */
+import { matchSubject } from './identity';
+import { sanitizeFinding } from './guardrails';
+
+export const CATEGORIES = {
+  identity: 'Identity',
+  career: 'Career and roles',
+  education: 'Education',
+  archive: 'Archived versions',
+  litigation: 'Courts and litigation',
+  regulatory: 'Regulators and enforcement',
+  sanctions: 'Sanctions and watchlists',
+  leaks: 'Published leak databases',
+  corporate: 'Company records',
+  ip: 'Patents and publications',
+  press: 'Press',
+  related: 'Related parties and family ties',
+  exposure: 'Breach and leak-site exposure',
+};
+
+export const SEVERITIES = ['high', 'medium', 'low', 'info'];
+/**
+ * What a thread can be. 'associate' is another named person tied to the
+ * subject in business (a co-founder, a co-defendant); 'relative' is a family
+ * member the source places in a public business, political or
+ * philanthropic role. Neither gets a background check of their own: they are
+ * screened against watchlists and searched only together with the subject.
+ */
+export const THREAD_KINDS = ['company', 'school', 'associate', 'relative', 'handle', 'domain', 'url'];
+
+function hash(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i += 1) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+const clip = (s, n) => {
+  const str = String(s || '').replace(/\s+/g, ' ').trim();
+  return str.length > n ? `${str.slice(0, n - 1).trimEnd()}…` : str;
+};
+
+const isoDate = (value) => {
+  if (!value) return null;
+  const s = String(value).trim();
+  // Wayback timestamps: 20190314120000
+  const wb = s.match(/^(\d{4})(\d{2})(\d{2})(\d{6})?$/);
+  if (wb) return `${wb[1]}-${wb[2]}-${wb[3]}`;
+  if (/^\d{4}$/.test(s)) return s;
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? null : new Date(t).toISOString().slice(0, 10);
+};
+
+/**
+ * Build a finding, grade it against the subject, and apply the privacy
+ * rules. Returns null when the record does not name the subject (unless
+ * `match` is given, for records tied to the subject structurally, such as a
+ * registry entry for their company) or when the guardrails reject it.
+ *
+ * @param {object} subject from identity.createSubject
+ * @param {{ source: string, sourceLabel: string, category: string, title: string, quote?: string, url: string,
+ *           date?: string, severity?: string, data?: object, matchText?: string, match?: string, matchReasons?: string[] }} f
+ */
+export function makeFinding(subject, f) {
+  if (!f || !f.source || !f.url || !f.title) return null;
+  if (!CATEGORIES[f.category]) throw new Error(`Unknown finding category: ${f.category}`);
+  let match = f.match || null;
+  let reasons = f.matchReasons || [];
+  if (!match) {
+    const graded = matchSubject(subject, f.matchText || `${f.title} ${f.quote || ''}`);
+    if (graded.level === 'none') return null;
+    match = graded.level;
+    reasons = graded.reasons;
+  }
+  const finding = sanitizeFinding({
+    id: `${f.source}-${hash(`${f.url}|${f.title}`)}`,
+    source: f.source,
+    sourceLabel: f.sourceLabel || f.source,
+    category: f.category,
+    title: clip(f.title, 220),
+    quote: clip(f.quote || '', 700),
+    url: String(f.url),
+    date: isoDate(f.date),
+    match,
+    matchReasons: reasons,
+    severity: SEVERITIES.includes(f.severity) ? f.severity : 'info',
+    ...(f.data ? { data: f.data } : {}),
+  });
+  return finding;
+}
+
+const HIGH = /\b(indict(?:s|ed|ments?)?|convict(?:s|ed|ions?)?|plead(?:ed|s)? guilty|pled guilty|found guilty|guilty verdict|guilty of|jailed|sentenced|imprison\w*|felony|criminal charges?|charged with|securities fraud|wire fraud|bank fraud|fraud charges|ponzi|embezzl\w*|money launder\w*|bribe\w*|racketeer\w*|insider trading|sanctioned|sanctions list|debarred|barred from|disqualified|banned from|arrest(?:ed)?|extradit\w*|wanted by|cease[- ]and[- ]desist)\b/i;
+const MEDIUM = /\b(lawsuits?|sued|sues|suing|class[- ]action|complaint filed|settle(?:d|s|ment)|investigat(?:ion|ed|ing)|probe|subpoena\w*|fined|penalt(?:y|ies)|bankruptc(?:y|ies)|insolven\w*|liquidat\w*|receivership|fraud|misconduct|misappropriat\w*|harass\w*|discriminat\w*|retaliat\w*|whistleblower|allegations?|alleged(?:ly)?|fired(?! up)|ousted|terminated for cause|breach of (?:contract|fiduciary)|default judgment|restraining order|data breach|ransomware)\b/i;
+const LOW = /\b(resign(?:ed|s|ation)|stepped down|steps down|departed|controvers\w*|dispute[ds]?|layoffs?|shut(?:s|ting)? down|shutdown|wound down|dissolved|struck off|criticis\w*|criticiz\w*|backlash|restat(?:ed|ement))\b/i;
+
+/**
+ * How much a record would matter if it is about the subject, judged from
+ * its own words. Sources that know better (a sanctions list, a court
+ * docket) set the severity themselves.
+ */
+export function severityFromText(text) {
+  const t = String(text || '');
+  if (HIGH.test(t)) return 'high';
+  if (MEDIUM.test(t)) return 'medium';
+  if (LOW.test(t)) return 'low';
+  return 'info';
+}
+
+/** A thread to pull, or null when it is not usable. */
+export function makeThread(kind, value, why = '', extra = {}) {
+  const v = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!THREAD_KINDS.includes(kind) || v.length < 2 || v.length > 200) return null;
+  return { kind, value: v, why: clip(why, 160), ...extra };
+}
+
+/** Normalise whatever a connector returned into { findings, threads, notes }. */
+export function connectorResult(result) {
+  const r = result && typeof result === 'object' ? result : {};
+  return {
+    findings: (Array.isArray(r.findings) ? r.findings : []).filter(Boolean),
+    threads: (Array.isArray(r.threads) ? r.threads : []).filter(Boolean),
+    notes: (Array.isArray(r.notes) ? r.notes : []).filter(Boolean).map(String),
+  };
+}

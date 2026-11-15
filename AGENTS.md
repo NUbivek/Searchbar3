@@ -22,7 +22,7 @@ segmented control at the top of every page:
 |---|---|---|
 | Open Research | `/` | Searches curated VC/startup sources, Hacker News, the web, SEC and grouped official/institutional sites; writes a cited answer (free LLMs) or quotes sources; checks funding/valuation claims across sources. |
 | Network Map | `/network` | The user's own contacts (LinkedIn export, CSV/XLSX, X, Attio placeholder) on a see-through 3D globe (you → group → sub-group → company → person), with a dashboard beside it, grouped by role / company / industry / country, plus "ask your network" (raise / source / diligence lenses, intro paths). |
-| Founder Check | `/founder` | Background brief on a person, plus who in the user's network can help diligence them. |
+| Founder Check | `/founder` | Quick brief on a person, plus a deep background check (signed in): a loop over about forty free public sources that pulls every thread it finds, grades each record for identity, and reports red flags, claims that changed between archived versions, and related parties. Read `FOUNDER-CHECK.md` before touching it. |
 
 Secondary pages: `/company/<name>` (company profile), `/workspaces`
 (deal workspaces, data-room Q&A, memo export), `/watchlist` (daily alerts),
@@ -65,9 +65,13 @@ These come from the owner. Treat them as hard constraints.
    files** (names, sizes and dates only). Never move, copy or delete
    `~/ab_copy`, `~/im_copy`, `~/wa_full_copy` or any messaging/contacts
    database.
-5. **Free tools only.** The LLM chain is free-first (Groq → OpenRouter `:free`
-   → Gemini); paid Together only with `LLM_ALLOW_PAID=true`. Do not add paid
-   services without asking.
+5. **Free tools only.** The model chain (`src/server/llm/providers.js`) can
+   only call models on its allow-list, all of which cost nothing (Gemini free
+   tier, OpenRouter `:free`, Groq free plan, optional NVIDIA). There is no
+   paid switch any more: do not add one, do not add a provider whose free
+   access is a trial credit or needs a card, and do not read the paid keys
+   that still sit in Vercel. `tests/unit/features/llmChain.test.js` holds
+   these guarantees. Do not add paid services without asking.
 6. **Keep the UI clean** (see section 6): no pricing/tier/API-key/env-var
    wording in the UI; say "not enabled on this deployment" when a capability is
    missing. The owner repeatedly asked to remove filler copy, taglines and
@@ -117,9 +121,12 @@ src/pages/                 UI pages: index (Open Research), network, founder, co
                            workspaces/*, history/*, watchlist, signin, privacy, terms
 src/pages/api/             search/open, founder, company, upload, llm/models, sources/curated,
                            history/*, workspaces/**, watchlist, alerts, cron/watchlists,
+                           founder/deep (the deep background check, one step per request),
                            network/{contacts,query,helpers,attio,twitter},
-                           auth/[...nextauth], auth/{linkedin,twitter}/*, debug/env-check
-src/server/                search/ (queryPlan, retrieve, rank, answer), llm/providers (free-first chain),
+                           auth/[...nextauth], auth/{linkedin,twitter}/*, debug/{env-check,llm-check}
+src/server/                search/ (queryPlan, retrieve, rank, answer), llm/providers (the model chain: only models that cost
+                           nothing, strongest first), learning (what has worked before), founder/ (the deep background
+                           check: loop, identity grading, privacy rules, report, and sources/ with one file per family),
                            founderCheck, companyProfile, dataroom, memo, watchlist,
                            network/{store,query}, store, db, auth
 src/utils/                 sourceTiers, claimCheck, evidence, sourceIntegration (search handlers),
@@ -226,8 +233,10 @@ added for day without a night value.
 
 ## 7. Environment variables (names only — values live in Vercel)
 
-Free LLMs: `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GOOGLE_AI_API_KEY`
-(also present but paid/unused by default: `TOGETHER_API_KEY`, `PERPLEXITY_API_KEY`, `CEREBRAS_API_KEY`).
+AI models: `GOOGLE_AI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`; optional
+`NVIDIA_API_KEY` (not set) and `LLM_SKIP_GEMINI_FOR_PEOPLE`.
+(Still present in Vercel but never read by the app: `TOGETHER_API_KEY`,
+`PERPLEXITY_API_KEY`, `CEREBRAS_API_KEY`. They can be deleted.)
 Search/data: `SERPER_API_KEY`, `TAVILY_API_KEY`, `FMP_API_KEY`, `FRED_API_KEY`.
 DB: `DATABASE_URL` and the `DATABASE_*` family from the Neon integration.
 Auth: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`, `CRON_SECRET`.
@@ -245,11 +254,27 @@ for non-interactive adds (the owner normally pastes secret values himself).
 ## 8. Current state (2026-11-14)
 
 Production `openclaw-fixes` is at `bcacb2b`. The preview branch
-`claude/research-hub-fix` has the same application code, plus one newer
-commit that only updates this file
-(`git diff --stat origin/openclaw-fixes origin/claude/research-hub-fix`
-should list `AGENTS.md` and nothing else). Nothing is waiting to be deployed. 580 tests pass; the production build
-compiles.
+`claude/research-hub-fix` is AHEAD of production and has NOT been released:
+the owner must say "push to production" first. What is on preview only:
+
+- the loading-placeholder fix (`ddeb651`);
+- **Tavus removed** (`f8d1d3f`): the video guide component, config, docs and
+  package are gone; restore from `ddeb651` if it is ever wanted again;
+- **the model chain rewrite** (`0dec692`): only models that cost nothing can
+  be called, strongest first (README "AI models";
+  `tests/unit/features/llmChain.test.js` holds the guarantees);
+- **the deep background check** on the Founder Check page
+  (`FOUNDER-CHECK.md`): `src/server/founder/**`, `src/pages/api/founder/deep.js`,
+  `src/components/founder/DeepCheck.js`, new tables `founder_jobs`,
+  `learning_stats`, `source_cache` (created on first use).
+
+1,135 tests pass; the production build compiles. Rules for the deep check
+that must not be weakened: a name-only match is never shown as a fact;
+no private personal data, no people-search sites, no stolen data; relatives
+only with a public role stated beside their name; associates and relatives
+are never checked on their own; only free sources and models that cost
+nothing. Local testing: start the dev server with `FOUNDER_DEEP_PUBLIC=true`
+and drive `POST /api/founder/deep` (start, then step until done).
 
 Shipped on 2026-11-09 and 2026-11-10 (all live):
 

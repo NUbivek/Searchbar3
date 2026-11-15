@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { HiOutlineSparkles, HiOutlineUserCircle, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import PageShell from '../components/layout/PageShell';
 import NetworkHelpers from '../components/network/NetworkHelpers';
+import DeepCheck from '../components/founder/DeepCheck';
 import { sectorKeywordsFrom } from '../utils/network/sectors';
 import { renderSafeHtml } from '../components/search/results/SimplifiedLLMResults';
 import { skippedNote } from '../utils/skippedNote';
@@ -207,6 +208,7 @@ export default function FounderPage() {
         </form>
 
         {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">{error}</div>}
+        {qName.trim() && <DeepCheck name={qName.trim()} company={qCompany.trim()} runKey={run} />}
         {loading && <BriefSkeleton name={qName} company={qCompany} />}
 
         {noSources && (
