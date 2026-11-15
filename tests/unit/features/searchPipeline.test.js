@@ -147,11 +147,11 @@ describe('LLM provider chain', () => {
     expect(axios.post.mock.calls.map(([url]) => (url.match(/generativelanguage|openrouter|groq/) || [])[0])).toEqual(['generativelanguage', 'openrouter', 'groq']);
     expect(out).toEqual(expect.objectContaining({ provider: 'groq', providerLabel: 'Groq', model: 'openai/gpt-oss-120b', text: 'answer from openai/gpt-oss-120b' }));
     expect(out.skipped).toEqual([
-      { provider: 'Google Gemini', model: 'gemini-3.8-flash', why: 'rate limited or out of quota' },
-      { provider: 'OpenRouter', model: 'nvidia/nemotron-3-ultra-550b-a55b:free', why: 'rate limited or out of quota' },
+      { provider: 'Google Gemini', model: 'gemini-3.8-flash', why: 'resting until its allowance resets' },
+      { provider: 'OpenRouter', model: 'nvidia/nemotron-3-ultra-550b-a55b:free', why: 'resting until its allowance resets' },
     ]);
     const { skippedNote } = require('../../../src/utils/skippedNote');
-    expect(skippedNote(out.skipped)).toBe(' · Skipped: gemini-3.8-flash (rate limited or out of quota), nemotron-3-ultra-550b-a55b (rate limited or out of quota)');
+    expect(skippedNote(out.skipped)).toBe(' · Skipped: gemini-3.8-flash (resting until its allowance resets), nemotron-3-ultra-550b-a55b (resting until its allowance resets)');
     expect(skippedNote([])).toBe('');
   });
 

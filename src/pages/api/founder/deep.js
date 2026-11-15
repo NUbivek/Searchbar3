@@ -34,12 +34,42 @@ const reviewer = () => (llmConfigured() ? findGaps : null);
 
 const clientIp = (req) => String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
 
+/**
+ * Starts by one owner are taken one at a time in this server instance, so a
+ * burst of parallel starts cannot all pass the hourly count before any of
+ * them is recorded. (Across instances the job store's own insert enforces
+ * the limit when it supports `limit`.)
+ */
+const starting = new Map();
+async function oneStartAtATime(owner, fn) {
+  const before = starting.get(owner) || Promise.resolve();
+  let release;
+  const mine = new Promise((resolve) => { release = resolve; });
+  const tail = before.then(() => mine);
+  starting.set(owner, tail);
+  await before;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (starting.get(owner) === tail) starting.delete(owner);
+  }
+}
+
 /** Who is asking: the signed-in user, or (only when public checks are allowed) a label for their address. */
 async function ownerOf(req, res) {
   const userId = await getUserId(req, res);
   if (userId) return { owner: userId, signedIn: true };
   if (process.env.FOUNDER_DEEP_PUBLIC === 'true') return { owner: `anon:${clientLabel(clientIp(req))}`, signedIn: false };
   return { owner: null, signedIn: false };
+}
+
+const BUSY = { error: 'Another request is already working on this check.' };
+/** Save, unless another request saved this check first (then the caller answers 409 and the page reads the job again). */
+async function saveNext(id, state, status) {
+  const rev = Number(state.rev) || 0;
+  state.rev = rev + 1;
+  return saveJob(id, { state, status, expectRev: rev });
 }
 
 /** The report without internal fields, ready for the page. */
@@ -79,13 +109,21 @@ export default async function handler(req, res) {
       if (!name) return res.status(400).json({ error: 'name is required' });
       if (name.split(' ').length < 2) return res.status(400).json({ error: 'Enter the full name (first and last name).' });
       if (name.length > 120 || company.length > 120) return res.status(400).json({ error: 'name and company must be 120 characters or fewer' });
-      if (await recentJobCount(owner, 60) >= MAX_JOBS_PER_HOUR) {
+      const state = startState({ name, company });
+      // The count and the record of the new job happen under one lock, and the
+      // job store may refuse the insert itself (limited) when the hour is full.
+      // A job that could not be recorded throws and ends in a 500, never a check run from memory.
+      const created = await oneStartAtATime(owner, async () => {
+        if (await recentJobCount(owner, 60) >= MAX_JOBS_PER_HOUR) return null;
+        const job = await createJob({ name, company, owner, state, limit: { minutes: 60, max: MAX_JOBS_PER_HOUR } });
+        return job && job.id && !job.limited ? job : null;
+      });
+      if (!created) {
         return res.status(429).json({ error: 'You have started many checks in the last hour. Try again later.' });
       }
-      const state = startState({ name, company });
-      const { id } = await createJob({ name, company, owner, state });
+      const { id } = created;
       const { progress } = await stepDeepCheck(state, { connectors: CONNECTORS, deadline: startedAt + STEP_MS, review: reviewer() });
-      await saveJob(id, { state, status: 'running' });
+      await saveNext(id, state, 'running');
       return res.status(200).json({ jobId: id, progress });
     }
 
@@ -96,7 +134,7 @@ export default async function handler(req, res) {
       if (state.report) return res.status(200).json({ jobId: job.id, done: true, progress: progressOf(state), report: state.report });
       if (state.phase === 'collect') {
         const { progress } = await stepDeepCheck(state, { connectors: CONNECTORS, deadline: startedAt + STEP_MS, review: reviewer() });
-        await saveJob(job.id, { state, status: 'running' });
+        if (!(await saveNext(job.id, state, 'running'))) return res.status(409).json(BUSY);
         return res.status(200).json({ jobId: job.id, progress });
       }
       // Collecting is over: build the report and write the brief.
@@ -104,7 +142,7 @@ export default async function handler(req, res) {
       const { brief, briefInfo } = await writeDeepBrief(report, { deadline: startedAt + REPORT_MS });
       state.report = publicReport({ ...report, brief, briefInfo });
       state.phase = 'done';
-      await saveJob(job.id, { state, status: 'done' });
+      if (!(await saveNext(job.id, state, 'done'))) return res.status(409).json(BUSY);
       return res.status(200).json({ jobId: job.id, done: true, progress: progressOf(state), report: state.report });
     }
 
@@ -116,7 +154,7 @@ export default async function handler(req, res) {
       if (info?.mode === 'quoted' && info.retry) {
         const { brief, briefInfo } = await writeDeepBrief(state.report, { deadline: startedAt + REPORT_MS, avoid: info.tried || [] });
         state.report = { ...state.report, brief, briefInfo: { ...briefInfo, retry: false } };
-        await saveJob(job.id, { state, status: 'done' });
+        if (!(await saveNext(job.id, state, 'done'))) return res.status(409).json(BUSY);
       }
       return res.status(200).json({ jobId: job.id, done: true, progress: progressOf(state), report: state.report });
     }
@@ -124,6 +162,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Unknown action' });
   } catch (error) {
     console.error('Deep founder check failed:', error.message);
+    // The check itself is fine; it could not be saved or loaded just now. The page tries the same step again.
+    if (error.code === 'JOB_STORE_UNAVAILABLE') return res.status(503).json({ error: 'The check could not be saved or loaded just now. Try again in a moment.' });
     return res.status(500).json({ error: 'The deep check failed. Please try again.' });
   }
 }

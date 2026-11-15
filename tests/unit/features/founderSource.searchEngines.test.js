@@ -10,6 +10,8 @@ jest.mock('../../../src/server/search/retrieve', () => ({
   searchWeb: jest.fn(async () => []),
   webSearchConfigured: jest.fn(() => false),
 }));
+// No shared database here: pauses and the hourly count are this instance's (the shared ones are in founderFix.searchEngines.test.js).
+jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
 
 import { setTransport } from '../../../src/server/founder/http';
 import { searchWeb, webSearchConfigured } from '../../../src/server/search/retrieve';
@@ -711,7 +713,7 @@ describe('keylessSearch: metered fallback', () => {
     // allowed, engines found nothing
     const out = await keylessSearch('"Jane Roe" Acme', { allowMetered: true, num: 8 });
     expect(searchWeb).toHaveBeenCalledTimes(1);
-    expect(searchWeb).toHaveBeenCalledWith('"Jane Roe" Acme', { news: false, withinDays: 0, num: 8 });
+    expect(searchWeb).toHaveBeenCalledWith('"Jane Roe" Acme', { news: false, withinDays: 0, num: 8, fallback: false }); // one service only: one counted use is one call
     expect(out.engine).toBe('metered');
     expect(out.results).toEqual([{ title: 'Jane Roe - Acme | LinkedIn', snippet: 'Founder at Acme', url: 'https://www.linkedin.com/in/jane-roe', date: null }]);
     expect(out.tried[out.tried.length - 1]).toEqual({ id: 'metered', outcome: 'results', count: 1 });

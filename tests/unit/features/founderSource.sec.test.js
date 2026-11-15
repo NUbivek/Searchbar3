@@ -395,3 +395,47 @@ describe('secCompanyConnector', () => {
     expect(calls[0].headers['User-Agent']).toBe('Example Research ops@example.com');
   });
 });
+
+/* ------------------------------------------------------------------ review fixes */
+
+describe('review fixes', () => {
+  test('formd: a notice not shown to list the person is a possible match unless its issuer is exactly a known company', async () => {
+    fakeSec([
+      [(u) => searchUrl(u) && param(u, 'forms') === 'D', searchAnswer([
+        // Resembles the known company (orgMatcher would take it as Nikola) but is a different issuer; not read.
+        hit('0000000020-21-000001', 'primary_doc.xml', { names: ['Nikola Property Fund LP  (CIK 0000000020)'], date: '2021-05-01', xsl: 'xslFormDX01' }),
+        // The known company itself, notice not readable: EDGAR's phrase hit plus an exact issuer still counts.
+        hit('0001731289-21-000078', 'primary_doc.xml', { names: [NIKOLA], date: '2021-06-17', xsl: 'xslFormDX01' }),
+        // Read, and the person is not on it.
+        hit('0000000021-21-000001', 'primary_doc.xml', { names: ['Nikola Growth Partners LLC  (CIK 0000000021)'], date: '2021-04-01', xsl: 'xslFormDX01' }),
+      ])],
+      ['/21/000000002121000001/primary_doc.xml', formD({ issuer: 'Nikola Growth Partners LLC', previous: 'None', persons: [['Jane', 'Doe', ['Director']]] })],
+    ]);
+    const r = await secPersonConnector.run(person('formd'), ctx());
+    const byIssuer = (name) => r.findings.find((f) => f.data.issuer === name);
+    const fund = byIssuer('Nikola Property Fund LP');
+    expect(fund.match).toBe('possible');
+    expect(fund.matchReasons).toEqual(['name found by full-text search; issuer not verified']);
+    expect(byIssuer('Nikola Growth Partners LLC').match).toBe('possible');
+    expect(byIssuer('Nikola Corp').match).toBe('confirmed');
+    const thread = (value) => r.threads.find((t) => t.kind === 'company' && t.value === value);
+    expect(thread('Nikola Property Fund LP').trusted).toBe(false);
+    expect(thread('Nikola Growth Partners LLC').trusted).toBe(false);
+    expect(thread('Nikola Corp').trusted).toBe(true);
+  });
+
+  test('cyber: an 8.01 8-K that describes "unauthorized activity" is found and reported', async () => {
+    const calls = fakeSec([
+      [(u) => searchUrl(u) && /"unauthorized activity"/.test(param(u, 'q') || ''), searchAnswer([
+        hit('0001731289-23-000040', 'nkla-801.htm', { names: [NIKOLA], form: '8-K', date: '2023-08-14', items: ['8.01', '9.01'] }),
+      ])],
+      ['nkla-801.htm', page('<p>Item 8.01 Other Events. On August 4, 2023, the Company detected unauthorized activity on certain of its information technology systems and took them offline.</p>')],
+    ]);
+    const r = await secCompanyConnector.run(company('cyber'), ctx());
+    const q = param(calls.find((c) => searchUrl(c.url)).url, 'q');
+    for (const phrase of ['"cybersecurity attack"', '"cyber attack"', 'cyberattack', '"unauthorized third party"', '"security incident"', '"data breach"']) expect(q).toContain(phrase);
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0].title).toBe('8-K filed by Nikola Corp reports a cybersecurity incident or unauthorized access');
+    expect(r.findings[0].quote).toMatch(/unauthorized activity/);
+  });
+});

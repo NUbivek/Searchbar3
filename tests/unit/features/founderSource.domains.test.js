@@ -1,6 +1,6 @@
 /**
- * Domain history connector: registration dates, web-archive captures and the
- * earliest certificate for a company's domain. The network is faked with
+ * Domain history connector: registration dates and web-archive captures for
+ * a company's domain (certificate logs are deliberately not searched). The network is faked with
  * fixtures cut from real answers (nikolamotor.com, 14 Nov 2026).
  */
 const { setTransport } = require('../../../src/server/founder/http');
@@ -107,44 +107,29 @@ describe('domainHistoryConnector', () => {
     expect(f.quote).toContain('Web archive: first capture 2016-05-10; last capture 2020-11-04; 572 captures of the home page');
     expect(f.quote).toContain('Captures per year: 2016: 13, 2017: 32, 2020: 527.');
     expect(f.quote).not.toContain('removed]'); // nothing in it reads as a phone number or an address
-    expect(f.data).toMatchObject({ domain: 'nikolamotor.com', registered: '2014-12-21', lastChanged: '2019-05-02', expires: '2027-12-21', firstCapture: '2016-05-10', lastCapture: '2020-11-04', captures: 572, capturesByYear: { 2016: 13, 2017: 32, 2020: 527 }, earliestCertificate: null });
+    expect(f.data).toMatchObject({ domain: 'nikolamotor.com', registered: '2014-12-21', lastChanged: '2019-05-02', expires: '2027-12-21', firstCapture: '2016-05-10', lastCapture: '2020-11-04', captures: 572, capturesByYear: { 2016: 13, 2017: 32, 2020: 527 } });
     expect(threads).toEqual([]);
     expect(notes).toEqual([]);
-    // one request each: archive summary, registration record, certificates
-    expect(calls.map((c) => new URL(c.url).hostname).sort()).toEqual(['crt.sh', 'rdap.org', 'web.archive.org']);
+    // one request each: archive summary, registration record
+    expect(calls.map((c) => new URL(c.url).hostname).sort()).toEqual(['rdap.org', 'web.archive.org']);
     expect(calls.find((c) => c.url.startsWith('https://rdap.org/')).url).toBe('https://rdap.org/domain/nikolamotor.com');
   });
 
   test('never passes on the registrant, their address, phone or email', async () => {
     fakeNetwork({ certificates: CERTIFICATES });
     const out = JSON.stringify(await run('nikolamotor.com'));
-    for (const secret of ['Jordan', 'Registrant', 'Broadway', 'Phoenix', '85040', '4805550142', 'example.org', 'Tucows', 'vcard', 'internal-build']) expect(out).not.toContain(secret);
+    for (const secret of ['Jordan', 'Registrant', 'Broadway', 'Phoenix', '85040', '4805550142', 'example.org', 'Tucows', 'vcard']) expect(out).not.toContain(secret);
   });
 
-  test('adds the earliest certificate date when the certificate log answers', async () => {
-    fakeNetwork({ certificates: CERTIFICATES });
-    const { findings: [f] } = await run('nikolamotor.com');
-    expect(f.quote).toContain('Earliest security certificate on record: 2016-02-11.');
-    expect(f.data.earliestCertificate).toBe('2016-02-11');
-  });
-
-  test('a certificate log that is down, slow or cut short is ignored, not a failure', async () => {
-    fakeNetwork({ certificates: reply('<html>502 Bad Gateway</html>', 502) });
-    expect((await run('nikolamotor.com')).findings[0].data.earliestCertificate).toBeNull();
-    fakeNetwork({ certificates: reply('[{"id":3,"not_before":"2021-03-01T10:00:00","not_af') }); // cut short: the oldest entries are missing
-    expect((await run('nikolamotor.com')).findings[0].data.earliestCertificate).toBeNull();
-    fakeNetwork({ certificates: () => { throw new Error('socket hang up'); } });
-    const { findings, notes } = await run('nikolamotor.com');
-    expect(findings).toHaveLength(1);
-    expect(notes).toEqual([]);
-  });
-
-  test('the certificate lookup can be switched off on its own', async () => {
-    process.env.FOUNDER_SOURCES_OFF = 'domain-certificates';
+  test('never asks the certificate log search, whose robots.txt turns automated readers away', async () => {
     const calls = fakeNetwork({ certificates: CERTIFICATES });
     const { findings: [f] } = await run('nikolamotor.com');
     expect(calls.some((c) => c.url.includes('crt.sh'))).toBe(false);
-    expect(f.data.earliestCertificate).toBeNull();
+    expect(f.quote).not.toMatch(/certificate/i);
+    expect(f.data).not.toHaveProperty('earliestCertificate');
+  });
+
+  test('can be switched off', () => {
     expect(domainHistoryConnector.enabled()).toBe(true);
     process.env.FOUNDER_SOURCES_OFF = 'trademarks, domain-history';
     expect(domainHistoryConnector.enabled()).toBe(false);

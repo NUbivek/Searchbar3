@@ -188,6 +188,9 @@ function companyFilers(hits, company, entitiesOf = (h) => h.entities.slice(0, 1)
 
 const looksLikeOrg = (entity) => Boolean(entity?.tickers) || ORG_WORD.test(entity?.name || '') || /[0-9&]/.test(entity?.name || '');
 const knownCompany = (subject, text) => [...(subject.anchors?.companies?.values?.() || [])].some((a) => a.test(text));
+/** True when one of the names is a known company of the person, give or take the legal form (not merely containing it). */
+const exactKnownIssuer = (subject, names) => [...(subject.anchors?.companies?.values?.() || [])]
+  .some((a) => names.some((n) => n && companyTier(n, a.value) === 2));
 const entityLabel = (e) => (e.tickers ? `${e.name} (${e.tickers})` : e.name);
 
 /* ------------------------------------------------------------------ requests */
@@ -388,7 +391,8 @@ function excerptAround(text, start, end, { lead = 260, trail = 420, max = 620 } 
   for (const m of raw.matchAll(BOUNDARY)) { keep(last, m.index + m[0].length); last = m.index + m[0].length; }
   keep(last, raw.length);
   let out = kept.join('').trim();
-  if (!openClean) out = `… ${out.replace(/^\S*[ ]+/, '')}`;
+  // A cut made exactly at the matched term (lead 0) starts on a whole word: only a cut mid-text drops its first, partial word.
+  if (!openClean) out = `… ${a === start ? out : out.replace(/^\S*[ ]+/, '')}`;
   if (!closeClean) out = `${out.replace(/[ ]+\S*$/, '')} …`;
   return out;
 }
@@ -732,7 +736,12 @@ async function personFormD(ctx) {
       title: formDTitle(g.form, issuer.name, subject, on, `Form ${g.form} filed by ${issuer.name} mentions ${subject.name}`),
       quote: `${doc ? formDQuote(doc, on) : recordLine(g)}${span}`,
       url: g.url, date: g.date,
-      matchText: [subject.name, ...issuer.names, ...(doc ? [doc.issuerName, ...doc.previousNames, ...doc.persons.map((p) => p.name)] : [])].join('. '),
+      // Only a notice that lists the person, or an issuer that is exactly a known company, is graded by its names.
+      // Otherwise EDGAR's phrase hit is all there is, and an issuer that merely resembles a known company ("Red
+      // Stripe Holdings LLC" for Stripe) must not confirm a namesake.
+      ...(on.person || on.signer || exactKnownIssuer(subject, [...issuer.names, ...(doc ? [doc.issuerName, ...doc.previousNames] : [])])
+        ? { matchText: [subject.name, ...issuer.names, ...(doc ? [doc.issuerName, ...doc.previousNames, ...doc.persons.map((p) => p.name)] : [])].join('. ') }
+        : { match: 'possible', matchReasons: ['name found by full-text search; issuer not verified'] }),
       data: { form: g.form, accession: g.adsh, issuer: issuer.name, ...(on.person ? { roles: on.person.roles } : {}), filings: issuer.filings.slice(0, 12).map((f) => ({ form: f.form, date: f.date, url: f.url })) },
     });
     if (!finding) return;
@@ -1174,7 +1183,8 @@ async function companyFormD(task, ctx) {
 
 /* ------------------------------------------------------------------ company: cyber-incident reports */
 
-const CYBER_QUERY = '"Item 1.05" OR "cybersecurity incident" OR ransomware OR "unauthorized access"';
+// Covers the phrases INCIDENT_TERM recognises: before Item 1.05, an 8-K described an incident in its own words (Clorox 2023: "unauthorized activity").
+const CYBER_QUERY = '"Item 1.05" OR "cybersecurity incident" OR "cybersecurity attack" OR "cyber attack" OR cyberattack OR ransomware OR "unauthorized access" OR "unauthorized activity" OR "unauthorized third party" OR "security incident" OR "data breach"';
 const INCIDENT_TERM = /\b(Item\s+1\.05|cybersecurity incident|cyber(?:security)?[- ]attack|ransomware|unauthori[sz]ed (?:access|actor|activity|third part(?:y|ies)|part(?:y|ies)|person|individual)s?|data breach|security incident)\b/i;
 
 async function companyCyber(task, ctx) {

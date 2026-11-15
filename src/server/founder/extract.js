@@ -20,7 +20,19 @@ const RELATION_WORDS = 'father|mother|brother|sister|husband|wife|spouse|partner
 const DESCENT_WORDS = 'son|daughter|nephew|niece|grandson|granddaughter|stepson|stepdaughter|scion|heir|heiress';
 
 // A public role: what makes a relative relevant to an investment decision.
-const PUBLIC_ROLE = /\b(CEO|CFO|COO|CTO|chief executive|chief \w+ officer|chair(?:man|woman|person)?|president|founder|co-?founder|owner|billionaire|millionaire|magnate|mogul|tycoon|financier|banker|investor|venture capitalist|hedge fund|private equity|fund manager|managing director|general partner|partner at|executive|director|board member|trustee|philanthropist|developer|industrialist|oligarch|senator|congress(?:man|woman)|representative|governor|mayor|minister|ambassador|diplomat|judge|general|admiral|politician|member of parliament|\bMP\b|lawmaker|commissioner|secretary of|prime minister|royal|sheikh|professor|dean|family (?:business|office|firm|fortune|company|foundation|trust)|conglomerate|dynasty|empire|controls?|runs|heads|founded|owns|invested|backed|funded|seed(?:ed)? (?:investor|money|capital))\b/i;
+// Ordinary jobs and verbs ("a software developer", "a history professor",
+// "runs a small bakery", "director of photography") are not public roles:
+// those words count only in the qualified forms of QUALIFIED_ROLE, which is
+// case-sensitive so that what follows must be a proper name.
+const PUBLIC_ROLE = /\b(CEO|CFO|COO|CTO|chief executive|chief \w+ officer|chair(?:man|woman|person)?|president|founder|co-?founder|billionaire|millionaire|magnate|mogul|tycoon|financier|banker|investor|venture capitalist|hedge fund|private equity|fund manager|managing director|general partner|partner at|board member|trustee|philanthropist|industrialist|oligarch|senator|congress(?:man|woman)|representative|governor|mayor|minister|ambassador|diplomat|judge|admiral|politician|member of parliament|\bMP\b|lawmaker|commissioner|secretary of|prime minister|royal|sheikh|family (?:business|office|firm|fortune|company|foundation|trust)|conglomerate|dynasty|empire|seed(?:ed)? (?:investor|money|capital))\b/i;
+const QUALIFIED_ROLE = /\b(?:[Rr]eal[ -]estate developer|[Pp]roperty developer|(?:[Mm]anaging |[Nn]on-executive )?[Dd]irector (?:of|at) [A-Z][\w&.-]*|(?:[Dd]irector|[Hh]ead) of [a-z][a-z -]{2,40} (?:at|for) [A-Z][\w&.-]*|(?:[Oo]wner|[Ff]ounder|[Hh]ead) of [A-Z][\w&.-]*|(?:runs|heads|controls|owns|founded) [A-Z][\w&.-]+(?: (?:Inc|LLC|Ltd|Group|Holdings|Capital|Partners|Corp)\.?)?|[Ee]xecutive (?:at|of) [A-Z][\w&.-]*)/;
+/** The first public role named in `text` (a match array), or null. */
+const matchRole = (text) => {
+  const a = text.match(PUBLIC_ROLE);
+  const b = text.match(QUALIFIED_ROLE);
+  if (a && b) return a.index <= b.index ? a : b;
+  return a || b;
+};
 
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 // Abbreviations whose full stop does not end a sentence ("SEC v. Acme", "Acme Inc. said").
@@ -63,14 +75,14 @@ function plausiblePerson(name, subject) {
 function roleNear(subject, sentence, name) {
   const at = sentence.indexOf(name);
   if (at < 0) return null;
-  const after = sentence.slice(at + name.length, at + name.length + 90).match(PUBLIC_ROLE);
+  const after = matchRole(sentence.slice(at + name.length, at + name.length + 90));
   if (after) return after;
   let before = sentence.slice(Math.max(0, at - 48), at);
   for (const variant of subject.variants || [subject.name]) {
     const cut = before.toLowerCase().lastIndexOf(String(variant).toLowerCase());
     if (cut >= 0) before = before.slice(cut + String(variant).length);
   }
-  return before.match(PUBLIC_ROLE);
+  return matchRole(before);
 }
 
 /**
@@ -184,11 +196,18 @@ export function profileFromUrl(url) {
   return null;
 }
 
-/** Does this handle plausibly belong to the subject? (it contains their last name or first+last initials) */
+/**
+ * Does this handle plausibly belong to the subject? It must contain one of
+ * their full name slugs (firstlast, flast, lastfirst ...); a bare first name
+ * or surname ("jack", "collison") is shared by too many people to fit.
+ */
 export function handleFitsSubject(subject, handle) {
   const h = String(handle || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   if (!h) return false;
-  return subject.slugs.some((slug) => h.includes(slug.replace(/[^a-z0-9]/g, '')) || slug.replace(/[^a-z0-9]/g, '').includes(h));
+  return subject.slugs.some((slug) => {
+    const s = slug.replace(/[^a-z0-9]/g, '');
+    return s.length > 0 && h.includes(s);
+  });
 }
 
 /**
@@ -213,9 +232,11 @@ export function threadsFromResult(subject, result, { trusted }) {
   for (const a of associatesFromText(subject, text)) threads.push(makeThread('associate', a.name, a.why, { trusted }));
   for (const r of relativesFromText(subject, text)) threads.push(makeThread('relative', r.name, `${r.relation}; ${r.role}`, { trusted, relation: r.relation, role: r.role }));
   const profile = profileFromUrl(result?.url);
+  // A profile is only as trusted as the result it came from: a title that
+  // merely repeats the name ("John Smith (johnsmith) · GitHub") may be a namesake.
   if (profile && handleFitsSubject(subject, profile.handle)) {
-    threads.push(makeThread('url', profile.url, `${profile.platform} profile`, { trusted: trusted || subject.hasName(title), platform: profile.platform }));
-    if (profile.platform === 'github' || profile.platform === 'x') threads.push(makeThread('handle', profile.handle, `${profile.platform} handle`, { trusted: trusted || subject.hasName(title), platform: profile.platform }));
+    threads.push(makeThread('url', profile.url, `${profile.platform} profile`, { trusted, platform: profile.platform }));
+    if (profile.platform === 'github' || profile.platform === 'x') threads.push(makeThread('handle', profile.handle, `${profile.platform} handle`, { trusted, platform: profile.platform }));
   }
   return threads.filter(Boolean);
 }

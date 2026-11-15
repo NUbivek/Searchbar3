@@ -9,6 +9,8 @@ jest.mock('../../../src/server/search/retrieve', () => ({
   searchWeb: jest.fn(async () => []),
   webSearchConfigured: jest.fn(() => false),
 }));
+// the search engines share their rests through the database: none here
+jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
 jest.mock('../../../src/server/founder/sources/searchEngines', () => {
   const actual = jest.requireActual('../../../src/server/founder/sources/searchEngines');
   return { ...actual, keylessSearch: jest.fn(actual.keylessSearch) };
@@ -193,15 +195,14 @@ describe('web-search: query patterns', () => {
     expect(languageHints(mensch)).toEqual(['fr']);
   });
 
-  test('a company: legal trouble, leadership, distress, data breach', () => {
+  test('a company: legal trouble, leadership, distress (no separate data-breach lookup: the breach registers cover it)', () => {
     const subject = holmes();
     const templates = webTemplates({ kind: 'company', value: 'Theranos, Inc.' }, subject);
-    expect(templates.map((t) => t.template)).toEqual(['q.company-legal', 'q.company-leadership', 'q.company-distress', 'q.company-breach']);
+    expect(templates.map((t) => t.template)).toEqual(['q.company-legal', 'q.company-leadership', 'q.company-distress']);
     expect(templates.map((t) => t.params.query)).toEqual([
       '"Theranos" (lawsuit OR fraud OR investigation)',
       '"Theranos" (founder OR CEO)',
       '"Theranos" (shutdown OR layoffs OR bankruptcy)',
-      '"Theranos" "data breach"',
     ]);
   });
 
@@ -209,13 +210,13 @@ describe('web-search: query patterns', () => {
     const subject = holmes();
     for (const kind of ['associate', 'relative']) {
       const templates = webTemplates({ kind, value: 'Ramesh Balwani' }, subject);
-      expect(templates.map((t) => t.template)).toEqual([`q.${kind}-joint`, `q.${kind}-adverse`]);
+      // one joint lookup per person, with the trouble words optional (the other name closes the OR group)
+      expect(templates.map((t) => t.template)).toEqual([`q.${kind}-joint`]);
       for (const t of templates) {
         expect(t.params.query.startsWith('"Elizabeth Holmes" "Ramesh Balwani"')).toBe(true);
         expect(t.prior).toBeGreaterThanOrEqual(0.3);
       }
-      expect(templates[0].params.query).toBe('"Elizabeth Holmes" "Ramesh Balwani"');
-      expect(templates[1].params.query).toBe('"Elizabeth Holmes" "Ramesh Balwani" (lawsuit OR fraud OR investigation OR settlement OR dispute)');
+      expect(templates[0].params.query).toBe('"Elizabeth Holmes" "Ramesh Balwani" (lawsuit OR fraud OR investigation OR settlement OR dispute OR "Ramesh Balwani")');
     }
     // the subject listed as their own associate: nothing to search
     expect(webTemplates({ kind: 'associate', value: 'Elizabeth Holmes' }, subject)).toEqual([]);
@@ -286,7 +287,7 @@ describe('web-search: the search a lookup makes', () => {
     await webSearchConnector.run(task('associate', 'Ramesh Balwani', 'q.gap', { query: '"Ramesh Balwani" fraud' }), ctxFor(subject));
     expect(keylessSearch.mock.calls[0][0]).toBe('"Elizabeth Holmes" "Ramesh Balwani"');
     await webSearchConnector.run(task('relative', 'Christian Holmes', null, null), ctxFor(subject));
-    expect(keylessSearch.mock.calls[1][0]).toBe('"Elizabeth Holmes" "Christian Holmes"');
+    expect(keylessSearch.mock.calls[1][0]).toBe('"Elizabeth Holmes" "Christian Holmes" (lawsuit OR fraud OR investigation OR settlement OR dispute OR "Christian Holmes")');
   });
 });
 
@@ -385,7 +386,7 @@ describe('web-search: results become graded findings', () => {
 
   test('a news article on a path like /people/ is not mistaken for a bio page', async () => {
     const subject = roe();
-    searchReturns([{ title: 'Jane Roe of Acme Robotics on robots', snippet: '', url: 'https://news.google.com/rss/articles/CBMiabc?oc=5', host: 'people.com', publisher: 'People', date: '2026-01-05' }]);
+    searchReturns([{ title: 'Jane Roe, CEO of Acme Robotics, on robots', snippet: '', url: 'https://news.google.com/rss/articles/CBMiabc?oc=5', host: 'people.com', publisher: 'People', date: '2026-01-05' }]);
     const { findings, threads } = await webSearchConnector.run(planned(webSearchConnector, { kind: 'subject', value: subject.name }, subject, 'q.interviews'), ctxFor(subject));
     expect(findings[0]).toMatchObject({ category: 'press', match: 'confirmed', date: '2026-01-05', data: { publisher: 'People' } });
     expect(threads.filter((t) => t.kind === 'url')).toEqual([]);
@@ -441,7 +442,7 @@ describe('web-search: results become graded findings', () => {
       { title: 'Ramesh Balwani sentenced to nearly 13 years', snippet: 'Balwani was convicted on all counts.', url: 'https://www.example.com/balwani', date: null },
       { title: 'Elizabeth Holmes and Ramesh Balwani charged with fraud', snippet: 'Prosecutors charged the two former Theranos executives.', url: 'https://www.example.com/both', date: null },
     ]);
-    const { findings } = await webSearchConnector.run(planned(webSearchConnector, { kind: 'associate', value: 'Ramesh Balwani' }, subject, 'q.associate-adverse'), ctxFor(subject));
+    const { findings } = await webSearchConnector.run(planned(webSearchConnector, { kind: 'associate', value: 'Ramesh Balwani' }, subject, 'q.associate-joint'), ctxFor(subject));
     expect(findings.map((f) => f.title)).toEqual(['Elizabeth Holmes and Ramesh Balwani charged with fraud']);
     expect(findings[0].match).toBe('confirmed');
   });
@@ -516,10 +517,10 @@ describe('news-archive', () => {
     expect(newsArchiveConnector.kinds).toEqual(['subject', 'company']);
   });
 
-  test('the person: four windows, each with a plain pass and an adverse-terms pass; older windows have lower priors', () => {
+  test('the person: an adverse-terms pass for all four windows, a plain pass for the two most recent; older windows have lower priors', () => {
     const subject = holmes();
     const templates = newsArchiveConnector.plan({ kind: 'subject', value: subject.name }, subject);
-    expect(templates.map((t) => t.template)).toEqual(['n.recent', 'n.recent-adverse', 'n.1-3y', 'n.1-3y-adverse', 'n.3-8y', 'n.3-8y-adverse', 'n.older', 'n.older-adverse']);
+    expect(templates.map((t) => t.template)).toEqual(['n.recent', 'n.recent-adverse', 'n.1-3y', 'n.1-3y-adverse', 'n.3-8y-adverse', 'n.older-adverse']);
     expect(NEWS_WINDOWS.map((w) => w.label)).toEqual(['the last 12 months', '1 to 3 years ago', '3 to 8 years ago', 'more than 8 years ago']);
     const plain = templates.filter((t) => !t.template.endsWith('-adverse'));
     const adverse = templates.filter((t) => t.template.endsWith('-adverse'));
@@ -532,14 +533,17 @@ describe('news-archive', () => {
       expect(t.prior).toBeGreaterThanOrEqual(0.3);
       expect(t.prior).toBeLessThanOrEqual(0.8);
     }
-    expect(plain.map((t) => t.params.query)).toEqual(['"Elizabeth Holmes" Theranos', '"Elizabeth Holmes" Theranos', '"Elizabeth Holmes"', '"Elizabeth Holmes"']);
+    expect(plain.map((t) => t.params.query)).toEqual(['"Elizabeth Holmes" Theranos', '"Elizabeth Holmes" Theranos']);
     expect(adverse[0].params.query).toBe('"Elizabeth Holmes" (lawsuit OR fraud OR investigation OR charged OR bankruptcy OR scandal OR fired OR settlement)');
-    expect(plain.map((t) => t.params.window)).toEqual(['recent', '1-3y', '3-8y', 'older']);
+    expect(plain.map((t) => t.params.window)).toEqual(['recent', '1-3y']);
+    expect(adverse.map((t) => t.params.window)).toEqual(['recent', '1-3y', '3-8y', 'older']);
   });
 
-  test('a company: the adverse pass for each window', () => {
+  test('a company: two adverse passes, the last three years and everything older', () => {
     const templates = newsTemplates({ kind: 'company', value: 'Theranos, Inc.' }, holmes());
-    expect(templates.map((t) => t.template)).toEqual(['n.company-recent', 'n.company-1-3y', 'n.company-3-8y', 'n.company-older']);
+    expect(templates.map((t) => t.template)).toEqual(['n.company-last-3y', 'n.company-before-3y']);
+    expect(templates.map((t) => t.params.window)).toEqual(['last-3y', 'before-3y']);
+    expect(templates[1].prior).toBeLessThan(templates[0].prior);
     for (const t of templates) expect(t.params.query).toBe('"Theranos" (lawsuit OR fraud OR investigation OR bankruptcy OR layoffs OR "shut down" OR scandal OR settlement)');
     expect(newsTemplates({ kind: 'associate', value: 'Ramesh Balwani' }, holmes())).toEqual([]);
   });
@@ -550,6 +554,8 @@ describe('news-archive', () => {
     expect(windowDates('1-3y', today)).toEqual({ after: '2023-11-15', before: '2025-11-14' });
     expect(windowDates('3-8y', today)).toEqual({ after: '2018-11-16', before: '2023-11-15' });
     expect(windowDates('older', today)).toEqual({ after: '1995-01-01', before: '2018-11-16' });
+    expect(windowDates('last-3y', today)).toEqual({ after: '2023-11-15', before: '2026-11-15' });
+    expect(windowDates('before-3y', today)).toEqual({ after: '1995-01-01', before: '2023-11-15' });
     expect(windowDates('nope', today)).toEqual({});
   });
 
@@ -578,7 +584,7 @@ describe('news-archive', () => {
   test('a regulator or court site in the news results is still filed under press', async () => {
     const subject = holmes();
     searchReturns([{ title: 'SEC charges Theranos and Elizabeth Holmes with fraud', snippet: '', url: 'https://news.google.com/rss/articles/CBMisec?oc=5', date: '2018-03-14', host: 'sec.gov', publisher: 'SEC.gov' }], { engine: 'gnews' });
-    const out = await newsArchiveConnector.run(planned(newsArchiveConnector, { kind: 'subject', value: subject.name }, subject, 'n.older'), ctxFor(subject));
+    const out = await newsArchiveConnector.run(planned(newsArchiveConnector, { kind: 'subject', value: subject.name }, subject, 'n.older-adverse'), ctxFor(subject));
     expect(out.findings[0]).toMatchObject({ category: 'press', match: 'confirmed', date: '2018-03-14' });
   });
 
@@ -590,7 +596,7 @@ describe('news-archive', () => {
       { title: 'Theranos opens new lab - Wire', snippet: '', url: 'https://news.google.com/rss/articles/open?oc=5', date: '2015-06-01', host: 'example.com', publisher: 'Wire' },
       { title: 'Feds charge Theranos\' Elizabeth Holmes with wire fraud - Fierce Biotech', snippet: '', url: 'https://news.google.com/rss/articles/feds?oc=5', date: '2018-06-18', host: 'fiercebiotech.com', publisher: 'Fierce Biotech' },
     ], { engine: 'gnews' });
-    const out = await newsArchiveConnector.run(planned(newsArchiveConnector, { kind: 'company', value: 'Theranos' }, subject, 'n.company-older'), ctxFor(subject));
+    const out = await newsArchiveConnector.run(planned(newsArchiveConnector, { kind: 'company', value: 'Theranos' }, subject, 'n.company-before-3y'), ctxFor(subject));
     expect(out.findings[0]).toMatchObject({ match: 'confirmed', severity: 'high', date: '2018-06-18' });
     const rest = out.findings.slice(1);
     expect(rest).toHaveLength(4);
@@ -606,9 +612,9 @@ describe('news-archive', () => {
     const subject = holmes();
     const asked = [];
     setTransport(async (url) => { asked.push(url); return { status: 200, headers: new Map(), url, text: async () => GNEWS_XML }; });
-    const out = await newsArchiveConnector.run(planned(newsArchiveConnector, { kind: 'subject', value: subject.name }, subject, 'n.3-8y'), ctxFor(subject));
+    const out = await newsArchiveConnector.run(planned(newsArchiveConnector, { kind: 'subject', value: subject.name }, subject, 'n.3-8y-adverse'), ctxFor(subject));
     const { after, before } = windowDates('3-8y');
-    expect(new URL(asked[0]).searchParams.get('q')).toBe(`"Elizabeth Holmes" after:${after} before:${before}`);
+    expect(new URL(asked[0]).searchParams.get('q')).toBe(`"Elizabeth Holmes" (lawsuit OR fraud OR investigation OR charged OR bankruptcy OR scandal OR fired OR settlement) after:${after} before:${before}`);
     // the feed's 2026 item is outside the window and is dropped; the 2023 and 2020 items stay
     expect(out.findings.map((f) => [f.date, f.match, f.category])).toEqual([
       ['2023-03-17', 'confirmed', 'press'],

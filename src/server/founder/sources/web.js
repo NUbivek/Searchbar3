@@ -123,18 +123,22 @@ function companyTemplates(companyName) {
     { template: 'q.company-legal', params: { query: `${c} ${any('lawsuit', 'fraud', 'investigation')}` }, prior: 0.55, why: 'lawsuits and investigations at this company' },
     { template: 'q.company-leadership', params: { query: `${c} ${any('founder', 'CEO')}`, prefer: 'reference' }, prior: 0.5, why: 'who founded and ran this company' },
     { template: 'q.company-distress', params: { query: `${c} ${any('shutdown', 'layoffs', 'bankruptcy')}` }, prior: 0.45, why: 'whether this company shut down, cut staff or went bankrupt' },
-    { template: 'q.company-breach', params: { query: `${c} "data breach"` }, prior: 0.35, why: 'data breaches at this company' },
+    // no separate data-breach lookup: the breach registers (another source) cover it, and the search allowance is shared by the whole check
   ];
 }
 
-/** Joint queries only: the subject's quoted name is always in the query. */
+/**
+ * Joint queries only: the subject's quoted name is always in the query. One
+ * lookup per person: the trouble words are optional (the other person's own
+ * name closes the OR group, so any page naming both still matches), which
+ * lets them lift disputes to the top without a second search.
+ */
 function jointTemplates(kind, otherName, subject) {
   const name = phrase(subject.name);
   const other = phrase(otherName);
   const who = kind === 'relative' ? 'this relative' : 'this associate';
   return [
-    { template: `q.${kind}-joint`, params: { query: `${name} ${other}`, prefer: 'reference' }, prior: 0.5, why: `what is reported about them together with ${who}` },
-    { template: `q.${kind}-adverse`, params: { query: `${name} ${other} ${any('lawsuit', 'fraud', 'investigation', 'settlement', 'dispute')}` }, prior: 0.35, why: `disputes that name them together with ${who}` },
+    { template: `q.${kind}-joint`, params: { query: `${name} ${other} ${any('lawsuit', 'fraud', 'investigation', 'settlement', 'dispute', other)}`, prefer: 'reference' }, prior: 0.5, why: `what is reported about them together with ${who}, disputes first` },
   ];
 }
 
@@ -210,13 +214,54 @@ function pageThreads(subject, result, finding) {
   return out.filter(Boolean);
 }
 
-/** A test for "this text names the company the task is about", or null when the task is not about a company. */
-function companyTest(task) {
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Words that, right after a one-word company name, keep it a company ("Nikola Motors", "Square Inc"), not part of another name ("Nikola Jokic"). */
+const COMPANY_WORD = /^(?:Inc|Incorporated|Corp|Corporation|Co|Company|LLC|Ltd|Limited|Plc|GmbH|AG|SA|Group|Holdings?|Motors|Technologies|Technology|Tech|Labs?|Systems|Software|Therapeutics|Pharma|Pharmaceuticals|Bio|Biosciences|Health|Energy|Capital|Ventures|Financial|Bank|Partners|Media|Networks|Robotics|AI|CEO|CTO|CFO|COO|Founder|Founders|Co-?founder|President|Chairman|Board|Executives?|Employees|Investors?|Shareholders?|Shares|Stock|IPO)\b/;
+/** Words that place a one-word name as a business anywhere in the text. */
+const BUSINESS_CONTEXT = /\b(?:Inc|Corp|Co\.|company|companies|startup|CEO|CTO|CFO|COO|founders?|co-?founders?|chief executive|shares|stock|shareholders?|investors?|IPO|employees|layoffs?|lays off|bankrupt\w*|Chapter 11|insolvency|acquir\w+|acquisition|merger|valuation|funding|SEC|FTC|regulators?|customers|revenue)\b/i;
+/** Headline case ("Stripe Settles Lawsuit Over Fees"): a capital after the name says nothing there. */
+const titleCase = (title) => {
+  const words = String(title || '').split(/\s+/).filter((w) => /^[A-Za-z]/.test(w) && w.length > 3);
+  return words.length >= 3 && words.filter((w) => /^[A-Z]/.test(w)).length / words.length >= 0.7;
+};
+
+/**
+ * A test for "this result is about the company the task is about", or null
+ * when the task is not about a company. Takes the text and the result's site.
+ *
+ * A one-word name ("Nikola", "Square") is also a first name or a plain word,
+ * so it must be written as a name (capitalised), and not as the first half of
+ * another name ("Nikola Jokic", "Square Enix"). When the text cannot tell
+ * (headline case, or every mention runs into another capitalised word), the
+ * result must place it some other way: on the company's own site, with the
+ * subject's surname, or among business words ("Nikola Corp", "CEO", "shares").
+ */
+function companyTest(task, subject) {
   const company = task.kind === 'company' ? shortCompany(task.value) : '';
   if (!company) return null;
-  const re = new RegExp(`(?<![A-Za-z0-9])${company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9])`, 'gi');
-  // a one-word company name must appear capitalised, or "stripe" the pattern would count as Stripe the company
-  return (text) => [...String(text).matchAll(re)].some((m) => /\s/.test(company) || /^[A-Z0-9]/.test(m[0]));
+  const re = new RegExp(`(?<![A-Za-z0-9])${escapeRe(company)}(?![A-Za-z0-9])`, 'gi');
+  if (/\s/.test(company)) return (text) => String(text).search(re) >= 0;
+  const tokens = nameTokens(subject?.name || '');
+  const surname = tokens.length > 1 ? tokens[tokens.length - 1] : '';
+  const surnameRe = surname ? new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(surname)}(?![\\p{L}\\p{N}])`, 'iu') : null;
+  const domains = [...(subject?.anchors?.domains?.values?.() || [])].map((a) => String(a.value).toLowerCase().replace(/^www\./, ''));
+  return (text, { title = null, host = '' } = {}) => {
+    const str = String(text);
+    const mentions = [...str.matchAll(re)].filter((m) => /^[A-Z0-9]/.test(m[0]));
+    if (!mentions.length) return false;
+    if (host && domains.length && onHost(host, domains)) return true;
+    if (surnameRe && surnameRe.test(str)) return true;
+    const nextWord = (m) => str.slice(m.index + m[0].length).match(/^\s+([A-Z][\p{L}\p{N}'’&-]*)/u)?.[1] || '';
+    // a mention in a headline-case title cannot be read by the word after it; the rest of the text (the snippet) can
+    const titleEnd = title != null && titleCase(title) ? String(title).length : 0;
+    for (const m of mentions) {
+      const next = nextWord(m);
+      if (next && COMPANY_WORD.test(next)) return true; // "Nikola Motors", "Square Inc"
+      if (m.index < titleEnd) { if (BUSINESS_CONTEXT.test(str)) return true; continue; }
+      if (!next) return true; // "Nikola recalls trucks"; "Nikola Jokic" is another name
+    }
+    return false;
+  };
 }
 
 /**
@@ -225,10 +270,10 @@ function companyTest(task) {
  * Engines whose results all fail this count as having found nothing.
  */
 function acceptFor(subject, task) {
-  const namesCompany = companyTest(task);
+  const namesCompany = companyTest(task, subject);
   return (r) => {
     const text = `${r.title} ${r.snippet || ''}`;
-    return subject.hasName(text) || (Boolean(namesCompany) && namesCompany(text) && severityFromText(text) !== 'info');
+    return subject.hasName(text) || (Boolean(namesCompany) && namesCompany(text, { title: r.title, host: r.host || hostOf(r.url) }) && severityFromText(text) !== 'info');
   };
 }
 
@@ -248,7 +293,7 @@ function collect(subject, task, results, { source, sourceLabel, category = null,
     seenThreads.add(key);
     threads.push(t);
   };
-  const namesCompany = companyTest(task);
+  const namesCompany = companyTest(task, subject);
 
   for (const r of results) {
     const text = `${r.title} ${r.snippet || ''}`;
@@ -266,7 +311,7 @@ function collect(subject, task, results, { source, sourceLabel, category = null,
     const finding = makeFinding(subject, base);
     if (!finding) {
       // About the company the task gave us, not the person: kept when it reports trouble, and marked as such.
-      if (namesCompany && !subject.hasName(text) && namesCompany(text) && base.severity !== 'info') {
+      if (namesCompany && !subject.hasName(text) && namesCompany(text, { title: r.title, host }) && base.severity !== 'info') {
         const record = makeFinding(subject, { ...base, match: 'company', matchReasons: [`names ${task.value}`] });
         if (record) companyOnly.push(record);
       }
@@ -337,18 +382,29 @@ export const NEWS_WINDOWS = [
   { id: '3-8y', label: '3 to 8 years ago', fromDays: 8 * YEAR_DAYS, toDays: 3 * YEAR_DAYS, prior: 0.42 },
   { id: 'older', label: 'more than 8 years ago', fromDays: null, toDays: 8 * YEAR_DAYS, prior: 0.32 },
 ];
+/** A company gets two wider windows: its trouble is rarer news than the person's, and the search allowance is shared by the whole check. */
+export const COMPANY_NEWS_WINDOWS = [
+  { id: 'last-3y', label: 'the last 3 years', fromDays: 3 * YEAR_DAYS, toDays: -1, prior: 0.45 },
+  { id: 'before-3y', label: 'more than 3 years ago', fromDays: null, toDays: 3 * YEAR_DAYS, prior: 0.32 },
+];
+/** The person's windows that also get a plain pass (no trouble words): older plain coverage rarely changes the picture. */
+const PLAIN_WINDOWS = new Set(['recent', '1-3y']);
 const NEWS_ADVERSE = any('lawsuit', 'fraud', 'investigation', 'charged', 'bankruptcy', 'scandal', 'fired', 'settlement');
 const COMPANY_ADVERSE = any('lawsuit', 'fraud', 'investigation', 'bankruptcy', 'layoffs', '"shut down"', 'scandal', 'settlement');
 
 /** The dates of a window, counted back from today: { after, before } as ISO days. */
 export function windowDates(id, now = Date.now()) {
-  const w = NEWS_WINDOWS.find((x) => x.id === id);
+  const w = [...NEWS_WINDOWS, ...COMPANY_NEWS_WINDOWS].find((x) => x.id === id);
   if (!w) return {};
   const day = (daysAgo) => new Date(now - daysAgo * DAY_MS).toISOString().slice(0, 10);
   return { after: w.fromDays == null ? '1995-01-01' : day(w.fromDays), before: day(w.toDays) };
 }
 
-/** News lookups for a thread: every window, with a plain pass and an adverse-terms pass for the person. */
+/**
+ * News lookups for a thread. The person: an adverse-terms pass for every
+ * window, and a plain pass for the two most recent. A company: an
+ * adverse-terms pass for the last three years and one for everything older.
+ */
 export function newsTemplates(thread, subject) {
   if (!subject?.name || !thread?.kind) return [];
   const out = [];
@@ -358,8 +414,7 @@ export function newsTemplates(thread, subject) {
     const co = company ? (/\s/.test(company) ? phrase(company) : company) : '';
     for (const w of NEWS_WINDOWS) {
       // The company narrows recent coverage to the right person; further back they may not have been there yet.
-      const plain = co && (w.id === 'recent' || w.id === '1-3y') ? `${name} ${co}` : name;
-      out.push({ template: `n.${w.id}`, params: { query: plain, window: w.id, news: true }, prior: w.prior, why: `press coverage from ${w.label}` });
+      if (PLAIN_WINDOWS.has(w.id)) out.push({ template: `n.${w.id}`, params: { query: co ? `${name} ${co}` : name, window: w.id, news: true }, prior: w.prior, why: `press coverage from ${w.label}` });
       out.push({ template: `n.${w.id}-adverse`, params: { query: `${name} ${NEWS_ADVERSE}`, window: w.id, news: true }, prior: Math.round((w.prior + 0.03) * 100) / 100, why: `lawsuits, investigations and scandals reported ${w.id === 'recent' ? 'in' : ''} ${w.label}`.replace(/\s+/g, ' ') });
     }
     return out;
@@ -367,8 +422,8 @@ export function newsTemplates(thread, subject) {
   if (thread.kind === 'company' && tidy(thread.value)) {
     // For a company only the adverse pass: general company news says little about the person and would use up the lookup budget.
     const c = phrase(shortCompany(thread.value));
-    for (const w of NEWS_WINDOWS) {
-      out.push({ template: `n.company-${w.id}`, params: { query: `${c} ${COMPANY_ADVERSE}`, window: w.id, news: true }, prior: Math.max(0.3, Math.round((w.prior - 0.1) * 100) / 100), why: `trouble at this company reported ${w.id === 'recent' ? 'in' : ''} ${w.label}`.replace(/\s+/g, ' ') });
+    for (const w of COMPANY_NEWS_WINDOWS) {
+      out.push({ template: `n.company-${w.id}`, params: { query: `${c} ${COMPANY_ADVERSE}`, window: w.id, news: true }, prior: w.prior, why: `trouble at this company reported ${w.id === 'last-3y' ? 'in' : ''} ${w.label}`.replace(/\s+/g, ' ') });
     }
   }
   return out;

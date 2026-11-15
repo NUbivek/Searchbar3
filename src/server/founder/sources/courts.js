@@ -212,6 +212,17 @@ const companyCore = (company) => {
 const knownCompanies = (subject) => [...(subject?.anchors?.companies?.values() || [])]
   .sort((a, b) => (b.origin === 'given') - (a.origin === 'given')).map((a) => a.value);
 const namesKnownCompany = (subject, text) => [...(subject?.anchors?.companies?.values() || [])].find((a) => a.test(text))?.value || '';
+/**
+ * Does a headline name the company itself? A side of a case-style title that
+ * is the company ("Block, Inc."), or the full name with its legal form as
+ * given ("Nikola Corporation Agrees to Pay ..."). The bare core word is not
+ * enough: "Block Grant Fraud" and "Cash Flow Scheme" are not Block or Flow.
+ */
+function headlineNamesCompany(title, company) {
+  if (caseParties(title).sides.some((side) => sameCompany(side, company))) return true;
+  const full = clean(company);
+  return full !== companyCore(company) && new RegExp(`(?<![A-Za-z0-9])${escapeRe(full)}(?![A-Za-z0-9])`).test(String(title || ''));
+}
 
 /* ------------------------------------------------------------------ US federal courts */
 
@@ -469,6 +480,8 @@ export const courtRecordsOpenConnector = {
   timeoutMs: 15000,
   // The fallback for deployments without the fuller docket search.
   enabled: () => !clToken(),
+  // Off by design when the fuller docket search runs in its place: not a source that failed to answer, so reports leave it out.
+  replacedBy: CL_ID,
   unavailableReason: 'Not needed here: the fuller US federal court docket search is on.',
   async run(task, ctx) {
     const who = person(ctx.subject);
@@ -605,15 +618,10 @@ export const dojConnector = {
         const about = releaseNaming(rel, other);
         if (!about) continue;
         const naming = releaseNaming(rel, who);
-        const company = naming ? '' : namesKnownCompany(ctx.subject, `${rel.title} ${rel.teaser} ${rel.body}`);
-        if (!naming && !company) continue; // about the associate alone: not ours to report
+        // Only releases that name the associate together with the subject: a company mention is not the subject.
+        if (!naming) continue;
         const title = `Associate ${other.name}: ${rel.title}`;
-        findings.push(naming
-          ? aboutSubject(rel, naming, { title, quote: clip(uniq([about.quote, naming.quote]).join(' '), 650) })
-          : makeFinding(ctx.subject, {
-            ...base, title, quote: about.quote, url: rel.url, date: rel.date, severity: dojSeverity(`${rel.title} ${about.quote}`), data: rel.data,
-            match: 'possible', matchReasons: ['name match on an associate of the subject', `the release also names ${company}`],
-          }));
+        findings.push(aboutSubject(rel, naming, { title, quote: clip(uniq([about.quote, naming.quote]).join(' '), 650) }));
       }
       return { findings: findings.filter(Boolean).slice(0, 6), threads, notes };
     }
@@ -621,8 +629,7 @@ export const dojConnector = {
     if (template === 'title.company') {
       const company = clean(task.value);
       for (const rel of await search(companyCore(company))) {
-        const inHeadline = caseParties(rel.title).sides.some((side) => sameCompany(side, company)) || new RegExp(`(?<![A-Za-z0-9])${escapeRe(companyCore(company))}(?![A-Za-z0-9])`, 'i').test(rel.title);
-        if (!inHeadline) continue;
+        if (!headlineNamesCompany(rel.title, company)) continue;
         const naming = releaseNaming(rel, who);
         const finding = naming ? aboutSubject(rel, naming) : makeFinding(ctx.subject, {
           ...base, title: rel.title, quote: clip(dropAgeAndTown(rel.teaser || sentencesOf(rel.body)[0] || rel.title), 600), url: rel.url, date: rel.date,
@@ -1082,6 +1089,13 @@ async function cfpbActions(term, ctx) {
 }
 
 const enforcementSeverity = (text) => atLeast('medium', severityFromText(text));
+/**
+ * The CFTC search covers every kind of release (comment requests, approvals,
+ * appointments, speeches): only those that announce an action against someone
+ * are enforcement. "Registration Order" is a noun; "Orders X to Pay" a verb.
+ */
+const CFTC_ACTION = /\b(?:charg|orders\b|ordered\b|orders?\s+(?:against|requiring|imposing)\b|complaint|settle|resolv|judgment|penalt|fine[sd]?\b|sanction|bar(?:s|red)\b|fraud|enforcement action|consent|restitution|disgorgement|indict|guilty|sentenc|injunction|manipulat|spoof|misappropriat)/i;
+const isAction = (r) => r.agency !== 'CFTC' || CFTC_ACTION.test(r.title);
 
 export const enforcementActionsConnector = {
   id: EN_ID,
@@ -1096,23 +1110,22 @@ export const enforcementActionsConnector = {
     if (task.kind === 'company') {
       const company = clean(task.value);
       const core = companyCore(company);
-      const inTitle = (t) => new RegExp(`(?<![A-Za-z0-9])${escapeRe(core)}(?![A-Za-z0-9])`).test(t) || caseParties(t).sides.some((s) => sameCompany(s, company));
       const [cftc, cfpb] = await Promise.all([cftcReleases(core, ctx), cfpbActions(core, ctx)]);
       for (const r of [...cftc, ...cfpb]) {
         // The CFTC search reads release bodies and the CFPB one descriptions: keep only actions with the company in the title.
-        if (!inTitle(r.title)) continue;
+        if (!isAction(r) || !headlineNamesCompany(r.title, company)) continue;
         const named = namesPerson(`${r.title} ${r.summary || ''}`, who);
         const f = makeFinding(ctx.subject, {
           ...base, title: `${r.agency}: ${r.title}`, quote: r.summary || r.title, url: r.url, date: r.date,
           severity: enforcementSeverity(`${r.title} ${r.summary || ''}`), data: { agency: r.agency },
-          ...(named ? { matchText: `${r.title} | ${r.summary || ''} | ${company}` } : { match: 'company', matchReasons: [`${company} is named in the title`] }),
+          ...(named ? { matchText: `${r.title} | ${r.summary || ''}` } : { match: 'company', matchReasons: [`${company} is named in the title`] }),
         });
         if (f) findings.push(f);
       }
       return { findings: findings.slice(0, 10), threads: [], notes: [] };
     }
     for (const r of await cftcReleases(who.name, ctx)) {
-      if (!namesPerson(r.title, who)) continue;
+      if (!isAction(r) || !namesPerson(r.title, who)) continue;
       const f = makeFinding(ctx.subject, {
         ...base, title: `${r.agency}: ${r.title}`, quote: r.title, url: r.url, date: r.date,
         severity: enforcementSeverity(r.title), data: { agency: r.agency }, matchText: r.title,

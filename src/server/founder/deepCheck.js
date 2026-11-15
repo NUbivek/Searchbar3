@@ -22,7 +22,7 @@
  * (jobStore.js): start() -> step() ... step() until phase is 'report'.
  * No network here: sources are passed in, which is also how tests run it.
  */
-import { createSubject, restoreSubject, exportAnchors, addAnchor, matchSubject, matchRank } from './identity';
+import { createSubject, restoreSubject, exportAnchors, addAnchor, matchSubject, matchRank, personKey } from './identity';
 import { connectorResult, THREAD_KINDS } from './finding';
 import { companyKeys } from '../founderCheck';
 import { loadStats, recordStats, rankByLearning } from '../learning';
@@ -38,6 +38,8 @@ export const LIMITS = {
   stepMs: 40000,
   concurrency: 8,
   taskTimeoutMs: 20000,
+  restMs: 20000, // how long a lookup waits when its host is resting
+  maxRests: 4, // how many times one lookup may be put back for a resting host
   // how many threads of each kind are pulled; the rest are listed, not followed
   pull: { company: 10, affiliate: 16, school: 6, associate: 10, relative: 8, handle: 6, domain: 6, url: 10 },
 };
@@ -48,12 +50,6 @@ const DEPTH_WEIGHT = [1, 0.8, 0.55];
 const ANCHOR_KIND = { company: 'companies', school: 'schools', associate: 'people', handle: 'handles', domain: 'domains' };
 
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
-// "Christian Holmes" and "Christian Holmes IV", "Donald L. Lucas" and "Donald Lucas" are one person
-const personKey = (name) => {
-  const tokens = norm(name).replace(/[.,]/g, ' ').split(/\s+/).filter((w) => w && !/^(jr|sr|ii|iii|iv|v|phd|md|esq)$/.test(w));
-  // first and last name: "Silvana Maria Konermann" is "Silvana Konermann"
-  return tokens.length >= 2 ? `${tokens[0]} ${tokens[tokens.length - 1]}` : norm(name);
-};
 // "Theranos" and "Theranos, Inc." are one company
 const threadKey = (t) => `${t.kind}|${t.kind === 'company' ? (companyKeys(t.value)[0] || norm(t.value)) : t.kind === 'associate' || t.kind === 'relative' ? personKey(t.value) : norm(t.value)}`;
 
@@ -80,7 +76,10 @@ function sameOrganisation(state, thread) {
     if (other.kind !== thread.kind) continue;
     const k = otherKey.slice(other.kind.length + 1);
     // "Conversation With Theranos" is Theranos; "The School of Engineering at Stanford University" is Stanford University
-    if (k.length >= 4 && (containsWords(key, k) || (other.trusted && containsWords(k, key) && key.length >= 4))) return other;
+    // A longer trusted name is never folded into a shorter untrusted one: a trusted "Meta Materials" must not
+    // turn a namesake's "Meta" into an anchor. It is recorded as its own organisation instead.
+    if (k.length >= 4 && containsWords(key, k) && (other.trusted || !thread.trusted)) return other;
+    if (k.length >= 4 && other.trusted && containsWords(k, key) && key.length >= 4) return other;
   }
   return null;
 }
@@ -103,6 +102,22 @@ function urlKey(u) {
     return String(u || '').toLowerCase();
   }
 }
+
+/**
+ * What the person reading the report is told when a source failed: a plain reason, never the technical
+ * message (status codes, library errors, or text echoed from the remote page). The raw message goes to
+ * the server log only.
+ */
+export function plainFailure(message) {
+  const m = String(message || '');
+  if (/timed out|out of time/i.test(m)) return 'did not respond in time';
+  if (/rate limited|\b429\b|slower requests/i.test(m)) return 'was busy and turned the request away';
+  if (/not json|larger than/i.test(m)) return 'returned something that could not be read';
+  return 'could not be reached';
+}
+// The host is resting, or this lookup's turn at a paced host could not come before the deadline: not a failure.
+const HOST_RESTING = /Out of time before the request could start|is being left alone/i;
+const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 
 function withTimeout(promise, ms) {
   let timer;
@@ -174,7 +189,7 @@ function planTasks(thread, depth, connectors, subject) {
       out.push({
         connector: c.id, kind: thread.kind, value: thread.value, depth,
         template: v.template || null, params: v.params || null,
-        prior: v.prior ?? c.prior ?? 0.5, why: v.why || thread.why || '', relation: thread.relation || null,
+        prior: v.prior ?? c.prior ?? 0.5, why: v.why || thread.why || '', relation: thread.relation || null, platform: thread.platform || null,
       });
     }
   }
@@ -195,12 +210,25 @@ function enqueue(state, tasks) {
 }
 
 /**
+ * Does this thread tell us anything about who the person is? A handle that is only the person's own name
+ * run together ("johnsmith") carries no identity beyond the name: it is followed, never used to tie
+ * records to them.
+ */
+function anchors(subject, thread) {
+  if (!ANCHOR_KIND[thread.kind]) return false;
+  if (thread.kind !== 'handle') return true;
+  const flat = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const handle = flat(thread.value);
+  return Boolean(handle) && !(subject.slugs || []).some((slug) => flat(slug) === handle);
+}
+
+/**
  * Record a thread. Returns it when it is new and should be pulled, else null.
  * A thread is only pulled, and only becomes an identity anchor, when it is
  * trusted: it came from a record already tied to the subject. A namesake's
  * employer must never become "known" about the subject.
  */
-function noteThread(state, subject, thread, depth) {
+function noteThread(state, subject, thread, depth, evidence = null) {
   if (!thread || !THREAD_KINDS.includes(thread.kind)) return null;
   const key = threadKey(thread);
   let existing = state.threads[key];
@@ -216,26 +244,52 @@ function noteThread(state, subject, thread, depth) {
   }
   if (existing) {
     existing.support = (existing.support || 1) + 1;
+    addEvidence(existing, evidence);
+    // first seen deep (from an untrusted record), now seen closer to the person: it is pulled at the shallower depth
+    existing.depth = Math.min(existing.depth ?? depth, depth);
     // A later record may show the person founded or ran a company first seen as a mere affiliation
     const promoted = existing.kind === 'company' && existing.tie === 'affiliate' && thread.trusted && tieOf(thread) === 'primary';
     if (promoted) { existing.tie = 'primary'; existing.why = thread.why || existing.why; }
     if (thread.trusted && !existing.trusted) {
       existing.trusted = true;
-      if (ANCHOR_KIND[thread.kind]) addAnchor(subject, ANCHOR_KIND[thread.kind], existing.value, 'found');
+      if (anchors(subject, thread)) addAnchor(subject, ANCHOR_KIND[thread.kind], thread.value, 'found');
       if (!existing.pulled) return existing;
     }
     if (promoted && existing.trusted) { existing.pulled = false; return existing; } // pull again, in full this time
     return null;
   }
-  const record = { kind: thread.kind, value: thread.value, why: thread.why || '', depth, trusted: Boolean(thread.trusted), support: 1, pulled: false, ...(thread.kind === 'company' ? { tie: tieOf(thread) } : {}), ...(thread.relation ? { relation: thread.relation } : {}), ...(thread.role ? { role: thread.role } : {}) };
+  const record = { kind: thread.kind, value: thread.value, why: thread.why || '', depth, trusted: Boolean(thread.trusted), support: 1, pulled: false, ...(thread.kind === 'company' ? { tie: tieOf(thread) } : {}), ...(thread.relation ? { relation: thread.relation } : {}), ...(thread.role ? { role: thread.role } : {}), ...(thread.platform ? { platform: thread.platform } : {}) };
+  addEvidence(record, evidence);
   state.threads[key] = record;
-  if (record.trusted && ANCHOR_KIND[thread.kind]) addAnchor(subject, ANCHOR_KIND[thread.kind], record.value, 'found');
+  if (record.trusted && anchors(subject, thread)) addAnchor(subject, ANCHOR_KIND[thread.kind], record.value, 'found');
   return record.trusted ? record : null;
+}
+
+/**
+ * What a thread was seen in: one entry per distinct page (or, for a thread a source returned without a
+ * record naming it, one per source and lookup subject). The same article returned by two query patterns
+ * is one piece of evidence, however many times it is seen.
+ */
+function addEvidence(record, evidence) {
+  if (!evidence?.length) return;
+  const list = record.evidence || (record.evidence = []);
+  for (const e of evidence) {
+    if (list.length >= 12) break;
+    if (!list.some((x) => x.key === e.key)) list.push(e);
+  }
+}
+
+function evidenceFor(task, findings, thread) {
+  const value = norm(thread?.value);
+  const naming = value ? findings.filter((f) => norm(`${f.title} ${f.quote || ''} ${f.gradeText || ''}`).includes(value)) : [];
+  if (!naming.length) return [{ key: `${task.connector}|${task.kind}|${norm(task.value)}`, by: task.connector, host: null }];
+  return naming.map((f) => ({ key: pageKey(f), by: task.connector, host: urlKey(f.url).split(/[/?#]/)[0] || null }));
 }
 
 /** Pull a thread: mark it and queue its tasks, within the per-kind allowance. */
 function pullThread(state, subject, record, connectors) {
-  if (record.pulled || record.depth > LIMITS.maxDepth) return 0;
+  if (record.pulled) return 0;
+  if (record.depth > LIMITS.maxDepth) { if (record.trusted) state.dropped.threads += 1; return 0; }
   // companies the person ran and companies they are merely tied to have separate allowances
   const pulledOfKind = Object.values(state.threads).filter((t) => t.kind === record.kind && t.pulled && (t.tie || '') === (record.tie || '')).length;
   const allowance = record.tie === 'affiliate' ? LIMITS.pull.affiliate : LIMITS.pull[record.kind];
@@ -251,10 +305,14 @@ function pullThread(state, subject, record, connectors) {
  */
 function resolveIdentity(state, subject, connectors) {
   if (state.identity.status !== 'open') return 0;
-  const candidates = Object.values(state.threads).filter((t) => t.kind === 'company' && !t.trusted).sort((a, b) => (b.support || 0) - (a.support || 0));
+  // Only distinct evidence counts: one page seen twice (two query patterns returning the same article) is one.
+  const weight = (t) => (t.evidence || []).length;
+  const candidates = Object.values(state.threads).filter((t) => t.kind === 'company' && !t.trusted).sort((a, b) => weight(b) - weight(a) || (b.support || 0) - (a.support || 0));
   if (!candidates.length) return 0;
   const [top, second] = candidates;
-  if ((top.support || 0) >= 2 && (!second || (top.support || 0) >= 2 * (second.support || 0))) {
+  // and it must come from more than one place: two sources, or pages on two different sites
+  const diverse = (t) => new Set((t.evidence || []).map((e) => e.by)).size >= 2 || new Set((t.evidence || []).map((e) => e.host).filter(Boolean)).size >= 2;
+  if (weight(top) >= 2 && diverse(top) && (!second || weight(top) >= 2 * weight(second))) {
     top.trusted = true;
     top.tie = 'primary';
     addAnchor(subject, 'companies', top.value, 'inferred');
@@ -268,12 +326,25 @@ function resolveIdentity(state, subject, connectors) {
   return 0;
 }
 
+/**
+ * Grade text against the subject, but a company the check only inferred (no company was given) is not
+ * proof: a record that names it, and no company that was given or found on a record tied to the person,
+ * is at most "likely". An inferred identity must never confirm records, least of all its own evidence.
+ */
+function gradeOf(subject, text) {
+  const graded = matchSubject(subject, text);
+  if (graded.level !== 'confirmed') return graded;
+  for (const a of subject.anchors.companies.values()) if (a.origin !== 'inferred' && a.test(text)) return graded;
+  return { level: 'likely', reasons: graded.reasons };
+}
+
 /** Records graded "possible" or "likely" are re-read whenever more is known about the subject. */
 function regrade(state, subject) {
   let upgraded = 0;
   for (const f of state.findings) {
     if (f.match === 'confirmed' || f.match === 'company' || f.matchFixed) continue;
-    const graded = matchSubject(subject, `${f.title} ${f.quote || ''}`);
+    // the text the record was first graded on (which may hold structured context the title lacks)
+    const graded = gradeOf(subject, f.gradeText || `${f.title} ${f.quote || ''}`);
     if (matchRank(graded.level) > matchRank(f.match)) { f.match = graded.level; f.matchReasons = graded.reasons; upgraded += 1; }
   }
   return upgraded;
@@ -351,7 +422,9 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
       const record = noteThread(state, subject, { kind: 'company', value: subject.company, why: 'the company given', trusted: true }, 1);
       if (record) pullThread(state, subject, record, connectors);
     }
-    const off = connectors.filter((c) => typeof c.enabled === 'function' && !c.enabled());
+    // A source that is off because a fuller one replaced it is not something that failed to answer
+    const isOn = (c) => typeof c.enabled !== 'function' || c.enabled();
+    const off = connectors.filter((c) => !isOn(c) && !(c.replacedBy && connectors.some((o) => o.id === c.replacedBy && isOn(o))));
     for (const c of off) state.sources[c.id] = { label: c.label, runs: 0, findings: 0, errors: 0, ms: 0, off: true, lastError: c.unavailableReason || 'Not enabled on this deployment.' };
   }
 
@@ -374,15 +447,17 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   const perSource = {};
   for (const f of state.findings) perSource[f.source] = (perSource[f.source] || 0) + 1;
 
-  const taken = new Set(); // indexes of batch already claimed
+  const taken = new Set(); // lookups of the batch already claimed
   const inFlight = new Map(); // connector id -> lookups running now
   const claim = () => {
+    const now = Date.now();
     for (let i = 0; i < batch.length; i += 1) {
-      if (taken.has(i)) continue;
+      if (taken.has(batch[i])) continue;
+      if (batch[i].notBefore && batch[i].notBefore > now) continue; // its host is resting
       const source = byId.get(batch[i].connector);
       const limit = source?.maxParallel || Infinity;
       if ((inFlight.get(batch[i].connector) || 0) >= limit) continue; // that source is busy: leave it queued
-      taken.add(i);
+      taken.add(batch[i]);
       inFlight.set(batch[i].connector, (inFlight.get(batch[i].connector) || 0) + 1);
       return batch[i];
     }
@@ -399,7 +474,13 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
     for (;;) {
       if (Date.now() > deadline - 2500) return;
       const task = claim();
-      if (!task) return;
+      if (!task) {
+        // Nothing to run now. If a lookup waits for a resting host that is back well before the deadline,
+        // wait for it rather than ending the step (and spinning through empty steps).
+        const next = Math.min(...batch.filter((t) => !taken.has(t) && t.notBefore && t.notBefore > Date.now()).map((t) => t.notBefore));
+        if (Number.isFinite(next) && next < deadline - 6000) { await sleep(next - Date.now() + 5); continue; }
+        return;
+      }
       const c = byId.get(task.connector);
       ran.add(taskKey(task));
       if (!c) { inFlight.set(task.connector, (inFlight.get(task.connector) || 1) - 1); continue; }
@@ -420,20 +501,41 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
           inFlight.set(task.connector, (inFlight.get(task.connector) || 1) - 1);
           continue;
         }
+        // Its host is resting, or its turn could not come in time: put it back to run after the rest.
+        if (HOST_RESTING.test(message) && (task.rests || 0) < (limits.maxRests ?? LIMITS.maxRests)) {
+          task.rests = (task.rests || 0) + 1;
+          task.notBefore = Date.now() + (limits.restMs ?? LIMITS.restMs);
+          ran.delete(taskKey(task));
+          taken.delete(task);
+          inFlight.set(task.connector, (inFlight.get(task.connector) || 1) - 1);
+          continue;
+        }
         stat.errors += 1;
-        stat.lastError = message.slice(0, 200);
+        stat.lastError = plainFailure(message);
+        if (process.env.NODE_ENV !== 'test') console.warn(`[deep-check] ${c.id} failed: ${message.slice(0, 300)}`);
       }
       inFlight.set(task.connector, (inFlight.get(task.connector) || 1) - 1);
       const ms = Date.now() - started;
       stat.runs += 1;
       stat.ms += ms;
       reliability.push({ key: c.id, win: Boolean(result), ms });
-      if (!result) { outcomes.push({ key: learnKey(task), win: 0, ms }); continue; }
+      // A failed lookup says something about the source (reliability), not about the query pattern.
+      if (!result) continue;
+      // A record graded on a company the check only inferred is at most "likely".
+      for (const f of result.findings) {
+        if (f.match !== 'confirmed' || f.matchFixed) continue;
+        const graded = gradeOf(subject, f.gradeText || `${f.title} ${f.quote || ''}`);
+        if (graded.level !== 'confirmed') { f.match = graded.level; f.matchReasons = graded.reasons; }
+      }
       let strong = 0;
       let weak = 0;
       for (const f of result.findings) {
         const dupKey = pageKey(f);
-        if (seenIds.has(f.id) || (seenUrls.has(dupKey) && f.category !== 'archive')) continue;
+        if (seenIds.has(f.id) || (seenUrls.has(dupKey) && f.category !== 'archive')) {
+          // another source (or pattern) found the same record: partial credit, not none
+          if (f.match === 'possible') weak += 0.5; else strong += 0.5;
+          continue;
+        }
         if (state.findings.length >= limits.maxFindings || (perSource[f.source] || 0) >= limits.maxPerSource) { state.dropped.findings += 1; continue; }
         seenIds.add(f.id);
         seenUrls.add(dupKey);
@@ -445,9 +547,9 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
         newFindings += 1;
         if (f.match === 'possible') weak += 1; else strong += 1;
       }
-      for (const th of result.threads) newThreads.push({ th, depth: task.depth + 1 });
+      for (const th of result.threads) newThreads.push({ th, depth: task.depth + 1, evidence: evidenceFor(task, result.findings, th) });
       for (const note of result.notes) if (!state.log.some((l) => l.text === note)) state.log.push({ step: state.step, text: note });
-      outcomes.push({ key: learnKey(task), win: strong > 0 ? 1 : weak > 0 ? 0.4 : result.threads.length ? 0.25 : 0, ms });
+      outcomes.push({ key: learnKey(task), win: strong >= 1 ? 1 : strong > 0 ? 0.5 : weak > 0 ? 0.4 : result.threads.length ? 0.25 : 0, ms });
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, limits.concurrency) }, worker));
@@ -459,8 +561,8 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   // Read what came back for new threads, then pull them.
   let pulled = 0;
   const fresh = [];
-  for (const { th, depth } of newThreads) {
-    const record = noteThread(state, subject, th, depth);
+  for (const { th, depth, evidence } of newThreads) {
+    const record = noteThread(state, subject, th, depth, evidence);
     if (record) fresh.push(record);
   }
   // Only so many threads of each kind are pulled: take the best attested first
@@ -476,6 +578,12 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   const kinds = fresh.reduce((m, t) => { m[t.kind] = (m[t.kind] || 0) + 1; return m; }, {});
   const kindsText = Object.entries(kinds).map(([kind, n]) => `${n} ${n === 1 ? (kind === 'url' ? 'page' : kind) : PLURAL[kind] || `${kind}s`}`).join(', ');
   state.log.push({ step: state.step, text: `Round ${state.step + 1}: ${ran.size} lookups, ${newFindings} new records${fresh.length ? `, ${fresh.length} new threads to pull (${kindsText})` : ''}${upgraded ? `, ${upgraded} earlier records now tied to the person` : ''}.` });
+
+  // Nothing ran because every remaining lookup waits for a resting host: not a round, and not a dry one.
+  if (ran.size === 0 && state.queue.some((t) => t.notBefore && t.notBefore > Date.now())) {
+    state.log.pop();
+    return { state, progress: summarize(state) };
+  }
 
   state.step += 1;
   // A round only counts as dry when lookups actually ran and found nothing

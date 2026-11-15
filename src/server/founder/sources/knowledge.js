@@ -13,7 +13,12 @@
  *                       seats, ownership, education, membership, family ties
  *   nonprofit-filings   US Form 990 filings that list the person as an
  *                       officer, director or trustee of a nonprofit or
- *                       foundation
+ *                       foundation. Only the organisation search and the
+ *                       filings themselves are read: the people search page
+ *                       of the filings site asks automated visitors not to
+ *                       use it, so it is not used. A person is therefore
+ *                       found only at a foundation named after them or their
+ *                       family, or at their company's own foundation.
  *
  * Two rules run through all four.
  *
@@ -29,7 +34,9 @@
  * (the birth year is read for that test alone and never leaves this file),
  * nor a child of unknown age, nor a spouse or child without a public role.
  * An unmarried partner is reported only with a role in an organisation the
- * subject is also tied to. Political donations are dropped unread. Officers
+ * subject is also tied to. Political donations and political fundraising
+ * ties (bundlers, fundraisers, donors, campaign committees) are dropped
+ * unread. Officers
  * of a nonprofit who merely share the subject's surname are not relatives:
  * they are mentioned in a note as unconfirmed.
  */
@@ -688,6 +695,11 @@ const WP_ABBREVIATION = /\b(v|vs|Inc|Corp|Ltd|Co|Mr|Mrs|Ms|Dr|Jr|Sr|St|No|Prof|G
 const sentencesIn = (text) => clean(text).replace(WP_ABBREVIATION, '$1\u0001').split(/(?<=[.!?]["”]?)\s+(?=[A-Z"“])/).map((s) => s.replace(/\u0001/g, '.').trim()).filter((s) => s.length > 20 && s.length < 700);
 /** May this sentence be quoted? Not when it is about private life, a child, or a protected matter. */
 const quotable = (s) => !WP_PRIVATE_SENTENCE.test(s) && !isSensitive(s) && !mentionsMinor(s);
+/** The latest year a quotation names that is not in the future ("pleaded guilty in 2022" -> "2022"), or null. */
+function yearOf(text) {
+  const years = (String(text || '').match(/\b(?:19|20)\d{2}\b/g) || []).map(Number).filter((y) => y <= thisYear());
+  return years.length ? String(Math.max(...years)) : null;
+}
 /** Take sentences in order while they fit in a quotation. */
 function fitQuote(sentences, limit = QUOTE_CHARS) {
   const out = [];
@@ -780,10 +792,17 @@ export const wikipediaConnector = {
     const description = safe(noBirth(doc.pageprops?.['wikibase-shortdesc']));
     const fullText = String(doc.extract).replace(/\s*\((?:[^()]*;\s*)?born\b[^()]*\)/gi, '');
     const sections = articleSections(fullText).filter((s) => !WP_SKIP_SECTION.test(s.heading) && !WP_SKIP_SECTION.test(s.top));
-    // The grader sees the whole article: it is one record about one person, so a known company anywhere in it ties the record to the subject.
-    const context = `${subject.name}. ${title}${description ? `: ${description}` : ''}. ${fullText.slice(0, 60000)}`;
+    // The grader sees the article: it is one record about one person, so a known company anywhere in it ties the record to the subject.
+    // Only what may be quoted is shown to it (the text it grades from is kept with each finding): never private-life sections or sentences.
+    // Sentences naming something already known come first, so the kept text still holds them.
+    const anchors = [...subject.anchors.companies.values(), ...subject.anchors.schools.values(), ...subject.anchors.people.values()];
+    const readable = sections.filter((s) => !WP_PRIVATE_SECTION.test(s.heading) && !WP_PRIVATE_SECTION.test(s.top))
+      .flatMap((s) => s.paragraphs.flatMap(sentencesIn)).filter(quotable);
+    const tying = readable.filter((x) => anchors.some((a) => a.test(x)));
+    const context = clean(`${subject.name}. ${title}${description ? `: ${description}` : ''}. ${unique([...tying, ...readable]).join(' ')}`).slice(0, 3900);
     const trusted = matchSubject(subject, context).level !== 'possible';
-    const build = (f) => makeFinding(subject, { source: WP_ID, sourceLabel: WP_LABEL, date: revised, severity: 'info', ...f, matchText: context });
+    // The last edit of the article is not the date of anything it reports: a finding carries a year only when its own text gives one.
+    const build = (f) => makeFinding(subject, { source: WP_ID, sourceLabel: WP_LABEL, date: null, severity: 'info', ...f, data: { ...(f.data || {}), revisedAt: revised }, matchText: context });
     const findings = [];
     const used = new Set();
     const usedUrls = new Set();
@@ -819,6 +838,7 @@ export const wikipediaConnector = {
         quote: m.quote,
         url: distinctUrl(usedUrls, sectionUrl(articleUrl, m.s.heading), m.quote),
         severity: m.severity,
+        date: yearOf(m.quote),
         data: { section: m.s.heading || null },
       }));
       used.add(m.p);
@@ -893,6 +913,20 @@ const LS_OWNERSHIP = 10;
 /** A professional tie that is a business one (a podcast appearance or a friendship is not). */
 const LS_BUSINESS_TIE = /\b(partner|co-?founder|cofounder|investor|advis\w*|collaborator|colleague|business|board|director|executive)\b/i;
 const LS_KEPT = new Set([LS_POSITION, LS_EDUCATION, LS_MEMBERSHIP, LS_FAMILY, LS_PROFESSIONAL, LS_OWNERSHIP]);
+/**
+ * Political money in any category: a "Fundraiser Collaborator" tie, a
+ * bundler, a donor, a contribution, a role on a campaign committee or a
+ * political action committee. Dropped unread, whatever category it is filed under.
+ */
+const LS_POLITICAL_MONEY = /\b(fund-?rais\w*|bundl(?:er|ers|ed|ing)|donors?|donat\w*|contributions?|campaign (?:committee|finance|contributor)|political action committee|super ?PACs?)\b/i;
+const LS_POLITICAL_COMMITTEE = /\b(political action committee|victory fund|leadership fund|(?:campaign|(?:re-?)?election|exploratory) committee|for (?:president|senate|congress|governor|mayor)|(?:democratic|republican) national committee)\b/i;
+/** "PAC" only in capitals: "Pac-12" is a sports conference. */
+const LS_PAC = /\b(?:Super ?)?PACs?\b/;
+const lsPoliticalMoney = (r) => {
+  const tie = `${r.description} ${r.mine} ${r.theirs}`;
+  const other = r.other?.name || '';
+  return LS_POLITICAL_MONEY.test(tie) || LS_PAC.test(tie) || LS_POLITICAL_COMMITTEE.test(other) || LS_PAC.test(other);
+};
 const LS_PUBLIC_TYPES = /\b(Business Person|Political Candidate|Elected Representative|Public Official|Lobbyist|Philanthropist)\b/i;
 const LS_PUBLIC_BLURB = /\b(founder|co-?founder|CEO|CFO|COO|chief|chair\w*|president|director|board|trustee|partner at|managing partner|general partner|investor|owner|heir\w* to|executive|officer|politician|senator|congress\w*|representative|governor|mayor|minister|ambassador|judge|secretary|official|philanthropist|foundation|businessman|businesswoman|entrepreneur|financier|banker|developer|magnate|candidate)\b/i;
 
@@ -947,7 +981,7 @@ function lsRelationships(rows, entityId) {
       other,
       url: r?.self || `${LS_SITE}/relationships/${r?.id || a.id}`,
     };
-  }).filter((r) => r.other && LS_KEPT.has(r.category));
+  }).filter((r) => r.other && LS_KEPT.has(r.category) && !lsPoliticalMoney(r));
 }
 
 const lsCandidate = (e) => {
@@ -982,7 +1016,9 @@ async function lsResolve(subject, ctx) {
   const hints = [...subject.anchors.companies.values(), ...subject.anchors.schools.values()].map((a) => a.value);
   // The relationships of the two most likely entries are read anyway: they are what the findings come from, and they settle which entry is the subject.
   const looked = named.slice(0, 2);
-  const rels = await Promise.all(looked.map((c) => lsJson(`/entities/${c.id}/relationships`, ctx).then((rows) => lsRelationships(rows, c.id))));
+  // One after another: the site asks for ten seconds between requests, so asking at once gains nothing
+  const rels = [];
+  for (const c of looked) rels.push(lsRelationships(await lsJson(`/entities/${c.id}/relationships`, ctx), c.id));
   const ranked = looked.map((c, i) => ({ c, rels: rels[i], score: lsScore(subject, c, rels[i]) })).sort((a, b) => b.score - a.score);
   const [top, second] = ranked;
   const others = named.length > looked.length;
@@ -1112,7 +1148,7 @@ export const littleSisConnector = {
   label: LS_LABEL,
   kinds: ['subject', 'company'],
   prior: 0.45,
-  timeoutMs: 15000,
+  timeoutMs: 36000,
   /** subject: search, relationships of at most two entries, family; company: search, relationships. At most four requests. */
   async run(task, ctx) {
     if (task.kind === 'company') return lsCompany(task, ctx);
@@ -1138,22 +1174,6 @@ const MAX_FILINGS_READ = 2;
 /** Name-only listings at more organisations than this are taken to be several people. */
 const MAX_NAME_ONLY_ORGS = 3;
 
-const htmlText = (s) => clean(String(s || '').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;|&#x27;|&rsquo;/g, "'").replace(/&ldquo;|&rdquo;/g, '"').replace(/&mdash;/g, '—').replace(/&nbsp;/g, ' '));
-
-/** Rows of the people search page: { name, role, ein, org, year, objectId }. Place names are not kept. */
-export function parsePeopleSearch(html) {
-  const page = String(html || '');
-  if (!/<html|result-row|search-header/i.test(page)) throw new Error('The nonprofit filings search returned a page that could not be read');
-  return page.split('<div class="result-row result-row-people">').slice(1).map((row) => {
-    const name = htmlText((row.match(/result-item__hed">([\s\S]*?)<\/div>/) || [])[1]);
-    const role = row.match(/<span class="margin-right">([\s\S]*?)<a href="\/nonprofits\/organizations\/(\d+)">([\s\S]*?)<\/a>/);
-    const year = (row.match(/•\s*<span class="text-sub">\s*(\d{4})\s*<\/span>/) || [])[1] || '';
-    const filing = (row.match(/href="\/nonprofits\/full_text\/(\d+)\/full"/) || [])[1] || '';
-    const org = role ? htmlText(role[3]).replace(/\s+—\s+.*$/, '') : '';
-    return { name, role: role ? htmlText(role[1]).replace(/\s+at$/i, '') : '', ein: role ? role[2] : '', org, year, objectId: filing };
-  }).filter((r) => r.name && r.ein && r.org);
-}
-
 const xmlValue = (block, tag) => clean((String(block).match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`)) || [])[1]).replace(/&amp;/g, '&');
 
 /** Officers, directors and trustees of a filing: names and titles only (no addresses, no contributors). */
@@ -1176,6 +1196,41 @@ export function parse990(xml) {
 }
 
 const titleCase = (s) => String(s || '').toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+const NP_FOUNDATION = /\b(foundation|fund|trust|institute|charitable)\b/i;
+
+/** The organisation search of the filings site; it answers 404 when nothing matches. */
+async function npSearch(q, ctx) {
+  let json;
+  try {
+    json = await getJson(`${NP_SITE}/api/v2/search.json?q=${encodeURIComponent(q)}`, { deadline: ctx.deadline });
+  } catch (error) {
+    if (error?.status === 404) return [];
+    throw error;
+  }
+  if (!json || !Array.isArray(json.organizations)) throw new Error('The nonprofit filings search returned an answer that could not be read');
+  return json.organizations;
+}
+
+/** An organisation's latest filing: { filing, objectId }, or null when it has no record or no readable filing. */
+async function npLatestFiling(org, ctx) {
+  let detail = null;
+  try {
+    detail = await getJson(`${NP_SITE}/api/v2/organizations/${org.ein}.json`, { deadline: ctx.deadline });
+  } catch (error) {
+    if (error?.status === 404) return null; // listed by the search, but no record of its own
+    throw error;
+  }
+  const objectId = detail?.organization?.latest_object_id;
+  const filing = objectId ? await readFiling(objectId, ctx) : null;
+  return filing ? { filing, objectId } : null;
+}
+
+/** The subject's own lines in a filing, as rows for nonprofitResult. */
+function npRows(subject, org, { filing, objectId }) {
+  const year = (filing.period || '').slice(0, 4);
+  return filing.officers.filter((x) => sameName(subject, x.name))
+    .map((x) => ({ name: titleCase(x.name), role: titleCase(x.title), ein: String(org.ein), org: clean(org.name), year, objectId }));
+}
 
 async function readFiling(objectId, ctx) {
   try {
@@ -1205,7 +1260,11 @@ function nonprofitResult(ctx, rows, filings, { companyOnly = '' } = {}) {
     const when = years.length > 1 ? `${years[0]} to ${years[years.length - 1]} filings` : years[0] ? `${years[0]} filing` : '';
     const filing = filings.get(o.ein);
     const listed = filing?.officers.filter((x) => sameName(subject, x.name)) || [];
-    const family = surname.length >= 3 && new RegExp(`\\b${escapeRe(surname)}\\b`, 'i').test(o.org);
+    // A surname in the organisation's name is not a family tie ("Robert Wood Johnson Foundation" for a John Johnson).
+    // It is one only when the filing marks family or business ties among its officers AND another officer shares the surname.
+    const orgSharesSurname = surname.length >= 3 && new RegExp(`\\b${escapeRe(surname)}\\b`, 'i').test(o.org);
+    const kinOnBoard = (filing?.officers || []).some((x) => sharesSurname(subject, x.name));
+    const family = orgSharesSurname && /^(1|true)$/i.test(filing?.familyTies || '') && kinOnBoard;
     const quote = [
       `${latest.name}: ${roles.join('; ')} at ${o.org}${years.length ? ` (filings for ${years.join(', ')})` : ''}`,
       ...listed.slice(0, 2).map((x) => `Form ${filing.form || '990'}${filing.period ? ` for the period ending ${filing.period}` : ''} lists ${x.name}, ${x.title}`),
@@ -1219,7 +1278,7 @@ function nonprofitResult(ctx, rows, filings, { companyOnly = '' } = {}) {
       url: `${NP_SITE}/organizations/${o.ein}`,
       date: years.length ? years[years.length - 1] : null,
       matchText: `${latest.name} ${roles.join(' ')} ${o.org}`,
-      data: { organisation: o.org, ein: o.ein, roles, years, ...(filing?.familyTies ? { familyOrBusinessTiesAmongOfficers: /^(1|true)$/i.test(filing.familyTies) } : {}) },
+      data: { organisation: o.org, ein: o.ein, roles, years, ...(orgSharesSurname ? { orgSharesSurname: true } : {}), ...(filing?.familyTies ? { familyOrBusinessTiesAmongOfficers: /^(1|true)$/i.test(filing.familyTies) } : {}) },
     });
     if (!made) continue;
     findings.push(made);
@@ -1244,55 +1303,48 @@ export const nonprofitFilingsConnector = {
   prior: 0.35,
   timeoutMs: 15000,
   /**
-   * subject: the people search of the filings (one request), then the latest
-   * filing of at most two organisations (family foundations first).
+   * subject: the organisation search for foundations named after the person
+   * or their family, then the record and latest filing of at most two of them
+   * (at most five requests), kept only where the filing lists the person.
    * company: the organisation search for the company's own foundation, its
    * record, and its latest filing, kept only when the subject is an officer.
+   * The filings site's people search is not used: the site asks automated
+   * visitors not to use that page.
    */
   async run(task, ctx) {
     const { subject } = ctx;
     if (task.kind === 'company') {
       const company = clean(task.value);
-      let json;
-      try {
-        json = await getJson(`${NP_SITE}/api/v2/search.json?q=${encodeURIComponent(`"${company}"`)}`, { deadline: ctx.deadline });
-      } catch (error) {
-        if (error?.status === 404) return { findings: [], threads: [], notes: [] }; // the search answers 404 when nothing matches
-        throw error;
-      }
-      if (!json || !Array.isArray(json.organizations)) throw new Error('The nonprofit filings search returned an answer that could not be read');
-      const org = json.organizations.find((o) => mentions(o?.name, company) && /\b(foundation|fund|trust|institute|charitable)\b/i.test(o?.name || ''));
+      const found = await npSearch(`"${company}"`, ctx);
+      const org = found.find((o) => mentions(o?.name, company) && NP_FOUNDATION.test(o?.name || ''));
       if (!org) return { findings: [], threads: [], notes: [] };
-      let detail = null;
-      try {
-        detail = await getJson(`${NP_SITE}/api/v2/organizations/${org.ein}.json`, { deadline: ctx.deadline });
-      } catch (error) {
-        if (error?.status === 404) return { findings: [], threads: [], notes: [] }; // listed by the search, but no record of its own
-        throw error;
-      }
-      const objectId = detail?.organization?.latest_object_id;
-      const filing = objectId ? await readFiling(objectId, ctx) : null;
-      const listed = filing?.officers.filter((x) => sameName(subject, x.name)) || [];
-      if (!listed.length) return { findings: [], threads: [], notes: [] };
-      const year = (filing.period || '').slice(0, 4);
-      const rows = listed.map((x) => ({ name: titleCase(x.name), role: titleCase(x.title), ein: String(org.ein), org: clean(org.name), year, objectId }));
-      return nonprofitResult(ctx, rows, new Map([[String(org.ein), filing]]), { companyOnly: company });
+      const read = await npLatestFiling(org, ctx);
+      if (!read) return { findings: [], threads: [], notes: [] };
+      const rows = npRows(subject, org, read);
+      if (!rows.length) return { findings: [], threads: [], notes: [] };
+      return nonprofitResult(ctx, rows, new Map([[String(org.ein), read.filing]]), { companyOnly: company });
     }
     if (task.kind !== 'subject') return { findings: [], threads: [], notes: [] };
-    const html = await getText(`${NP_SITE}/name_search?q=${encodeURIComponent(`"${subject.name}"`)}`, { deadline: ctx.deadline, accept: 'text/html' });
-    const rows = parsePeopleSearch(html).filter((r) => sameName(subject, r.name));
-    if (!rows.length) return { findings: [], threads: [], notes: [] };
     const surname = surnameOf(subject.name);
-    const orgs = unique(rows.map((r) => r.ein));
-    const familyFirst = orgs.sort((a, b) => {
-      const fa = new RegExp(`\\b${escapeRe(surname)}\\b`, 'i').test(rows.find((r) => r.ein === a).org) ? 0 : 1;
-      const fb = new RegExp(`\\b${escapeRe(surname)}\\b`, 'i').test(rows.find((r) => r.ein === b).org) ? 0 : 1;
-      return fa - fb;
+    const first = bareTokens(subject.name)[0] || '';
+    if (surname.length < 3) return { findings: [], threads: [], notes: [] };
+    const named = (await npSearch(`"${surname}" foundation`, ctx))
+      .filter((o) => o?.ein && NP_FOUNDATION.test(o?.name || '') && new RegExp(`\\b${escapeRe(surname)}\\b`, 'i').test(o.name));
+    // the person's own foundation first ("Jane and John Roe Foundation"), then the family's
+    const ranked = named.map((o, i) => ({ o, i, own: first.length > 1 && new RegExp(`\\b${escapeRe(first)}\\b`, 'i').test(o.name) ? 0 : 1 }))
+      .sort((a, b) => a.own - b.own || a.i - b.i).map((x) => x.o);
+    const toRead = ranked.slice(0, MAX_FILINGS_READ);
+    const read = await mapLimit(toRead, 2, (o) => npLatestFiling(o, ctx).catch(() => null));
+    const rows = [];
+    const filings = new Map();
+    toRead.forEach((o, i) => {
+      if (!read[i]) return;
+      const mine = npRows(subject, o, read[i]);
+      if (!mine.length) return;
+      rows.push(...mine);
+      filings.set(String(o.ein), read[i].filing);
     });
-    const latestOf = (ein) => rows.filter((r) => r.ein === ein && r.objectId).sort((a, b) => b.year.localeCompare(a.year))[0];
-    const toRead = familyFirst.slice(0, MAX_FILINGS_READ).map(latestOf).filter(Boolean);
-    const read = await mapLimit(toRead, 2, (r) => readFiling(r.objectId, ctx));
-    const filings = new Map(toRead.map((r, i) => [r.ein, read[i]]).filter(([, f]) => f));
+    if (!rows.length) return { findings: [], threads: [], notes: [] };
     return nonprofitResult(ctx, rows, filings);
   },
 };

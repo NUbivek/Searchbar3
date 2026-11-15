@@ -6,9 +6,9 @@
  *                         when it expires (RDAP, the registries' own lookup)
  *   web archive           first and last capture of the home page and
  *                         captures per year (Internet Archive)
- *   certificates          the earliest security certificate issued for the
- *                         domain (certificate transparency logs); slow and
- *                         often unavailable, so it is optional
+ *
+ * Certificate transparency logs are not searched: the public log search
+ * (crt.sh) asks automated readers to stay away in its robots.txt.
  *
  * How to read it: a domain is often older than the company (bought from an
  * earlier owner) and the first archive capture is when the crawler found the
@@ -18,18 +18,15 @@
  *
  * Privacy: registration records can hold the registrant's name, address,
  * phone and email. Only the event dates, status flags and name-server hosts
- * are read; the contact block ("entities") is never touched. Certificate
- * host names are not listed, only the earliest date.
+ * are read; the contact block ("entities") is never touched.
  *
- * FOUNDER_SOURCES_OFF (comma-separated ids) switches off 'domain-history' or
- * just the certificate lookup ('domain-certificates').
+ * FOUNDER_SOURCES_OFF (comma-separated ids) switches off 'domain-history'.
  */
-import { getJson, getText } from '../http';
+import { getJson } from '../http';
 import { makeFinding } from '../finding';
 
 const switchedOff = (id) => String(process.env.FOUNDER_SOURCES_OFF || '').split(',').map((s) => s.trim()).filter(Boolean).includes(id);
 
-const CERTIFICATE_BUDGET_MS = 8000;
 const day = (value) => {
   const s = String(value || '');
   if (/^\d{14}$/.test(s) || /^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`; // web-archive timestamps
@@ -138,15 +135,6 @@ async function registrationRecord(domain, deadline) {
   };
 }
 
-/** Date of the earliest certificate logged for the domain, or null. One try, short budget: the log search is often down. */
-async function earliestCertificate(domain, deadline) {
-  const text = await getText(`https://crt.sh/?q=${encodeURIComponent(domain)}&output=json`, { accept: 'application/json', deadline, timeoutMs: CERTIFICATE_BUDGET_MS, retries: 0 });
-  const body = text.trim();
-  if (!body.startsWith('[') || !body.endsWith(']')) return null; // an error page, or a list cut short (the oldest entries come last)
-  const dates = [...body.matchAll(/"not_before"\s*:\s*"(\d{4}-\d{2}-\d{2})/g)].map((m) => m[1]).sort();
-  return dates[0] || null;
-}
-
 export const domainHistoryConnector = {
   id: 'domain-history',
   label: 'Domain history (registration record and web archive)',
@@ -154,17 +142,16 @@ export const domainHistoryConnector = {
   prior: 0.5,
   timeoutMs: 15000,
   enabled: () => !switchedOff('domain-history'),
-  unavailableReason: 'Domain history is switched off on this deployment.',
+  unavailableReason: 'Domain history is not enabled on this deployment.',
 
   async run(task, ctx) {
     const domain = companyDomainFromUrl(task?.value);
     if (!domain || (task?.kind && task.kind !== 'domain')) return { findings: [], threads: [], notes: [] };
     const deadline = ctx?.deadline || Date.now() + this.timeoutMs;
     const settle = (promise) => promise.then((value) => ({ value }), (error) => ({ error }));
-    const [archive, registration, certificate] = await Promise.all([
+    const [archive, registration] = await Promise.all([
       settle(archiveCaptures(domain, deadline)),
       settle(registrationRecord(domain, deadline)),
-      switchedOff('domain-certificates') ? { value: null } : settle(earliestCertificate(domain, Math.min(deadline, Date.now() + CERTIFICATE_BUDGET_MS))),
     ]);
     if (archive.error && registration.error) throw archive.error;
 
@@ -173,7 +160,6 @@ export const domainHistoryConnector = {
     if (registration.error) notes.push(`The registration record for ${domain} could not be read; the dates come from the web archive.`);
     const reg = registration.value || null;
     const web = archive.value || null;
-    const firstCertificate = certificate.value || null;
     if (!reg?.registered && !web) {
       if (!archive.error && !registration.error) notes.push(`No registration record or archived copies were found for ${domain}.`);
       return { findings: [], threads: [], notes };
@@ -206,7 +192,6 @@ export const domainHistoryConnector = {
       web
         ? `Web archive: first capture ${web.first}${web.last ? `; last capture ${web.last}` : ''}${web.total !== null ? `; ${count(web.total)} captures of the home page${web.lastTwelveMonths !== null ? `, ${count(web.lastTwelveMonths)} in the last 12 months` : ''}` : ''}.`
         : archive.error ? null : 'Web archive: no captures of the home page.',
-      firstCertificate ? `Earliest security certificate on record: ${firstCertificate}.` : null,
       years ? `Captures per year: ${years}.` : null,
     ].filter(Boolean).join(' ');
     const severity = flags.some((f) => f.severity === 'low') ? 'low' : 'info';
@@ -222,7 +207,6 @@ export const domainHistoryConnector = {
         domain,
         registered: reg?.registered || null, lastChanged: reg?.changed || null, transferred: reg?.transferred || null, expires: reg?.expires || null, status: reg?.status || [],
         firstCapture: web?.first || null, lastCapture: web?.last || null, captures: web?.total ?? null, capturesByYear: web?.byYear || {}, capturesLastTwelveMonths: web?.lastTwelveMonths ?? null,
-        earliestCertificate: firstCertificate,
         flags: flags.map((f) => f.text),
         registrationLookup: `https://lookup.icann.org/en/lookup?name=${encodeURIComponent(domain)}`,
       },

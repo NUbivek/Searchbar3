@@ -10,7 +10,7 @@ const { htmlToText, mapLimit, request, getJson, setTransport } = require('../../
 describe('guardrails', () => {
   test('contact and locating details are removed from quoted text', () => {
     expect(redactPII('Reach Jane at jane.doe@example.com or (415) 555-0100.')).toBe('Reach Jane at [email removed] or [phone removed].');
-    expect(redactPII('She lives at 1234 Elm Street, Apt 5B, Palo Alto.')).toBe('She lives at [address removed], Palo Alto.');
+    expect(redactPII('She lives at 1234 Elm Street, Apt 5B, Palo Alto.')).toBe('She [location removed].');
     expect(redactPII('SSN 123-45-6789 on file')).toMatch(/\[ID number removed\]/);
     expect(redactPII('born on March 3, 1984 in Lyon')).toBe('born in 1984 in Lyon');
     expect(redactPII('DOB: 03/03/1984')).toBe('DOB 1984');
@@ -34,8 +34,12 @@ describe('guardrails', () => {
     expect(mentionsMinor('Her father ran the family steel business.')).toBe(false);
     expect(sanitizeFinding({ title: 'Profile', quote: 'Her 6-year-old son attends school nearby.', url: 'https://example.com/a', category: 'press' })).toBeNull();
     expect(sanitizeFinding({ title: 'Whitepages', quote: 'x', url: 'https://www.whitepages.com/name/x', category: 'press' })).toBeNull();
-    const kept = sanitizeFinding({ title: 'U.S. v. Doe', quote: 'Defendant cited depression at sentencing; contact doe@example.com', url: 'https://www.courtlistener.com/docket/1/', category: 'litigation' });
-    expect(kept.quote).toBe('Defendant cited depression at sentencing; contact [email removed]');
+    // an official court record is kept, but a sentence about health is taken out of it and contact details are removed
+    const kept = sanitizeFinding({ title: 'U.S. v. Doe', quote: 'Defendant was convicted of wire fraud. Defendant cited depression at sentencing. Contact doe@example.com', url: 'https://www.courtlistener.com/docket/1/', category: 'litigation', source: 'court-dockets' });
+    expect(kept.quote).toMatch(/^Defendant was convicted of wire fraud\./);
+    expect(kept.quote).not.toMatch(/depression|doe@example/);
+    // the same text from the open web is not exempt at all
+    expect(sanitizeFinding({ title: 'Doe case', quote: 'Defendant cited depression at sentencing.', url: 'https://news.example/x', category: 'litigation', source: 'web-search' })).toBeNull();
   });
 });
 

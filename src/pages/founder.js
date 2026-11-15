@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { HiOutlineSparkles, HiOutlineUserCircle, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import PageShell from '../components/layout/PageShell';
 import NetworkHelpers from '../components/network/NetworkHelpers';
-import DeepCheck from '../components/founder/DeepCheck';
+import DeepCheck, { displayModel } from '../components/founder/DeepCheck';
 import { sectorKeywordsFrom } from '../utils/network/sectors';
 import { renderSafeHtml } from '../components/search/results/SimplifiedLLMResults';
 import { skippedNote } from '../utils/skippedNote';
@@ -245,7 +245,7 @@ export default function FounderPage() {
                   {briefInfo?.mode === 'ai' ? (
                     <>
                       <span className="ai-badge"><HiOutlineSparkles style={{ width: 13, height: 13 }} /> AI brief</span>
-                      {briefInfo.model && <span className="chip" title={briefInfo.provider ? `via ${briefInfo.provider}` : undefined}>{briefInfo.model}</span>}
+                      {briefInfo.model && <span className="chip" title={briefInfo.provider ? `via ${briefInfo.provider}` : undefined}>{displayModel(briefInfo.model)}</span>}
                       {confidence?.level && (
                         <span className={CONFIDENCE_CHIP[String(confidence.level).toLowerCase()] || 'chip'} title={confidence.reason || undefined}>
                           {confidence.level} confidence
@@ -272,7 +272,7 @@ export default function FounderPage() {
                   dangerouslySetInnerHTML={{ __html: renderSafeHtml(String(data.brief).replace(/\[Source (\d+)\]/g, '[[$1]](#source-$1)')) }}
                 />
                 {briefInfo?.mode === 'ai' && (
-                  <p className="mt-3 text-xs text-muted">Written from the cited sources{briefInfo.provider ? ` by ${briefInfo.model} (${briefInfo.provider})` : ''}{confidence?.reason ? `. ${confidence.reason}` : ''}.</p>
+                  <p className="mt-3 text-xs text-muted">Written from the cited sources{briefInfo.provider ? ` by ${displayModel(briefInfo.model)} (${briefInfo.provider})` : ''}{confidence?.reason ? `. ${confidence.reason}` : ''}.</p>
                 )}
               </section>
             )}

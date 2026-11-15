@@ -40,17 +40,57 @@ async function call(body) {
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** One step, retried when the server hiccups: the check's state is saved between steps, so a retry loses nothing. */
-async function step(jobId) {
+async function stepWithRetry(jobId, action) {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await call({ action: 'step', jobId });
+      return await call({ action, jobId });
     } catch (error) {
+      // Another step on this job finished first (from another tab): read where it stands and carry on from there
+      if (error.status === 409) {
+        const now = await resume(jobId).catch(() => null);
+        if (now) return now;
+      }
       const transient = !error.status || error.status >= 500;
       if (!transient || attempt >= 2) throw error;
       await wait(1500 * (attempt + 1));
     }
   }
 }
+
+// One request at a time per check. Two steps on one job would run the same lookups twice and the
+// later save would wipe out the other's records, so a step (or brief) waits for any request on that
+// job still in flight: from an earlier run, a "run again" of the same query, or the page before a remount.
+const inFlight = new Map();
+export async function step(jobId, action = 'step') {
+  while (inFlight.has(jobId)) await inFlight.get(jobId).catch(() => null);
+  const request = stepWithRetry(jobId, action);
+  inFlight.set(jobId, request);
+  try {
+    return await request;
+  } finally {
+    if (inFlight.get(jobId) === request) inFlight.delete(jobId);
+  }
+}
+
+// One start at a time per query, so a remount while a check is being started picks up the same job instead of starting another.
+const starting = new Map();
+function startJob(name, company) {
+  const key = resumeKey(name, company);
+  if (!starting.has(key)) {
+    const request = call({ action: 'start', name, company })
+      .then((data) => { rememberJob(name, company, data.jobId); return data; })
+      .finally(() => starting.delete(key));
+    starting.set(key, request);
+  }
+  return starting.get(key);
+}
+
+/** "llama-3.3-70b-instruct" for "meta-llama/llama-3.3-70b-instruct:free": the model's own name, without the vendor path or suffix. */
+export function displayModel(model) {
+  return String(model || '').split('/').pop().replace(/:free$/i, '');
+}
+
+const SOURCE_LINK = 'a[href^="#deep-source-"]';
 
 // A check that is running or just finished is picked up again after a reload instead of being started from scratch.
 const RESUME_MINUTES = 30;
@@ -71,11 +111,11 @@ async function resume(jobId) {
   return r.ok ? r.json() : null;
 }
 
-function Record({ f }) {
+function Record({ f, withId = true }) {
   const m = MATCH[f.match] || MATCH.possible;
   const s = SEVERITY[f.severity];
   return (
-    <li id={`deep-source-${f.n}`} className="scroll-mt-24 py-3 first:pt-0 last:pb-0">
+    <li id={withId ? `deep-source-${f.n}` : undefined} tabIndex={withId ? -1 : undefined} className="scroll-mt-24 py-3 first:pt-0 last:pb-0">
       <div className="mb-1 flex flex-wrap items-center gap-1.5">
         <span className="cite">[{f.n}]</span>
         {s && <span className={s.chip}>{s.label}</span>}
@@ -106,16 +146,23 @@ function Record({ f }) {
   );
 }
 
-/** A long list of records: the first few, and the rest on request (a report can hold hundreds). */
-function Records({ items, first = 12 }) {
+/**
+ * A long list of records: the first few, and the rest on request (a report can hold hundreds).
+ * Every record has one home (its kind's section), which carries the anchor citations jump to: the
+ * copies listed again under red flags, company matters, namesakes and changed claims pass withId={false}.
+ * `reveal` is the record a citation was just clicked for: the list shows it even when it is past the first few.
+ */
+function Records({ items, first = 12, withId = true, reveal = null }) {
   const [all, setAll] = useState(false);
-  const shown = all ? items : items.slice(0, first);
+  const forced = withId && reveal != null && items.findIndex((f) => f.n === reveal) >= first;
+  useEffect(() => { if (forced) setAll(true); }, [forced]);
+  const shown = all || forced ? items : items.slice(0, first);
   return (
     <>
-      <ul className="divide-y divide-line">{shown.map((f) => <Record key={f.id} f={f} />)}</ul>
+      <ul className="divide-y divide-line">{shown.map((f) => <Record key={f.id} f={f} withId={withId} />)}</ul>
       {items.length > first && (
         <button type="button" className="btn-ghost mt-3 px-2 py-1 text-xs" onClick={() => setAll((v) => !v)} aria-expanded={all}>
-          {all ? 'Show fewer' : `Show all ${items.length}`}
+          {all || forced ? 'Show fewer' : `Show all ${items.length}`}
         </button>
       )}
     </>
@@ -145,7 +192,7 @@ function Progress({ progress, name }) {
   const threads = Object.entries(progress?.threads || {});
   const log = (progress?.log || []).slice(-4);
   return (
-    <section className="card card-pad" aria-live="polite" aria-busy="true">
+    <section className="card card-pad" aria-live="polite">
       <div className="flex flex-wrap items-center gap-2">
         <HiOutlineSparkles className="animate-glow text-brand-500" style={{ width: 16, height: 16 }} />
         <h2 className="section-title">Deep background check</h2>
@@ -171,9 +218,47 @@ function Progress({ progress, name }) {
   );
 }
 
-function Report({ report, onRerun }) {
+/** What the related-parties list may claim: a person is called screened only when a watchlist lookup for them ran. */
+export function relatedNote(parties, name) {
+  const lead = 'Associates, and relatives who hold a business, political or philanthropic role in the public record.';
+  if (!parties.some((p) => typeof p.screened === 'boolean')) {
+    return `${lead} They were looked up as far as this run's limits allowed; a name with no records here is not proof of a clean record.`;
+  }
+  const screened = parties.filter((p) => p.screened === true).length;
+  return `${lead} Screened against watchlists and searched together with ${name}: ${screened} of ${parties.length}.`;
+}
+
+function Report({ report, onRerun, headingRef = null }) {
   const { totals, coverage, briefInfo } = report;
   const confidence = briefInfo?.confidence;
+  const screenFlag = report.relatedParties.some((p) => typeof p.screened === 'boolean');
+
+  // A citation ([12]) jumps to its record: open the sections around it, show it if it is past the first few, then scroll and focus it.
+  const [reveal, setReveal] = useState(null);
+  useEffect(() => {
+    const onClick = (event) => {
+      const link = event.target?.closest?.(SOURCE_LINK);
+      if (!link) return;
+      const n = Number(link.getAttribute('href').slice('#deep-source-'.length));
+      if (!Number.isFinite(n)) return;
+      event.preventDefault();
+      setReveal({ n });
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, []);
+  useEffect(() => {
+    if (!reveal) return;
+    const target = document.getElementById(`deep-source-${reveal.n}`);
+    if (target) {
+      for (let d = target.closest('details'); d; d = d.parentElement?.closest('details')) d.open = true;
+      target.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+      target.focus?.({ preventScroll: true });
+    }
+    setReveal(null);
+  }, [reveal]);
+  const revealN = reveal?.n ?? null;
+
   return (
     <>
       <section className="ai-card p-5">
@@ -181,7 +266,7 @@ function Report({ report, onRerun }) {
           <span className="ai-badge"><HiOutlineShieldCheck style={{ width: 13, height: 13 }} /> Deep background check</span>
           {briefInfo?.mode === 'ai' ? (
             <>
-              {briefInfo.model && <span className="chip" title={briefInfo.provider ? `via ${briefInfo.provider}` : undefined}>{briefInfo.model}</span>}
+              {briefInfo.model && <span className="chip" title={briefInfo.provider ? `via ${briefInfo.provider}` : undefined}>{displayModel(briefInfo.model)}</span>}
               {confidence?.level && <span className={CONFIDENCE_CHIP[String(confidence.level).toLowerCase()] || 'chip'} title={confidence.reason || undefined}>{confidence.level} confidence</span>}
               {skippedNote(briefInfo.skipped) && <span className="text-xs text-muted">{skippedNote(briefInfo.skipped).replace(/^\s*·\s*/, '')}</span>}
             </>
@@ -190,7 +275,7 @@ function Report({ report, onRerun }) {
           )}
           <button type="button" onClick={onRerun} className="btn-ghost ml-auto px-2 py-1 text-xs"><HiOutlineArrowPath style={{ width: 13, height: 13 }} /> Run again</button>
         </div>
-        <h2 className="text-lg font-semibold tracking-tight text-ink">
+        <h2 ref={headingRef} tabIndex={-1} className="text-lg font-semibold tracking-tight text-ink focus:outline-none">
           {report.name}{report.company ? <span className="font-normal text-muted"> · {report.company}</span> : null}
         </h2>
         <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted">
@@ -219,7 +304,7 @@ function Report({ report, onRerun }) {
                 : 'No serious record is tied to this person in the sources searched. That is not proof of a clean record; see what was not covered below.'}
             </p>
           )
-          : <Records items={report.redFlags} />}
+          : <Records items={report.redFlags} withId={false} />}
       </Block>
 
       {report.companyMatters?.length > 0 && (
@@ -229,7 +314,7 @@ function Report({ report, onRerun }) {
           tone="chip chip-warn"
           note={<p className="muted mb-3 text-xs">Serious records about a company this person founded or runs, where the record does not name them. Context for the company, not a finding about the person.</p>}
         >
-          <Records items={report.companyMatters} first={8} />
+          <Records items={report.companyMatters} first={8} withId={false} />
         </Block>
       )}
 
@@ -240,23 +325,24 @@ function Report({ report, onRerun }) {
           tone="chip chip-warn"
           note={<p className="muted mb-3 text-xs">Serious records that match the name only. They may be about a different person; confirm before relying on any of them.</p>}
         >
-          <Records items={report.possibleNamesake} first={8} />
+          <Records items={report.possibleNamesake} first={8} withId={false} />
         </Block>
       )}
 
       {report.claimChanges.length > 0 && (
         <Block title="Claims that changed over time" count={report.claimChanges.length} open note={<p className="muted mb-3 text-xs">Differences between archived versions of the same page.</p>}>
-          <Records items={report.claimChanges} />
+          <Records items={report.claimChanges} withId={false} />
         </Block>
       )}
 
       {report.relatedParties.length > 0 && (
-        <Block title="Related parties" count={report.relatedParties.length} note={<p className="muted mb-3 text-xs">Associates, and relatives who hold a business, political or philanthropic role in the public record. Each was screened against watchlists and searched together with {report.name}.</p>}>
+        <Block title="Related parties" count={report.relatedParties.length} note={<p className="muted mb-3 text-xs">{relatedNote(report.relatedParties, report.name)}</p>}>
           <ul className="divide-y divide-line">
             {report.relatedParties.map((p) => (
               <li key={p.name} className="py-2.5 first:pt-0 last:pb-0 text-sm">
                 <span className="font-medium text-ink">{p.name}</span>
                 <span className="ml-2 chip">{p.relation || (p.kind === 'associate' ? 'associate' : 'relative')}</span>
+                {screenFlag && p.screened !== true && <span className="ml-2 chip chip-warn" title="No watchlist lookup ran for this person before the check ended.">not screened in this run</span>}
                 {p.role && <span className="ml-2 text-muted">{p.role}</span>}
                 {p.why && <span className="block text-xs text-muted">{p.why}</span>}
                 {p.records.length > 0 && (
@@ -288,7 +374,7 @@ function Report({ report, onRerun }) {
 
       {report.sections.map((s) => (
         <Block key={s.key} title={s.title} count={s.items.length}>
-          <Records items={s.items} first={15} />
+          <Records items={s.items} first={15} reveal={revealN} />
         </Block>
       ))}
 
@@ -308,7 +394,7 @@ function Report({ report, onRerun }) {
           </div>
         )}
         <div className="mt-4">
-          <p className="eyebrow mb-1">Not covered by any free source</p>
+          <p className="eyebrow mb-1">Not covered by the sources this check uses</p>
           <ul className="list-disc space-y-1 pl-5 text-sm text-muted">{coverage.notCovered.map((s) => <li key={s}>{s}</li>)}</ul>
         </div>
         {(coverage.dropped.tasks > 0 || coverage.dropped.findings > 0 || coverage.dropped.threads > 0) && (
@@ -326,6 +412,8 @@ export default function DeepCheck({ name, company = '', runKey = 0 }) {
   const { status } = useSession();
   const [state, setState] = useState({ phase: 'idle', progress: null, report: null, error: '', needSignIn: false });
   const active = useRef(0);
+  const last = useRef({ name, company, runKey });
+  const heading = useRef(null);
 
   const run = useCallback(async ({ fresh = false } = {}) => {
     const token = active.current + 1;
@@ -336,8 +424,7 @@ export default function DeepCheck({ name, company = '', runKey = 0 }) {
       const saved = fresh ? null : savedJob(name, company);
       let data = saved ? await resume(saved).catch(() => null) : null;
       if (!data) {
-        data = await call({ action: 'start', name, company });
-        rememberJob(name, company, data.jobId);
+        data = await startJob(name, company);
       }
       const { jobId } = data;
       for (let i = 0; i < 40 && alive(); i += 1) {
@@ -349,7 +436,7 @@ export default function DeepCheck({ name, company = '', runKey = 0 }) {
       // The written summary can outlast the first model's time on a long report: one more try with the next models
       if (data.done && data.report?.briefInfo?.retry) {
         setState((s) => ({ ...s, progress: { ...(data.progress || {}), phase: 'report' } }));
-        const again = await call({ action: 'brief', jobId }).catch(() => null);
+        const again = await step(jobId, 'brief').catch(() => null);
         if (!alive()) return;
         if (again?.done) data = again;
       }
@@ -361,40 +448,58 @@ export default function DeepCheck({ name, company = '', runKey = 0 }) {
     }
   }, [name, company]);
 
-  // A new name (or "run again") starts a new check once we know the visitor is signed in.
+  // A new name starts a check (or picks up the one saved for it); the same name and company submitted
+  // again start a new one. A visitor who is not signed in is asked to sign in when the server says so
+  // (a site can let anyone run checks).
   useEffect(() => {
     active.current += 1; // stop any check still running for the previous name
     if (!name || status === 'loading') return undefined;
-    if (status !== 'authenticated') { setState({ phase: 'idle', progress: null, report: null, error: '', needSignIn: true }); return undefined; }
-    run();
+    const before = last.current;
+    last.current = { name, company, runKey };
+    run({ fresh: before.name === name && before.company === company && before.runKey !== runKey });
     return () => { active.current += 1; };
   }, [name, company, runKey, status, run]);
 
+  // When the report arrives, take keyboard focus to it unless the visitor is busy elsewhere on the page.
+  useEffect(() => {
+    if (state.phase !== 'done' || typeof document === 'undefined') return;
+    const at = document.activeElement;
+    if (!at || at === document.body) heading.current?.focus();
+  }, [state.phase]);
+
   if (!name) return null;
-  if (state.needSignIn) {
-    return (
-      <section className="card card-pad">
-        <div className="flex flex-wrap items-center gap-2">
-          <HiOutlineShieldCheck className="text-brand-500" style={{ width: 16, height: 16 }} />
+  const announce = state.phase === 'done' && state.report
+    ? `Deep check finished: ${state.report.totals?.records ?? 0} records, ${state.report.totals?.redFlags ?? 0} red flag${state.report.totals?.redFlags === 1 ? '' : 's'}.`
+    : '';
+  // The status line stays on the page through every phase, so the end of a check is announced.
+  return <><p role="status" className="sr-only">{announce}</p>{body()}</>;
+
+  function body() {
+    if (state.needSignIn) {
+      return (
+        <section className="card card-pad">
+          <div className="flex flex-wrap items-center gap-2">
+            <HiOutlineShieldCheck className="text-brand-500" style={{ width: 16, height: 16 }} />
+            <h2 className="section-title">Deep background check</h2>
+          </div>
+          <p className="muted mt-1">
+            Courts and regulators, sanctions and watchlists, archived versions of profiles and bios, company and patent records, related parties, and published leak databases, pulled thread by thread.{' '}
+            <Link href="/signin" className="font-medium text-brand-600 hover:underline">Sign in to run it</Link>.
+          </p>
+        </section>
+      );
+    }
+    if (state.phase === 'running') return <Progress progress={state.progress} name={name} />;
+    if (state.phase === 'error') {
+      return (
+        <section className="card card-pad">
           <h2 className="section-title">Deep background check</h2>
-        </div>
-        <p className="muted mt-1">
-          Courts and regulators, sanctions and watchlists, archived versions of profiles and bios, company and patent records, related parties, and published leak databases, pulled thread by thread.{' '}
-          <Link href="/signin" className="font-medium text-brand-600 hover:underline">Sign in to run it</Link>.
-        </p>
-      </section>
-    );
+          <p className="mt-1 text-sm text-rose-700" role="alert">{state.error}</p>
+          <button type="button" className="btn-secondary mt-3" onClick={() => run()}><HiOutlineArrowPath style={{ width: 14, height: 14 }} /> Try again</button>
+        </section>
+      );
+    }
+    if (state.phase === 'done' && state.report) return <Report report={state.report} onRerun={() => run({ fresh: true })} headingRef={heading} />;
+    return null;
   }
-  if (state.phase === 'running') return <Progress progress={state.progress} name={name} />;
-  if (state.phase === 'error') {
-    return (
-      <section className="card card-pad">
-        <h2 className="section-title">Deep background check</h2>
-        <p className="mt-1 text-sm text-rose-700" role="alert">{state.error}</p>
-        <button type="button" className="btn-secondary mt-3" onClick={() => run()}><HiOutlineArrowPath style={{ width: 14, height: 14 }} /> Try again</button>
-      </section>
-    );
-  }
-  if (state.phase === 'done' && state.report) return <Report report={state.report} onRerun={() => run({ fresh: true })} />;
-  return null;
 }

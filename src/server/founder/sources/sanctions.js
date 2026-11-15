@@ -21,7 +21,9 @@
  * words) and compared as a set of words with the listed name and every alias:
  *   tier 1  the same words
  *   tier 2  every word of the searched name is in the listed name (the list
- *           adds middle names)
+ *           adds middle names), and for a person the listed name either runs
+ *           first name ... last name or starts with the surname followed by
+ *           the first name ("Rachael Elizabeth Holmes" is not "Elizabeth Holmes")
  * There is no fuzzy matching. A hit on a person is a name match and nothing
  * more: it is graded by makeFinding ("possible") unless the list's own text
  * names something the person is known for, and every title says "verify
@@ -133,6 +135,30 @@ export function matchTier(searched, listed) {
 /** A person's name is only searched when it has a first and a last name. */
 const isFullName = (tokens) => tokens.filter((t) => t.length > 1).length >= 2;
 
+/** The words of a name in written order (not sorted, repeats kept). */
+const orderedTokens = (text) => normalizeName(text).split(' ').filter(Boolean);
+
+/**
+ * Whether a listed person's name has the searched first and last name in a
+ * plausible order, both given as words in written order. The word-set test
+ * alone would let "Rachael Elizabeth Holmes" match "Elizabeth Holmes".
+ *   a) the listed name starts with the first name and ends with the last name
+ *      (extra words only between them): "Elizabeth Anne Holmes";
+ *   b) the listed name starts with the surname (one or more of the searched
+ *      name's trailing words) and the next word is the first name:
+ *      "HOLMES, Elizabeth Anne", "BANKMAN FRIED, Sam".
+ */
+export function personOrderMatch(want, listed) {
+  if (want.length < 2 || !listed.length) return false;
+  const first = want[0];
+  if (listed[0] === first && listed[listed.length - 1] === want[want.length - 1]) return true;
+  for (let j = 1; j < want.length; j += 1) {
+    const surname = want.slice(j);
+    if (surname.length < listed.length && surname.every((w, i) => listed[i] === w) && listed[surname.length] === first) return true;
+  }
+  return false;
+}
+
 /** The name as given and without middle initials ("Elizabeth A. Holmes" -> also "Elizabeth Holmes"). */
 export function personVariants(name) {
   const words = oneLine(name).split(' ').filter(Boolean);
@@ -164,6 +190,8 @@ export function matchPersonName(variants, listed) {
       const want = nameTokens(v);
       if (!isFullName(want)) continue;
       const tier = matchTier(want, have);
+      // A longer listed name must also have the first and last name in order
+      if (tier === 2 && !personOrderMatch(orderedTokens(v), orderedTokens(form))) continue;
       if (tier && (!best || tier < best)) best = tier;
     }
   }
@@ -206,7 +234,7 @@ function prepare(index) {
     for (const [j, name] of [row.n, ...(row.a || [])].entries()) {
       for (const form of listedForms(name)) {
         const tokens = nameTokens(form);
-        if (tokens.length) names.push({ s: name, k: ` ${tokens.join(' ')} `, c: tokens.length, alias: j > 0 });
+        if (tokens.length) names.push({ s: name, k: ` ${tokens.join(' ')} `, c: tokens.length, o: orderedTokens(form), alias: j > 0 });
       }
     }
     return names;
@@ -237,15 +265,17 @@ export function screenIndex(index, names, mode) {
     });
     return hits;
   }
-  const wants = names.map(nameTokens).filter(isFullName);
+  const wants = names.map((n) => ({ set: nameTokens(n), order: orderedTokens(n) })).filter((w) => isFullName(w.set));
   if (!wants.length) return hits;
   index.rows.forEach((row, i) => {
     if (row.t === 'entity') return;
     let best = null;
     for (const name of table[i]) {
       for (const want of wants) {
-        if (!want.every((t) => name.k.includes(` ${t} `))) continue;
-        const tier = want.length === name.c ? 1 : 2;
+        if (!want.set.every((t) => name.k.includes(` ${t} `))) continue;
+        const tier = want.set.length === name.c ? 1 : 2;
+        // A longer listed name must also have the first and last name in order
+        if (tier === 2 && !personOrderMatch(want.order, name.o)) continue;
         if (!best || tier < best.tier) best = { row, tier, matched: name.s, alias: name.alias };
       }
     }
@@ -577,7 +607,7 @@ export const LISTS = [
     cacheKey: 'watchlist:eu:v1',
     // One 25 MB file (about 2.5 MB compressed on the wire). The host is slow at times (4 to 24 s on
     // 14 Nov 2026): a cold load may then fail, and the cache keeps the last good copy for later lookups.
-    load: async (deadline) => parseEu(await fetchList('https://webgate.ec.europa.eu/fsd/fsf/public/files/csvFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw', { deadline, timeoutMs: 19500 })),
+    load: async (deadline) => parseEu(await fetchList('https://webgate.ec.europa.eu/fsd/fsf/public/files/csvFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw', { deadline, timeoutMs: 16000 })),
     link: (row, index) => (row.u !== undefined && index.urls?.[row.u]) || EU_PAGE,
   },
   {
@@ -935,11 +965,13 @@ export const OFFSHORE_NOTE = 'Appearing in the Offshore Leaks database is not ev
 export const offshoreLeaksConnector = {
   id: 'offshore-leaks',
   label: ICIJ_LABEL,
-  kinds: ['subject', 'company', 'associate', 'relative'],
+  // A leak database, not a watchlist: never searched for an associate or relative by name alone
+  kinds: ['subject', 'company'],
   prior: 0.3,
   timeoutMs: 12000,
   async run(task, ctx) {
     const name = oneLine(task.value);
+    if (task.kind !== 'subject' && task.kind !== 'company') return { findings: [], threads: [], notes: [] };
     if (!canScreen(task, ctx)) return { findings: [], threads: [], notes: [`${ICIJ_LABEL}: "${name}" is too short a name to search`] };
     const person = isPersonTask(task);
     const variants = searchedNames(task, ctx).slice(0, 3);

@@ -23,13 +23,19 @@
  *   - an appointment is graded by finding.js from the company it is at: only
  *     a known company of the subject lifts it above "possible". The check
  *     here is stricter than the general one: the registered name must BE the
- *     known company's name or start with all of it ("Mistral AI UK Ltd" for
- *     "Mistral AI", never "Mistral Aircraft Limited");
+ *     known company's name. One that only starts with it ("Mistral AI UK Ltd"
+ *     for "Mistral AI", or "Flow Hair Salon Limited" for "Flow") is held at
+ *     "possible", and "Mistral Aircraft Limited" never ties at all;
  *   - a company found by name is reported as the subject's company only when
  *     the register itself ties it to them (the subject, or a known associate,
- *     is among its officers or founders). Where a register lists no people
- *     (US states, GLEIF) only an exact legal name is accepted, and the record
- *     says the tie rests on the name;
+ *     is among its officers or founders). A company whose name only starts
+ *     with the wanted one needs a known associate on its board: an officer
+ *     who merely shares the subject's name is not enough. Where a register
+ *     lists no people (US states, GLEIF) only an exact legal name is
+ *     accepted, only when a single entity carries it (otherwise every one is
+ *     "possible" and its status raises no flag), and the record says the tie
+ *     rests on the name;
+ *   - officer names are compared without a leading title ("Dr", "Sir");
  *   - French companies that share officers with a confirmed company of the
  *     subject are tied through those officers.
  *
@@ -51,7 +57,7 @@ import { cached } from '../cache';
 import { profileFromUrl } from '../extract';
 
 const switchedOff = (id) => String(process.env.FOUNDER_SOURCES_OFF || '').split(',').map((s) => s.trim()).filter(Boolean).includes(id);
-const OFF_REASON = 'This register is switched off on this deployment.';
+const OFF_REASON = 'This register is not enabled on this deployment.';
 
 /* ------------------------------------------------------------------ shared helpers */
 
@@ -92,20 +98,35 @@ export function nameTie(wanted, registered) {
 }
 
 const knownCompanies = (subject) => uniqueBy([subject.company, ...[...(subject.anchors?.companies?.values?.() || [])].map((a) => a.value)].filter(Boolean), (v) => legalNorm(v));
-/** The known company of the subject that a registered name belongs to, or null. */
+/**
+ * The known company of the subject that a registered name IS, or null. A name
+ * that only starts with a known one ("Flow Hair Salon Limited" for "Flow") is
+ * not enough: with a namesake officer it would pin a stranger's company on the
+ * subject. Such a company is tied only through a known associate (ukCompany).
+ */
 function knownCompanyFor(subject, registered) {
   for (const company of knownCompanies(subject)) {
-    const tie = nameTie(company, registered);
-    if (tie) return { company, tie };
+    if (nameTie(company, registered) === 'exact') return { company, tie: 'exact' };
   }
   return null;
 }
+/** Does a registered name start with a known company's name? Used to order records only, never to grade them. */
+const resemblesKnown = (subject, registered) => knownCompanies(subject).some((company) => nameTie(company, registered));
+
+// Titles some registers print before the given names ("Dr Patrick Malcolm COLLISON", "COLLISON, Dr Patrick")
+const HONORIFICS = new Set(['mr', 'mrs', 'ms', 'miss', 'mx', 'dr', 'prof', 'professor', 'sir', 'dame', 'lord', 'lady', 'rev', 'revd', 'hon', 'baroness', 'baron']);
+/** Drop leading titles, always keeping at least `keep` words. Works on tokens or on words as written. */
+const dropTitles = (words, keep) => {
+  let at = 0;
+  while (words.length - at > keep && HONORIFICS.has(String(words[at]).toLowerCase().replace(/\.$/, ''))) at += 1;
+  return words.slice(at);
+};
 
 /** Name tokens in "given names, surname" order, whether the register wrote "SURNAME, Forenames" or "Forenames SURNAME". */
 function registryTokens(name) {
   const parts = String(name || '').split(',').map((p) => p.trim()).filter(Boolean);
-  if (parts.length >= 2) return [...nameTokens(parts[1]), ...nameTokens(parts[0])]; // a third part is a title ("Dr")
-  return nameTokens(name);
+  if (parts.length >= 2) return [...dropTitles(nameTokens(parts[1]), 1), ...nameTokens(parts[0])]; // a third part is a title ("Dr")
+  return dropTitles(nameTokens(name), 2);
 }
 
 /**
@@ -141,8 +162,8 @@ function displayPerson(name) {
 /** First given name and surname only: how other sources usually write a person. */
 function shortPerson(name) {
   const parts = String(name || '').split(',').map((p) => clean(p)).filter(Boolean);
-  if (parts.length >= 2) return `${tidyWord(parts[1].split(' ')[0])} ${parts[0].split(' ').map(tidyWord).join(' ')}`;
-  const words = clean(name).split(' ');
+  if (parts.length >= 2) return `${tidyWord(dropTitles(parts[1].split(' '), 1)[0])} ${parts[0].split(' ').map(tidyWord).join(' ')}`;
+  const words = dropTitles(clean(name).split(' '), 2);
   if (words.length <= 2) return words.map(tidyWord).join(' ');
   // "Forenames SURNAME": the surname is the run of capitals at the end
   let at = words.length - 1;
@@ -184,8 +205,9 @@ const roleSeverity = (status) => (DISTRESSED.test(status) || GONE.test(status) ?
  */
 function personAtCompany(subject, registeredCompany, fields, context = '') {
   const tie = knownCompanyFor(subject, registeredCompany);
-  const matchText = `${subject.name} ${registeredCompany} ${context}`;
-  const loose = matchSubject(subject, `${subject.name} ${registeredCompany}`).level;
+  // Separated so the grader never reads "Arthur Mensch MISTRAL AI" as one longer name
+  const matchText = [subject.name, registeredCompany, context].filter(Boolean).join('; ');
+  const loose = matchSubject(subject, `${subject.name}; ${registeredCompany}`).level;
   const hold = !tie && !context && loose !== 'possible';
   const finding = makeFinding(subject, {
     ...fields,
@@ -410,7 +432,7 @@ async function ukOfficersByName(ctx) {
     for (const a of page.appointments) byCompany.set(a.number, [...(byCompany.get(a.number) || []), a]);
     let untied = 0;
     for (const group of byCompany.values()) {
-      const tied = Boolean(knownCompanyFor(subject, group[0].company));
+      const tied = resemblesKnown(subject, group[0].company); // ordering only: the grade is personAtCompany's
       if (!tied) { untied += 1; if (untied > MAX_UNTIED_PER_OFFICER) continue; }
       candidates.push({ group, tied, registeredName: page.officerName || opened[i].name });
     }
@@ -481,11 +503,14 @@ async function ukDisqualifications(ctx) {
 function officerTie(subject, people) {
   const mine = nameTokens(subject.name);
   const self = people.filter((p) => sameName(p.tokens, mine));
-  if (self.length) return { via: 'officer', self, reason: `${subject.name} is listed among its officers` };
+  let associate = null;
   for (const anchor of subject.anchors?.people?.values?.() || []) {
-    const hit = people.find((p) => anchor.test(p.display) || anchor.test(p.short));
-    if (hit) return { via: 'associate', self: [], reason: `${hit.short}, a known associate, is listed among its officers` };
+    associate = people.find((p) => !sameName(p.tokens, mine) && (anchor.test(p.display) || anchor.test(p.short))) || null;
+    if (associate) break;
   }
+  // `associate` is kept even when the subject is listed: a company whose name only starts with a known one needs it
+  if (self.length) return { via: 'officer', self, associate, reason: `${subject.name} is listed among its officers${associate ? `, as is ${associate.short}, a known associate` : ''}` };
+  if (associate) return { via: 'associate', self: [], associate, reason: `${associate.short}, a known associate, is listed among its officers` };
   return null;
 }
 
@@ -508,9 +533,13 @@ async function ukCompany(task, ctx) {
   const judged = candidates.map((c, i) => {
     const page = pages[i];
     const people = (page?.officers || []).filter((o) => o.person).map((o) => ({ ...o, tokens: registryTokens(o.name), display: displayPerson(o.name), short: shortPerson(o.name) }));
-    const tie = page ? officerTie(subject, people) : null;
-    return { ...c, page, people, tie, nameOnly: !tie && c.kind !== 'prefix' };
-  }).filter((c) => c.page && (c.tie || c.nameOnly));
+    const found = page ? officerTie(subject, people) : null;
+    // A name that only starts with the wanted one is tied through a known associate on its board, never
+    // through an officer who merely shares the subject's name: that is how a namesake's company slips in
+    const tie = found && (c.kind !== 'prefix' || found.associate) ? found : null;
+    const namesake = found && !tie ? found : null;
+    return { ...c, page, people, tie, namesake, nameOnly: !found && c.kind !== 'prefix' };
+  }).filter((c) => c.page && (c.tie || c.namesake || c.nameOnly));
   // The register's own tie first; a bare name match last
   judged.sort((a, b) => Number(Boolean(b.tie)) - Number(Boolean(a.tie)));
   const kept = judged.slice(0, 2);
@@ -536,7 +565,12 @@ async function ukCompany(task, ctx) {
     ].filter(Boolean).join(', ');
     const title = c.tie
       ? `UK company record: ${c.name}${facts ? `, ${facts}` : ''}`
-      : `UK company with the same name as ${wanted}: ${c.name}${facts ? `, ${facts}` : ''} (${subject.name} is not among its officers)`;
+      : c.namesake
+        ? `UK company whose name begins with ${wanted}: ${c.name}${facts ? `, ${facts}` : ''} (an officer shares the name ${subject.name}; nothing else ties it to them)`
+        : `UK company with the same name as ${wanted}: ${c.name}${facts ? `, ${facts}` : ''} (${subject.name} is not among its officers)`;
+    const untiedReason = c.namesake
+      ? `name begins with ${wanted} and an officer shares the name ${subject.name}; no known associate is on its board, so it may be another person's company`
+      : `same name as ${wanted}; ${subject.name} is not listed among its officers`;
     const finding = makeFinding(subject, {
       source: 'uk-companies-house',
       sourceLabel: CH_LABEL,
@@ -556,7 +590,7 @@ async function ukCompany(task, ctx) {
       date: incorporated,
       severity: companySeverity(status),
       match: c.tie ? 'company' : 'possible',
-      matchReasons: [c.tie ? c.tie.reason : `same name as ${wanted}; ${subject.name} is not listed among its officers`],
+      matchReasons: [c.tie ? c.tie.reason : untiedReason],
       data: {
         companyNumber: c.number, status: status || null, type: info?.type || null, incorporated: incorporated || null, dissolved: dissolved || null,
         previousNames: previous, officers: officers.slice(0, 40), ...(c.kind === 'former' ? { formerName: c.former } : {}),
@@ -811,7 +845,7 @@ export const frCompaniesConnector = {
 
 /* ------------------------------------------------------------------ US state registers */
 
-const STATE_TIMEOUT_MS = 6000;
+const STATE_TIMEOUT_MS = 7000; // two tries fit inside the connector's 15 s
 const MAX_PER_STATE = 3;
 const US_LABEL = 'US state business registers (Colorado, New York, Connecticut, Oregon, Texas)';
 const CO_TYPES = { DPC: 'domestic corporation', FPC: 'foreign corporation', DLLC: 'domestic LLC', FLLC: 'foreign LLC', DNC: 'domestic nonprofit corporation', FNC: 'foreign nonprofit corporation', DLP: 'domestic limited partnership', FLP: 'foreign limited partnership', DLLP: 'domestic LLP', FLLP: 'foreign LLP', DPBC: 'domestic public benefit corporation' };
@@ -880,7 +914,15 @@ async function queryStateRegister(state, wanted, deadline) {
     $order: `case(${first.map((c) => `${c}, 0`).join(', ')}, true, 1), ${state.nameCol}`,
     $limit: '40',
   });
-  const rows = await getJson(`https://${state.host}/resource/${state.dataset}.json?${qs}`, { deadline, timeoutMs: STATE_TIMEOUT_MS, retries: 0 });
+  const url = `https://${state.host}/resource/${state.dataset}.json?${qs}`;
+  let rows;
+  try {
+    rows = await getJson(url, { deadline, timeoutMs: STATE_TIMEOUT_MS, retries: 0 });
+  } catch (error) {
+    // A slow first answer gets one more try when the time allows; any other failure is reported as it is
+    if (!/^Timed out/.test(String(error?.message || '')) || (deadline && Date.now() + STATE_TIMEOUT_MS / 2 > deadline)) throw error;
+    rows = await getJson(url, { deadline, timeoutMs: STATE_TIMEOUT_MS, retries: 0 });
+  }
   if (!Array.isArray(rows)) throw new Error(`Unexpected answer from the ${state.name} register`);
   return rows;
 }
@@ -890,7 +932,7 @@ export const usStateRegistriesConnector = {
   label: US_LABEL,
   kinds: ['company'],
   prior: 0.4,
-  timeoutMs: 10000,
+  timeoutMs: 15000,
   enabled: () => !switchedOff('us-state-registries'),
   unavailableReason: OFF_REASON,
   async run(task, ctx) {
@@ -906,13 +948,27 @@ export const usStateRegistriesConnector = {
     const findings = [];
     const notes = [];
     const lookalikes = [];
+    const perState = [];
     for (const { state, rows, error } of answers) {
-      if (error) { notes.push(`The ${state.name} business register did not answer in time.`); continue; }
+      if (error) {
+        notes.push(/^Timed out/.test(String(error?.message || '')) || /^Out of time/.test(String(error?.message || ''))
+          ? `The ${state.name} business register did not answer in time.`
+          : `The ${state.name} business register could not be read (${String(error?.message || error)}).`);
+        continue;
+      }
       // A name reservation is not a company: Connecticut lists them beside real entities
       const entities = uniqueBy(rows.map((row) => ({ ...state.read(row), rowId: String(row[':id'] || '') })).filter((e) => e.name && e.rowId && !/reservation/i.test(e.status)), (e) => String(e.number || e.name));
       const exact = entities.filter((e) => nameTie(task.value, e.name) === 'exact');
       const similar = entities.filter((e) => nameTie(task.value, e.name) === 'prefix');
       if (similar.length) lookalikes.push(`${state.name}: ${similar.slice(0, 2).map((e) => e.name).join(', ')}${similar.length > 2 ? ` and ${similar.length - 2} more` : ''}`);
+      perState.push({ state, exact });
+    }
+    // These registers list no officers, so a legal name is all that ties an entity to the company. That is
+    // enough only when one entity in all five states carries the name; with several, any of them may be
+    // another business, and its status must not read as the company's.
+    const sameNamed = perState.reduce((n, s) => n + s.exact.length, 0);
+    const tiedByName = sameNamed === 1;
+    for (const { state, exact } of perState) {
       for (const e of exact.slice(0, MAX_PER_STATE)) {
         const notGood = GONE.test(e.status) || DISTRESSED.test(e.status) || LAPSED.test(e.status);
         const when = e.formed ? `${e.formedWord} ${longDate(e.formed)}` : '';
@@ -936,9 +992,11 @@ export const usStateRegistriesConnector = {
           ].filter(Boolean).join(' — '),
           url: `https://${state.host}/resource/${state.dataset}/${encodeURIComponent(e.rowId)}.json`,
           date: e.formed,
-          severity: companySeverity(e.status),
-          match: 'company',
-          matchReasons: [`legal name matches ${wanted}; the register lists no officers, so the tie rests on the name`],
+          severity: tiedByName ? companySeverity(e.status) : 'info',
+          match: tiedByName ? 'company' : 'possible',
+          matchReasons: [tiedByName
+            ? `legal name matches ${wanted}; the register lists no officers, so the tie rests on the name`
+            : `same legal name as ${wanted}; the register lists no officers and ${sameNamed} entities in the state registers share the name, so it may be another business`],
           data: { state: state.code, registerNumber: e.number || null, status: e.status || null, type: e.type || null, formed: e.formed, jurisdiction: e.jurisdiction || null },
         });
         if (finding) findings.push(finding);
@@ -977,14 +1035,18 @@ export const leiConnector = {
     const qs = `filter%5Bentity.legalName%5D=${encodeURIComponent(wanted)}&page%5Bsize%5D=15`;
     const data = await getJson(`${LEI_SEARCH}?${qs}`, { deadline, timeoutMs: 8000, accept: 'application/vnd.api+json' });
     if (!Array.isArray(data?.data)) throw new Error('Unexpected answer from the LEI register');
-    const records = data.data.filter((d) => {
+    const matching = data.data.filter((d) => {
       const e = d?.attributes?.entity;
       return /^[A-Z0-9]{20}$/.test(String(d?.id || '')) && e && [e.legalName?.name, ...(e.otherNames || []).map((n) => n?.name)].filter(Boolean).some((n) => nameTie(task.value, n) === 'exact');
-    }).slice(0, 3);
+    });
+    const records = matching.slice(0, 3);
     if (!records.length) return { findings: [], threads: [], notes: [] };
+    // The register lists no officers: a legal name ties a record to the company only when no other entity,
+    // in any country, carries it. With several, none is graded the company and no parents are read.
+    const tied = matching.length === 1;
 
-    // Parents of the first record only (one or two more lookups)
-    const parentLinks = ['direct-parent', 'ultimate-parent'].map((rel) => ({ rel, url: records[0].relationships?.[rel]?.links?.['lei-record'] || null }));
+    // Parents of the tied record only (one or two more lookups)
+    const parentLinks = tied ? ['direct-parent', 'ultimate-parent'].map((rel) => ({ rel, url: records[0].relationships?.[rel]?.links?.['lei-record'] || null })) : [];
     const parents = await mapLimit(parentLinks, 2, async ({ rel, url }) => {
       if (!url || !/^https:\/\/api\.gleif\.org\//.test(url)) return { rel, reported: false };
       const parent = (await getJson(url, { deadline, timeoutMs: 6000, accept: 'application/vnd.api+json' }))?.data;
@@ -1002,7 +1064,7 @@ export const leiConnector = {
       const inactive = e.status && e.status !== 'ACTIVE';
       const ended = e.expiration?.reason ? `${lower(e.expiration.reason).replace(/_/g, ' ')}${e.expiration.date ? `, ${longDate(leiDay(e.expiration.date))}` : ''}` : '';
       const place = jurisdictionName(e.jurisdiction);
-      const parentText = i === 0 ? (parents || []).filter(Boolean).map((p) => `${p.rel === 'direct-parent' ? 'Direct parent' : 'Ultimate parent'}: ${p.reported ? `${p.name}${p.jurisdiction ? ` (${p.jurisdiction})` : ''}` : 'not reported'}`) : [];
+      const parentText = tied && i === 0 ? (parents || []).filter(Boolean).map((p) => `${p.rel === 'direct-parent' ? 'Direct parent' : 'Ultimate parent'}: ${p.reported ? `${p.name}${p.jurisdiction ? ` (${p.jurisdiction})` : ''}` : 'not reported'}`) : [];
       const finding = makeFinding(subject, {
         source: 'lei-register',
         sourceLabel: LEI_LABEL,
@@ -1022,12 +1084,14 @@ export const leiConnector = {
         ].filter(Boolean).join(' — '),
         url: `https://www.gleif.org/lei/${d.id}`,
         date: created,
-        severity: inactive ? 'low' : 'info',
-        match: 'company',
-        matchReasons: [`legal name matches ${wanted}; the register lists no officers, so the tie rests on the name`],
+        severity: tied && inactive ? 'low' : 'info',
+        match: tied ? 'company' : 'possible',
+        matchReasons: [tied
+          ? `legal name matches ${wanted}; the register lists no officers, so the tie rests on the name`
+          : `same legal name as ${wanted}${place ? ` in ${place}` : ''}; ${matching.length} registered entities share it`],
         data: {
           lei: d.id, jurisdiction: e.jurisdiction || null, status: e.status || null, created, registeredAs: e.registeredAs || null, registrationStatus: reg.status || null,
-          ...(i === 0 ? { parents: (parents || []).filter((p) => p?.reported).map((p) => ({ relation: p.rel, name: p.name, lei: p.lei })) } : {}),
+          ...(tied && i === 0 ? { parents: (parents || []).filter((p) => p?.reported).map((p) => ({ relation: p.rel, name: p.name, lei: p.lei })) } : {}),
         },
       });
       if (finding) findings.push(finding);
@@ -1189,7 +1253,7 @@ async function ycForCompany(company, ctx, { personOnly = false } = {}) {
         url,
         date: p.yearFounded ? String(p.yearFounded) : null,
         severity: 'info',
-        matchText: `${subject.name} ${p.name} ${company}`,
+        matchText: `${subject.name}; ${p.name}; ${company}`,
         data: { company: p.name, role: self.title || null, batch: p.batch || null },
       });
       if (seat) {

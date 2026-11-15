@@ -12,7 +12,8 @@
  * themselves. Nothing in the report is asserted without a source.
  */
 import { CATEGORIES } from './finding';
-import { matchRank, restoreSubject } from './identity';
+import { matchRank, restoreSubject, personKey } from './identity';
+import { companyKeys } from '../founderCheck';
 import { USE_NOTICE } from './guardrails';
 import { chatComplete, PROVIDERS, providerEnabled } from '../llm/providers';
 import { validateAnswer } from '../search/answer';
@@ -31,6 +32,19 @@ export const NOT_COVERED = [
 ];
 
 const matchWeight = (m) => (m === 'company' ? 2 : matchRank(m));
+// Sources that screen a person against official watchlists.
+const WATCHLISTS = new Set(['sanctions-lists', 'us-exclusions', 'offshore-leaks', 'wanted-lists']);
+
+const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+// Who a record is about: a named associate or relative, a particular company, or the person.
+function whoOf(f) {
+  if (f.data?.person) return personKey(f.data.person);
+  if (f.match === 'company') {
+    const named = f.data?.company || (/^(?:company|affiliate):\s*(.+)$/i.exec(f.via || '') || [])[1];
+    return `company:${(named && (companyKeys(named)[0] || norm(named))) || ''}`;
+  }
+  return 'person';
+}
 const when = (f) => (f.date ? Date.parse(f.date.length === 4 ? `${f.date}-01-01` : f.date) || 0 : 0);
 
 function score(f, corroboration) {
@@ -47,7 +61,23 @@ function corroborationKey(f) {
   const docket = text.match(/\b\d{1,2}:\d{2}-[a-z]{2}-\d{3,6}\b/);
   if (docket) return `case|${docket[0]}`;
   const words = (f.title || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length > 4).slice(0, 6).sort().join(' ');
-  return `words|${words || f.id}`;
+  // The same headline about another year, or about someone else, is not the same report.
+  return words ? `words|${whoOf(f)}|${f.date ? f.date.slice(0, 4) : 'undated'}|${words}` : `words|${f.id}`;
+}
+// Only records tied to the person or their company can agree with each other; a namesake's report cannot.
+const CORROBORATES = new Set(['confirmed', 'likely', 'company']);
+
+// Words that say nothing about which matter a headline reports.
+const COMMON = new Set(['about', 'after', 'again', 'against', 'chief', 'court', 'executive', 'federal', 'former', 'founder', 'judge', 'over', 'report', 'reports', 'says', 'their', 'there', 'which', 'while', 'would']);
+/**
+ * Distinctive headline words (stemmed to five letters), without the names of the people and companies
+ * involved and without the event words themselves ("lawsuit", "sued"), which every record of a matter shares.
+ */
+function headlineWords(f, skip) {
+  const text = `${f.title || ''}${f.title ? '' : ` ${f.quote || ''}`}`.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ');
+  return new Set(text.split(/\s+/)
+    .filter((w) => w.length > 4 && !COMMON.has(w) && !skip.has(w) && !EVENTS.some(([, re]) => re.test(w)))
+    .map((w) => w.slice(0, 5)));
 }
 
 // What kind of event a serious record reports, read from its headline first.
@@ -86,9 +116,10 @@ function matterKey(f) {
   const docket = `${f.title} ${f.quote || ''}`.toLowerCase().match(/\b\d{1,2}:\d{2}-[a-z]{2}-\d{3,6}\b/);
   if (docket) return `case|${docket[0]}`;
   const tag = eventOf(f);
-  if (!tag) return `single|${f.id}`;
-  const who = f.data?.person ? String(f.data.person).toLowerCase() : f.match === 'company' ? 'company' : 'person';
-  return `${tag}|${f.date ? f.date.slice(0, 7) : 'undated'}|${who}`;
+  // Undated records cannot be placed in a month, so nothing ties two of them to one matter.
+  if (!tag || !f.date) return `single|${f.id}`;
+  // A record matched by name only is never listed as coverage of a matter tied to the person.
+  return `${tag}|${f.date.slice(0, 7)}|${whoOf(f)}${f.match === 'possible' ? '|possible' : ''}`;
 }
 
 /**
@@ -100,11 +131,13 @@ export function buildReport(state) {
   const groups = new Map();
   for (const f of findings) {
     const key = corroborationKey(f);
+    // A case number identifies the matter whoever the page names; matching headline words only count when tied.
+    if (!CORROBORATES.has(f.match) && !key.startsWith('case|')) continue;
     if (!groups.has(key)) groups.set(key, new Set());
     groups.get(key).add((() => { try { return new URL(f.url).hostname.replace(/^www\./, ''); } catch { return f.source; } })());
   }
   const ranked = findings
-    .map((f) => ({ ...f, corroboration: groups.get(corroborationKey(f)).size }))
+    .map((f) => ({ ...f, corroboration: groups.get(corroborationKey(f))?.size || 1 }))
     .map((f) => ({ ...f, score: score(f, f.corroboration) }))
     .sort((a, b) => b.score - a.score || when(b) - when(a));
 
@@ -114,8 +147,8 @@ export function buildReport(state) {
   const cited = ranked.map((f) => ({ ...f, n: numberOf.get(f.id) }));
 
   // Serious records, grouped into matters. A matter with at least one record tied to the person (or their
-  // company) is a red flag, led by its strongest tied record; name-only reports of the same event in the
-  // same month are listed under it as further coverage. A matter known only by name is a possible namesake.
+  // company) is a red flag, led by its strongest tied record. A name-only report joins it only through a
+  // shared case number; otherwise it stays with the possible namesakes, which are never stated as fact.
   // A page from the open web that only mentions the person in passing (its own headline is about something
   // else: "2021 in the United States", another person's biography) is not a red flag about them, however
   // alarming the sentence that mentions them. It stays in the press section.
@@ -127,17 +160,41 @@ export function buildReport(state) {
     return subject.hasName(title) || [...subject.anchors.companies.values()].some((a) => a.test(title));
   };
   const serious = cited.filter((f) => (f.severity === 'high' || f.severity === 'medium') && aboutThem(f));
+  // Two lawsuits reported in the same month are two matters: a record joins a matter only when it reports
+  // the same thing as the matter's lead (same case number, same headline, or shared distinctive words).
+  // Name-only records only group with each other (see matterKey), and need a closer match to do so.
+  const skip = new Set(`${state.name || ''} ${state.company || ''} ${companyKeys(state.company || '').join(' ')}`.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean));
+  // How closely a record agrees with a matter's lead: 0 when it is not the same matter.
+  const agreement = (f, lead) => {
+    if (corroborationKey(f) === corroborationKey(lead)) return Infinity;
+    const extra = new Set([...skip, ...`${f.data?.person || ''} ${lead.data?.person || ''}`.toLowerCase().split(/[^a-z0-9]+/)]);
+    const a = headlineWords(f, extra);
+    const b = headlineWords(lead, extra);
+    const shared = [...a].filter((w) => b.has(w)).length;
+    const jaccard = shared / Math.max(1, new Set([...a, ...b]).size);
+    const enough = f.match === 'possible' ? shared >= 2 && jaccard >= 0.4 : shared >= 1;
+    return enough ? shared : 0;
+  };
   const matters = new Map();
   for (const f of serious) {
     const key = matterKey(f);
     if (!matters.has(key)) matters.set(key, []);
-    matters.get(key).push(f);
+    let same = key.startsWith('case|') ? matters.get(key)[0] : null;
+    if (!key.startsWith('case|')) {
+      let best = 0;
+      for (const list of matters.get(key)) {
+        const a = agreement(f, list[0]);
+        if (a > best) { best = a; same = list; }
+      }
+    }
+    if (same) same.push(f);
+    else matters.get(key).push([f]);
   }
   const short = (f) => ({ n: f.n, title: f.title, url: f.url, sourceLabel: f.sourceLabel, date: f.date, match: f.match });
   const redFlags = []; // about the person
   const companyMatters = []; // about a company they founded or run: context, not a mark against them by itself
   const possibleNamesake = [];
-  for (const list of matters.values()) {
+  for (const list of [...matters.values()].flat()) {
     const person = list.filter((f) => f.match === 'confirmed' || f.match === 'likely');
     const company = list.filter((f) => f.match === 'company');
     const lead = (person.length ? person : company.length ? company : list)[0]; // `cited` is in rank order, so the first is the strongest
@@ -157,20 +214,29 @@ export function buildReport(state) {
     .sort((a, b) => when(a) - when(b))
     .map((f) => ({ date: f.date, title: f.title, category: f.category, n: f.n, severity: f.severity }));
 
-  const claimChanges = cited.filter((f) => f.category === 'archive' && f.data?.kind === 'change');
+  // A change seen on a page matched by name only may be a namesake's profile: not a claim that changed.
+  const claimChanges = cited.filter((f) => f.category === 'archive' && f.data?.kind === 'change' && f.match !== 'possible');
 
+  // People screened against a watchlist: done task keys read `connector|kind|value|template`.
+  const screened = new Set();
+  for (const key of state.done || []) {
+    const [connector, kind, value] = String(key).split('|');
+    if (WATCHLISTS.has(connector) && kind !== 'company' && value) screened.add(personKey(value));
+  }
   const related = new Map();
   for (const t of Object.values(state.threads || {})) {
-    if ((t.kind === 'relative' || t.kind === 'associate') && t.trusted) related.set(t.value.toLowerCase(), { name: t.value, kind: t.kind, relation: t.relation || null, role: t.role || null, why: t.why || '', records: [] });
+    const key = personKey(t.value);
+    if ((t.kind === 'relative' || t.kind === 'associate') && t.trusted && !related.has(key)) related.set(key, { name: t.value, kind: t.kind, relation: t.relation || null, role: t.role || null, why: t.why || '', records: [], ...(screened.has(key) ? { screened: true } : {}) });
   }
   for (const f of cited) {
     const person = f.data?.person;
-    if (person && related.has(String(person).toLowerCase())) related.get(String(person).toLowerCase()).records.push({ n: f.n, title: f.title, severity: f.severity, category: f.category });
+    if (person && related.has(personKey(person))) related.get(personKey(person)).records.push({ n: f.n, title: f.title, severity: f.severity, category: f.category });
   }
 
   const allSources = Object.entries(state.sources || {}).map(([id, s]) => ({ id, ...s }));
   const coverage = {
-    searched: allSources.filter((s) => s.runs > 0).map((s) => ({ id: s.id, label: s.label, lookups: s.runs, records: s.findings, failed: s.errors, lastError: s.errors ? s.lastError : null })),
+    // Only sources that answered at least once: a source whose every lookup failed searched nothing.
+    searched: allSources.filter((s) => s.runs > 0 && (s.errors || 0) < s.runs).map((s) => ({ id: s.id, label: s.label, lookups: s.runs, records: s.findings, failed: s.errors, lastError: s.errors ? s.lastError : null })),
     notSearched: allSources.filter((s) => s.off || (s.runs > 0 && s.errors >= s.runs)).map((s) => ({ label: s.label, reason: s.lastError || 'No answer.' })),
     notCovered: NOT_COVERED,
     dropped: state.dropped || { tasks: 0, findings: 0, threads: 0 },
@@ -242,8 +308,9 @@ export function quotedDeepBrief(report, reason) {
   const t = report.totals;
   const bottom = `${t.records} records were collected about ${report.name}${report.company ? ` (${report.company})` : ''}: ${t.confirmed + t.likely} tied to this person, ${t.company} about their company, ${t.possible} matched by name only. ${t.redFlags ? `${t.redFlags} serious matter(s) are tied to this person.` : 'No serious record is tied to this person in the sources searched.'}${t.companyMatters ? ` ${t.companyMatters} more concern a company they founded or run.` : ''}`;
   const checks = [...of('education'), ...of('career'), ...of('corporate'), ...of('ip')].slice(0, 10);
+  const possibleChanges = (report.sections.find((s) => s.key === 'archive')?.items || []).filter((f) => f.match === 'possible' && f.data?.kind === 'change');
   const gaps = [
-    ...report.possibleNamesake.slice(0, 8).map((f) => `• Rule out a namesake: ${f.title} [Source ${f.n}]`),
+    ...[...report.possibleNamesake.slice(0, 8), ...possibleChanges.slice(0, 5)].map((f) => `• Rule out a namesake: ${f.title} [Source ${f.n}]`),
     ...report.coverage.notSearched.map((s) => `• ${s.label} did not answer: ${s.reason}`),
     ...report.coverage.notCovered.map((s) => `• Not covered: ${s}.`),
   ];
@@ -279,7 +346,10 @@ export async function writeDeepBrief(report, { deadline = null, maxRecords = 70,
   const perCategory = Math.max(4, Math.floor(maxRecords / Math.max(1, report.sections.length)));
   const picked = [];
   const taken = {};
-  for (const f of records.sort((a, b) => b.score - a.score)) {
+  // A saved report may have lost its scores; then rank by severity and keep the report's own order.
+  const byStrength = (a, b) => (Number.isFinite(a.score) && Number.isFinite(b.score) ? b.score - a.score : 0)
+    || (SEVERITY_WEIGHT[b.severity] || 0) - (SEVERITY_WEIGHT[a.severity] || 0) || a.n - b.n;
+  for (const f of records.sort(byStrength)) {
     if (picked.length >= maxRecords) break;
     taken[f.category] = (taken[f.category] || 0) + 1;
     if (taken[f.category] <= perCategory || f.severity === 'high') picked.push(f);
@@ -292,22 +362,36 @@ export async function writeDeepBrief(report, { deadline = null, maxRecords = 70,
   const coverage = `Sources that answered: ${report.coverage.searched.map((s) => s.label).join(', ') || 'none'}.\nSources that failed or are not enabled: ${report.coverage.notSearched.map((s) => s.label).join(', ') || 'none'}.\nNot covered by any free source: ${report.coverage.notCovered.join('; ')}.`;
   const user = `Today's date: ${new Date().toISOString().slice(0, 10)}\nPerson: ${report.name}${report.company ? `\nCompany: ${report.company}` : ''}${identity}\n\n${coverage}\n\nRecords (${picked.length} of ${report.totals.records}, strongest first within each kind):\n${recordsBlock(picked)}`;
   const maxN = report.sources.length;
+  // A citation is only valid if that record was actually shown to the model. Unshown ones are removed
+  // before the checks, so an answer resting only on records it was not shown fails like an uncited one.
+  const shown = new Set(picked.map((f) => f.n));
+  const check = (text) => {
+    const first = validateAnswer(text, maxN, DEEP_SECTIONS);
+    if (!first.ok) return first;
+    const lines = first.content.split('\n').map((line) => {
+      const kept = line.replace(/\[Source (\d+)\]/g, (m, n) => (shown.has(Number(n)) ? m : ''));
+      // a bullet whose only citations pointed to unshown records is an uncited claim: drop it
+      if (kept !== line && !/\[Source \d+\]/.test(kept) && /^\s*[•*-]/.test(kept)) return null;
+      return kept;
+    });
+    const content = lines.filter((l) => l !== null).join('\n');
+    const citations = (content.match(/\[Source \d+\]/g) || []).length;
+    if (citations === 0) return { ok: false, reason: 'no valid citations' };
+    return { ...first, content, citations };
+  };
   // 'analysis': the strongest models, more thinking, and no model with a poor record on made-up facts.
   // An answer that fails the citation checks sends the request to the next model.
   const trace = [];
   const out = await complete([{ role: 'system', content: DEEP_PROMPT }, { role: 'user', content: user }], {
     maxTokens: 3500, deadline, task: 'analysis', personal: true, avoid, trace,
-    accept: (text) => validateAnswer(text, maxN, DEEP_SECTIONS).ok,
+    accept: (text) => check(text).ok,
   });
   if (!out) {
     // Which models were tried, so one more attempt can start with the next ones (a long report can outlast the first model's time)
     const tried = [...new Set([...avoid, ...trace.map((t) => t.family).filter(Boolean)])];
     return { brief: quotedDeepBrief(report, 'The AI model was unavailable'), briefInfo: { mode: 'quoted', reason: 'The AI model was unavailable', tried, retry: trace.length > 0 && avoid.length === 0 } };
   }
-  const checked = validateAnswer(out.text, maxN, DEEP_SECTIONS);
+  const checked = check(out.text);
   if (!checked.ok) return { brief: quotedDeepBrief(report, `The AI brief failed validation (${checked.reason})`), briefInfo: { mode: 'quoted', reason: `The AI brief failed validation (${checked.reason})` } };
-  // A citation is only valid if that record was actually shown to the model.
-  const shown = new Set(picked.map((f) => f.n));
-  const content = checked.content.replace(/\[Source (\d+)\]/g, (m, n) => (shown.has(Number(n)) ? m : ''));
-  return { brief: content, briefInfo: { mode: 'ai', provider: out.providerLabel, model: out.model, confidence: checked.confidence, skipped: out.skipped || [], recordsRead: picked.length } };
+  return { brief: checked.content, briefInfo: { mode: 'ai', provider: out.providerLabel, model: out.model, confidence: checked.confidence, skipped: out.skipped || [], recordsRead: picked.length } };
 }

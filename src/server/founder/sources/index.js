@@ -36,6 +36,10 @@ import { webSearchConnector, newsArchiveConnector } from './web';
 
 // The web archive answers slowly and refuses connections after a burst: one lookup at a time.
 archiveConnector.maxParallel = 1;
+// LittleSis and The Gazette each ask for ten seconds between requests
+for (const c of [...Object.values(knowledge), ...Object.values(courts)]) {
+  if (c && (c.id === 'littlesis' || c.id === 'uk-gazette')) c.maxParallel = 1;
+}
 
 /** Every object a source file exports that looks like a connector (so a file can gain one without this list changing). */
 const connectorsOf = (module) => Object.values(module).filter((x) => x && typeof x === 'object' && typeof x.id === 'string' && Array.isArray(x.kinds) && typeof x.run === 'function');

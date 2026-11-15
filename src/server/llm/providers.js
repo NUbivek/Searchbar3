@@ -46,6 +46,20 @@ const MAX_ATTEMPTS = 6;
 /** Groq's free plan allows 8,000 tokens a minute; a paid plan reports far more. */
 const GROQ_FREE_TPM = 8000;
 const GROQ_PAID_TRIPWIRE_TPM = 50000;
+/** A provider switched off by a tripwire stays off this long on every instance (shared like a long rest). */
+const SWITCH_OFF_MS = 30 * 24 * 3600 * 1000;
+
+/**
+ * Reasons a model was skipped. They are shown to people under answers, so
+ * they are plain English (no technical or billing words).
+ */
+export const WHY = {
+  resting: 'resting until its allowance resets',
+  signIn: 'sign-in problem with the provider',
+  unavailable: 'not available',
+  cutShort: 'answer was cut short',
+  providerError: 'the provider had a problem',
+};
 
 /**
  * MODEL TABLE. quality: how good the model is at writing a grounded answer
@@ -93,7 +107,8 @@ export const PROVIDERS = [
       { family: 'gemma-4-31b', re: /gemma-4-31b.*:free$/, quality: 32, bulk: 40, weak: true },
       { family: 'gemma-4-26b', re: /gemma-4-26b.*:free$/, quality: 28, bulk: 36, weak: true },
       // A free text model that is not scored yet: usable, but behind every known one.
-      { family: 'other-free', re: /:free$/, quality: 38, bulk: 30, weak: true, any: true },
+      // abroad: who operates it is unknown, so it never receives text about a person under review.
+      { family: 'other-free', re: /:free$/, quality: 38, bulk: 30, weak: true, any: true, abroad: true },
     ],
     exclude: /^openrouter\/|lyria|audio|image|omni|coder|code|particle|flint|nano|lfm|note|1\.7b|2\.6b|guard|embed|rerank/i,
     fallbackIds: ['thinkingmachines/inkling-2-small:free', 'nvidia/nemotron-3-ultra-550b-a55b:free', 'nvidia/nemotron-3.5-super-vl:free'],
@@ -262,13 +277,12 @@ export function describeFailure(error) {
   const status = error.response?.status;
   const body = errorBody(error);
   const detail = String(body?.error?.message || body?.message || (typeof body === 'string' ? body : '')).slice(0, 160);
-  const why = status === 429 ? 'rate limited or out of quota'
-    : status === 402 ? 'out of quota'
-    : status === 401 || status === 403 ? 'key rejected'
+  const why = status === 429 || status === 402 ? WHY.resting
+    : status === 401 || status === 403 ? WHY.signIn
     : status === 404 ? 'model not available'
     : status === 413 ? 'question too long for this model'
     : status === 400 ? 'request rejected'
-    : status >= 500 ? 'provider error'
+    : status >= 500 ? WHY.providerError
     : /timeout|ECONNABORTED|ETIMEDOUT/i.test(`${error.code || ''} ${error.message || ''}`) ? 'timed out'
     : 'request failed';
   return { why, detail, status: status || null };
@@ -283,12 +297,12 @@ function restAfter(p, model, error) {
     const daily = /per[\s_-]?day|daily|perday|free-models-per-day|\brpd\b|\btpd\b|quota/i.test(detail);
     let ms = Number.isFinite(header) && header > 0 ? header * 1000 : 60000;
     if (daily) ms = Math.max(ms, p.resets ? msUntilReset(p.resets) : 30 * 60000);
-    return { key: `${p.id}:${model}`, ms: Math.min(Math.max(ms, 15000), 24 * 3600 * 1000), why: 'rate limited or out of quota' };
+    return { key: `${p.id}:${model}`, ms: Math.min(Math.max(ms, 15000), 24 * 3600 * 1000), why: WHY.resting };
   }
-  if (status === 402) return { key: `${p.id}:*`, ms: p.resets ? msUntilReset(p.resets) : 6 * 3600 * 1000, why: 'out of quota' };
-  if (status === 401 || status === 403) return { key: `${p.id}:*`, ms: 30 * 60000, why: 'key rejected' };
+  if (status === 402) return { key: `${p.id}:*`, ms: p.resets ? msUntilReset(p.resets) : 6 * 3600 * 1000, why: WHY.resting };
+  if (status === 401 || status === 403) return { key: `${p.id}:*`, ms: 30 * 60000, why: WHY.signIn };
   if (status === 404) return { key: `${p.id}:${model}`, ms: 6 * 3600 * 1000, why: 'model not available' };
-  if (status >= 500) return { key: `${p.id}:${model}`, ms: 90000, why: 'provider error' };
+  if (status >= 500) return { key: `${p.id}:${model}`, ms: 90000, why: WHY.providerError };
   return null;
 }
 
@@ -322,7 +336,7 @@ async function loadSharedRests() {
       const body = typeof row.body === 'string' ? JSON.parse(row.body) : row.body;
       const key = String(row.key).slice(SHARED_REST_PREFIX.length);
       const held = cooldowns.get(key);
-      if (body?.until > Date.now() && (!held || held.until < body.until)) cooldowns.set(key, { until: body.until, why: body.why || 'rate limited or out of quota' });
+      if (body?.until > Date.now() && (!held || held.until < body.until)) cooldowns.set(key, { until: body.until, why: body.why || WHY.resting });
     }
   } catch {
     // best effort
@@ -403,7 +417,7 @@ async function buildChain({ task, preferred, personal, promptTokens, deadline, a
       if (p.smallPromptsOnly && promptTokens > GROQ_FREE_TPM * 0.75) { out('question too long for this model'); continue; }
       if (m.context && promptTokens > m.context * 0.85) { out('question too long for this model'); continue; }
       if (p.id === 'openrouter' && orRemaining !== null) {
-        if (orRemaining <= 0) { out('rate limited or out of quota'); continue; }
+        if (orRemaining <= 0) { out(WHY.resting); continue; }
         if (task !== 'analysis' && orRemaining <= 10) continue; // the last few calls of the day are for reports
       }
       if (m.entry.scarce && task !== 'analysis') {
@@ -519,6 +533,7 @@ export async function chatComplete(messages, { preferred = 'auto', task = 'chat'
 
   for (const [i, c] of attempts.entries()) {
     const { p } = c;
+    if (resting(p, c.id)) continue; // switched off or rested during this request (a tripwire, a 402)
     let attemptMs = timeoutMs;
     if (deadline) {
       const remaining = deadline - Date.now();
@@ -548,21 +563,30 @@ export async function chatComplete(messages, { preferred = 'auto', task = 'chat'
       } catch (error) {
         // A provider that rejects the extra settings: retry without them
         if (error.response?.status !== 400 || Object.keys(extras).length === 0) throw error;
-        response = await axios.post(`${p.baseUrl}/chat/completions`, body, { headers, timeout: Math.max(MIN_ATTEMPT_MS, deadline ? Math.min(attemptMs, deadline - Date.now()) : attemptMs) });
+        // The retry keeps to the deadline: with too little time left, the 400 stands
+        const room = deadline ? deadline - Date.now() : attemptMs;
+        if (deadline && room < MIN_ATTEMPT_MS) throw error;
+        response = await axios.post(`${p.baseUrl}/chat/completions`, body, { headers, timeout: Math.min(attemptMs, room) });
       }
       const { data } = response;
-      // Tripwires: proof, after the fact, that a call was not on a free plan. Stop using the provider.
-      if (p.id === 'groq' && Number(response.headers?.['x-ratelimit-limit-tokens']) > GROQ_PAID_TRIPWIRE_TPM) {
-        cooldowns.set(`${p.id}:*`, { until: Infinity, why: 'switched off: the key is on a paid plan' });
-        console.error('Groq reports paid-plan limits for this key: Groq is switched off until the server restarts.');
-      }
-      if (p.id === 'openrouter' && data?.model && !String(data.model).endsWith(':free')) {
-        cooldowns.set(`${p.id}:*`, { until: Infinity, why: 'switched off: a paid model answered' });
-        console.error(`OpenRouter answered with ${data.model}, which is not a free model: OpenRouter is switched off until the server restarts.`);
+      // Tripwires: proof that a call was not on a free plan. The answer is not used, and the
+      // provider is switched off on every instance (shared like a long rest).
+      const tripped = p.id === 'groq' && Number(response.headers?.['x-ratelimit-limit-tokens']) > GROQ_PAID_TRIPWIRE_TPM
+        ? 'Groq reports paid-plan limits for this key'
+        : p.id === 'openrouter' && data?.model && !String(data.model).endsWith(':free')
+          ? `OpenRouter answered with ${data.model}, which is not a free model`
+          : null;
+      if (tripped) {
+        const until = Date.now() + SWITCH_OFF_MS;
+        cooldowns.set(`${p.id}:*`, { until, why: WHY.unavailable });
+        shared.push(shareRest(`${p.id}:*`, until, WHY.unavailable));
+        console.error(`${tripped}: ${p.label} is switched off on every server instance for 30 days; its answer was discarded.`);
+        fail(WHY.unavailable, tripped, false);
+        continue;
       }
       const text = cleanText(data);
       if (!text) {
-        fail(data?.choices?.[0]?.finish_reason === 'length' ? 'ran out of tokens before answering' : 'empty response');
+        fail(data?.choices?.[0]?.finish_reason === 'length' ? WHY.cutShort : 'empty response');
         continue;
       }
       if (typeof accept === 'function') {

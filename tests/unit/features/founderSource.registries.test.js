@@ -10,7 +10,7 @@
 jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
 
 const { setTransport } = require('../../../src/server/founder/http');
-const { createSubject } = require('../../../src/server/founder/identity');
+const { createSubject, addAnchor } = require('../../../src/server/founder/identity');
 const { __resetCacheForTests } = require('../../../src/server/founder/cache');
 const {
   ukCompaniesConnector, frCompaniesConnector, usStateRegistriesConnector, leiConnector, ycDirectoryConnector, registryConnectors,
@@ -176,8 +176,9 @@ describe('ukCompaniesConnector: the person', () => {
     expect(calls.some((c) => /OTHER|CORP|\{\{/.test(c.url))).toBe(false);
 
     const mistral = out.findings.find((f) => /MISTRAL AI UK LTD/.test(f.title));
+    // the registered name only starts with the known one: held at possible (an officer search finds namesakes too)
     expect(mistral).toMatchObject({
-      source: 'uk-companies-house', category: 'corporate', match: 'confirmed', severity: 'info', date: '2023-05-25',
+      source: 'uk-companies-house', category: 'corporate', match: 'possible', matchFixed: true, severity: 'info', date: '2023-05-25',
       url: 'https://find-and-update.company-information.service.gov.uk/company/14894136/officers',
     });
     expect(mistral.title).toMatch(/^Arthur Mensch: director of MISTRAL AI UK LTD \(UK company, active\), appointed 25 May 2023/);
@@ -192,8 +193,8 @@ describe('ukCompaniesConnector: the person', () => {
     const bakery = out.findings.find((f) => /LEEDS BAKERY/.test(f.title));
     expect(bakery).toMatchObject({ match: 'possible', severity: 'info' });
 
-    // threads: only the confirmed appointment's company is trusted
-    expect(out.threads.find((t) => t.value === 'MISTRAL AI UK')).toMatchObject({ kind: 'company', trusted: true });
+    // threads: none is trusted, since no appointment is at a company that IS a known one
+    expect(out.threads.find((t) => t.value === 'MISTRAL AI UK')).toMatchObject({ kind: 'company', trusted: false });
     expect(out.threads.find((t) => /AIRCRAFT/.test(t.value))).toMatchObject({ trusted: false });
 
     expect(new Set(out.findings.map((f) => pageOf(f.url))).size).toBe(out.findings.length);
@@ -247,7 +248,10 @@ describe('ukCompaniesConnector: a company', () => {
       [/\/company\/99999999\/officers$/, { body: LOOKALIKE_OFFICERS }],
       [/\/company\/14894136$/, { body: COMPANY_PAGE('MISTRAL AI UK LTD', '14894136', 'Active', '25 May 2023') }],
     ]);
-    const out = await ukCompaniesConnector.run(companyTask('Mistral AI'), ctxFor('Arthur Mensch', 'Mistral AI'));
+    // MISTRAL AI UK LTD only starts with the wanted name: a known co-founder on its board is what ties it
+    const ctx = ctxFor('Arthur Mensch', 'Mistral AI');
+    addAnchor(ctx.subject, 'people', 'Guillaume Lample', 'given');
+    const out = await ukCompaniesConnector.run(companyTask('Mistral AI'), ctx);
     expect(calls.length).toBeLessThanOrEqual(5);
     expect(calls.some((c) => /07574333/.test(c.url))).toBe(false); // Mistral Aircraft is not a candidate
 
@@ -391,7 +395,8 @@ describe('usStateRegistriesConnector', () => {
     expect(out.findings.find((f) => f.data.state === 'NY')).toMatchObject({ date: null, title: 'New York business register: THERANOS CORP, active' });
 
     const co = out.findings.find((f) => f.data.state === 'CO');
-    expect(co).toMatchObject({ source: 'us-state-registries', category: 'corporate', match: 'company', severity: 'low', date: '2015-03-02', url: 'https://data.colorado.gov/resource/4ykn-tg5h/row-co-1.json' });
+    // three states list the exact name and none lists officers: any may be another business, so none is the company
+    expect(co).toMatchObject({ source: 'us-state-registries', category: 'corporate', match: 'possible', severity: 'info', date: '2015-03-02', url: 'https://data.colorado.gov/resource/4ykn-tg5h/row-co-1.json' });
     expect(co.title).toBe('Colorado business register shows Theranos, Inc. as DELINQUENT since 1 June 2017; formed 2 March 2015, home jurisdiction DE');
 
     const tx = out.findings.find((f) => f.data.state === 'TX');
@@ -399,7 +404,7 @@ describe('usStateRegistriesConnector', () => {
     expect(tx.severity).toBe('info');
 
     expect(out.findings.some((f) => /HEALTH/.test(f.title))).toBe(false);
-    expect(out.notes.join(' ')).toMatch(/Connecticut business register did not answer/);
+    expect(out.notes.join(' ')).toMatch(/Connecticut business register could not be read \(HTTP 500\)/); // an error is not slowness
     expect(out.notes.join(' ')).toMatch(/Oregon: THERANOS HEALTH LLC/);
     expect(JSON.stringify(out)).not.toMatch(/Secret St/);
   });

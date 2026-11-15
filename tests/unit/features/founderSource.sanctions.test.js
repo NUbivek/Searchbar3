@@ -529,3 +529,50 @@ describe('wantedConnector', () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* Review fixes                                                        */
+/* ------------------------------------------------------------------ */
+
+describe('review fixes: name order and Offshore Leaks scope', () => {
+  test('a listed person whose middle name is the searched first name is not a match', () => {
+    expect(S.personOrderMatch(['ELIZABETH', 'HOLMES'], ['RACHAEL', 'ELIZABETH', 'HOLMES'])).toBe(false);
+    expect(matchPersonName(['Elizabeth Holmes'], 'RACHAEL ELIZABETH HOLMES')).toBe(0);
+    expect(matchPersonName(['Elizabeth Holmes'], 'HOLMES, Rachael Elizabeth')).toBe(0);
+    // Middle names added by the list, in either written order, still match at tier 2
+    expect(matchPersonName(['Elizabeth Holmes'], 'HOLMES, Elizabeth Anne')).toBe(2);
+    expect(matchPersonName(['Elizabeth Holmes'], 'Elizabeth Anne Holmes')).toBe(2);
+    expect(matchPersonName(['Sam Bankman-Fried'], 'BANKMAN-FRIED, Samuel Sam')).toBe(0);
+    expect(matchPersonName(['Sam Bankman-Fried'], 'BANKMAN-FRIED, Sam Benjamin')).toBe(2);
+    // Tier 1 (the same words) is unchanged
+    expect(matchPersonName(['Elizabeth Holmes'], 'HOLMES Elizabeth')).toBe(1);
+  });
+
+  test('screenIndex applies the same order check to the list files', () => {
+    const index = { rows: [
+      { n: 'RACHAEL ELIZABETH HOLMES', t: 'person' },
+      { n: 'HOLMES, Elizabeth Anne', t: 'person' },
+      { n: 'Elizabeth Anne Holmes', t: 'person' },
+    ] };
+    expect(screenIndex(index, ['Elizabeth Holmes'], 'person').map((h) => [h.row.n, h.tier])).toEqual([
+      ['HOLMES, Elizabeth Anne', 2], ['Elizabeth Anne Holmes', 2],
+    ]);
+  });
+
+  test('SAM.gov: a listed person with the subject first name as a middle name is not reported', async () => {
+    serve({ 'sam.gov': () => json({ page: { totalElements: 1 }, _embedded: { results: [samResult({ id: 'x1', title: 'RACHAEL ELIZABETH HOLMES' })] } }) });
+    const out = await exclusionsConnector.run(subjectTask('Elizabeth Holmes', 'excl.sam'), ctxFor('Elizabeth Holmes'));
+    expect(out.findings).toEqual([]);
+    expect(out.notes).toContain('SAM.gov exclusion list: no match for Elizabeth Holmes');
+  });
+
+  test('Offshore Leaks is never searched for an associate or relative', async () => {
+    expect(offshoreLeaksConnector.kinds).toEqual(['subject', 'company']);
+    serve({ 'offshoreleaks.icij.org': () => ({ status: 201, body: json(ICIJ) }) });
+    for (const kind of ['associate', 'relative']) {
+      const out = await offshoreLeaksConnector.run({ kind, value: 'Adam Neumann', relation: 'brother' }, ctxFor('Elizabeth Holmes'));
+      expect(out.findings).toEqual([]);
+    }
+    expect(calls).toHaveLength(0);
+  });
+});

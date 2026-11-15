@@ -22,55 +22,108 @@ import { getJson, mapLimit, htmlToText } from '../http';
 import { makeFinding, makeThread, severityFromText } from '../finding';
 import { threadsFromResult, profileFromUrl, mentions } from '../extract';
 import { nameTokens, matchSubject } from '../identity';
-import { isSensitive, mentionsMinor } from '../guardrails';
+import { isSensitive, mentionsMinor, redactPII } from '../guardrails';
 import { companyKeys } from '../../founderCheck';
 import { personNameFits } from './scholar';
 
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const count = (n) => Number(n || 0).toLocaleString('en-US');
-/** A bio the privacy rules would reject is left out, so the rest of the profile survives. */
-const safe = (s) => (isSensitive(s) || mentionsMinor(s) ? '' : clean(s));
+/**
+ * A bio the privacy rules would reject is left out, so the rest of the
+ * profile survives; e-mail addresses and the like in what is kept are removed
+ * (it is also the text the grade is read from, which is stored with the record).
+ */
+const safe = (s) => (isSensitive(s) || mentionsMinor(s) ? '' : clean(redactPII(clean(s))));
 const EMPTY = () => ({ findings: [], threads: [], notes: [] });
 const MATCH_RANK = { confirmed: 3, likely: 2, company: 2, possible: 1 };
 const SEVERITY_RANK = { high: 3, medium: 2, low: 1, info: 0 };
 
 /* ------------------------------------------------- whose account is this? */
 
-/** The name an account states, against the subject's: 'same', 'other' (a different family name) or 'unknown'. */
+// Common short forms of given names: a profile under "Bill Gates" may be William Gates's.
+const SHORT_FORMS = [
+  ['patrick', 'pat', 'paddy'], ['patricia', 'pat', 'patty', 'trish'], ['william', 'bill', 'billy', 'will', 'liam'], ['robert', 'bob', 'bobby', 'rob', 'robbie'],
+  ['elizabeth', 'liz', 'lizzie', 'beth', 'betty', 'eliza'], ['richard', 'rick', 'rich', 'dick'], ['james', 'jim', 'jimmy', 'jamie'], ['john', 'jack', 'johnny'],
+  ['michael', 'mike', 'mick', 'mikey'], ['thomas', 'tom', 'tommy'], ['joseph', 'joe', 'joey'], ['daniel', 'dan', 'danny'], ['david', 'dave'],
+  ['christopher', 'chris'], ['christina', 'chris', 'tina'], ['christine', 'chris'], ['matthew', 'matt'], ['andrew', 'andy', 'drew'], ['anthony', 'tony'],
+  ['edward', 'ed', 'eddie', 'ted'], ['benjamin', 'ben'], ['samuel', 'sam'], ['samantha', 'sam'], ['alexander', 'alex', 'sasha'], ['alexandra', 'alex', 'sasha'],
+  ['nicholas', 'nick'], ['jonathan', 'jon'], ['steven', 'steve'], ['stephen', 'steve'], ['timothy', 'tim'], ['gregory', 'greg'], ['peter', 'pete'],
+  ['charles', 'charlie', 'chuck'], ['katherine', 'kate', 'katie', 'kathy'], ['catherine', 'kate', 'cathy'], ['jennifer', 'jen', 'jenny'],
+  ['margaret', 'maggie', 'meg', 'peggy'], ['susan', 'sue'], ['rebecca', 'becky'], ['victoria', 'vicky', 'tori'], ['jessica', 'jess'], ['abigail', 'abby'],
+  ['nathaniel', 'nate', 'nat'], ['nathan', 'nate'], ['zachary', 'zach', 'zack'], ['frederick', 'fred'], ['lawrence', 'larry'], ['kenneth', 'ken'],
+  ['ronald', 'ron'], ['donald', 'don'], ['douglas', 'doug'], ['jeffrey', 'jeff'], ['gerald', 'jerry'], ['raymond', 'ray'],
+];
+/** Whether a stated given name can be the subject's: the same, an initial, a short form or the start of it. */
+function sameGiven(want, got) {
+  if (want === got) return true;
+  if (got.length === 1) return want[0] === got;
+  if (got.length >= 3 && (want.startsWith(got) || got.startsWith(want))) return true;
+  return SHORT_FORMS.some((forms) => forms.includes(want) && forms.includes(got));
+}
+
+/**
+ * The name an account states, against the subject's: 'same', 'other' (a
+ * different family name, or the same family name with a different given
+ * name: a brother or a co-founder is not the subject) or 'unknown'.
+ */
 function statedName(subject, name) {
   const n = clean(name);
   if (!n) return 'unknown';
   if (personNameFits(subject, n)) return 'same';
   const want = nameTokens(subject.name);
   const got = nameTokens(n);
-  if (want.length >= 2 && got.length >= 2 && !got.includes(want[want.length - 1])) return 'other';
-  return 'unknown'; // a first name only, a nickname, a reversed name
+  if (want.length < 2 || got.length < 2) return 'unknown'; // a first name only, a nickname
+  const last = want[want.length - 1];
+  if (!got.includes(last)) return 'other';
+  if (got[0] === last) return 'unknown'; // a reversed name
+  // The given name may sit anywhere before the family name ("J. Patrick Collison").
+  if (got.slice(0, got.lastIndexOf(last)).some((t) => want.slice(0, -1).some((w) => sameGiven(w, t)))) return 'unknown';
+  return 'other';
 }
 
-/** Known companies and websites of the subject that a piece of text names. */
-function knownIn(subject, text) {
+/** Known companies, websites (and, when asked, handles) of the subject that a piece of text names. */
+function knownIn(subject, text, kinds = ['companies', 'domains']) {
   const out = [];
-  for (const kind of ['companies', 'domains']) {
+  for (const kind of kinds) {
     for (const a of subject.anchors[kind].values()) if (a.test(text)) out.push(a.value);
   }
   return out;
 }
 
 /**
+ * The service a handle task's handle comes from, read from the task (or the
+ * start of the reason it was offered: "x handle ...", "GitHub login ..."), or
+ * '' when that is not known.
+ */
+function handlePlatform(task) {
+  const stated = clean(task?.platform).toLowerCase();
+  const hint = stated || clean(task?.why).toLowerCase();
+  if (/^(?:x|twitter)\b/.test(hint)) return 'x';
+  if (/^github\b/.test(hint)) return 'github';
+  if (/^hacker ?news\b|^hn\b/.test(hint)) return 'hacker news';
+  return stated;
+}
+
+/**
  * How an account should be graded: the fields to hand to makeFinding, or
  * null when it states someone else's name.
  *  - it states the subject's name: graded on that name plus what the profile says;
- *  - it states no name but names a known company or website, and was reached
- *    through a handle of the subject: likely;
+ *  - it states no name, was reached through a handle of the subject and links
+ *    back to a known website or handle of theirs: likely;
+ *  - it states no name and names a known company, and the handle is known to
+ *    come from this same service: likely (the same handle on another service
+ *    may be anyone, and a company is named by thousands of its staff);
  *  - otherwise: possible, and nothing it links to is followed.
  */
-function gradeAccount(subject, { name, text, handle }) {
+function gradeAccount(subject, { name, text, handle, samePlatform = false }) {
   const stated = statedName(subject, name);
   if (stated === 'other') return null;
   if (stated === 'same') return { matchText: `${subject.name}. ${clean(name)}. ${text} ${handle}` };
-  const known = knownIn(subject, text);
+  const linked = knownIn(subject, text, ['domains', 'handles']).filter((v) => v.toLowerCase() !== handle.toLowerCase());
+  const known = samePlatform ? [...knownIn(subject, text, ['companies']), ...linked] : linked;
   if (known.length) return { match: 'likely', matchReasons: [`reached through the handle ${handle}`, ...known.slice(0, 3).map((k) => `names ${k}`)] };
-  return { match: 'possible', matchReasons: [`reached through the handle ${handle} only: the account does not state the person's name`] };
+  const why = samePlatform ? 'only' : 'only, and the handle may belong to someone else on this service';
+  return { match: 'possible', matchReasons: [`reached through the handle ${handle} ${why}: the account does not state the person's name`] };
 }
 
 /**
@@ -271,7 +324,7 @@ async function githubByName(subject, ctx) {
   return { findings: pairs.map((p) => p.finding), threads: tied.length ? dedupeThreads(githubThreads(tied[0].profile, tied[0].finding)) : [], notes };
 }
 
-async function githubByHandle(subject, handle, ctx) {
+async function githubByHandle(subject, handle, ctx, samePlatform = false) {
   if (!GITHUB_LOGIN.test(handle)) return EMPTY();
   let profile;
   try { profile = await githubUser(handle, ctx); } catch (error) {
@@ -280,7 +333,7 @@ async function githubByHandle(subject, handle, ctx) {
     throw error;
   }
   if (profile.type !== 'User') return EMPTY(); // an organisation's account is not a person's profile
-  const grade = gradeAccount(subject, { name: profile.name, text: githubText(subject, profile), handle: profile.login });
+  const grade = gradeAccount(subject, { name: profile.name, text: githubText(subject, profile), handle: profile.login, samePlatform });
   if (!grade) return { findings: [], threads: [], notes: [`The GitHub account "${profile.login}" states a different name and was left out.`] };
   const finding = githubFinding(subject, profile, grade);
   return { findings: [finding].filter(Boolean), threads: dedupeThreads(githubThreads(profile, finding), handle), notes: [] };
@@ -293,7 +346,7 @@ export const githubConnector = {
   prior: 0.45,
   timeoutMs: 12000,
   async run(task, ctx) {
-    if (task.kind === 'handle') return githubByHandle(ctx.subject, clean(task.value).replace(/^@/, ''), ctx);
+    if (task.kind === 'handle') return githubByHandle(ctx.subject, clean(task.value).replace(/^@/, ''), ctx, handlePlatform(task) === 'github');
     if (task.kind === 'subject') return githubByName(ctx.subject, ctx);
     return EMPTY();
   },
@@ -441,14 +494,14 @@ async function hnAboutCompany(subject, company, ctx) {
   return { findings: kept.map((p) => p.finding), threads: storyThreads(subject, kept), notes: [] };
 }
 
-async function hnAccount(subject, handle, ctx) {
+async function hnAccount(subject, handle, ctx, samePlatform = false) {
   if (!HN_HANDLE.test(handle)) return EMPTY();
   const user = await getJson(`${HN_USER}/${encodeURIComponent(handle)}.json`, { deadline: ctx.deadline });
   if (!user || !user.id) return EMPTY(); // the service answers "null" for a name nobody holds
   const id = clean(user.id);
   const about = htmlToText(user.about || '').replace(/\s+/g, ' ').trim();
   const created = Number(user.created) > 0 ? new Date(Number(user.created) * 1000).toISOString().slice(0, 10) : '';
-  const grade = gradeAccount(subject, { name: subject.hasName(about) ? subject.name : '', text: about, handle: id });
+  const grade = gradeAccount(subject, { name: subject.hasName(about) ? subject.name : '', text: safe(about), handle: id, samePlatform });
   const finding = makeFinding(subject, {
     source: 'hacker-news', sourceLabel: HN_LABEL, category: 'identity',
     title: `Hacker News account ${id} (self-described): ${[created && `created ${created}`, `karma ${count(user.karma)}`].filter(Boolean).join(', ')}`,
@@ -473,7 +526,7 @@ export const hackerNewsConnector = {
   async run(task, ctx) {
     if (task.kind === 'subject') return hnAboutPerson(ctx.subject, ctx);
     if (task.kind === 'company') return hnAboutCompany(ctx.subject, clean(task.value), ctx);
-    if (task.kind === 'handle') return hnAccount(ctx.subject, clean(task.value).replace(/^@/, ''), ctx);
+    if (task.kind === 'handle') return hnAccount(ctx.subject, clean(task.value).replace(/^@/, ''), ctx, handlePlatform(task) === 'hacker news');
     return EMPTY();
   },
 };
@@ -511,7 +564,7 @@ export const linkedAccountsConnector = {
     const handle = clean(task.value).replace(/^@/, '');
     if (task.kind !== 'handle' || !/^[A-Za-z0-9_.-]{1,39}$/.test(handle)) return EMPTY();
     // The thread says which service the handle is from when that is known; otherwise each is tried.
-    const hint = String(task.why || '').toLowerCase();
+    const hint = `${task.platform || ''} ${task.why || ''}`.toLowerCase();
     const services = /\b(?:x|twitter)\b/.test(hint) ? ['twitter'] : /github/.test(hint) ? ['github'] : /hacker ?news/.test(hint) ? ['hackernews'] : ['github', 'twitter', 'hackernews'];
     const replies = await Promise.allSettled(services.map((service) => getJson(`${KEYBASE}?${service}=${encodeURIComponent(handle)}&fields=basics,profile,proofs_summary`, { deadline: ctx.deadline })));
     const answered = replies.filter((r) => r.status === 'fulfilled' && r.value?.status?.code === 0);
@@ -534,7 +587,8 @@ export const linkedAccountsConnector = {
       if (!links.length) continue;
       const fullName = clean(them.profile?.full_name);
       const bio = safe(them.profile?.bio); // the profile's location is not read
-      const grade = gradeAccount(subject, { name: fullName, text: `${bio}. ${links.map((l) => `${l.name} ${l.url}`).join(' ')}`, handle });
+      // Only a lookup on the service the handle is known to come from reaches that handle's holder for certain.
+      const grade = gradeAccount(subject, { name: fullName, text: `${bio}. ${links.map((l) => `${l.name} ${l.url}`).join(' ')}`, handle, samePlatform: services.length === 1 });
       if (!grade) { notes.push(`The Keybase account linked to the handle "${handle}" states a different name and was left out.`); continue; }
       const claims = [fullName && `name "${fullName}"`, bio && `bio "${bio}"`].filter(Boolean).join(', ');
       const created = Number(them.basics?.ctime) > 0 ? new Date(Number(them.basics.ctime) * 1000).toISOString().slice(0, 10) : null;

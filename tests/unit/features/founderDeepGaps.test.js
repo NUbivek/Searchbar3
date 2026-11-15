@@ -47,7 +47,7 @@ describe('verifyGaps', () => {
     });
     expect(out.threads.map((t) => `${t.kind}:${t.value}`)).toEqual(['company:dHybrid Systems', 'company:St. George Security', 'school:Utah Valley University', 'associate:Mark Russell', 'relative:Travis Milton']);
     expect(out.threads.every((t) => t.trusted)).toBe(true);
-    expect(out.threads.find((t) => t.kind === 'relative')).toEqual(expect.objectContaining({ relation: 'brother', role: 'director' }));
+    expect(out.threads.find((t) => t.kind === 'relative')).toEqual(expect.objectContaining({ relation: 'brother', role: expect.stringMatching(/^director of hydrogen production at Nikola/) }));
     expect(out.searches).toHaveLength(2);
     expect(out.dropped).toBe(0);
   });

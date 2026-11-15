@@ -71,7 +71,7 @@ test('pulls trusted threads round by round and stops when nothing is new', async
   expect(progress.findings).toBe(3);
   expect(progress.byCategory).toEqual({ career: 1, litigation: 1, regulatory: 1 });
   // a failing source is reported, a disabled one is listed as not searched
-  expect(progress.sources.find((s) => s.id === 'broken')).toMatchObject({ errors: 1, lastError: 'HTTP 503' });
+  expect(progress.sources.find((s) => s.id === 'broken')).toMatchObject({ errors: 1, lastError: 'could not be reached' });
   expect(progress.sources.find((s) => s.id === 'needs-key')).toMatchObject({ runs: 0, lastError: 'Not enabled on this deployment.' });
   expect(state.log.some((l) => /Round 1: \d+ lookups, 2 new records, 1 new threads? to pull \(1 company\)/.test(l.text))).toBe(true);
 });
@@ -88,7 +88,7 @@ test('with no company, the check follows the company most sources name, and says
   const sources = [{
     id: 'a', label: 'A', kinds: ['subject'], plan: () => [{ template: '1' }, { template: '2' }, { template: '3' }],
     run: async (task, { subject }) => ({
-      findings: [finding(subject, { title: `Jane Roe profile ${task.template}`, quote: 'Jane Roe leads Acme Robotics.' })],
+      findings: [finding(subject, { title: `Jane Roe profile ${task.template}`, quote: 'Jane Roe leads Acme Robotics.', url: `https://site${task.template}.test/jane-roe` })],
       threads: [makeThread('company', task.template === '3' ? 'Roe Dental' : 'Acme Robotics', 'named in a profile', { trusted: false })],
     }),
   }, { id: 'b', label: 'B', kinds: ['company'], run: async (task, { subject }) => ({ findings: [finding(subject, { title: `Jane Roe and ${task.value} raise a round`, quote: `Jane Roe of ${task.value}.` })] }) }];
@@ -97,7 +97,9 @@ test('with no company, the check follows the company most sources name, and says
   expect(state.identity.status).toBe('inferred');
   expect(state.identity.note).toMatch(/Acme Robotics/);
   expect(state.anchors.companies.map((a) => a.value)).toEqual(['Acme Robotics']);
-  expect(state.findings.filter((f) => f.match === 'confirmed').length).toBeGreaterThanOrEqual(3);
+  // an inferred company is not proof: records naming it are at most likely, never confirmed
+  expect(state.findings.filter((f) => f.match === 'confirmed')).toHaveLength(0);
+  expect(state.findings.filter((f) => f.match === 'likely').length).toBeGreaterThanOrEqual(3);
   expect(state.threads['company|roe dental'].pulled).toBe(false);
 });
 

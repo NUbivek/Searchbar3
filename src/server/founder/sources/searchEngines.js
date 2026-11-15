@@ -12,7 +12,13 @@
  *                                      but its robots.txt disallows /search
  *         Wikipedia search             always answers, with snippets; only covers Wikipedia
  *   news  Google News (RSS feed)       fast, up to 100 headlines, after:/before: date windows
- *                                      back to the 2000s; headlines only, no snippets
+ *                                      back to the 2000s; headlines only, no snippets. On unless
+ *                                      FOUNDER_SEARCH_GOOGLE_NEWS=0. Note for the owner: the feed
+ *                                      is published for programs to read, but news.google.com's
+ *                                      robots.txt does not list /rss/search among the allowed
+ *                                      paths. It is kept on because each request is a lookup a
+ *                                      user started, at a modest pace (one a second, at most 60
+ *                                      per 10 min); set the switch to 0 to turn it off.
  *         Bing News (RSS feed)         headline plus a sentence; recent coverage only, and
  *                                      it sometimes answers with an empty feed
  *         GDELT (DOC 2.0 article list) worldwide news since 2017, headlines only; slow
@@ -31,9 +37,22 @@
  * Every engine is asked as what we are (the shared client in ../http, no
  * browser disguise). When an engine says stop (HTTP 429/403, a challenge or
  * "unusual traffic" page) it is left alone for 10 minutes, doubling up to 2
- * hours, and the next engine is used. The two metered search services
- * (search/retrieve.js) are the last resort, only when the caller allows it
- * and at most METERED_PER_HOUR times an hour per server instance.
+ * hours, and the next engine is used. Such a pause is written to the shared
+ * database (source_cache, key 'engine-rest:<id>'), and every instance reads
+ * those pauses at most every 2 minutes, so a fresh server instance does not
+ * ask an engine that just told another instance to stop. Short rests (five
+ * minutes after plain failures) and request spacing stay per instance.
+ *
+ * The backup search service (search/retrieve.js searchWeb: Serper, and
+ * Tavily when Serper finds nothing) is the last resort, only when the caller
+ * allows it and FOUNDER_SEARCH_METERED is not 0. Note for the owner: the
+ * site's ordinary search already uses this service on every query, and these
+ * calls draw on the same allowance. It is used at most METERED_PER_HOUR times
+ * per clock hour across all server instances (counted in source_cache, key
+ * 'search-metered:<hour>'); without the hosted database, or when the count cannot be
+ * read in time, the limit is per server instance (a sliding hour). One use
+ * can be two calls to the service when Serper finds nothing and Tavily is
+ * also configured.
  *
  * Settled and left out (checked live, 2026-11-14): Mojeek (403 "automated
  * queries"), Startpage (proof-of-work challenge), public SearXNG instances
@@ -51,10 +70,15 @@ import { load } from 'cheerio';
 import { getText, getJson } from '../http';
 import { isBlockedUrl } from '../guardrails';
 import { searchWeb, webSearchConfigured } from '../../search/retrieve';
+import { query as dbQuery, persistenceMode } from '../../db';
 
 export const MAX_ENGINES_PER_CALL = 3;
 export const METERED_PER_HOUR = 20;
 const HOUR_MS = 60 * 60 * 1000;
+const ENGINE_REST_PREFIX = 'engine-rest:';
+const METERED_PREFIX = 'search-metered:';
+const SHARED_RELOAD_MS = 2 * 60 * 1000; // how often the pauses other instances shared are read
+const SHARED_WAIT_MS = 1500; // how long a search waits for the shared database before going on without it
 const COOLDOWN_MS = 10 * 60 * 1000;
 const COOLDOWN_MAX_MS = 2 * HOUR_MS;
 const SOFT_FAILURES = 3; // consecutive plain failures (timeouts, bad replies) before a short rest
@@ -316,7 +340,9 @@ export const ENGINES = [
     },
   },
   {
-    id: 'gnews', label: 'Google News', kind: 'news', gapMs: 1000, budget: { max: 80, perMs: TEN_MINUTES }, sites: 'news',
+    id: 'gnews', label: 'Google News', kind: 'news', gapMs: 1000, budget: { max: 60, perMs: TEN_MINUTES }, sites: 'news',
+    // On by default; see the note in the header. The owner can switch it off.
+    enabled: () => process.env.FOUNDER_SEARCH_GOOGLE_NEWS !== '0',
     async search(query, { withinDays, after, before, deadline, lang } = {}) {
       // before: on its own is ignored by the feed; a window always gets both bounds.
       const w = dateWindow({ withinDays, after, before });
@@ -384,6 +410,76 @@ export function engineOrder({ news = false, prefer = null, query = '', withinDay
 let health = new Map();
 let meteredStamps = [];
 let pacing = true;
+let sharedRestsAt = 0;
+
+const meteredOn = () => process.env.FOUNDER_SEARCH_METERED !== '0';
+// Only the hosted database is shared by several server instances; a local one (pglite) serves one process.
+const sharedDb = () => { try { return persistenceMode() === 'neon'; } catch { return false; } };
+/** Resolves to the promise's value, or to `fallback` when it takes longer than `ms` or fails. */
+function within(promise, ms, fallback = null) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallback),
+    new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), ms); }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/** Tell the other server instances that this engine is paused (best effort, not awaited by the search). */
+function shareRest(id, until, ms) {
+  if (!sharedDb()) return;
+  Promise.resolve().then(() => dbQuery(
+    `INSERT INTO source_cache (key, body, fetched_at) VALUES ($1, $2, now())
+     ON CONFLICT (key) DO UPDATE SET body = EXCLUDED.body, fetched_at = now()`,
+    [`${ENGINE_REST_PREFIX}${id}`, JSON.stringify({ until, ms })],
+  )).catch(() => {});
+}
+
+/** Take on the pauses other instances shared, at most every SHARED_RELOAD_MS. */
+async function loadSharedRests() {
+  if (!sharedDb() || Date.now() - sharedRestsAt < SHARED_RELOAD_MS) return;
+  sharedRestsAt = Date.now();
+  try {
+    const rows = await dbQuery('SELECT key, body FROM source_cache WHERE key LIKE $1', [`${ENGINE_REST_PREFIX}%`]);
+    const now = Date.now();
+    for (const row of rows || []) {
+      const body = typeof row.body === 'string' ? JSON.parse(row.body) : row.body;
+      const id = String(row.key).slice(ENGINE_REST_PREFIX.length);
+      const until = Number(body?.until);
+      if (!ENGINES.some((e) => e.id === id) || !(until > now)) continue;
+      const h = stateOf(id);
+      if (h.cooldownUntil < until) h.cooldownUntil = Math.min(until, now + COOLDOWN_MAX_MS);
+      const ms = Number(body?.ms);
+      if (Number.isFinite(ms) && ms > h.cooldownMs) h.cooldownMs = Math.min(ms, COOLDOWN_MAX_MS); // the next block keeps doubling
+    }
+  } catch {
+    // best effort: this instance's own view still applies
+  }
+}
+
+/**
+ * Count one use of the backup search service in the shared hourly count.
+ * true: allowed; false: the hour's uses across all instances are spent;
+ * null: no shared count (no database, or it did not answer in time), so only this instance's count applies.
+ */
+async function reserveSharedMetered() {
+  if (!sharedDb()) return null;
+  const key = `${METERED_PREFIX}${new Date(Date.now()).toISOString().slice(0, 13)}`;
+  const rows = await within(dbQuery(
+    `INSERT INTO source_cache (key, body, fetched_at) VALUES ($1, to_jsonb(1), now())
+     ON CONFLICT (key) DO UPDATE SET body = to_jsonb(COALESCE((source_cache.body #>> '{}')::int, 0) + 1), fetched_at = now()
+     RETURNING body`,
+    [key],
+  ), SHARED_WAIT_MS, null);
+  const raw = Array.isArray(rows) ? rows[0]?.body : undefined;
+  let count = NaN;
+  try { count = Number(typeof raw === 'string' ? JSON.parse(raw) : raw); } catch { /* unreadable: no shared count */ }
+  if (!Number.isFinite(count)) return null;
+  if (count === 1) {
+    // a new hour: clear the counts of earlier days
+    Promise.resolve().then(() => dbQuery(`DELETE FROM source_cache WHERE key LIKE $1 AND fetched_at < now() - interval '1 day'`, [`${METERED_PREFIX}%`])).catch(() => {});
+  }
+  return count <= METERED_PER_HOUR;
+}
 
 function stateOf(id) {
   if (!health.has(id)) health.set(id, { cooldownUntil: 0, cooldownMs: 0, streak: 0, calls: 0, answers: 0, results: 0, blocks: 0, failures: 0, lastError: null, lastOkAt: 0, nextFreeAt: 0, recent: [] });
@@ -408,6 +504,7 @@ function markFailure(engine, error) {
     h.blocks += 1;
     h.cooldownMs = h.cooldownMs ? Math.min(h.cooldownMs * 2, COOLDOWN_MAX_MS) : COOLDOWN_MS;
     h.cooldownUntil = Date.now() + h.cooldownMs;
+    shareRest(engine.id, h.cooldownUntil, h.cooldownMs); // always 10 minutes or more
     return 'blocked';
   }
   h.failures += 1;
@@ -494,6 +591,7 @@ export async function keylessSearch(query, { news = false, num = 10, withinDays,
   const tried = [];
   if (!q) return { results: [], engine: null, tried };
   const sites = siteFilters(q);
+  await within(loadSharedRests(), SHARED_WAIT_MS);
   const candidates = engineOrder({ news, prefer, query: q, withinDays, after, before }).map(engineById);
 
   let asked = 0;
@@ -515,11 +613,17 @@ export async function keylessSearch(query, { news = false, num = 10, withinDays,
     }
   }
 
-  // Last resort: the metered services, for the lookups that matter most. They cannot search a past window.
-  if (allowMetered && !before && !after && webSearchConfigured() && meteredLeft() > 0 && !(deadline && Date.now() > deadline - 3000)) {
-    meteredStamps.push(Date.now());
+  // Last resort: the backup search service, for the lookups that matter most. It cannot search a past window.
+  const late = () => Boolean(deadline && Date.now() > deadline - 3000);
+  const shared = allowMetered && meteredOn() && !before && !after && webSearchConfigured() && meteredLeft() > 0 && !late()
+    ? await reserveSharedMetered()
+    : undefined;
+  if (shared === false) tried.push({ id: 'metered', outcome: 'resting' }); // this hour's uses across all instances are spent
+  else if (shared !== undefined && late()) tried.push({ id: 'metered', outcome: 'busy' });
+  else if (shared !== undefined) {
+    meteredStamps.push(Date.now()); // counted here only when the service is really asked
     try {
-      const items = await searchWeb(q, { news, withinDays: withinDays || 0, num });
+      const items = await searchWeb(q, { news, withinDays: withinDays || 0, num, fallback: false });
       const results = finish((items || []).map((it) => ({ title: tidy(it.title), snippet: tidy(it.snippet || it.content), url: it.url, date: it.date || null })), { num, sites, after, before, withinDays, accept });
       answered += 1;
       tried.push({ id: 'metered', outcome: results.length ? 'results' : 'nothing', count: results.length });
@@ -558,7 +662,8 @@ export function engineHealth() {
     paused.length ? `${names(paused)} asked for fewer searches and ${paused.length === 1 ? 'is' : 'are'} paused for now; the others covered.` : '',
     used ? `${used} search${used === 1 ? '' : 'es'} this hour used the backup search service (at most ${METERED_PER_HOUR} an hour).` : '',
   ].filter(Boolean).join(' ');
-  return { engines, metered: { configured: webSearchConfigured(), usedThisHour: used, hourlyLimit: METERED_PER_HOUR }, note };
+  // usedThisHour is this server instance's count; the shared limit is kept in the database.
+  return { engines, metered: { configured: webSearchConfigured() && meteredOn(), usedThisHour: used, hourlyLimit: METERED_PER_HOUR }, note };
 }
 
 /** Forget all health, pacing and allowances (tests). Pacing waits are off in tests unless asked for. */
@@ -566,4 +671,5 @@ export function __resetEnginesForTests({ pace = false } = {}) {
   health = new Map();
   meteredStamps = [];
   pacing = pace;
+  sharedRestsAt = 0;
 }

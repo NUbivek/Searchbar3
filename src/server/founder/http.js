@@ -2,13 +2,26 @@
  * HTTP for the background-check connectors: one polite client shared by all
  * of them. Free public endpoints are easy to lose access to, so every call
  * is spaced per host, has a timeout, respects the job's deadline, and backs
- * off (briefly) on 429/503 instead of hammering.
+ * off (briefly) on 429/503 instead of hammering. A host that still says
+ * "slow down" (429/403/503) after that is left alone for at least a minute.
  *
  * Tests replace the transport with setTransport(); connectors never call
  * fetch themselves.
  */
 
-export const USER_AGENT = 'Mozilla/5.0 (compatible; diligence-research/1.0; +https://www.sec.gov/os/accessing-edgar-data)';
+/**
+ * The default User-Agent: generic and honest (an automated client, not a
+ * browser). It carries no owner details: those are sent only when the owner
+ * declares a contact in FOUNDER_HTTP_CONTACT (a URL or address). SEC calls
+ * set their own declared agent from SEC_USER_AGENT in sec.js.
+ */
+export const USER_AGENT = 'diligence-research/1.0 (automated public-records lookup)';
+
+/** The User-Agent sent by default, with the owner's declared contact when one is set. */
+export function userAgent() {
+  const contact = String(process.env.FOUNDER_HTTP_CONTACT || '').replace(/[\u0000-\u001f\u007f()]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+  return contact ? `diligence-research/1.0 (automated public-records lookup; +${contact})` : USER_AGENT;
+}
 const DEFAULT_TIMEOUT_MS = 12000;
 /** Largest response read by default. A source that downloads a whole list passes maxBytes. */
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
@@ -28,14 +41,26 @@ const HOST_GAP_MS = {
   'lite.duckduckgo.com': 1200,
   'www.bing.com': 600,
   'news.google.com': 400,
+  // Both publish "Crawl-delay: 10" in robots.txt
+  'littlesis.org': 10000,
+  'www.thegazette.co.uk': 10000,
 };
 const DEFAULT_GAP_MS = 120;
 
 /** After a refused connection, a paced host is left alone for this long (it is telling us to back off). */
 const REFUSED_REST_MS = 60000;
+/** A host that answers 429/403/503 after our retries rests at least a minute, doubling on each repeat up to this. */
+const SLOW_DOWN_REST_MS = 60000;
+const MAX_REST_MS = 15 * 60000;
+/** A host whose rest ends further away than this is turned down at once instead of waited for. */
+const MAX_REST_WAIT_MS = 10000;
 
 let transport = (url, init) => fetch(url, init);
 const nextSlot = new Map();
+/** host -> epoch ms until which the host asked to be left alone */
+const restUntil = new Map();
+/** host -> length of its last rest, for doubling on repeats; cleared by a good answer */
+const lastRest = new Map();
 
 let paced = true;
 
@@ -48,20 +73,35 @@ export function setTransport(fn, { paced: keepPacing = false } = {}) {
   transport = fn || ((url, init) => fetch(url, init));
   paced = fn ? keepPacing : true;
   nextSlot.clear();
+  restUntil.clear();
+  lastRest.clear();
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Leave a host alone for `ms` (never shortens a rest already set). */
+function rest(host, ms) {
+  const until = Date.now() + ms;
+  restUntil.set(host, Math.max(restUntil.get(host) || 0, until));
+  nextSlot.set(host, Math.max(nextSlot.get(host) || 0, until));
+}
+
+/**
+ * Wait for this host's turn. Returns 'ok', 'late' (the turn comes after the
+ * deadline) or 'resting' (the host asked to be left alone for a while yet).
+ * Only a call that will actually run books a slot, so turned-away calls do
+ * not push the host's queue further back.
+ */
 async function waitForHost(host, deadline) {
   const gap = paced ? (HOST_GAP_MS[host] ?? DEFAULT_GAP_MS) : 0;
   const now = Date.now();
+  if ((restUntil.get(host) || 0) - now > MAX_REST_WAIT_MS) return 'resting';
   const at = Math.max(now, nextSlot.get(host) || 0);
-  nextSlot.set(host, at + gap);
   const wait = at - now;
-  if (wait <= 0) return true;
-  if (deadline && at + 1500 > deadline) return false; // no time left to queue behind others
-  await sleep(wait);
-  return true;
+  if (wait > 0 && deadline && at + 1500 > deadline) return 'late'; // no time left to queue behind others
+  nextSlot.set(host, at + gap);
+  if (wait > 0) await sleep(wait);
+  return 'ok';
 }
 
 export class HttpError extends Error {
@@ -88,8 +128,9 @@ export async function request(url, { method = 'GET', headers = {}, body = undefi
   if (!host) throw new HttpError('Invalid URL', { url });
   let attempt = 0;
   for (;;) {
-    const ok = await waitForHost(host, deadline);
-    if (!ok) throw new HttpError('Out of time before the request could start', { url, retryable: true });
+    const turn = await waitForHost(host, deadline);
+    if (turn === 'resting') throw new HttpError(`${host} asked us to wait; it is being left alone for now`, { url, retryable: true });
+    if (turn === 'late') throw new HttpError('Out of time before the request could start', { url, retryable: true });
     const budget = deadline ? Math.min(timeoutMs, deadline - Date.now()) : timeoutMs;
     if (budget < 800) throw new HttpError('Out of time', { url, retryable: true });
     const controller = new AbortController();
@@ -100,28 +141,48 @@ export async function request(url, { method = 'GET', headers = {}, body = undefi
         method,
         signal: controller.signal,
         redirect: 'follow',
-        headers: { 'User-Agent': USER_AGENT, Accept: accept, ...(isObject ? { 'Content-Type': 'application/json' } : {}), ...headers },
+        headers: { 'User-Agent': userAgent(), Accept: accept, ...(isObject ? { 'Content-Type': 'application/json' } : {}), ...headers },
         ...(body !== undefined ? { body: isObject ? JSON.stringify(body) : body } : {}),
       });
       const status = response.status;
+      const retryAfter = Number(response.headers?.get?.('retry-after'));
+      const retryAfterMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 0;
+      // The host said "slow down" and we will not try again now: leave it alone, longer on each repeat
+      const slowDown = () => {
+        if (!paced) return;
+        const ms = Math.min(MAX_REST_MS, Math.max(retryAfterMs, SLOW_DOWN_REST_MS, (lastRest.get(host) || 0) * 2));
+        lastRest.set(host, ms);
+        rest(host, ms);
+      };
       if ((status === 429 || status === 503) && attempt < retries) {
         attempt += 1;
-        const retryAfter = Number(response.headers?.get?.('retry-after'));
-        const wait = Math.min(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1500 * attempt, 6000);
-        if (deadline && Date.now() + wait + 1500 > deadline) throw new HttpError(`Rate limited (${status})`, { status, url, retryable: true });
+        const wait = Math.min(retryAfterMs || 1500 * attempt, 6000);
+        if (deadline && Date.now() + wait + 1500 > deadline) {
+          slowDown();
+          throw new HttpError(`Rate limited (${status})`, { status, url, retryable: true });
+        }
         await sleep(wait);
         continue;
       }
+      if (status === 429 || status === 403 || status === 503) slowDown();
+      const limit = Math.min(maxBytes, MAX_BODY_BYTES_CEILING);
+      const tooLarge = () => new HttpError(`Response larger than ${Math.round(limit / 1048576)} MB`, { status, url });
+      const declaredLength = Number(response.headers?.get?.('content-length'));
+      if (status < 400 && Number.isFinite(declaredLength) && declaredLength > limit) {
+        controller.abort(); // refuse before reading the body
+        throw tooLarge();
+      }
       const text = await response.text();
-      if (status < 400 && text.length > Math.min(maxBytes, MAX_BODY_BYTES_CEILING)) throw new HttpError(`Response larger than ${Math.round(Math.min(maxBytes, MAX_BODY_BYTES_CEILING) / 1048576)} MB`, { status, url });
+      if (status < 400 && text.length > limit) throw tooLarge();
       if (status >= 400) throw new HttpError(`HTTP ${status}`, { status, url, retryable: status === 429 || status >= 500 });
+      if (status < 300) lastRest.delete(host);
       return { status, headers: response.headers, text, url: response.url || url };
     } catch (error) {
       if (error instanceof HttpError) throw error;
       const timedOut = error?.name === 'AbortError';
       // A host we pace on purpose that refuses the connection wants a rest, not an immediate second try
       if (!timedOut && paced && (HOST_GAP_MS[host] || 0) >= 1000) {
-        nextSlot.set(host, Math.max(nextSlot.get(host) || 0, Date.now() + REFUSED_REST_MS));
+        rest(host, REFUSED_REST_MS);
         throw new HttpError(`${host} refused the connection; it is being left alone for a minute`, { url, retryable: true });
       }
       if (!timedOut && attempt < retries && !(deadline && Date.now() + 2500 > deadline)) {

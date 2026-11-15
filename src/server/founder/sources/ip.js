@@ -3,11 +3,12 @@
  * for checking "holds N patents" and "founded in ..." against the record.
  *
  *   patents      patent families naming the person as inventor (worldwide,
- *                from Google Patents), with a count of granted US patents from
- *                the USPTO's public patent search as a cross-check. If Google
+ *                from Google Patents). The USPTO's Patent Public Search is not
+ *                asked: it answers only its own web page, not other programs,
+ *                and this check does not pretend to be that page. When Google
  *                Patents does not answer (it turns away busy addresses), the
- *                USPTO list is used instead; it prints only the first-named
- *                inventor, so that list is a minimum and says so.
+ *                lookup fails and the coverage statement says so; when one of
+ *                its two searches answers, a note says which is missing.
  *   trademarks   US trademark filings owned by a company tied to the person:
  *                how many, the earliest filing date, live against dead.
  *
@@ -33,9 +34,9 @@
  * fields are never requested, and marks owned by individuals are skipped.
  *
  * The lookups can be switched off without a deploy: FOUNDER_SOURCES_OFF is a
- * comma-separated list of ids ('patents', 'patents-uspto', 'trademarks').
+ * comma-separated list of ids ('patents', 'trademarks').
  */
-import { getJson, request, htmlToText } from '../http';
+import { getJson, htmlToText } from '../http';
 import { makeFinding, makeThread } from '../finding';
 import { nameTokens } from '../identity';
 import { companyKeys } from '../../founderCheck';
@@ -141,53 +142,6 @@ async function googleSearch(fields, deadline) {
   };
 }
 
-const USPTO = 'https://ppubs.uspto.gov';
-const USPTO_HEADERS = { 'X-Requested-With': 'XMLHttpRequest', Referer: `${USPTO}/pubwebapp/`, Origin: USPTO };
-const brs = (s) => String(s || '').replace(/[^A-Za-zÀ-ɏ0-9' -]+/g, ' ').replace(/\s+/g, ' ').trim();
-
-/**
- * Granted US patents naming the inventor (and, when given, assigned to the
- * company) from the USPTO's public patent search: the total, and the newest
- * `pageCount` records. Two requests: open a session, then search.
- */
-async function usptoGrants({ who, company, pageCount, deadline }) {
-  const session = await request(`${USPTO}/api/users/me/session`, { method: 'POST', headers: { ...USPTO_HEADERS, 'Content-Type': 'application/json' }, body: '-1', accept: 'application/json', deadline, timeoutMs: 9000, retries: 0 });
-  const token = session.headers?.get?.('x-access-token');
-  let caseId = null;
-  try { caseId = JSON.parse(session.text)?.userCase?.caseId ?? null; } catch { caseId = null; }
-  if (!token || !caseId) throw new Error('The USPTO patent search did not open a session');
-  const assignee = brs(legalNorm(company));
-  const q = `("${brs(who.lastWord)}" NEAR2 "${brs(who.firstWord)}").in.${assignee ? ` AND ("${assignee}").as.` : ''}`;
-  const data = await getJson(`${USPTO}/api/searches/searchWithBeFamily`, {
-    method: 'POST', headers: { ...USPTO_HEADERS, 'X-Access-Token': token }, deadline, timeoutMs: 9000, retries: 0,
-    body: {
-      start: 0, pageCount, sort: 'date_publ desc', docFamilyFiltering: 'noFiltering', searchType: 1, familyIdEnglishOnly: true,
-      familyIdFirstPreferred: 'USPAT', familyIdSecondPreferred: 'US-PGPUB', familyIdThirdPreferred: 'FPRS', showDocPerFamilyPref: 'showEnglish', queryId: 0, tagDocSearch: false,
-      query: { caseId, hl_snippets: '2', op: 'OR', q, queryName: q, highlights: '0', qt: 'brs', spellCheck: false, viewName: 'tile', plurals: true, britishEquivalents: true, databaseFilters: [{ databaseName: 'USPAT', countryCodes: [] }], searchType: 1, ignorePersist: true, userEnteredQuery: q },
-    },
-  });
-  if (!data || typeof data.numFound !== 'number') throw new Error('Unexpected answer from the USPTO patent search');
-  // Only the listed fields are read: full records also carry inventor city and state.
-  const records = (Array.isArray(data.patents) ? data.patents : []).map((p) => {
-    const number = String(p?.guid || '').replace(/-/g, '');
-    if (!number) return null;
-    // "Milton; Trevor R. et al." (the first-listed inventor only) -> "Trevor R. Milton"
-    const [last, rest] = String(p.inventorsShort || '').replace(/\s+et al\.?\s*$/i, '').split(';');
-    return {
-      number,
-      title: clean(p.inventionTitle) || 'Untitled patent record',
-      inventor: rest ? tidyName(`${rest} ${last}`) : '',
-      assignee: [...new Set((Array.isArray(p.assigneeName) ? p.assigneeName : []).map(clean).filter(Boolean))].join(' / '),
-      priority: null,
-      filed: day(Array.isArray(p.applicationFilingDate) ? p.applicationFilingDate[0] : p.applicationFilingDate),
-      granted: day(p.datePublished),
-      familyId: p.familyIdentifierCur ? String(p.familyIdentifierCur) : null,
-      url: `https://patents.google.com/patent/${encodeURIComponent(number)}/en`,
-    };
-  }).filter(Boolean);
-  return { total: data.numFound, records, assignee: assignee ? withoutLegalForm(company) : '' };
-}
-
 const TITLE_NOISE = new Set(['a', 'an', 'and', 'the', 'of', 'for', 'or', 'to', 'in', 'with', 'on', 'by']);
 const titleWords = (title) => new Set(String(title || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w && !TITLE_NOISE.has(w)));
 const overlap = (a, b) => {
@@ -200,8 +154,8 @@ const overlap = (a, b) => {
 /**
  * Group publications into families: the same invention filed in several
  * countries, or published first as an application and later as a grant,
- * shares a priority date and (nearly) a title. USPTO records carry the
- * office's own family number, which is used when present.
+ * shares a priority date and (nearly) a title. A record that carries the
+ * office's own family number is grouped by it instead.
  */
 function groupFamilies(records) {
   const families = [];
@@ -292,12 +246,12 @@ const withoutMiddleInitials = (name) => {
 
 export const patentsConnector = {
   id: 'patents',
-  label: 'Patents (Google Patents and USPTO records)',
+  label: 'Patents (Google Patents)',
   kinds: ['subject'],
   prior: 0.4,
   timeoutMs: 18000,
   enabled: () => !switchedOff('patents'),
-  unavailableReason: 'Patent records are switched off on this deployment.',
+  unavailableReason: 'Patent records are not enabled on this deployment.',
 
   async run(task, ctx) {
     const subject = ctx?.subject;
@@ -315,38 +269,26 @@ export const patentsConnector = {
     const searches = [googleSearch({ inventor: who.query }, deadline)];
     if (company) searches.push(googleSearch({ inventor: who.query, assignee: companyShort }, deadline));
     const [byName, byCompany] = (await Promise.allSettled(searches)).map((r) => (r.status === 'fulfilled' ? r.value : { error: r.reason }));
-    const googleAnswered = !byName.error || Boolean(byCompany && !byCompany.error);
-
-    // 2. USPTO: the count of granted US patents when a company is known; the list itself when Google did not answer.
-    let uspto = null;
-    if (!switchedOff('patents-uspto') && (company || !googleAnswered)) {
-      uspto = await usptoGrants({ who, company, pageCount: googleAnswered ? 1 : MAX_FAMILIES, deadline }).catch((error) => ({ error }));
-    }
-    if (!googleAnswered && (!uspto || uspto.error)) throw byName.error;
-    if (!googleAnswered) notes.push('Google Patents did not answer, so only granted US patents from the USPTO are listed.');
-    else if (byName.error) notes.push(`The patent search by name alone did not answer; only patents assigned to ${companyShort} are listed.`);
+    // 2. No other patent register is asked: when Google Patents does not answer at all, the lookup fails (and is reported as not done).
+    if (byName.error && (!byCompany || byCompany.error)) throw byName.error;
+    if (byName.error) notes.push(`The patent search by name alone did not answer; only patents assigned to ${companyShort} are listed.`);
     // Each search returns its newest 100 records at most: beyond that the counts are a minimum.
     const cutShort = (s) => Boolean(s && !s.error && s.total > s.records.length);
-    let partial = googleAnswered ? cutShort(byName) || cutShort(byCompany) : cutShort(uspto);
+    const partial = cutShort(byName) || cutShort(byCompany);
 
     // 3. Keep the records whose inventor is the subject's first and last name; one entry per publication.
     //    Records returned for the company's name as assignee are marked: the search matched the company
     //    even where the record now prints a later owner.
     const byNumber = new Map();
     let otherPeople = 0;
-    const raw = googleAnswered
-      ? [...(byCompany?.records || []).map((r) => ({ ...r, underCompany: true })), ...(byName.records || [])]
-      : uspto.records.map((r) => ({ ...r, underCompany: Boolean(uspto.assignee) }));
-    let unverifiable = 0;
+    const raw = [...(byCompany?.records || []).map((r) => ({ ...r, underCompany: true })), ...(byName.records || [])];
     for (const r of raw) {
       if (byNumber.has(r.number)) continue;
       const hit = matchInventor(r.inventor, who);
-      // The USPTO list prints the first-named inventor only: a patent that names the subject further down cannot be checked from it.
-      if (!hit) { if (!googleAnswered) unverifiable += 1; continue; }
+      if (!hit) continue;
       if (who.middleInitial && hit.middleInitial && hit.middleInitial !== who.middleInitial) { otherPeople += 1; continue; }
       byNumber.set(r.number, { ...r, middleInitial: hit.middleInitial });
     }
-    if (unverifiable) partial = true;
 
     // 4. One finding per family, graded from the assignee.
     const listedUnder = (family) => (company && family.underCompany && !family.assignees.some(known) ? { name: company, short: companyShort } : null);
@@ -359,15 +301,8 @@ export const patentsConnector = {
       graded = graded.filter((x) => x.finding.match !== 'possible' || !x.family.middleInitials.length || x.family.middleInitials.includes(learned[0]));
       otherPeople += before - graded.length;
     }
-    const usptoCount = uspto && !uspto.error
-      ? `USPTO records list ${plural(uspto.total, 'granted US patent', 'granted US patents')} naming an inventor ${who.display}${uspto.assignee ? ` with assignee ${uspto.assignee}` : ''}`
-      : null;
-    const usptoLine = !usptoCount ? null
-      : googleAnswered ? `${usptoCount}.`
-        : `${usptoCount}; the newest ${uspto.records.length} were read${unverifiable ? `, and ${unverifiable} that print another person as first-named inventor are not listed` : ''}.`;
     if (!graded.length) {
       if (otherPeople) notes.push(`Patent records under the name ${who.display} belong to inventors with a different middle name and were left out.`);
-      if (unverifiable) notes.push(`${usptoCount}, but none of the newest ${uspto.records.length} prints ${who.display} as the first-named inventor, so none is listed.`);
       return { findings: [], threads: [], notes };
     }
     const newest = (a, b) => String(b.family.date || '').localeCompare(String(a.family.date || ''));
@@ -404,11 +339,10 @@ export const patentsConnector = {
     const dates = graded.map((x) => x.family.date).filter(Boolean).sort();
     const quote = [
       confirmed.length ? `Assignees on the ${plural(confirmed.length, 'family', 'families')} tied to a known company: ${tally(confirmed).slice(0, 5).map(([a, n]) => `${a} (${n})`).join(' / ')}.` : null,
-      usptoLine,
       nameOnly.length ? `${plural(nameOnly.length, 'family matches', 'families match')} by name only and may belong to a namesake${tally(nameOnly).length ? ` (assignees include ${tally(nameOnly).slice(0, 4).map(([a]) => a).join(' / ')})` : ''}.` : null,
       coInventors.length ? `Co-inventors on the ${companyShort} patents: ${coInventors.slice(0, 8).join(', ')}.` : null,
-      dates.length ? `${googleAnswered ? 'Priority' : 'Filing'} dates run from ${dates[0]} to ${dates[dates.length - 1]}.` : null,
-      !byName.error && googleAnswered ? `Google Patents returns ${plural(byName.total, 'result', 'results')} for inventor ${who.query}${partial ? '; only the newest 100 of each search were read, so the counts here are a minimum' : ''}.` : null,
+      dates.length ? `Priority dates run from ${dates[0]} to ${dates[dates.length - 1]}.` : null,
+      !byName.error ? `Google Patents returns ${plural(byName.total, 'result', 'results')} for inventor ${who.query}${partial ? '; only the newest 100 of each search were read, so the counts here are a minimum' : ''}.` : null,
       otherPeople ? `${plural(otherPeople, 'record', 'records')} naming an inventor with a different middle name ${otherPeople === 1 ? 'was' : 'were'} left out.` : null,
     ].filter(Boolean).join(' ');
     const summary = makeFinding(subject, {
@@ -417,7 +351,7 @@ export const patentsConnector = {
       quote,
       url: googleSearchPage(company && confirmed.length ? { inventor: who.query, assignee: companyShort } : { inventor: who.query }),
       matchText: [who.display, ...(confirmed.length ? [company, ...tally(confirmed).map(([a]) => a)] : [])].filter(Boolean).join(' | '),
-      data: { families: graded.length, tiedToKnownCompany: confirmed.length, nameOnly: nameOnly.length, countsAreMinimum: partial, grantedUsPatents: uspto && !uspto.error ? uspto.total : null, coInventors: coInventors.slice(0, 12) },
+      data: { families: graded.length, tiedToKnownCompany: confirmed.length, nameOnly: nameOnly.length, countsAreMinimum: partial, coInventors: coInventors.slice(0, 12) },
     });
 
     // 6. Threads. Followed (trusted) only from families tied to the subject: other owners of those patents, and the co-inventors.
@@ -554,7 +488,7 @@ export const trademarksConnector = {
   prior: 0.35,
   timeoutMs: 12000,
   enabled: () => !switchedOff('trademarks'),
-  unavailableReason: 'Trademark records are switched off on this deployment.',
+  unavailableReason: 'Trademark records are not enabled on this deployment.',
 
   async run(task, ctx) {
     const company = String(task?.value || '').replace(/\s+/g, ' ').trim();

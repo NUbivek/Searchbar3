@@ -12,9 +12,13 @@
  * being checked.
  */
 import { query, queryOne, persistenceMode } from '../db';
+import { cleanText } from './finding';
 
 const memory = new Map(); // key -> { at, value }
 const inflight = new Map(); // key -> Promise
+const failures = new Map(); // key -> { until, error }: a failed load with no older copy
+/** How long a failed load with no older copy is remembered before it is retried. */
+export const FAILURE_HOLD_MS = 5 * 60 * 1000;
 /** Values larger than this stay in memory only. */
 export const MAX_STORED_BYTES = 6 * 1024 * 1024;
 
@@ -36,7 +40,7 @@ async function readStored(key) {
 async function writeStored(key, value) {
   if (!useDb()) return;
   try {
-    const body = JSON.stringify(value);
+    const body = JSON.stringify(value, (_key, v) => (typeof v === 'string' ? cleanText(v) : v));
     if (body.length > MAX_STORED_BYTES) return;
     await query(
       `INSERT INTO source_cache (key, body, fetched_at) VALUES ($1, $2, now())
@@ -52,7 +56,12 @@ async function writeStored(key, value) {
  * Return the cached value for `key`, loading it when it is missing or older
  * than `ttlMs`. When the load fails and an older copy exists, the older copy
  * is returned (a day-old sanctions list beats no list); otherwise the error
- * is thrown so the source is recorded as having failed.
+ * is thrown so the source is recorded as having failed, and that failure is
+ * remembered for FAILURE_HOLD_MS so later lookups fail at once instead of
+ * downloading the whole file again from a struggling host.
+ *
+ * The database copy is written in the background: the caller gets the value
+ * as soon as it is loaded, not after a multi-megabyte write.
  *
  * @param {string} key      stable name, e.g. 'watchlist:us-csl:v1' (bump the suffix when the shape changes)
  * @param {number} ttlMs    how long a copy counts as fresh
@@ -64,6 +73,11 @@ export async function cached(key, ttlMs, loader, { persist = true } = {}) {
   const inMemory = memory.get(key);
   if (inMemory && now - inMemory.at < ttlMs) return inMemory.value;
   if (inflight.has(key)) return inflight.get(key);
+  const failed = failures.get(key);
+  if (failed) {
+    if (now < failed.until) throw failed.error;
+    failures.delete(key);
+  }
 
   const work = (async () => {
     const stored = persist ? await readStored(key) : null;
@@ -74,7 +88,9 @@ export async function cached(key, ttlMs, loader, { persist = true } = {}) {
     try {
       const value = await loader();
       memory.set(key, { at: Date.now(), value });
-      if (persist) await writeStored(key, value);
+      failures.delete(key);
+      // writeStored catches its own errors; the catch here only guards against surprises
+      if (persist) writeStored(key, value).catch(() => {});
       return value;
     } catch (error) {
       const stale = inMemory || stored;
@@ -83,6 +99,7 @@ export async function cached(key, ttlMs, loader, { persist = true } = {}) {
         memory.set(key, { at: Date.now() - ttlMs + Math.min(ttlMs, 10 * 60 * 1000), value: stale.value });
         return stale.value;
       }
+      failures.set(key, { until: Date.now() + FAILURE_HOLD_MS, error });
       throw error;
     }
   })();
@@ -98,4 +115,5 @@ export async function cached(key, ttlMs, loader, { persist = true } = {}) {
 export function __resetCacheForTests() {
   memory.clear();
   inflight.clear();
+  failures.clear();
 }

@@ -327,7 +327,7 @@ async function readCopies(targets, ctx, budget, { measure = false } = {}) {
 }
 
 /** List one page's copies and read a few of them, spread over time. */
-async function readPage(page, ctx, budget) {
+async function readPage(page, ctx, budget, { reserve = 0 } = {}) {
   const key = `${ctx.subject.name}|${page}`;
   const hit = pageCache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.info;
@@ -341,7 +341,7 @@ async function readPage(page, ctx, budget) {
   }
   const info = { page, address: rows.length ? cleanOriginal(rows[rows.length - 1].original) : `https://${page}`, rows, captures: rows.reduce((n, r) => n + r.count, 0), versions: [], blocked: 0 };
   if (!rows.length) { remember(key, info); return info; }
-  const picks = pickCaptures(rows, Math.max(1, Math.min(MAX_SNAPSHOTS, budget.left)));
+  const picks = pickCaptures(rows, Math.max(1, Math.min(MAX_SNAPSHOTS, budget.left - reserve)));
   const read = await readCopies(picks, ctx, budget);
   info.versions = read.versions;
   info.blocked = read.blocked.length;
@@ -351,8 +351,8 @@ async function readPage(page, ctx, budget) {
     const near = rows.filter((r) => !picks.includes(r) && !spare.includes(r)).sort((a, b) => Math.abs(tsMs(a.ts) - tsMs(wall.ts)) - Math.abs(tsMs(b.ts) - tsMs(wall.ts)))[0];
     if (near) spare.push(near);
   }
-  if (spare.length && budget.left > 0 && timeLeft(ctx) > 4000) {
-    const more = await readCopies(spare.slice(0, budget.left), ctx, budget).catch(() => ({ versions: [], blocked: [] }));
+  if (spare.length && budget.left - reserve > 0 && timeLeft(ctx) > 4000) {
+    const more = await readCopies(spare.slice(0, budget.left - reserve), ctx, budget).catch(() => ({ versions: [], blocked: [] }));
     info.blocked += more.blocked.length;
     for (const v of more.versions) if (!info.versions.some((x) => x.ts === v.ts)) info.versions.push(v);
     info.versions.sort((a, b) => a.ts.localeCompare(b.ts));
@@ -380,6 +380,15 @@ export function describeChange(d) {
 }
 
 const NOT_AN_EMPLOYER = /^(self[- ]?employed|freelanc\w*|independent|stealth\b.*|confidential|n\/?a|various|unemployed|retired|student|none|private|consultant)$/i;
+
+const LEVEL_RANK = { none: 0, possible: 1, likely: 2, confirmed: 3 };
+const TIED = (level) => level === 'confirmed' || level === 'likely';
+/** Do two copies list at least one employer or school in common? */
+function sharesOrg(a, b) {
+  const orgs = (c) => [...c.roles.map((r) => r.org), ...c.education.map((e) => e.school)].filter((o) => o && !NOT_AN_EMPLOYER.test(o));
+  const theirs = orgs(b);
+  return orgs(a).some((x) => theirs.some((y) => sameOrg(x, y)));
+}
 
 /** Copies that say the same thing collapse into one version, remembered with the last date it was seen. */
 function distinctVersions(versions) {
@@ -432,6 +441,7 @@ function changeFindings(subject, base, what, page, versions) {
   unique.sort((a, b) => SEVERITY_ORDER[a.d.severity] - SEVERITY_ORDER[b.d.severity]);
   return unique.slice(0, MAX_CHANGES).map(({ d, before, after }) => makeFinding(subject, {
     ...base,
+    ...(after.matchText ? { matchText: after.matchText } : {}),
     title: `${what}: ${describeChange(d)} between ${ym(before.ts)} and ${ym(after.ts)}`,
     quote: `Before (${iso(before.ts)}): ${d.before ? `"${clip(d.before, 290)}"` : 'not listed'} After (${iso(after.ts)}): ${d.after ? `"${clip(d.after, 290)}"` : 'not listed'}`,
     url: replayUrl(after.ts, after.original),
@@ -459,14 +469,32 @@ function reportPage(subject, info, { discovered = false, guessed = false } = {})
     return out;
   }
   out.named = true;
-  const matchText = `${subject.name}. ${own.map((v) => contextText(v.claims, subject)).join('. ')}`.slice(0, 8000);
-  out.level = matchSubject(subject, matchText).level;
-  const trusted = out.level === 'confirmed' || out.level === 'likely';
+  // Each copy is graded on its own text: a namesake's copy of the same address must not borrow a tie from the person's copy.
+  const graded = own.map((v) => {
+    const text = `${subject.name}. ${contextText(v.claims, subject)}`.slice(0, 8000);
+    return { v, text, level: matchSubject(subject, text).level };
+  });
+  const directlyTied = graded.filter((g) => TIED(g.level));
+  // A copy that names no anchor but lists an employer or school of a tied copy is the same person's page at another time.
+  for (const g of graded) {
+    if (TIED(g.level)) continue;
+    const link = directlyTied.find((t) => sharesOrg(t.v.claims, g.v.claims));
+    if (!link) continue;
+    g.text = `${g.text}. ${contextText(link.v.claims, subject)}`.slice(0, 8000);
+    g.level = matchSubject(subject, g.text).level;
+  }
+  for (const g of graded) g.tied = TIED(g.level);
+  out.level = graded.reduce((best, g) => (LEVEL_RANK[g.level] > LEVEL_RANK[best] ? g.level : best), 'none');
+  const trusted = graded.some((g) => g.tied);
+  // The history is told over the tied copies only; with none tied, over all of them (every line then stays "possible").
+  const history = trusted ? graded.filter((g) => g.tied) : graded;
+  const others = trusted ? graded.filter((g) => !g.tied) : [];
+  const latest = history[history.length - 1];
   const page = info.address;
-  const base = { source: ID, sourceLabel: LABEL, category: 'archive', matchText };
+  const base = { source: ID, sourceLabel: LABEL, category: 'archive' };
   const first = info.rows[0].ts;
   const last = info.rows.reduce((max, r) => (r.end > max ? r.end : max), info.rows[info.rows.length - 1].ts);
-  let versions = distinctVersions(own);
+  let versions = distinctVersions(history.map((g) => ({ ...g.v, matchText: g.text })));
   // A guessed address that only carries the name is most often a namesake: say it in two lines, not a history.
   const brief = guessed && !trusted;
   if (brief) versions = versions.slice(-1);
@@ -474,19 +502,21 @@ function reportPage(subject, info, { discovered = false, guessed = false } = {})
   if (trusted || !discovered) {
     out.findings.push(makeFinding(subject, {
       ...base,
+      matchText: latest.text,
       title: info.captures === 1 ? `${what} archived once, on ${iso(first)}` : ym(first) === ym(last) ? `${what} archived ${info.captures} times in ${ym(first)}` : `${what} archived ${info.captures} times between ${ym(first)} and ${ym(last)}`,
-      quote: claimsQuote(own[own.length - 1].claims, 300),
+      quote: claimsQuote(latest.v.claims, 300),
       url: `${WB}/web/*/${info.page}`,
       date: last,
       severity: 'info',
       data: { kind: 'snapshot', page, first: iso(first), last: iso(last), captures: info.captures },
     }));
   }
-  for (const v of versions) {
+  const snapshotOf = (v, matchText) => {
     const line = claimsHeadline(v.claims);
-    if (!line) continue;
+    if (!line) return;
     out.findings.push(makeFinding(subject, {
       ...base,
+      matchText,
       title: `${what} as of ${iso(v.ts)}: ${line}`,
       quote: claimsQuote(v.claims),
       url: replayUrl(v.ts, v.original),
@@ -494,14 +524,24 @@ function reportPage(subject, info, { discovered = false, guessed = false } = {})
       severity: 'info',
       data: { kind: 'snapshot', page, capturedAt: iso(v.ts) },
     }));
+  };
+  for (const v of versions) snapshotOf(v, v.matchText);
+  // copies that carry only the name, next to copies tied to the person: one line each, graded on their own text, never diffed
+  const otherSigs = new Set();
+  for (const g of others) {
+    const sig = claimsSignature(g.v.claims);
+    if (otherSigs.has(sig)) continue;
+    otherSigs.add(sig);
+    snapshotOf(g.v, g.text);
   }
   const changes = brief ? [] : changeFindings(subject, base, what, page, versions);
   out.findings.push(...changes);
   if (changes.some((f) => f && f.data.change === 'removed')) out.notes.push(`Something missing from a later copy of ${info.page} can also mean the site showed less that day (for example to visitors who were not signed in): open both copies before relying on it.`);
-  if (!brief && versions.length === 1 && own.length > 1) out.notes.push(`${what}: the ${own.length} copies read between ${ym(own[0].ts)} and ${ym(own[own.length - 1].ts)} say the same thing.`);
+  if (!brief && versions.length === 1 && history.length > 1) out.notes.push(`${what}: the ${history.length} copies read between ${ym(history[0].v.ts)} and ${ym(latest.v.ts)} say the same thing.`);
+  if (others.length) out.notes.push(`${others.length} saved ${others.length === 1 ? 'copy' : 'copies'} of ${info.page} carry ${subject.name}'s name but nothing else tied to them; ${others.length === 1 ? 'it was' : 'they were'} not compared with the others and may be someone else's.`);
   out.findings = out.findings.filter(Boolean);
 
-  // Threads: employers, schools and the other profiles the page links to. Followed only when the page is tied to the subject.
+  // Threads: employers, schools and the other profiles the page links to. Followed only from copies tied to the subject.
   const seen = new Set();
   const counts = { company: 0, school: 0, url: 0 };
   const caps = { company: 12, school: 6, url: 5 };
@@ -515,16 +555,19 @@ function reportPage(subject, info, { discovered = false, guessed = false } = {})
     out.threads.push(thread);
   };
   const schools = [];
-  for (const v of [...own].reverse()) {
+  // tied copies first (newest first), so a name a tied copy shares with an untied one keeps its trust
+  for (const g of [...graded].reverse().sort((a, b) => Number(b.tied) - Number(a.tied))) {
+    const { v } = g;
+    const tie = { trusted: g.tied };
     for (const r of v.claims.roles) {
-      if (r.org && r.org.length <= 80 && !NOT_AN_EMPLOYER.test(r.org) && !subject.hasName(r.org)) add('company', r.org, `${r.title ? `${clip(r.title, 60)}; ` : ''}listed on their ${what} (${ym(v.ts)})`);
+      if (r.org && r.org.length <= 80 && !NOT_AN_EMPLOYER.test(r.org) && !subject.hasName(r.org)) add('company', r.org, `${r.title ? `${clip(r.title, 60)}; ` : ''}listed on their ${what} (${ym(v.ts)})`, tie);
     }
     for (const e of v.claims.education) {
-      if (e.school && e.school.length <= 100 && !schools.some((x) => sameOrg(x, e.school))) { schools.push(e.school); add('school', e.school, `listed on their ${what} (${ym(v.ts)})`); }
+      if (e.school && e.school.length <= 100 && !schools.some((x) => sameOrg(x, e.school))) { schools.push(e.school); add('school', e.school, `listed on their ${what} (${ym(v.ts)})`, tie); }
     }
     for (const link of v.claims.links || []) {
       const profile = profileFromUrl(link);
-      if (profile && pageOf(profile.url) && pageOf(profile.url) !== info.page) add('url', profile.url, `linked from their ${what}`, { platform: profile.platform });
+      if (profile && pageOf(profile.url) && pageOf(profile.url) !== info.page) add('url', profile.url, `linked from their ${what}`, { platform: profile.platform, ...tie });
     }
   }
   if (discovered && trusted) add('url', `https://${info.page}`, `their ${what}, found in the web archive`);
@@ -543,15 +586,19 @@ const merge = (into, part) => {
 async function runPages(pages, ctx, budget, { guessed = false } = {}) {
   const out = { findings: [], threads: [], notes: [] };
   const empty = [];
-  for (const page of pages) {
-    if (budget.left < 2 || timeLeft(ctx) < 3000) break;
-    const info = await readPage(page, ctx, budget);
+  const unchecked = [];
+  for (const [i, page] of pages.entries()) {
+    if (budget.left < 2 || timeLeft(ctx) < 3000) { unchecked.push(...pages.slice(i)); break; }
+    // a guessed spelling keeps two requests (a listing and a copy) for each spelling after it: the first one is often a namesake
+    const reserve = guessed ? (pages.length - i - 1) * 2 : 0;
+    const info = await readPage(page, ctx, budget, { reserve });
     if (!info.rows.length) { empty.push(page); continue; }
     const part = reportPage(ctx.subject, info, { guessed });
     merge(out, part);
     if (part.level === 'confirmed' || part.level === 'likely' || (part.named && !guessed)) break; // their page: the other spelling is not needed
   }
   if (empty.length && !out.findings.length) out.notes.push(`The web archive holds no readable copy of ${empty.join(' or ')}.`);
+  if (unchecked.length) out.notes.push(`${unchecked.join(' and ')} ${unchecked.length === 1 ? 'was' : 'were'} not checked in the web archive this time (the lookup reached its limit).`);
   return out;
 }
 
@@ -719,7 +766,18 @@ async function runDomain(domain, ctx, budget) {
       data: { kind: 'snapshot', page: cleanOriginal(v.original), capturedAt: iso(v.ts) },
     }));
   }
-  out.findings.push(...changeFindings(subject, base, what, `https://${domain}`, distinct));
+  // Changes are read within one address only: /leadership and /board saying different things is not a retitle.
+  const byPage = new Map();
+  for (const v of named) {
+    const key = pageOf(v.original) || cleanOriginal(v.original);
+    if (!byPage.has(key)) byPage.set(key, []);
+    byPage.get(key).push(v);
+  }
+  const changes = [];
+  for (const group of byPage.values()) {
+    changes.push(...changeFindings(subject, base, what, cleanOriginal(group[group.length - 1].original), distinctVersions(group)));
+  }
+  out.findings.push(...changes.filter(Boolean).sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]).slice(0, MAX_CHANGES));
   if (gone) {
     const before = claimsHeadline(last.claims) || `names ${subject.name}`;
     out.findings.push(makeFinding(subject, {

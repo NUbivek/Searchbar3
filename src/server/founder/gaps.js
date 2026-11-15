@@ -10,7 +10,9 @@
  *   - that record exists and is already tied to the person (not a namesake);
  *   - the proposed name appears in that record's own text, letter for letter;
  *   - a relative is stated as kin in the same sentence that gives them a
- *     public role (the same rule as extract.js), and is not a minor;
+ *     public role (the same rule as extract.js), and is not a minor; a
+ *     name the record calls kin is a relative whatever tie the model gave;
+ *   - a business or legal tie is stated in a sentence that names the person;
  *   - a search names the person, so nobody else gets a search of their own.
  * Whatever fails is dropped. What passes is followed like any other thread.
  */
@@ -50,7 +52,34 @@ Return:
 Give the record number for every item. Empty lists are fine and better than guesses.`;
 
 // A search must be about the person's professional record, never their private life
-const PRIVATE_SEARCH = /\b(child|children|kids?|baby|toddler|teen(?:ager)?s?|grandchild\w*|minor|home|house|address|lives? (?:in|at)|phone|e-?mail|girlfriend|boyfriend|dating|affair|divorce|custody|wedding|health|illness|sick|religio\w*|church|mosque|synagogue|temple|salary|net worth|birthday|date of birth|age)\b/i;
+const PRIVATE_SEARCH = /\b(child|children|kids?|baby|toddler|teen(?:ager)?s?|grandchild\w*|minor|home|house|address|lives? (?:in|at)|phone|e-?mail|girlfriend|boyfriend|dating|affair|divorce|custody|wedding|health|illness|sick|religio\w*|church|mosque|synagogue|temple|salary|net worth|birthday|date of birth|age|born|birth\w*|nationality|citizen\w*|passport|visa|ethnic\w*|mother|father|parents?|wife|husband|spouse|siblings?|brother|sister|son|daughter|pregnan\w*|married|marriage)\b/i;
+
+// Kinship stated next to a proposed name (the same words extract.js reads, less a bare "partner",
+// which in a record is usually a business partner). A name tied this way is a relative, whatever tie the reader gave.
+const KIN = /\b(?:father|mother|brother|sister|husband|wife|spouse|(?:life|domestic) partner|uncle|aunt|cousin|grandfather|grandmother|step-?father|step-?mother|(?:father|mother|brother|sister|son|daughter)-in-law|fianc[ée]e?|son|daughter|nephew|niece|grandson|granddaughter|step-?son|step-?daughter|scion|heir|heiress|married|parents?|siblings?|relatives?|family)\b/i;
+// A business or legal tie must be stated in the sentence that names the person, not taken on the reader's word
+const TIE_WORDS = {
+  business: /\b(?:co-?found\w*|found(?:ed|er|ers|ing)|partners?|investors?|invest(?:ed|ing|ment)|board|directors?|employ\w*|hired|CEO|chief \w+|executives?|backers?|backed)\b/i,
+  legal: /\b(?:co-?defendants?|defendants?|plaintiffs?|sued|sues|suing|charged|indicted|settle\w*|lawsuits?|complaint|court|trial|convicted)\b|\bvs?\.(?=\s)/i,
+};
+const ABBREVIATION = /\b(v|vs|Inc|Corp|Ltd|Co|Mr|Mrs|Ms|Dr|Jr|Sr|St|No|Prof|Gen|Sen|Rep|Gov)\.(?=\s)/g;
+const sentencesOf = (text) => String(text || '').replace(/\s+/g, ' ').replace(ABBREVIATION, '$1\u0001')
+  .split(/(?<=[.!?])\s+(?=[A-Z"“])/).map((s) => s.replace(/\u0001/g, '.').trim()).filter(Boolean);
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** How a record ties a proposed person to the subject: 'kin' when kinship is stated beside the name, 'stated' when the tie's own words are in a sentence naming them, else null. */
+function tieIn(text, name, tie) {
+  const nameRe = new RegExp(`(?<![A-Za-z0-9])${escapeRe(name)}(?![A-Za-z0-9])`, 'gi');
+  let stated = false;
+  for (const sentence of sentencesOf(text)) {
+    for (const m of sentence.matchAll(nameRe)) {
+      const near = sentence.slice(Math.max(0, m.index - 40), m.index + m[0].length + 30);
+      if (KIN.test(near)) return 'kin';
+      if ((TIE_WORDS[tie] || TIE_WORDS.business).test(sentence)) stated = true;
+    }
+  }
+  return stated ? 'stated' : null;
+}
 
 const TEXT_RICH = { press: 3, identity: 3, career: 3, archive: 3, related: 3, litigation: 2, regulatory: 2, education: 2, corporate: 1, ip: 1, leaks: 1, sanctions: 1, exposure: 0 };
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -73,7 +102,9 @@ export function recordsForReview(state, max = 45) {
  */
 export function verifyGaps(state, records, data) {
   const subject = restoreSubject(state);
-  const followed = new Set(Object.values(state.threads || {}).map((t) => `${t.kind}|${norm(t.value)}`));
+  // Only trusted threads count as followed (the prompt lists only those): a name first seen in a
+  // possible record and now proposed from a tied one is the rescue the second reading exists for
+  const followed = new Set(Object.values(state.threads || {}).filter((t) => t.trusted).map((t) => `${t.kind}|${norm(t.value)}`));
   const known = (kind, value) => followed.has(`${kind}|${norm(value)}`);
   const threads = [];
   let dropped = 0;
@@ -108,7 +139,10 @@ export function verifyGaps(state, records, data) {
     const text = textOf(record);
     const name = plausiblePersonName(raw, subject);
     if (!name || !subject.hasName(text) || !mentions(text, name) || mentionsMinor(text)) { dropped += 1; continue; }
-    if (x.tie === 'family') {
+    // a relative stays a relative whatever tie the reader gave: only a public role makes them followable
+    const how = x.tie === 'family' ? 'kin' : tieIn(text, name, x.tie);
+    if (!how) { dropped += 1; continue; }
+    if (how === 'kin') {
       const kin = publicRelativeIn(subject, text, name);
       if (!kin || known('relative', name)) { dropped += 1; continue; }
       take(makeThread('relative', name, `${kin.relation}; described as ${kin.role} (${record.sourceLabel})`, { trusted: true, relation: kin.relation, role: kin.role }));

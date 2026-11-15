@@ -27,7 +27,7 @@
  * A connector's run() resolves to { findings: Finding[], threads: Thread[], notes: string[] }.
  */
 import { matchSubject } from './identity';
-import { sanitizeFinding } from './guardrails';
+import { sanitizeFinding, redactPII } from './guardrails';
 
 export const CATEGORIES = {
   identity: 'Identity',
@@ -111,7 +111,7 @@ export function makeFinding(subject, f) {
   // re-read the title later and upgrade it. A graded record remembers the text it was graded on, so a
   // re-grade reads the same text (the structured context the source supplied), not just title and quote.
   const matchFixed = Boolean(match) || Boolean(f.matchFixed);
-  const gradeText = match ? null : clip(f.matchText || `${f.title} ${f.quote || ''}`, 4000);
+  const gradeText = match ? null : clip(redactPII(f.matchText || `${f.title} ${f.quote || ''}`), 1500);
   if (!match) {
     const graded = matchSubject(subject, f.matchText || `${f.title} ${f.quote || ''}`);
     if (graded.level === 'none') return null;

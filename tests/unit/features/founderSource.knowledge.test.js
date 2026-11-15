@@ -222,13 +222,16 @@ describe('wikipediaConnector', () => {
     expect(calls).toHaveLength(1);
 
     const identity = r.findings.find((f) => f.category === 'identity');
-    expect(identity).toMatchObject({ title: 'Jane Roe: American engineer (Wikipedia article)', match: 'confirmed', url: 'https://en.wikipedia.org/wiki/Jane_Roe', date: '2026-11-01' });
+    expect(identity).toMatchObject({ title: 'Jane Roe: American engineer (Wikipedia article)', match: 'confirmed', url: 'https://en.wikipedia.org/wiki/Jane_Roe', date: null });
+    expect(identity.data.revisedAt).toBe('2026-11-01T10:00:00Z');
     expect(identity.quote).not.toMatch(/1980/);
 
     const legal = r.findings.filter((f) => f.category === 'litigation');
     expect(legal).toHaveLength(2);
     expect(legal[0].severity).toBe('high');
     expect(legal[0].quote).toBe('In 2021, the Securities and Exchange Commission charged Roe with securities fraud over statements made to investors.');
+    expect(legal[0].date).toBe('2021'); // the year the paragraph gives, not the article's last edit
+    expect(legal[1].date).toBe('2023');
     expect(legal[1].severity).toBe('medium');
     expect(ARTICLE).toContain(legal[1].quote);
     expect(legal[0].url).toBe('https://en.wikipedia.org/wiki/Jane_Roe%23Legal_issues');
@@ -368,35 +371,6 @@ describe('littleSisConnector', () => {
 /* US nonprofit filings                                                */
 /* ------------------------------------------------------------------ */
 
-const peopleRow = (name, role, ein, org, year, objectId) => `
-<div class="result-row result-row-people">
-    <div class="result-item result-item-flex">
-        <div class="result-item__row-comp">
-            <div class="result-item__row">
-                <div class="result-item__hed">
-                    ${name}
-                </div>
-                <div class="text-link font-weight-500">
-                    <span class="margin-right">
-                        ${role}
-                            at
-                            <a href="/nonprofits/organizations/${ein}">
-                                ${org}
-                                <span class="font-weight-500">— Main Street Office</span>
-</a>                    </span>
-                    <span class="nowrap text-sub">
-                        Springfield, OH
-                            • <span class="text-sub">${year}</span>
-                    </span>
-                </div>
-            </div>
-        </div>
-        <div class="recent-filing">
-            <a class="btn" href="/nonprofits/full_text/${objectId}/full">View ${year} Filing</a>
-        </div>
-    </div>
-</div>`;
-const peoplePage = (rows) => `<html><body><main><h1 id="search-header">Results</h1><div class="result-rows">${rows.join('\n')}</div></main></body></html>`;
 const filingXml = (officers, { form = '990PF', period = '2023-12-31', family = 'true' } = {}) => `<?xml version="1.0" encoding="utf-8"?>
 <Return xmlns="http://www.irs.gov/efile"><ReturnHeader><TaxPeriodEndDt>${period}</TaxPeriodEndDt><ReturnTypeCd>${form}</ReturnTypeCd>
 <Filer><USAddress><AddressLine1Txt>1 Private Lane</AddressLine1Txt></USAddress></Filer></ReturnHeader>
@@ -404,61 +378,60 @@ const filingXml = (officers, { form = '990PF', period = '2023-12-31', family = '
 ${officers.map(([n, t]) => `<OfficerDirTrstKeyEmplGrp><PersonNm>${n}</PersonNm><USAddress><AddressLine1Txt>1 Private Lane</AddressLine1Txt></USAddress><TitleTxt>${t}</TitleTxt><CompensationAmt>0</CompensationAmt></OfficerDirTrstKeyEmplGrp>`).join('')}
 </OfficerDirTrstKeyEmplInfoGrp></IRS990PF></ReturnData></Return>`;
 
-function nonprofitRoutes(rows) {
+const ORG = (ein, name, objectId) => [
+  [(u) => u.endsWith(`/api/v2/organizations/${ein}.json`), { organization: { ein, name, address: '1 Private Lane', latest_object_id: objectId } }],
+];
+function nonprofitRoutes(orgs = [{ ein: 111, name: 'Roe Family Foundation' }, { ein: 222, name: 'Jane Roe Foundation' }, { ein: 333, name: 'Roeback Charity Foundation' }]) {
   return [
-    [(u) => u.includes('/nonprofits/name_search?q='), peoplePage(rows)],
+    [(u) => u.includes('/api/v2/search.json'), { total_results: orgs.length, organizations: orgs }],
+    ...ORG(111, 'Roe Family Foundation', '202401111'),
+    ...ORG(222, 'Jane Roe Foundation', '202403333'),
+    ...ORG(222, 'Acme Robotics Foundation', '202403333'),
     [(u) => u.endsWith('/202401111_public.xml'), filingXml([['JANE ROE', 'PRESIDENT'], ['PETER ROE', 'TREASURER'], ['ALICE SMITH', 'DIRECTOR']])],
     [(u) => u.endsWith('/202403333_public.xml'), filingXml([['JANE ROE', 'TRUSTEE']], { form: '990', family: 'false' })],
   ];
 }
-const JANE_ROWS = [
-  peopleRow('Jane Roe', 'President', '111', 'Roe Family Foundation', '2023', '202401111'),
-  peopleRow('Jane Roe', 'President', '111', 'Roe Family Foundation', '2022', '202301111'),
-  peopleRow('Jane Roe', 'Trustee', '222', 'Acme Robotics Foundation', '2024', '202403333'),
-  peopleRow('Jane Roeback', 'Director', '333', 'Other Charity', '2024', '202409999'),
-];
 
 describe('nonprofitFilingsConnector', () => {
-  test('subject: organisations listing the person; family foundation as a related-party lead; same-surname officers only in a note', async () => {
-    const calls = fakeNetwork(nonprofitRoutes(JANE_ROWS));
+  test('subject: foundations named after the person or family, read through the organisation search and the filings only', async () => {
+    const calls = fakeNetwork(nonprofitRoutes());
     const subject = createSubject({ name: 'Jane Roe', company: 'Acme Robotics' });
     const r = await K.nonprofitFilingsConnector.run({ kind: 'subject', value: 'Jane Roe' }, ctxFor(subject));
-    expect(calls).toHaveLength(3);
-    expect(calls[0]).toContain('name_search?q=%22Jane%20Roe%22');
+    // the people search page is never asked for (the site asks automated visitors not to use it)
+    expect(calls.some((u) => u.includes('name_search'))).toBe(false);
+    expect(calls[0]).toContain('/api/v2/search.json?q=%22roe%22%20foundation');
+    expect(calls.length).toBeLessThanOrEqual(5);
+    // the person's own foundation is read first; Roeback is not the surname
+    expect(calls.some((u) => u.includes('/organizations/333.json'))).toBe(false);
 
     const family = r.findings.find((f) => f.category === 'related');
-    expect(family).toMatchObject({ title: 'Family foundation: Jane Roe listed as president of Roe Family Foundation (2022 to 2023 filings)', severity: 'low', match: 'possible', url: 'https://projects.propublica.org/nonprofits/organizations/111', date: '2023' });
+    expect(family).toMatchObject({ title: 'Family foundation: Jane Roe listed as president of Roe Family Foundation (2023 filing)', severity: 'low', match: 'possible', url: 'https://projects.propublica.org/nonprofits/organizations/111', date: '2023' });
     expect(family.quote).toContain('lists JANE ROE, PRESIDENT');
 
-    const acme = r.findings.find((f) => f.category === 'career');
-    expect(acme).toMatchObject({ title: 'Jane Roe: trustee of Acme Robotics Foundation, a US nonprofit (2024 filing)', match: 'confirmed' });
-    expect(r.findings.some((f) => /Roeback|Other Charity/.test(f.title))).toBe(false);
+    const own = r.findings.find((f) => f.category === 'career');
+    expect(own).toMatchObject({ title: 'Jane Roe: trustee of Jane Roe Foundation, a US nonprofit (2023 filing)', severity: 'info' });
+    expect(own.data.orgSharesSurname).toBe(true);
 
     expect(r.notes).toHaveLength(1);
     expect(r.notes[0]).toMatch(/Peter Roe \(Treasurer\) shares a surname with the subject: unconfirmed/);
     expect(r.threads.some((t) => t.kind === 'relative')).toBe(false);
-    expect(r.threads).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'company', value: 'Acme Robotics Foundation', trusted: true }),
-      expect.objectContaining({ kind: 'company', value: 'Roe Family Foundation', trusted: false }),
-    ]));
     const text = JSON.stringify(r);
-    expect(text).not.toMatch(/Private Lane|Springfield|Main Street/);
+    expect(text).not.toMatch(/Private Lane/);
   });
 
-  test('namesakes: one name on the boards of many unrelated organisations -> a note, no findings', async () => {
-    const rows = ['A', 'B', 'C', 'D', 'E'].map((x, i) => peopleRow('Jane Roe', 'Director', `90${i}`, `${x} Community Trust`, '2024', `20240900${i}`));
-    fakeNetwork(nonprofitRoutes(rows));
+  test('subject: a foundation whose filing does not list the person -> nothing', async () => {
+    fakeNetwork([
+      [(u) => u.includes('/api/v2/search.json'), { total_results: 1, organizations: [{ ein: 444, name: 'Roe County Foundation' }] }],
+      ...ORG(444, 'Roe County Foundation', '202404444'),
+      [(u) => u.endsWith('/202404444_public.xml'), filingXml([['PETER ROE', 'DIRECTOR']])],
+    ]);
     const subject = createSubject({ name: 'Jane Roe', company: 'Acme Robotics' });
-    const r = await K.nonprofitFilingsConnector.run({ kind: 'subject', value: 'Jane Roe' }, ctxFor(subject));
-    expect(r.findings).toEqual([]);
-    expect(r.threads).toEqual([]);
-    expect(r.notes[0]).toMatch(/5 organisations .*most likely other people with the same name/);
+    expect(await K.nonprofitFilingsConnector.run({ kind: 'subject', value: 'Jane Roe' }, ctxFor(subject))).toEqual({ findings: [], threads: [], notes: [] });
   });
 
   test('company: the company\'s own foundation, kept only when the subject is an officer', async () => {
     const calls = fakeNetwork([
       [(u) => u.includes('/api/v2/search.json'), { total_results: 1, organizations: [{ ein: 222, name: 'Acme Robotics Foundation' }] }],
-      [(u) => u.endsWith('/api/v2/organizations/222.json'), { organization: { ein: 222, name: 'Acme Robotics Foundation', address: '1 Private Lane', latest_object_id: '202403333' } }],
       ...nonprofitRoutes([]),
     ]);
     const subject = createSubject({ name: 'Jane Roe', company: 'Acme Robotics' });

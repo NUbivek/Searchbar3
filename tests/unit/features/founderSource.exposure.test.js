@@ -515,6 +515,8 @@ describe('breach-catalogue (Have I Been Pwned)', () => {
   test('rejects when the catalogue cannot be downloaded', async () => {
     network([[/./, { status: 500, body: 'oops' }]]);
     await expect(breachCatalogueConnector.run(companyTask('Adobe'), ctxFor('Shantanu Narayen', 'Adobe'))).rejects.toThrow(/HTTP 500/);
+    // a failed download is remembered for a few minutes; a later attempt (here: a new server instance) asks again
+    require('../../../src/server/founder/cache').__resetCacheForTests();
     network([[/./, { body: { error: 'nope' } }]]);
     await expect(breachCatalogueConnector.run(companyTask('Adobe'), ctxFor('Shantanu Narayen', 'Adobe'))).rejects.toThrow(/unexpected response/);
   });

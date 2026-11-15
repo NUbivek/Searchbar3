@@ -54,7 +54,7 @@ test('serious records tied to the person are red flags; name-only ones are liste
 
 test('the report says what was searched, what failed and what no free source covers', () => {
   const { coverage, notice } = buildReport(sampleState());
-  expect(coverage.searched.map((s) => s.label)).toEqual(['Courts', 'Registry']);
+  expect(coverage.searched.map((s) => s.label)).toEqual(['Courts']); // Registry failed every lookup: it searched nothing
   expect(coverage.notSearched).toEqual([{ label: 'Registry', reason: 'HTTP 503' }, { label: 'Needs key', reason: 'Not enabled on this deployment.' }]);
   expect(coverage.notCovered).toBe(NOT_COVERED);
   expect(coverage).toMatchObject({ lookups: 40, rounds: 3 });
@@ -107,15 +107,16 @@ test('twenty reports of one event are one red flag; name-only coverage of it is 
     f({ title: 'Theranos associate charged', url: 'https://f.test/1', date: '2018-06-15', match: 'possible', data: { person: 'Ramesh Balwani' } }),
   ];
   const report = buildReport(state);
-  expect(report.totals).toMatchObject({ seriousRecords: 7, redFlags: 2, companyMatters: 1, possibleNamesake: 2 });
+  // a name-only report of the same month's event stays with the possible namesakes, never under her matter
+  expect(report.totals).toMatchObject({ seriousRecords: 7, redFlags: 2, companyMatters: 1, possibleNamesake: 3 });
   const sentencing = report.redFlags.find((x) => /Sentenced To More Than 11 Years For Defrauding/.test(x.title));
   expect(sentencing.sourceLabel).toBe('US Department of Justice'); // the official record leads
-  expect(sentencing.more.map((m) => m.match).sort()).toEqual(['confirmed', 'possible']);
+  expect(sentencing.more.map((m) => m.match).sort()).toEqual(['confirmed']);
   expect(report.redFlags.map((x) => x.title)).toEqual(expect.arrayContaining([expect.stringMatching(/conviction upheld/)]));
   // a suit against the company that does not name her is context about the company, not a red flag about her
   expect(report.companyMatters.map((x) => x.title)).toEqual(['Theranos sued by Walgreens']);
   // the namesake's sentence and the associate's charge stay apart from the founder's matters
-  expect(report.possibleNamesake.map((x) => x.title).sort()).toEqual(['Elizabeth Holmes sentenced for shoplifting in Leeds', 'Theranos associate charged']);
+  expect(report.possibleNamesake.map((x) => x.title).sort()).toEqual(['Elizabeth Holmes Is Sentenced to More Than 11 Years for Fraud', 'Elizabeth Holmes sentenced for shoplifting in Leeds', 'Theranos associate charged']);
   expect(report.redFlags.every((x) => x.match === 'confirmed' || x.match === 'likely')).toBe(true);
 });
 

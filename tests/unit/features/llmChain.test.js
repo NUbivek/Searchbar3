@@ -95,11 +95,13 @@ describe('only models that cost nothing can be called', () => {
     expect(called(axios)).toEqual(['openrouter:thinkingmachines/inkling-2-small:free']);
   });
 
-  test('Groq reporting paid-plan limits switches Groq off', async () => {
+  test('Groq reporting paid-plan limits switches Groq off, and its answer is not used', async () => {
     const { axios, providers } = load({ keys: { GROQ_API_KEY: 'gq' } });
     jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
     axios.post.mockResolvedValue(reply('ok', { headers: { 'x-ratelimit-limit-tokens': '250000' } }));
-    expect((await providers.chatComplete(ask)).provider).toBe('groq');
+    expect(await providers.chatComplete(ask)).toBeNull();
+    console.warn.mockRestore();
     axios.post.mockClear();
     expect(await providers.chatComplete(ask)).toBeNull();
     expect(axios.post).not.toHaveBeenCalled();
@@ -192,12 +194,12 @@ describe('the strongest model that can answer goes first', () => {
     });
     const first = await providers.chatComplete(ask);
     expect(first.model).toBe('gemini-3.8-flash');
-    expect(first.skipped).toEqual([{ provider: 'Google Gemini', model: 'gemini-4-hydrogen', why: 'rate limited or out of quota' }]);
+    expect(first.skipped).toEqual([{ provider: 'Google Gemini', model: 'gemini-4-hydrogen', why: 'resting until its allowance resets' }]);
     axios.post.mockClear();
     const second = await providers.chatComplete(ask);
     expect(called(axios)).toEqual(['generativelanguage:gemini-3.8-flash']); // hydrogen not asked again
     // the answer still says a stronger model was passed over, and why
-    expect(second.skipped).toEqual([{ provider: 'Google Gemini', model: 'gemini-4-hydrogen', why: 'rate limited or out of quota' }]);
+    expect(second.skipped).toEqual([{ provider: 'Google Gemini', model: 'gemini-4-hydrogen', why: 'resting until its allowance resets' }]);
     const stats = await learning.loadStats('model');
     expect(stats.get('chat|gemini:gemini-4-hydrogen')).toBeUndefined();
     expect(stats.get('chat|gemini:gemini-3.8-flash')).toEqual(expect.objectContaining({ tries: 2, wins: 2 }));

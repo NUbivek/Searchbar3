@@ -468,6 +468,11 @@ const READERS = [
   [/^about\.me$/, aboutMe],
 ];
 
+/** Is this name line the person's? `person` is a name or a matcher (the same test generic() uses for JSON-LD names). */
+const isPerson = (person, name) => (typeof person === 'function'
+  ? Boolean(person(name))
+  : Boolean(person) && clean(name).toLowerCase() === String(person).trim().toLowerCase());
+
 const hasContent = (c) => Boolean(c && (c.headline || c.bioText || c.roles.length || c.education.length));
 
 /**
@@ -488,7 +493,13 @@ export function extractClaims(html, url = '', { person = null } = {}) {
   const links = reader ? ownLinks($) : [];
   if (!hasContent(claims) && !(claims && claims.blocked)) {
     const fallback = generic($, source, person);
-    claims = claims ? { ...fallback, name: claims.name || fallback.name, format: claims.format } : fallback;
+    const nameLine = claims ? clean(claims.name) : '';
+    if (!claims) claims = fallback;
+    else if (!nameLine) claims = { ...fallback, format: claims.format };
+    // A profile belongs to whoever its name line says. When the person is only named elsewhere on it
+    // (a "People also viewed" sidebar), nothing beside that mention is theirs, and the page is not theirs.
+    else if (person && !isPerson(person, nameLine)) claims = { ...claims, name: nameLine, named: false };
+    else claims = { ...fallback, name: nameLine, format: claims.format, named: null };
   }
   const seen = new Set();
   const unique = (items, key) => items.filter((item) => { const k = key(item).toLowerCase(); if (!k.replace(/\|/g, '') || seen.has(k)) return false; seen.add(k); return true; });

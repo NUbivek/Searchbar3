@@ -261,7 +261,7 @@ describe('GitHub public profiles', () => {
     expect(unnamed.threads).toEqual([]);
 
     network([['users/pcy', { ...ghPc, login: 'pcy', name: null, company: '@stripe', bio: null, blog: '' }]]);
-    const placed = await githubConnector.run(handleTask('pcy'), ctxFor(subject));
+    const placed = await githubConnector.run(handleTask('pcy', 'github handle'), ctxFor(subject));
     expect(placed.findings[0].match).toBe('likely');
     expect(placed.findings[0].matchReasons).toEqual(['reached through the handle pcy', 'names Stripe']);
   });
@@ -364,7 +364,7 @@ describe('Hacker News', () => {
   test('a handle: the account, its age and what it says about itself', async () => {
     const calls = network([['hacker-news.firebaseio.com/v0/user/pc.json', { about: 'http:&#x2F;&#x2F;patrickcollison.com<p>I&#x27;m one of Stripe&#x27;s cofounders.', created: 1171868090, id: 'pc', karma: 17202, submitted: [1, 2, 3] }]]);
     const subject = createSubject({ name: 'Patrick Collison', company: 'Stripe' });
-    const { findings, threads } = await hackerNewsConnector.run(handleTask('pc'), ctxFor(subject));
+    const { findings, threads } = await hackerNewsConnector.run(handleTask('pc', 'hacker news handle proven on Keybase by the same account holder'), ctxFor(subject));
     expect(calls).toHaveLength(1);
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({

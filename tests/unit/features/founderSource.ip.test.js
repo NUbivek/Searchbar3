@@ -1,7 +1,6 @@
 /**
  * Patent and trademark connectors. The network is faked with rows cut from
- * real answers (Google Patents, USPTO patent search and USPTO trademark
- * search, 14 Nov 2026) for Trevor Milton / Nikola, Elizabeth Holmes /
+ * real answers (Google Patents and USPTO trademark search, 14 Nov 2026) for Trevor Milton / Nikola, Elizabeth Holmes /
  * Theranos and Stripe.
  */
 const { setTransport } = require('../../../src/server/founder/http');
@@ -51,27 +50,15 @@ const BY_COMPANY = [
 ];
 const COMPANY_INVENTORS = [['Trevor R. Milton', 823], ['Steve Jennes', 647], ['Markus Scholten', 352], ['Kevin M. LYNK', 235], ['Trevor R. MILTON', 117], ['Robert Dane Davis', 117], ['Robert Dane DAVIS', 58], ['ミルトン トレバー', 40]];
 
-const usptoRow = (guid, title, filed, published, inventorsShort, assigneeName, familyId) => ({
-  guid, type: 'USPAT', inventionTitle: title, applicationFilingDate: [`${filed}T00:00:00Z`], datePublished: `${published}T00:00:00Z`, inventorsShort, assigneeName, applicantName: assigneeName,
-  familyIdentifierCur: familyId, primaryExaminer: 'Blankenship; Gregory A', inventorCity: ['Phoenix'], inventorState: ['AZ'],
-});
-const USPTO_ROWS = [
-  usptoRow('US-11613312-B2', 'Systems, methods, and devices for an automobile door or window', '2021-03-02', '2023-03-28', 'Milton; Trevor R. et al.', ['NIKOLA CORPORATION'], 67685516),
-  usptoRow('US-10858049-B2', 'Systems, methods, and devices for an automobile door or window', '2019-03-20', '2020-12-08', 'Milton; Trevor R. et al.', ['Nikola Corporation'], 67685516),
-  usptoRow('US-10899387-B2', 'Vehicle frame arrangement', '2020-02-05', '2021-01-26', 'Milton; Trevor R. et al.', ['NIKOLA MOTOR COMPANY LLC'], 69181820),
-  usptoRow('US-10336379-B2', 'Vehicle rear suspension system', '2016-12-01', '2019-07-02', 'Lynk; Kevin M. et al.', ['NIKOLA MOTOR COMPANY LLC', 'ARVINMERITOR TECHNOLOGY, LLC'], 62190778),
-];
-
 /** Fake network for the patent sources. Each answer is a value, a reply() or a function of the request. */
-function patentNetwork({ byName = gpAnswer(BY_NAME), byCompany = gpAnswer(BY_COMPANY, { inventors: COMPANY_INVENTORS }), session = reply({ userCase: { caseId: 4242 } }, 200, [['x-access-token', 'token-abc']]), uspto = { numFound: 25, patents: [USPTO_ROWS[0]] } } = {}) {
+// The USPTO's Patent Public Search answers only its own web page: it must never be asked (the fake fails the test if it is).
+function patentNetwork({ byName = gpAnswer(BY_NAME), byCompany = gpAnswer(BY_COMPANY, { inventors: COMPANY_INVENTORS }) } = {}) {
   const calls = [];
   setTransport(async (url, init) => {
     const inner = url.startsWith('https://patents.google.com/xhr/query') ? new URL(url).searchParams.get('url') : '';
     calls.push({ url, init, inner });
-    const answer = inner ? (inner.includes('assignee=') ? byCompany : byName)
-      : url === 'https://ppubs.uspto.gov/api/users/me/session' ? session
-        : url === 'https://ppubs.uspto.gov/api/searches/searchWithBeFamily' ? uspto
-          : reply('not found', 404);
+    if (url.includes('ppubs.uspto.gov')) throw new Error(`the USPTO web page's own search was asked: ${url}`);
+    const answer = inner ? (inner.includes('assignee=') ? byCompany : byName) : reply('not found', 404);
     const value = typeof answer === 'function' ? answer(url, init) : answer;
     return { url, ...(value && typeof value.text === 'function' ? value : reply(value)) };
   });
@@ -132,28 +119,24 @@ describe('patentsConnector', () => {
     expect(summary.date).toBeNull();
     expect(summary.url).toBe('https://patents.google.com/?inventor=Trevor+Milton&assignee=Nikola&sort=new');
     expect(summary.quote).toContain('Assignees on the 3 families tied to a known company: Nikola Motor Company Llc (1) / Bluegentech Llc (1) / Nikola Corporation (1).');
-    expect(summary.quote).toContain('USPTO records list 25 granted US patents naming an inventor Trevor Milton with assignee Nikola.');
+    expect(summary.quote).not.toContain('USPTO');
     expect(summary.quote).toContain('2 families match by name only and may belong to a namesake (assignees include dHybrid Systems, LLC / Trevor Robert Milton).');
     expect(summary.quote).toContain('Co-inventors on the Nikola patents: Steve Jennes, Markus Scholten, Kevin M. Lynk, Robert Dane Davis.');
     expect(summary.quote).toContain('Priority dates run from 2009-11-30 to 2019-01-29.');
     expect(summary.quote).toContain('1 record naming an inventor with a different middle name was left out.');
-    expect(summary.data).toMatchObject({ families: 5, tiedToKnownCompany: 3, nameOnly: 2, countsAreMinimum: false, grantedUsPatents: 25 });
+    expect(summary.data).toMatchObject({ families: 5, tiedToKnownCompany: 3, nameOnly: 2, countsAreMinimum: false });
+    expect(summary.data).not.toHaveProperty('grantedUsPatents');
     expect(notes).toEqual([]);
   });
 
-  test('asks each source once, by inventor name and by inventor with company', async () => {
+  test('asks Google Patents once by inventor name and once by inventor with company, and nothing else', async () => {
     const calls = patentNetwork();
     await runPatents(milton());
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(2);
     expect(calls.map((c) => c.inner).filter(Boolean).sort()).toEqual(['inventor=Trevor+Milton&assignee=Nikola&num=100&sort=new', 'inventor=Trevor+Milton&num=100&sort=new']);
     expect(calls[0].url).toBe('https://patents.google.com/xhr/query?url=inventor%3DTrevor%2BMilton%26num%3D100%26sort%3Dnew&exp=');
-    const session = calls.find((c) => c.url.endsWith('/users/me/session'));
-    expect(session.init).toMatchObject({ method: 'POST', body: '-1' });
-    const search = calls.find((c) => c.url.endsWith('/searchWithBeFamily'));
-    expect(search.init.headers['X-Access-Token']).toBe('token-abc');
-    const body = JSON.parse(search.init.body);
-    expect(body.query).toMatchObject({ caseId: 4242, q: '("Milton" NEAR2 "Trevor").in. AND ("nikola").as.', databaseFilters: [{ databaseName: 'USPAT', countryCodes: [] }] });
-    expect(body).toMatchObject({ pageCount: 1, docFamilyFiltering: 'noFiltering' });
+    // no request pretends to come from a web page
+    for (const c of calls) for (const h of ['X-Requested-With', 'Origin', 'Referer']) expect(c.init?.headers?.[h]).toBeUndefined();
   });
 
   test('threads: other owners and co-inventors of confirmed patents are followed, a namesake\'s employer is not', async () => {
@@ -178,7 +161,7 @@ describe('patentsConnector', () => {
       gp('US10000004B2', 'Assay reader', '2012-04-10', '2013-04-10', '2018-07-10', '<b>Elizabeth A. Holmes</b>', '<b>Theranos</b> Ip Company, Llc'),
     ];
     const inventors = [['Elizabeth A. Holmes', 752], ['Daniel Young', 277], ['Ian Gibbons', 158], ['Michael Chen', 148], ['Samartha Anekal', 148], ['A Holmes Elizabeth', 108], ['Young Daniel', 100], ['Sunny Balwani', 90], ['Timothy Smith', 80]];
-    patentNetwork({ byName: gpAnswer([]), byCompany: gpAnswer(reassigned, { inventors }), uspto: { numFound: 96, patents: [] } });
+    patentNetwork({ byName: gpAnswer([]), byCompany: gpAnswer(reassigned, { inventors }) });
     const { findings, threads } = await runPatents(createSubject({ name: 'Elizabeth Holmes', company: 'Theranos' }));
     expect(findings.slice(1).every((f) => f.match === 'confirmed')).toBe(true);
     expect(byNumber(findings, 'JP2015500001A').data.publications).toEqual(['US10000001B2', 'JP2015500001A']); // "A Holmes Elizabeth" is her, same family
@@ -191,7 +174,7 @@ describe('patentsConnector', () => {
     const calls = patentNetwork();
     const subject = createSubject({ name: 'Trevor Milton' });
     const { findings, threads } = await runPatents(subject);
-    expect(calls.map((c) => c.inner)).toEqual(['inventor=Trevor+Milton&num=100&sort=new']); // no company search, no USPTO count
+    expect(calls.map((c) => c.inner)).toEqual(['inventor=Trevor+Milton&num=100&sort=new']); // no company search
     expect(findings.length).toBeGreaterThan(1);
     expect(findings.every((f) => f.match === 'possible')).toBe(true);
     expect(findings[0].title).toBe('Trevor Milton: named inventor on 4 patent families (none tied to a known company)');
@@ -257,28 +240,11 @@ describe('patentsConnector', () => {
     expect(findings[1].match).toBe('confirmed');
   });
 
-  test('never reads inventor city or state from the USPTO record', async () => {
-    patentNetwork({ byName: reply('busy', 500), byCompany: reply('busy', 500), uspto: { numFound: 4, patents: USPTO_ROWS } });
-    const out = JSON.stringify(await runPatents(milton()));
-    for (const field of ['Phoenix', 'AZ', 'Blankenship']) expect(out).not.toContain(field);
-  });
-
-  test('Google Patents down: the USPTO list of granted US patents is used and says what it cannot show', async () => {
-    const calls = patentNetwork({ byName: reply('busy', 500), byCompany: reply('busy', 500), uspto: { numFound: 25, patents: USPTO_ROWS } });
-    const { findings, threads, notes } = await runPatents(milton());
-    expect(JSON.parse(calls.find((c) => c.url.endsWith('/searchWithBeFamily')).init.body).pageCount).toBe(25);
-    expect(notes).toEqual(['Google Patents did not answer, so only granted US patents from the USPTO are listed.']);
-    const [summary, ...families] = findings;
-    // two grants of one family (the office's family number) are one finding; the patent that prints Kevin Lynk first cannot be checked
-    // newest first: the frame family (filed 2020) before the door family (filed 2019)
-    expect(families.map((f) => f.data.publications)).toEqual([['US10899387B2'], ['US11613312B2', 'US10858049B2']]);
-    expect(families[1]).toMatchObject({ title: 'US10858049B2: Systems, methods, and devices for an automobile door or window', match: 'confirmed', date: '2019-03-20', url: 'https://patents.google.com/patent/US10858049B2/en' });
-    expect(families[1].quote).toBe('Inventor named: Trevor R. Milton (searched as Trevor Milton); assignee: NIKOLA CORPORATION; filed 2019-03-20; granted 2020-12-08; also published as US11613312B2');
-    expect(summary.title).toBe('Trevor Milton: named inventor on at least 2 patent families (2 tied to a known company)');
-    expect(summary.quote).toContain('USPTO records list 25 granted US patents naming an inventor Trevor Milton with assignee Nikola; the newest 4 were read, and 1 that print another person as first-named inventor are not listed.');
-    expect(summary.quote).toContain('Filing dates run from 2019-03-20 to 2020-02-05.');
-    expect(JSON.stringify(findings)).not.toContain('Lynk');
-    expect(threads).toEqual([]);
+  test('Google Patents down: no other patent search is asked, and the lookup fails so the report says it was not done', async () => {
+    const calls = patentNetwork({ byName: reply('busy', 500), byCompany: reply('busy', 500) });
+    await expect(runPatents(milton())).rejects.toThrow(/HTTP 500/);
+    expect(calls.every((c) => c.url.startsWith('https://patents.google.com/'))).toBe(true);
+    expect(calls).toHaveLength(2);
   });
 
   test('one of the two Google searches down: the other is used, with a note', async () => {
@@ -287,24 +253,23 @@ describe('patentsConnector', () => {
     expect(first.notes).toEqual(['The patent search by name alone did not answer; only patents assigned to Nikola are listed.']);
     expect(first.findings.slice(1).map((f) => f.match)).toEqual(['confirmed', 'confirmed', 'confirmed']);
 
-    patentNetwork({ session: reply('no', 500) }); // the USPTO count is optional
+    patentNetwork({ byCompany: reply('busy', 500) }); // the company search down: the name search is used, graded from its assignees
     const second = await runPatents(milton());
-    expect(second.findings).toHaveLength(6);
-    expect(second.findings[0].quote).not.toContain('USPTO');
-    expect(second.findings[0].data.grantedUsPatents).toBeNull();
+    expect(byNumber(second.findings, 'US11613312B2').match).toBe('confirmed');
+    expect(byNumber(second.findings, 'US9463408B2').match).toBe('possible');
   });
 
   test('rejects when no patent source answers', async () => {
-    patentNetwork({ byName: reply('busy', 500), byCompany: reply('busy', 500), session: reply('no', 500) });
+    patentNetwork({ byName: reply('busy', 500), byCompany: reply('busy', 500) });
     await expect(runPatents(milton())).rejects.toThrow(/HTTP 500/);
-    patentNetwork({ byName: reply('<html>sorry</html>'), byCompany: reply('<html>sorry</html>'), session: reply({ userCase: {} }) });
+    patentNetwork({ byName: reply('<html>sorry</html>'), byCompany: reply('<html>sorry</html>') });
     await expect(runPatents(milton())).rejects.toThrow();
-    patentNetwork({ byName: reply({ unexpected: true }), session: reply('no', 500) });
+    patentNetwork({ byName: reply({ unexpected: true }) });
     await expect(runPatents(createSubject({ name: 'Trevor Milton' }))).rejects.toThrow(/Unexpected answer/);
   });
 
   test('no patents under the name: nothing, without failing', async () => {
-    patentNetwork({ byName: gpAnswer([]), byCompany: gpAnswer([]), uspto: { numFound: 0, patents: [] } });
+    patentNetwork({ byName: gpAnswer([]), byCompany: gpAnswer([]) });
     expect(await runPatents(milton())).toEqual({ findings: [], threads: [], notes: [] });
     // only other people: say why nothing is listed
     patentNetwork({ byName: gpAnswer([gp('ZA202007753B', 'Safety scalpel', '2018-05-31', '2020-12-11', null, '<b>Trevor John Milton</b>', 'Medi Safe Surgicals Pty Ltd')]), byCompany: gpAnswer([]) });
