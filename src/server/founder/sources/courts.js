@@ -26,7 +26,7 @@
 import * as cheerio from 'cheerio';
 import { getJson, getText, htmlToText, HttpError } from '../http';
 import { makeFinding, makeThread, severityFromText } from '../finding';
-import { matchSubject } from '../identity';
+import { matchSubject, companyKeyStrict } from '../identity';
 import { threadsFromResult } from '../extract';
 import { companyKeys } from '../../founderCheck';
 
@@ -194,13 +194,29 @@ export function caseParties(caseName) {
 
 const companyKey = (name) => companyKeys(name)[0] || '';
 const plainKey = (s) => stripAccents(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-/** "Nikola Corporation" is Nikola; "Nikola D. Kasanin" and "Nikola Motor Works" are not. */
+/**
+ * "Nikola Corporation" is Nikola; "Nikola D. Kasanin" and "Nikola Motor Works"
+ * are not. Only legal forms are set aside: "Mistral AI, Inc." is Mistral AI,
+ * but "Mistral, Inc." and "Mistral (SPC)" are other companies.
+ */
 export function sameCompany(candidate, company) {
-  const a = companyKey(candidate);
-  const b = companyKey(company);
+  const a = companyKeyStrict(candidate);
+  const b = companyKeyStrict(company);
   if (a && b) return a === b;
   const p = plainKey(candidate);
   return p.length > 1 && p === plainKey(company);
+}
+const LEGAL_FORM = /\b(?:inc|incorporated|llc|ltd|limited|corp|corporation|co|company|plc|sa|sas|sarl|gmbh|ag|bv|nv|pty|lp|llp)\b/;
+/**
+ * Is one side of a case the company? A case title often names people by
+ * surname alone, so when the company's name is one word the side must also
+ * carry a legal form: "Flow, Inc." is the company; "Flow v. Payne" (a person
+ * named Flow) and "Paymentwall v. We" are not.
+ */
+export function partyIsCompany(side, company) {
+  if (!sameCompany(side, company)) return false;
+  if (companyKeyStrict(company).split(' ').length >= 2) return true;
+  return LEGAL_FORM.test(plainKey(side));
 }
 /** The words of a company name that identify it ("Nikola Corporation" -> "Nikola"). */
 const companyCore = (company) => {
@@ -219,7 +235,7 @@ const namesKnownCompany = (subject, text) => [...(subject?.anchors?.companies?.v
  * enough: "Block Grant Fraud" and "Cash Flow Scheme" are not Block or Flow.
  */
 function headlineNamesCompany(title, company) {
-  if (caseParties(title).sides.some((side) => sameCompany(side, company))) return true;
+  if (caseParties(title).sides.some((side) => partyIsCompany(side, company))) return true;
   const full = clean(company);
   return full !== companyCore(company) && new RegExp(`(?<![A-Za-z0-9])${escapeRe(full)}(?![A-Za-z0-9])`).test(String(title || ''));
 }
@@ -316,7 +332,7 @@ function docketFinding(d, ctx, who, { company = '' } = {}) {
   const partyHit = parties.find((p) => sameName(p, who)) || titlePeople.find((p) => sameName(p, who)) || '';
   const filings = arr(d.recap_documents).map((doc) => clean(`${plain(doc?.short_description || doc?.description)} ${plain(doc?.snippet)}`)).filter(Boolean);
   const textHit = partyHit ? '' : filings.find((t) => namesPerson(t, who)) || '';
-  const companyParty = company ? [...parties, ...title.sides, ...title.asides, ...fullTitle.sides].find((p) => sameCompany(p, company)) || '' : '';
+  const companyParty = company ? [...parties, ...title.sides, ...title.asides, ...fullTitle.sides].find((p) => partyIsCompany(p, company)) || '' : '';
   if (company ? !companyParty : !(partyHit || textHit)) return { skip: 'not-named' };
 
   const court = clean(d.court) || federalCourtName(d.court_id);
@@ -443,17 +459,32 @@ function iaUrl(doc) {
   return m ? `${CL_SITE}/docket/${m[1]}/${m[2]}/` : `https://archive.org/details/${encodeURIComponent(doc.identifier)}`;
 }
 
-function iaFinding(doc, ctx, who, { company = '' } = {}) {
+/**
+ * How the subject is tied to a company: 'given' when the user gave it, a
+ * finding id when a confirmed record tied it, '' otherwise. A company that
+ * was only inferred (no company given) or that they merely invested in or
+ * advised does not count.
+ */
+function foundedCompany(subject, company, tie) {
+  if (tie === 'affiliate') return '';
+  const anchor = [...(subject?.anchors?.companies?.values() || [])].find((a) => a.origin && a.origin !== 'inferred' && a.origin !== 'found' && sameCompany(a.value, company));
+  return anchor ? anchor.origin : '';
+}
+
+function iaFinding(doc, ctx, who, { company = '', tie = null } = {}) {
   const caseName = clean(arr(doc.title)[0]);
   const code = clean(arr(doc.court)[0]) || (String(doc.identifier).match(/^gov\.uscourts\.([a-z0-9]+)\./) || [])[1] || '';
   const court = federalCourtName(code);
   const title = caseParties(caseName);
   const partyHit = title.people.find((p) => sameName(p, who)) || '';
-  const companyParty = company ? [...title.sides, ...title.asides].find((p) => sameCompany(p, company)) || '' : '';
+  const companyParty = company ? [...title.sides, ...title.asides].find((p) => partyIsCompany(p, company)) || '' : '';
   if (company ? !companyParty : !partyHit) return { skip: 'not-named' };
   const matchText = partyHit ? `${who.name} | ${caseName}` : '';
   if (partyHit && isBankruptcyCourt(code) && matchSubject(ctx.subject, matchText).level !== 'confirmed') return { skip: 'personal-bankruptcy' };
   const surnameSide = title.sides.find((side) => plainKey(side) === plainKey(who.surname)) || '';
+  // The company the person founded or runs on one side and exactly their surname on the other: likely them, never confirmed.
+  const origin = !partyHit && surnameSide && title.sides.length === 2 && title.sides.includes(companyParty) && companyParty !== surnameSide
+    ? foundedCompany(ctx.subject, company, tie) : '';
   const finding = makeFinding(ctx.subject, {
     source: IA_ID,
     sourceLabel: IA_LABEL,
@@ -464,7 +495,10 @@ function iaFinding(doc, ctx, who, { company = '' } = {}) {
     date: null, // the archive records when the copy was made, not when the case was filed
     severity: isCriminalCase(caseName) && (partyHit || company) ? 'high' : 'medium',
     data: { caseNumber: null, court, archiveId: String(doc.identifier) },
-    ...(partyHit ? { matchText } : {
+    ...(partyHit ? { matchText } : origin ? {
+      match: 'likely',
+      matchReasons: [`the case is between ${companyParty} and ${surnameSide}; ${who.name} founded or runs ${company} (${origin === 'given' ? 'the company given' : 'tied to them on a confirmed record'})`],
+    } : {
       match: 'company',
       matchReasons: [`${companyParty} is a party to the case`, ...(surnameSide ? [`the other side is named ${surnameSide}; the case title gives no first name`] : [])],
     }),
@@ -493,7 +527,7 @@ export const courtRecordsOpenConnector = {
       // A long list is mostly other parties with the word in their name: ask again for the titles that also carry the surname.
       if (total > docs.length && who.surname) docs = [...(await iaTitles([core, who.surname], ctx, 50)).docs, ...docs];
       const seen = new Set();
-      const read = docs.filter((d) => !seen.has(d.identifier) && seen.add(d.identifier)).map((d) => iaFinding(d, ctx, who, { company })).filter((r) => r.finding);
+      const read = docs.filter((d) => !seen.has(d.identifier) && seen.add(d.identifier)).map((d) => iaFinding(d, ctx, who, { company, tie: task.tie || null })).filter((r) => r.finding);
       read.sort((a, b) => Number(b.surnameSide) - Number(a.surnameSide));
       if (read.length > 8) notes.push(`The archive holds ${read.length} federal dockets with ${company} in the case title; 8 are listed.`);
       return { findings: read.slice(0, 8).map((r) => r.finding), threads: [], notes };
@@ -925,7 +959,7 @@ export const ukCaseLawConnector = {
       const core = companyCore(company);
       for (const j of await caseLawFeed([company], core, ctx)) {
         const parties = caseParties(j.title);
-        const party = [...parties.people, ...parties.asides].find((p) => sameCompany(p, company));
+        const party = [...parties.people, ...parties.asides].find((p) => partyIsCompany(p, company));
         if (!party) continue;
         const named = parties.people.find((p) => sameName(p, who));
         const f = judgmentFinding(j, ctx, {

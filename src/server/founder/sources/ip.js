@@ -24,7 +24,9 @@
  *
  * Trademark owners are matched on the whole owner name (legal form aside),
  * never on a word inside it: "Stripe" must not pick up "Blue Stripe, LLC" or
- * "Stripe International Inc.". Where several owners carry the name, only the
+ * "Stripe International Inc.", and "Flow" must not pick up "Flow Companies
+ * Inc". A one-word name other than the company the user gave is graded
+ * possible and kept out of the timeline. Where several owners carry the name, only the
  * one with the most filings is counted and the rest are listed as left out;
  * so is a filing that lapsed years before the others began (an earlier user
  * of the name).
@@ -38,7 +40,7 @@
  */
 import { getJson, htmlToText } from '../http';
 import { makeFinding, makeThread } from '../finding';
-import { nameTokens } from '../identity';
+import { nameTokens, companyKeyStrict } from '../identity';
 import { companyKeys } from '../../founderCheck';
 
 const switchedOff = (id) => String(process.env.FOUNDER_SOURCES_OFF || '').split(',').map((s) => s.trim()).filter(Boolean).includes(id);
@@ -434,6 +436,13 @@ const byFilingDate = (a, b) => String(a.filed || '9').localeCompare(String(b.fil
 /** The owner's name with its legal form, case and punctuation aside: "STRIPE, INC." -> "stripe inc". */
 const ownerKey = (name) => String(name || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 const LONG_GAP_YEARS = 7;
+/**
+ * The whole company name with only its legal form removed (companyKeyStrict, accents and dotted initials aside):
+ * "Mistral AI (SAS)" -> "mistral ai", "Flow Companies Inc" -> "flow companies". A trademark owner is the company
+ * only when this key is the same; a describing word more or less ("AI", "Companies") makes another owner.
+ */
+const fullKey = (name) => companyKeyStrict(String(name || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\b(?:[a-z]\.){2,}/gi, (m) => m.replace(/\./g, '')))
+  .replace(/\b(pbc|pte|srl|aps|oy|kk)\b/g, ' ').replace(/\s+/g, ' ').trim();
 
 /**
  * Two companies can carry the same name. Filings are grouped by the owner's
@@ -518,21 +527,26 @@ export const trademarksConnector = {
     const marks = hits.map(fromTrademarkHit).filter(Boolean);
     const notes = [];
 
-    // The owner must be the company: the whole name, legal form aside. A looser match (a generic word such as
-    // "AI" or "Labs" more or less) is accepted only when it points at a single owner name.
+    // The owner must be the company: the whole name, legal form aside, never only its core word ("WE, INC." is not
+    // "WeWork"; "Flow Companies Inc" is not "Flow"). The one other name accepted is a fuller name of the same company
+    // that the check already holds (given or found: "Mistral AI" when the thread reads "Mistral").
+    const given = fullKey(ctx?.subject?.company);
+    const known = [ctx?.subject?.company, ...[...(ctx?.subject?.anchors?.companies?.values?.() || [])].map((a) => a?.value)]
+      .filter((v) => v && ((looseKey && companyKeys(v)[0] === looseKey) || (fullKey(company) && fullKey(v).startsWith(`${fullKey(company)} `))));
+    const accepted = new Map([[fullKey(company), company]]);
+    for (const v of known) if (fullKey(v) && !accepted.has(fullKey(v))) accepted.set(fullKey(v), v);
+    accepted.delete('');
     const ownedBy = (test) => marks.map((m) => {
       const owners = m.owners.filter((o) => test(o.name));
       return owners.length ? { ...m, owner: owners[0], ownerKeys: [...new Set(owners.map((o) => ownerKey(o.name)))] } : null;
     }).filter(Boolean);
-    let matched = ownedBy((name) => legalNorm(name) === strictKey);
-    let reason = `trademark owner name matches ${company}`;
-    if (!matched.length && looseKey) {
-      const loose = ownedBy((name) => companyKeys(name)[0] === looseKey);
-      const names = [...new Map(loose.map((m) => [legalNorm(m.owner.name), m.owner.name])).values()];
-      if (names.length === 1) { matched = loose; reason = `trademark owner ${names[0]} matches ${company} apart from a generic word`; } else if (names.length > 1) {
-        notes.push(`Trademark owners with names close to ${company} could not be told apart (${names.slice(0, 3).join('; ')}), so none was matched.`);
-      }
-    }
+    const matched = ownedBy((name) => accepted.has(fullKey(name)));
+    const viaKeys = [...new Set(matched.map((m) => fullKey(m.owner.name)))];
+    const via = viaKeys.length === 1 ? accepted.get(viaKeys[0]) : company;
+    const reason = via === company || fullKey(via) === fullKey(company) ? `trademark owner name matches ${company}` : `trademark owner name matches ${via}, a known name of ${company}`;
+    // A one-word name that is not the company the user gave ("We Co." beside "WE, INC.") is shared by many unrelated
+    // owners: such a match is kept as possible, fixed, and out of the timeline.
+    const oneWordOnly = viaKeys.length > 0 && viaKeys.every((k) => !k.includes(' ') && k !== given);
     if (!matched.length) {
       // Say what was seen and not counted, so a near miss is visible (organisations only: people are never named).
       const near = [...new Map(marks.flatMap((m) => m.owners).filter((o) => ORGANISATION_OWNER.test(o.kind) && legalNorm(o.name).startsWith(tokens.join(' '))).map((o) => [legalNorm(o.name), o.name])).values()];
@@ -564,9 +578,13 @@ export const trademarksConnector = {
     }
     const owners = [...spellings.values()].sort((a, b) => b.n - a.n).map((o) => o.raw);
     const named = (m) => (m.wordmark ? m.wordmark : 'a design mark');
-    const base = { source: this.id, sourceLabel: this.label, category: 'ip', severity: 'info', match: 'company', matchReasons: [reason] };
+    const base = oneWordOnly
+      ? { source: this.id, sourceLabel: this.label, category: 'ip', severity: 'info', match: 'possible', matchReasons: [`${reason}, a one-word name other companies also use: may be another company`] }
+      : { source: this.id, sourceLabel: this.label, category: 'ip', severity: 'info', match: 'company', matchReasons: [reason] };
+    const timeline = oneWordOnly ? { excludeFromTimeline: true } : {};
     // The privacy filter can reject a mark for a word in it; the filing is then kept without the mark text.
-    const build = (withMark, without) => makeFinding(ctx?.subject, withMark) || makeFinding(ctx?.subject, { ...withMark, ...without });
+    const withTimeline = (f) => (f.data ? { ...f, data: { ...f.data, ...timeline } } : f);
+    const build = (withMark, without) => makeFinding(ctx?.subject, withTimeline(withMark)) || makeFinding(ctx?.subject, withTimeline({ ...withMark, ...without }));
     const ownerLine = `Owner on record: ${owners.slice(0, 3).join(' / ')}${owners.length > 3 ? ` and ${plural(owners.length - 3, 'more spelling', 'more spellings')}` : ''}.`;
     const tallyLine = `${count('registered')} registered; ${count('abandoned')} abandoned; ${count('cancelled')} cancelled.`;
     const leftOutLine = leftOut.length ? `Not counted, as they may belong to another company of the same name: ${leftOut.slice(0, 3).map((x) => x.text).join('; ')}.` : null;

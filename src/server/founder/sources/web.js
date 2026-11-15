@@ -217,13 +217,17 @@ function pageThreads(subject, result, finding) {
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** Words that, right after a one-word company name, keep it a company ("Nikola Motors", "Square Inc"), not part of another name ("Nikola Jokic"). */
 const COMPANY_WORD = /^(?:Inc|Incorporated|Corp|Corporation|Co|Company|LLC|Ltd|Limited|Plc|GmbH|AG|SA|Group|Holdings?|Motors|Technologies|Technology|Tech|Labs?|Systems|Software|Therapeutics|Pharma|Pharmaceuticals|Bio|Biosciences|Health|Energy|Capital|Ventures|Financial|Bank|Partners|Media|Networks|Robotics|AI|CEO|CTO|CFO|COO|Founder|Founders|Co-?founder|President|Chairman|Board|Executives?|Employees|Investors?|Shareholders?|Shares|Stock|IPO)\b/;
-/** Words that place a one-word name as a business anywhere in the text. */
-const BUSINESS_CONTEXT = /\b(?:Inc|Corp|Co\.|company|companies|startup|CEO|CTO|CFO|COO|founders?|co-?founders?|chief executive|shares|stock|shareholders?|investors?|IPO|employees|layoffs?|lays off|bankrupt\w*|Chapter 11|insolvency|acquir\w+|acquisition|merger|valuation|funding|SEC|FTC|regulators?|customers|revenue)\b/i;
 /** Headline case ("Stripe Settles Lawsuit Over Fees"): a capital after the name says nothing there. */
 const titleCase = (title) => {
   const words = String(title || '').split(/\s+/).filter((w) => /^[A-Za-z]/.test(w) && w.length > 3);
   return words.length >= 3 && words.filter((w) => /^[A-Z]/.test(w)).length / words.length >= 0.7;
 };
+/** A legal form right after the name ("We, Inc.", "Flow LLC"): the one word that makes any name a company. */
+const LEGAL_FORM_AFTER = /^,?\s+(?:Inc|Incorporated|LLC|L\.L\.C|Ltd|Limited|Corp|Corporation|Co|Company|PLC|LLP|GmbH|AG|SA|SAS|SARL|BV|NV)\b/i;
+/** Plain words a company may be called ("We", "Open", "Next"): written as a name they still say nothing on their own. */
+const PLAIN_WORDS = new Set('a an the we us our you your it its they them he she his her i me my on in at by of to for and or but so if as up out all any one new now how what why who when where here there this that these those with from into over about more most some just only also best first next open real true get go do be can will may yes no not'.split(' '));
+/** How many words either side of the company name the subject's surname may be and still place it. */
+const SURNAME_NEAR_WORDS = 5;
 
 /**
  * A test for "this result is about the company the task is about", or null
@@ -231,37 +235,82 @@ const titleCase = (title) => {
  *
  * A one-word name ("Nikola", "Square") is also a first name or a plain word,
  * so it must be written as a name (capitalised), and not as the first half of
- * another name ("Nikola Jokic", "Square Enix"). When the text cannot tell
- * (headline case, or every mention runs into another capitalised word), the
- * result must place it some other way: on the company's own site, with the
- * subject's surname, or among business words ("Nikola Corp", "CEO", "shares").
+ * another name ("Nikola Jokic", "Square Enix"). Wherever a capital says
+ * nothing (a headline-case title, "Flow Characteristics Of ..."), and always
+ * for a name of three letters or fewer or a plain word ("We"), the result
+ * must place it some other way: a legal form right after it ("Nikola Corp"),
+ * the company's own site, the subject's surname within five words, or the
+ * subject's own name.
  */
 function companyTest(task, subject) {
   const company = task.kind === 'company' ? shortCompany(task.value) : '';
   if (!company) return null;
   const re = new RegExp(`(?<![A-Za-z0-9])${escapeRe(company)}(?![A-Za-z0-9])`, 'gi');
   if (/\s/.test(company)) return (text) => String(text).search(re) >= 0;
+  // "We", "AI", "Flo": too short or too plain to be read as the company from its capital letter alone
+  const weak = company.length <= 3 || PLAIN_WORDS.has(company.toLowerCase());
+  const full = tidy(task.value);
+  const fullRe = weak && full.toLowerCase() !== company.toLowerCase() && /\s/.test(full)
+    ? new RegExp(`(?<![A-Za-z0-9])${escapeRe(full).replace(/\s+/g, '\\s+')}(?![A-Za-z0-9])`, 'i') : null;
   const tokens = nameTokens(subject?.name || '');
   const surname = tokens.length > 1 ? tokens[tokens.length - 1] : '';
   const surnameRe = surname ? new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(surname)}(?![\\p{L}\\p{N}])`, 'iu') : null;
   const domains = [...(subject?.anchors?.domains?.values?.() || [])].map((a) => String(a.value).toLowerCase().replace(/^www\./, ''));
   return (text, { title = null, host = '' } = {}) => {
     const str = String(text);
+    if (fullRe && fullRe.test(str)) return true; // the full name as given ("We Holdings Ltd")
     const mentions = [...str.matchAll(re)].filter((m) => /^[A-Z0-9]/.test(m[0]));
     if (!mentions.length) return false;
     if (host && domains.length && onHost(host, domains)) return true;
-    if (surnameRe && surnameRe.test(str)) return true;
-    const nextWord = (m) => str.slice(m.index + m[0].length).match(/^\s+([A-Z][\p{L}\p{N}'’&-]*)/u)?.[1] || '';
-    // a mention in a headline-case title cannot be read by the word after it; the rest of the text (the snippet) can
+    if (typeof subject?.hasName === 'function' && subject.hasName(str)) return true;
+    const after = (m) => str.slice(m.index + m[0].length);
+    const surnameNear = (m) => {
+      if (!surnameRe) return false;
+      const before = str.slice(0, m.index).split(/\s+/).filter(Boolean).slice(-SURNAME_NEAR_WORDS).join(' ');
+      const next = after(m).split(/\s+/).filter(Boolean).slice(0, SURNAME_NEAR_WORDS).join(' ');
+      return surnameRe.test(before) || surnameRe.test(next);
+    };
+    const nextWord = (m) => after(m).match(/^\s+([A-Z][\p{L}\p{N}'’&-]*)/u)?.[1] || '';
+    // a mention in a headline-case title cannot be read by its capitals; the rest of the text (the snippet) can
     const titleEnd = title != null && titleCase(title) ? String(title).length : 0;
     for (const m of mentions) {
+      if (LEGAL_FORM_AFTER.test(after(m))) return true; // "Nikola Corp", "We, Inc."
+      if (surnameNear(m)) return true; // "Founder Milton: Nikola settles"
+      if (weak || m.index < titleEnd) continue;
       const next = nextWord(m);
       if (next && COMPANY_WORD.test(next)) return true; // "Nikola Motors", "Square Inc"
-      if (m.index < titleEnd) { if (BUSINESS_CONTEXT.test(str)) return true; continue; }
       if (!next) return true; // "Nikola recalls trucks"; "Nikola Jokic" is another name
     }
     return false;
   };
+}
+
+/* Wikipedia articles found by the web search. The article about the person is read by its own
+   source; an article about something else (an event, a list, another company) only mentions them. */
+const WIKI_URL = /^https?:\/\/[a-z]{2,3}(?:-[a-z]+)?\.(?:m\.)?wikipedia\.org\/wiki\/([^?#]+)/i;
+/** "Milton (surname)", "Arthur (given name)", "Mensch (disambiguation)": lists of namesakes, never about the person. */
+const WIKI_NAME_LIST = /\((?:surname|given name|first name|name|family name|disambiguation)\)$/i;
+
+/** The title of the Wikipedia article a link opens, or '' when it is not one. */
+export function wikipediaTitle(url) {
+  const m = String(url || '').match(WIKI_URL);
+  return m ? tidy(safeDecode(m[1]).replace(/_/g, ' ')) : '';
+}
+
+/**
+ * What a Wikipedia article is about, judged from its title: 'list' (a page of
+ * namesakes: dropped), 'subject' (the person, a company or person already tied
+ * to them, or the company the task is about) or 'other'.
+ */
+export function wikipediaKind(subject, task, title) {
+  if (WIKI_NAME_LIST.test(title)) return 'list';
+  // the title must BE the name, not contain it: "Nikola Tesla" is not about Nikola the company
+  const key = (s) => shortCompany(s).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const bare = key(title.replace(/\s*\([^)]*\)\s*$/, ''));
+  if (!bare) return 'other';
+  const names = [subject.name, ...(subject.variants || []), subject.company, task?.kind === 'company' ? task.value : '',
+    ...['companies', 'people'].flatMap((kind) => [...(subject.anchors?.[kind]?.values?.() || [])].map((a) => a.value))];
+  return names.some((n) => n && key(n) === bare) ? 'subject' : 'other';
 }
 
 /**
@@ -308,7 +357,14 @@ function collect(subject, task, results, { source, sourceLabel, category = null,
       severity: severityFromText(text),
       ...(r.publisher ? { data: { publisher: r.publisher } } : {}),
     };
-    const finding = makeFinding(subject, base);
+    const wiki = wikipediaTitle(r.url);
+    const wikiKind = wiki ? wikipediaKind(subject, task, wiki) : null;
+    if (wikiKind === 'list') continue;
+    // An article about something else that mentions the person: background at most, never confirmed,
+    // and never a record about the company alone.
+    if (wikiKind === 'other') base.severity = 'info';
+    let finding = makeFinding(subject, base);
+    if (finding && wikiKind === 'other') finding = makeFinding(subject, { ...base, match: 'possible', matchReasons: [`Wikipedia article about ${wiki}, not about the person`] });
     if (!finding) {
       // About the company the task gave us, not the person: kept when it reports trouble, and marked as such.
       if (namesCompany && !subject.hasName(text) && namesCompany(text, { title: r.title, host }) && base.severity !== 'info') {

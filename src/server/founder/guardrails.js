@@ -59,13 +59,15 @@ const STREET_PLACE = '(?:Hill|Park|Green|Grove|Rise|Walk)';
 const MONTH = '(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)';
 
 const REDACTIONS = [
+  // the birth date in an encyclopedia lede goes whole: "Jane Doe (born 3 March 1984) is", "(Hebrew: ...; born 1984)"
+  [/\s*\(([^()]*?)[;,]?\s*\bborn\b(?=[^()]*\d)[^()]*\)/gi, (m, before) => (before.trim() ? ` (${before.trim()})` : '')],
   // email addresses
   [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email removed]'],
   // US social security numbers and similar national identifiers
   [/\b\d{3}-\d{2}-\d{4}\b/g, '[ID number removed]'],
   [/\b(?:SSN|social security(?: number)?|national insurance(?: number)?|passport(?: number| no\.?)?)\s*[:#]?\s*[A-Z0-9][A-Z0-9 -]{5,14}\b/gi, '[ID number removed]'],
-  // phone numbers: +1 (415) 555-0100, 415-555-0100, +44 20 7946 0958
-  [/(?<![\w/.-])(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)[\s.-]?|\d{2,4}[\s.-])\d{3,4}[\s.-]\d{3,4}(?![\w/-])/g, '[phone removed]'],
+  // phone numbers: +1 (415) 555-0100, 415-555-0100, +44 20 7946 0958. A run of years ("2021 2020 2021") is not a phone.
+  [/(?<![\w/.-])(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)[\s.-]?|\d{2,4}[\s.-])\d{3,4}[\s.-]\d{3,4}(?![\w/-])/g, (m) => (/^(?:(?:1[89]|20)\d{2}[\s.-]){2}(?:1[89]|20)\d{2}$/.test(m) ? m : '[phone removed]')],
   // phone numbers written as one run of digits, when the text around them says it is a phone: "call 4155550100"
   [/(?<![\w/.+-])\+?\d{10,12}(?![\w/-])/g, (m, offset, text) => (/\b(?:call|phone|tel|telephone|mobile|cell|whatsapp)\b/i.test(text.slice(Math.max(0, offset - 40), offset)) ? '[phone removed]' : m)],
   // street addresses: "1234 Elm Street", "12 Kensington Gardens", with an optional unit
@@ -98,13 +100,13 @@ export function redactPII(text) {
 
 // Protected or intimate matters. A sentence that is about one of these is not
 // investment diligence and is dropped, whatever the source.
-const SENSITIVE = /\b(diagnos(?:ed|is)|cancer|chemotherap\w*|rehab(?:ilitation)?\b|addict(?:ed|ion)|overdos\w*|suicid\w*|mental (?:health|illness)|depress(?:ion|ed)|bipolar|schizophreni\w*|autis\w*|HIV|AIDS|pregnan\w*|miscarriage|abortion|disabilit(?:y|ies)|terminal(?:ly)? ill\w*|sexual orientation|\bgay\b|lesbian|bisexual|transgender|came out as|devout|practi[sc]ing (?:muslim|catholic|jew|christian|hindu|mormon|buddhist)|converted to (?:islam|christianity|judaism|hinduism|buddhism)|undocumented|immigration status|asylum seeker|green card|visa overstay|(?<!corporate |global )citizenship|naturali[sz](?:ed|ation)|H-?1B|work visa|residency permit|deport\w*|(?:as|was|were|an?|former)\s+refugees?\b(?!\s+(?:charit\w*|camps?|organi[sz]ations?|non-?profits?|programmes?|programs?|funds?|agenc\w*|council|crisis|resettlement|services|support|aid|relief|startups?|apps?|platforms?)\b))\b/i;
+const SENSITIVE = /\b(diagnos(?:ed|is)|cancer|chemotherap\w*|rehab(?:ilitation)?\b|addict(?:ed|ion)|overdos\w*|suicid\w*|mental (?:health|illness)|depress(?:ion|ed)|bipolar|schizophreni\w*|autis\w*|HIV|AIDS|pregnan\w*|miscarriage|abortion|disabilit(?:y|ies)|terminal(?:ly)? ill\w*|sexual orientation|\bgay\b|lesbian|bisexual|transgender|came out as|devout|practi[sc]ing (?:muslim|catholic|jew|christian|hindu|mormon|buddhist)|converted to (?:islam|christianity|judaism|hinduism|buddhism)|undocumented|immigration status|(?:LDS|Mormon)\s+mission\w*|served (?:an? )?(?:LDS |Mormon |church )?mission\b|(?<!mercenar(?:y|ies),?\s+(?:vs\.?|versus|not|or|and|over)\s+(?:a\s+)?)missionar(?:y|ies)\b(?![\s,]+(?:vs\.?|versus|not|or|and|over)\s+(?:a\s+)?mercenar)|Shabbat|Sabbath observ\w*|keeps? kosher|synagogues?|Kabbalah|asylum seeker|green card|visa overstay|(?<!corporate |global )citizenship|naturali[sz](?:ed|ation)|H-?1B|work visa|residency permit|deport\w*|(?:as|was|were|an?|former)\s+refugees?\b(?!\s+(?:charit\w*|camps?|organi[sz]ations?|non-?profits?|programmes?|programs?|funds?|agenc\w*|council|crisis|resettlement|services|support|aid|relief|startups?|apps?|platforms?)\b))\b/i;
 // Religion named as a person's own faith: "Jane Doe, a Mormon, founded ...", "is a devout Catholic who".
 // Case-sensitive so that "the Catholic University" or "a Christian charity" are not caught.
 const RELIGION = /\b(?:[Aa]n?|[Ii]s|[Ww]as|[Aa]s)\s+(?:(?:devout|practi[sc]ing|observant|born-again|lifelong)\s+)?(?:Hindu|Muslim|Mormon|Catholic|Jew|Jewish|Evangelical|Sikh|Buddhist|Christian|Baptist|Methodist|[Aa]theist)\b(?=\s*(?:[,.;:)!?]|$)|\s+(?:and|who|whose|by|from|since|himself|herself|man|woman|convert|family|faith|household|upbringing)\b)/;
 
 // Children and minors are never part of a report.
-const MINOR = /\b(?:(?:his|her|their)\s+(?:\w+\s+)?(?:son|daughter|child|children|kids?|baby|toddler|newborn|infant|grand(?:son|daughter|child(?:ren)?))\b|(?:\d{1,2})[- ]year[- ]old\s+(?:son|daughter|child|boy|girl)|(?:son|daughter|child),?\s+(?:aged?\s+)?(?:\d|1[0-7])\b|kindergarten|elementary school|middle school|(?:in|at)\s+high school|minor child|custody (?:battle|dispute|of)|birth of (?:his|her|their)|gave birth|gives? birth|giving birth|welcom(?:ed|es|ing)\s+(?:a\s+|their\s+|her\s+|his\s+)?(?:baby|son|daughter|child|twins)|baby (?:boy|girl)|newborn|stepchild(?:ren)?|expecting (?:a|their) (?:baby|child|first|second)|born to (?:him|her|them|the couple))\b/i;
+const MINOR = /\b(?:(?:his|her|their)\s+(?:\w+\s+)?(?:son|daughter|child|children|kids?|baby|toddler|newborn|infant|grand(?:son|daughter|child(?:ren)?))\b|(?:\d{1,2})[- ]year[- ]old\s+(?:son|daughter|child|boy|girl)|(?:son|daughter|child),?\s+(?:aged?\s+)?(?:\d|1[0-7])\b|kindergarten|elementary school|middle school|(?:in|at)\s+high school|minor child|custody (?:battle|dispute|of)|birth of (?:his|her|their)|gave birth|gives? birth|giving birth|welcom(?:ed|es|ing)\s+(?:a\s+|their\s+|her\s+|his\s+)?(?:baby|son|daughter|child|twins)|baby (?:boy|girl)|newborn|stepchild(?:ren)?|expecting (?:a|their) (?:baby|child|first|second)|born to (?:him|her|them|the couple)|(?:father|mother|dad|mom|mum|parent)\s+(?:of|to)\s+(?:@\w+|\d+|two|three|four|five|six|twins|triplets|a\s+(?:boy|girl|son|daughter))\b(?!\s+(?:companies|startups|businesses|ventures|firms|brands|funds|products|patents|unicorns)\b))/i;
 // A named child: "Elizabeth Holmes' son William", "a son, William". Case-sensitive: the name must be capitalised.
 const NAMED_CHILD = /[A-Z][\w’'-]*[’']s?\s+(?:son|daughter|child|children|kids)\b(?![’'-]|\s+(?:safety|privacy|data|products?|apps?|services?|accounts?|online|protection|content)\b)|\b(?:[Aa]|[Tt]heir|[Oo]ne)\s+(?:son|daughter|child),?\s+[A-Z][a-z]+/;
 
@@ -128,6 +130,16 @@ const OFFICIAL_SOURCES = new Set([
 ]);
 const OFFICIAL_CATEGORIES = new Set(['litigation', 'regulatory', 'sanctions']);
 
+// Obituaries and funeral notices are about private family life and are the usual way a private namesake's
+// record gets in. They are kept only when the record is confirmed as the subject's.
+const OBITUARY_TITLE = /\bobituar\w*|\bfuneral (?:home|chapel|service|notice|arrangements?)\b|\bin memoriam\b|\b(?:pays?|paid) tributes?\b|\btributes? (?:to|for|pour|paid)\b|\bcelebration of life\b/i;
+const OBITUARY_HOST = /obituar|funeral|(?:^|\.)legacy\.com$|(?:^|\.)tributes?\.com$/i;
+
+/** True when a record is an obituary or funeral notice, by its title or its host. */
+export function isObituary(finding) {
+  return OBITUARY_TITLE.test(String(finding?.title || '')) || OBITUARY_HOST.test(hostOf(finding?.url));
+}
+
 /**
  * Apply every rule to one finding. Returns the cleaned finding, or null when
  * it must not be used at all. `finding` is { title, quote, url, ... }.
@@ -135,6 +147,7 @@ const OFFICIAL_CATEGORIES = new Set(['litigation', 'regulatory', 'sanctions']);
 export function sanitizeFinding(finding) {
   if (!finding || typeof finding !== 'object') return null;
   if (finding.url && isBlockedUrl(finding.url)) return null;
+  if (finding.match !== 'confirmed' && isObituary(finding)) return null;
   const title = redactPII(finding.title);
   let quote = redactPII(finding.quote);
   if (mentionsMinor(`${title} ${quote}`)) return null;

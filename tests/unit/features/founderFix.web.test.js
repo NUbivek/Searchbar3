@@ -84,8 +84,8 @@ describe('a one-word company name must be placed as that company', () => {
     expect(await kept(r('Nikola Corp faces fraud investigation'))).toBe(true);
     expect(await kept(r('Nikola Jokic and Milton named in fraud lawsuit'))).toBe(true); // the surname places it
     expect(await kept(r('Nikola Update On The Fraud Lawsuit', { url: 'https://nikolamotor.com/news/1' }))).toBe(true);
-    // headline case: the word after the name says nothing, so a business word must place it
-    expect(await kept(r('Nikola Shares Plunge After Fraud Lawsuit'))).toBe(true);
+    // headline case: the capitals say nothing, so a legal form, the surname, the site or the person must place it
+    expect(await kept(r('Nikola Shares Plunge After Fraud Lawsuit'))).toBe(false);
     expect(await kept(r('Nikola Jokic Hit With Lawsuit Over Fraud Claims'))).toBe(false);
     // the snippet, in plain sentence case, can place a headline-case title
     expect(await kept(r('Nikola Hit With Lawsuit Over Fraud Claims', { snippet: 'Nikola faces a lawsuit from buyers.' }))).toBe(true);

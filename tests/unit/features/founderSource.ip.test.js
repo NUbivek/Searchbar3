@@ -401,31 +401,38 @@ describe('trademarksConnector', () => {
     expect(notes).toHaveLength(1);
   });
 
-  test('"WeWork" finds "WeWork Companies LLC"; a generic word more or less is accepted only for a single owner', async () => {
-    trademarkNetwork(tmAnswer([
+  test('a describing word more or less ("Companies", "AI") makes another owner, unless that fuller name is already known', async () => {
+    const weworkHits = tmAnswer([
       tm('85081288', 'WE LIVE', ['WEWORK COMPANIES INC. (CORPORATION; DELAWARE, USA)'], '2010-07-09', { abandoned: '2014-03-31' }),
       tm('85868860', 'WEWORK', ['WEWORK COMPANIES INC. (CORPORATION; DELAWARE, USA)', 'WeWork Companies LLC (LIMITED LIABILITY COMPANY; DELAWARE, USA)'], '2013-03-06', { registered: '2017-01-10', alive: true }),
-    ]));
+    ]);
+    trademarkNetwork(weworkHits);
     const wework = await runTrademarks('WeWork', createSubject({ name: 'Adam Neumann', company: 'WeWork' }));
-    expect(wework.findings[0].title).toBe('WeWork: 2 US trademark filings, earliest filed 2010-07-09; 1 live, 1 no longer live');
-    expect(wework.notes).toEqual([]);
+    expect(wework.findings).toEqual([]);
+    expect(wework.notes).toEqual(['No US trademark owner is named exactly WeWork. Owners with longer names were not counted, as they may be other companies: WeWork Companies LLC.']);
+    // the same owner is taken once "WeWork Companies Inc." is a known name of the company
+    const neumann = createSubject({ name: 'Adam Neumann', company: 'WeWork' });
+    addAnchor(neumann, 'companies', 'WeWork Companies Inc.', 'f1');
+    trademarkNetwork(weworkHits);
+    const known = await runTrademarks('WeWork', neumann);
+    expect(known.findings[0].title).toBe('WeWork: 2 US trademark filings, earliest filed 2010-07-09; 1 live, 1 no longer live');
+    expect(known.findings[0].matchReasons).toEqual(['trademark owner name matches WeWork Companies Inc., a known name of WeWork']);
 
     const mistralAi = 'Mistral AI (SOCIÉTÉ PAR ACTIONS SIMPLIFIÉE (SAS); FRANCE)';
     trademarkNetwork(tmAnswer([tm('79397874', 'MISTRAL AI', [mistralAi, 'Mistral AI (UNKNOWN; FRANCE)'], '2023-12-15', { registered: '2025-06-24', alive: true, classes: ['IC 009', 'IC 042'] })]));
-    const mistral = await runTrademarks('Mistral', createSubject({ name: 'Arthur Mensch', company: 'Mistral' }));
+    const mistral = await runTrademarks('Mistral', createSubject({ name: 'Arthur Mensch', company: 'Mistral AI' }));
     expect(mistral.findings).toHaveLength(1);
     expect(mistral.findings[0].title).toBe('Mistral: 1 US trademark filing, earliest filed 2023-12-15; 1 live, 0 no longer live');
-    expect(mistral.findings[0].matchReasons).toEqual(['trademark owner Mistral AI matches Mistral apart from a generic word']);
+    expect(mistral.findings[0].matchReasons).toEqual(['trademark owner name matches Mistral AI, a known name of Mistral']);
     expect(mistral.findings[0].quote).toContain(`Owner on record: ${mistralAi}.`);
 
-    // two different owners that are both "Mistral" plus a generic word: neither is taken
+    // nothing known beyond "Mistral": neither "Mistral AI" nor "Mistral Group, Inc." is taken
     trademarkNetwork(tmAnswer([
       tm('79397874', 'MISTRAL AI', [mistralAi], '2023-12-15', { alive: true }),
       tm('87000001', 'MISTRAL', ['Mistral Group, Inc. (CORPORATION; MARYLAND, USA)'], '2016-04-04', { alive: true }),
     ]));
     const unclear = await runTrademarks('Mistral', createSubject({ name: 'Arthur Mensch', company: 'Mistral' }));
     expect(unclear.findings).toEqual([]);
-    expect(unclear.notes).toEqual(['Trademark owners with names close to Mistral could not be told apart (Mistral AI; Mistral Group, Inc.), so none was matched.']);
   });
 
   test('no owner with exactly that name: nothing is counted and the near misses are named (organisations only)', async () => {

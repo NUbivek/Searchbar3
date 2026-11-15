@@ -651,11 +651,15 @@ const searchedNames = (task, ctx) => {
 /**
  * Grade and build one finding for a name match.
  *   subject    graded by makeFinding from the person's name plus the list's own context
- *   company    'company' (the caller has already required tier 1)
+ *   company    'company' (the caller has already required tier 1); 'possible' (held) when the caller
+ *              says the name is a single word once the legal form is removed (meta.coreOnly)
  *   associate, relative   title names who it is about; 'possible' unless the record also names the subject
  */
-function gradedFinding(task, ctx, f, context) {
+function gradedFinding(task, ctx, f, context, coreOnly = false) {
   const subject = ctx.subject;
+  if (task.kind === 'company' && coreOnly) {
+    return makeFinding(subject, { ...f, match: 'possible', matchReasons: ['only the company name\'s one distinctive word matches; many unrelated companies share a one-word name'] });
+  }
   if (task.kind === 'company') return makeFinding(subject, { ...f, match: 'company', matchReasons: ['the listed name is the same as the company name'] });
   if (task.kind === 'associate' || task.kind === 'relative') {
     const reason = `name match on ${task.kind === 'relative' ? 'a relative' : 'an associate'} of the subject`;
@@ -705,7 +709,7 @@ function matchFinding(task, ctx, meta, records) {
       records: shown.map((r) => ({ name: r.name, tier: r.tier, url: r.url, ...(r.tag ? { programme: r.tag } : {}), ...(r.date ? { listed: r.date } : {}) })),
       ...(records.length > shown.length ? { moreRecords: records.length - shown.length } : {}),
     },
-  }, shown.map((r) => `${r.context || ''}`).join(' '));
+  }, shown.map((r) => `${r.context || ''}`).join(' '), Boolean(meta.coreOnly));
   // A list's reason text must never cost the hit itself: without it the record is still reported.
   return build(true) || build(false);
 }
@@ -993,12 +997,16 @@ export const offshoreLeaksConnector = {
       }
     }
     const hits = [...byId.values()].sort((a, b) => a.tier - b.tier);
+    // A one-word company name ("Flow Inc." -> FLOW) matches every offshore shell that shares the word:
+    // such a hit is held as 'possible', never reported as the company's own record.
+    const coreOnly = !person && companyTokens(name).length < 2;
     const findings = hits.slice(0, 5).map(({ node, kind, tier }) => {
       const description = oneLine(node.description);
       const leak = (description.match(/extracted from the (.+?) data\.?$/i) || [])[1] || '';
       return matchFinding(task, ctx, {
         source: 'offshore-leaks', sourceLabel: ICIJ_LABEL, category: 'leaks', severity: 'low',
         where: 'in the ICIJ Offshore Leaks database',
+        coreOnly,
         data: { nodeId: String(node.id), nodeType: kind, ...(leak ? { leak } : {}) },
       }, [{
         name: oneLine(node.name),

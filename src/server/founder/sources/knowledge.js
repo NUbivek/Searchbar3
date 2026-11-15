@@ -42,7 +42,7 @@
  */
 import { getJson, getText, mapLimit } from '../http';
 import { makeFinding, makeThread, severityFromText } from '../finding';
-import { nameTokens, matchSubject } from '../identity';
+import { nameTokens, matchSubject, companyKeyStrict } from '../identity';
 import { threadsFromResult, relativesFromText, associatesFromText, mentions } from '../extract';
 import { isSensitive, mentionsMinor } from '../guardrails';
 
@@ -682,17 +682,25 @@ export function parseWikipediaUrl(url) {
 const WP_SKIP_SECTION = /^(references|external links|see also|notes|footnotes|further reading|bibliography|sources|citations|works cited|filmography|discography|publications|selected (?:works|publications|bibliography)|works|books|awards|honou?rs|recognition|accolades|in popular culture|popular culture|in (?:the )?media|media portrayals?|cultural depictions?|depictions?|portrayals?|gallery|explanatory notes)\b/i;
 /** Sections about private life: read for relatives in public roles, never quoted. */
 const WP_PRIVATE_SECTION = /\b(personal life|private life|family|marriage|relationships?|health|illness|death|religio\w*|beliefs)\b/i;
-const WP_EARLY_SECTION = /\b(early life|early years|education|background|childhood|youth|biography|life)\b/i;
+/** No bare "life": "Personal life" is not where a school is reported, and quoting it leaks private matters. */
+const WP_EARLY_SECTION = /\b(early life|early years|education|background|childhood|youth|biography)\b/i;
 const WP_CAREER_SECTION = /\b(career|business|work|compan(?:y|ies)|ventures?|invest\w*|professional|entrepreneur\w*|founding|research|history|activities|projects?)\b/i;
 /** Sentences that are private however they are worded: residence, birth, partners. */
 const WP_PRIVATE_SENTENCE = /\b(was born|born (?:on|in|to)\b|birthday|lives in|resides in|residence in|home in|neighbou?rhood|mansion|gave birth|married|wedding|engaged to|dating|girlfriend|boyfriend|fianc[ée]e?|romantic\w*|divorc\w*|honeymoon)\b/i;
 const LEGAL_MATTER = /\b(lawsuits?|sued|sues|suing|litigation|court|judge|jury|juror|indict\w*|convict\w*|acquitt\w*|plead(?:ed|s)?|pled|guilty|sentenc\w*|prison|imprison\w*|incarcerat\w*|charged|charges|trial|prosecut\w*|settle(?:d|ment)|subpoena\w*|fined|penalt(?:y|ies)|bankruptc\w*|injunction|arbitration|appeal(?:ed|s)?|verdict|defendants?|plaintiffs?|arrest\w*|extradit\w*|restitution|forfeit\w*|Securities and Exchange Commission|SEC|Department of Justice|DOJ|CFTC|FTC|FBI|regulators?|attorney general|grand jury)\b/;
 const EDUCATION_WORDS = /\b(graduat\w*|attended|studied|enrolled|dropped out|drop out|degree|bachelor\w*|master'?s|MBA|Ph\.?D\.?|doctorate|doctoral|university|college|school|institute|alumn\w*|scholarship|thesis)\b/i;
 const CAREER_WORDS = /\b(co-?founded|founded|co-?founder|founder|joined|appointed|named|became|served as|worked|hired|launched|started|established|CEO|chief executive|chairman|chairwoman|chair|president|director|partner|board|acquired|raised|invested|valuation|valued|stepped down|resigned|left the|sold|merged|IPO|went public)\b/i;
+/** Military or national service: part of a career, often reported under early life. */
+const SERVICE_WORDS = /\bserved\b[^.]{0,40}?\b(?:in|with) the (?:[\w'’-]+ ){0,3}?(?:navy|army|air force|marines?|marine corps|military|defen[cs]e forces?|coast guard|national guard)\b/i;
+/** A funding round or deal with its amount ("raised $350 million"). */
+const FUNDING_AMOUNT = /(?:US)?[$€£]\s?[\d.,]+\s*(?:million|billion|bn|m)\b/i;
+const careerSentence = (x) => CAREER_WORDS.test(x) || SERVICE_WORDS.test(x) || FUNDING_AMOUNT.test(x);
 
 const WP_ABBREVIATION = /\b(v|vs|Inc|Corp|Ltd|Co|Mr|Mrs|Ms|Dr|Jr|Sr|St|No|Prof|Gen|Sen|Rep|Gov|U\.S|et al)\.(?=\s)/g;
+/** A middle or first initial ("Robert F. Kennedy", "J. Smith"): not the end of a sentence. */
+const WP_INITIAL = /\b([A-Z])\.(?=\s+[A-Z])/g;
 /** Sentences of a paragraph, verbatim. */
-const sentencesIn = (text) => clean(text).replace(WP_ABBREVIATION, '$1\u0001').split(/(?<=[.!?]["”]?)\s+(?=[A-Z"“])/).map((s) => s.replace(/\u0001/g, '.').trim()).filter((s) => s.length > 20 && s.length < 700);
+const sentencesIn = (text) => clean(text).replace(WP_ABBREVIATION, '$1\u0001').replace(WP_INITIAL, '$1\u0001').split(/(?<=[.!?]["”]?)\s+(?=[A-Z"“])/).map((s) => s.replace(/\u0001/g, '.').trim()).filter((s) => s.length > 20 && s.length < 700);
 /** May this sentence be quoted? Not when it is about private life, a child, or a protected matter. */
 const quotable = (s) => !WP_PRIVATE_SENTENCE.test(s) && !isSensitive(s) && !mentionsMinor(s);
 /** The latest year a quotation names that is not in the future ("pleaded guilty in 2022" -> "2022"), or null. */
@@ -700,8 +708,8 @@ function yearOf(text) {
   const years = (String(text || '').match(/\b(?:19|20)\d{2}\b/g) || []).map(Number).filter((y) => y <= thisYear());
   return years.length ? String(Math.max(...years)) : null;
 }
-/** Take sentences in order while they fit in a quotation. */
-function fitQuote(sentences, limit = QUOTE_CHARS) {
+/** The sentences, in order, that fit in a quotation. */
+function fitSentences(sentences, limit = QUOTE_CHARS) {
   const out = [];
   let used = 0;
   for (const s of sentences) {
@@ -710,8 +718,10 @@ function fitQuote(sentences, limit = QUOTE_CHARS) {
     used += s.length + 1;
     if (used >= limit) break;
   }
-  return out.join(' ');
+  return out;
 }
+/** Take sentences in order while they fit in a quotation. */
+const fitQuote = (sentences, limit = QUOTE_CHARS) => fitSentences(sentences, limit).join(' ');
 
 /** The article as sections: [{ heading, top, paragraphs }], the lead first with an empty heading. */
 export function articleSections(extract) {
@@ -742,6 +752,23 @@ function withFullName(subject, text) {
   return String(text).replace(re, subject.name);
 }
 
+/**
+ * In the subject's own article, "He founded ..." right after a sentence
+ * that names the subject is about the subject: the pronoun is replaced with
+ * the full name so the company extractor reads it. Only a run of sentences
+ * that starts with one naming the subject is rewritten (the same rule the
+ * associate and relative extractors follow). Used for finding threads only.
+ */
+function withPronouns(subject, text) {
+  let named = false;
+  return String(text).split(/(?<=[.!?]["”]?)\s+(?=[A-Z"“])/).map((sentence) => {
+    if (subject.hasName(sentence)) { named = true; return sentence; }
+    if (named && /^(?:He|She)\s/.test(sentence)) return sentence.replace(/^(?:He|She)(?=\s)/, subject.name);
+    named = false;
+    return sentence;
+  }).join(' ');
+}
+
 /** A link that opens the article at a section. The "#" is written "%23" so each section has its own address; Wikipedia redirects it to the section. */
 const sectionUrl = (articleUrl, heading) => (heading ? `${articleUrl}%23${encodeURIComponent(heading.replace(/\s+/g, '_'))}` : articleUrl);
 /**
@@ -760,18 +787,62 @@ function distinctUrl(used, url, quote) {
   return url;
 }
 
+/** A company the person founded or runs (or the one given); an affiliate (a stake, an investment) is not read. */
+const primaryCompany = (x) => x?.kind === 'company' && (!x.tie || x.tie === 'primary');
+
+/**
+ * The company's own article: who founded it with the person, advisers and
+ * shareholders it names, and relatives it gives a role there. Only an
+ * article whose title is the company's name and that names the person in
+ * full is read (a company that merely shares the name never does), and only
+ * sentences that name the person, or follow straight on from one, are read
+ * for people. Threads only: nothing from it is quoted as a record.
+ */
+async function wpCompany(task, ctx) {
+  const empty = { findings: [], threads: [], notes: [] };
+  if (!primaryCompany(task)) return empty;
+  const { subject } = ctx;
+  const company = clean(task.value);
+  const key = companyKeyStrict(company);
+  if (key.length < 3) return empty;
+  const titles = unique([company, `${company} (company)`]).join('|');
+  const api = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts%7Cpageprops%7Cinfo&explaintext=1&exsectionformat=wiki&redirects=1&inprop=url&titles=${encodeURIComponent(titles)}&format=json&formatversion=2`;
+  const json = await getJson(api, { deadline: ctx.deadline });
+  if (!json?.query || !Array.isArray(json.query.pages)) throw new Error('Wikipedia returned an answer that could not be read');
+  const doc = json.query.pages.find((p) => p && !p.missing && p.extract && !(p.pageprops && 'disambiguation' in p.pageprops)
+    && companyKeyStrict(clean(p.title).replace(/\s*\([^)]*\)\s*$/, '')) === key);
+  if (!doc) return empty;
+  const sections = articleSections(String(doc.extract)).filter((s) => !WP_SKIP_SECTION.test(s.heading) && !WP_SKIP_SECTION.test(s.top)
+    && !WP_PRIVATE_SECTION.test(s.heading) && !WP_PRIVATE_SECTION.test(s.top));
+  // Bare surnames are not expanded here: in a company article "Roe" may be a relative or another founder.
+  const text = withPronouns(subject, sections.flatMap((s) => s.paragraphs).join(' ').slice(0, 20000));
+  const about = sentencesIn(text).filter((x) => subject.hasName(x));
+  if (!about.length) return empty;
+  const title = clean(doc.title);
+  const trusted = matchSubject(subject, clean(`${subject.name}. ${company}. ${title}. ${about.join(' ')}`).slice(0, 3900)).level !== 'possible';
+  const threads = [];
+  for (const a of associatesFromText(subject, text).slice(0, 8)) threads.push(makeThread('associate', a.name, `${a.why} (Wikipedia article on ${title})`, { trusted }));
+  for (const r of relativesFromText(subject, text).slice(0, 4)) {
+    threads.push(makeThread('relative', r.name, `${r.relation}; ${r.role} (Wikipedia article on ${title})`, { trusted, relation: r.relation, role: r.role }));
+  }
+  const seen = new Set();
+  return { ...empty, threads: threads.filter((t) => t && !seen.has(`${t.kind}|${t.value.toLowerCase()}`) && seen.add(`${t.kind}|${t.value.toLowerCase()}`)) };
+}
+
 export const wikipediaConnector = {
   id: WP_ID,
   label: WP_LABEL,
-  kinds: ['url'],
+  kinds: ['url', 'company'],
   prior: 0.7,
   timeoutMs: 15000,
-  /** Only Wikipedia article links become a lookup: any other link costs nothing here. */
+  /** Only Wikipedia article links, and the person's own companies, become a lookup: any other link costs nothing here. */
   plan(thread) {
+    if (primaryCompany(thread)) return [{ template: 'company-article', prior: 0.5, why: 'the Wikipedia article about the company: co-founders, advisers and shareholders it names' }];
     return thread.kind === 'url' && parseWikipediaUrl(thread.value) ? [{ template: 'article', why: 'the Wikipedia article about the person' }] : [];
   },
   async run(task, ctx) {
     const empty = { findings: [], threads: [], notes: [] };
+    if (task.kind === 'company') return wpCompany(task, ctx);
     const page = task.kind === 'url' ? parseWikipediaUrl(task.value) : null;
     if (!page) return empty;
     const { subject } = ctx;
@@ -804,16 +875,19 @@ export const wikipediaConnector = {
     // The last edit of the article is not the date of anything it reports: a finding carries a year only when its own text gives one.
     const build = (f) => makeFinding(subject, { source: WP_ID, sourceLabel: WP_LABEL, date: null, severity: 'info', ...f, data: { ...(f.data || {}), revisedAt: revised }, matchText: context });
     const findings = [];
-    const used = new Set();
+    // Sentences already quoted by a matter record: not quoted again (the rest of their paragraph still may be).
+    const quoted = new Set();
+    const summarised = new Set();
     const usedUrls = new Set();
 
     // 1. Who the article says this is
     const lead = sections.find((s) => !s.heading);
     const leadSentences = (lead?.paragraphs || []).flatMap(sentencesIn).filter(quotable);
     if (leadSentences.length) {
-      const quote = fitQuote(leadSentences.slice(0, 4));
+      const said = fitSentences(leadSentences.slice(0, 4));
+      const quote = said.join(' ');
       findings.push(build({ category: 'identity', title: `${title}${description ? `: ${description}` : ''} (Wikipedia article)`, quote, url: articleUrl, severity: severityFromText(quote), data: { wikidataId: doc.pageprops?.wikibase_item || null } }));
-      for (const p of lead.paragraphs.slice(0, 1)) used.add(p);
+      for (const x of said) summarised.add(x);
     }
 
     // 2. Each paragraph that reports a legal, regulatory or controversy matter
@@ -821,12 +895,14 @@ export const wikipediaConnector = {
     sections.forEach((s, si) => {
       if (WP_PRIVATE_SECTION.test(s.heading) || WP_PRIVATE_SECTION.test(s.top)) return;
       s.paragraphs.forEach((p, pi) => {
-        if (!s.heading && pi === 0) return; // the opening paragraph is the identity summary
-        const picked = sentencesIn(p).filter(quotable).filter((x) => severityFromText(x) !== 'info');
+        // the opening paragraph is the identity summary: a matter it reports beyond what the summary quotes (medium or higher) still gets its own record
+        const opening = !s.heading && pi === 0;
+        const picked = sentencesIn(p).filter(quotable).filter((x) => (opening ? !summarised.has(x) && SEVERITY_RANK[severityFromText(x)] >= SEVERITY_RANK.medium : severityFromText(x) !== 'info'));
         if (!picked.length) return;
-        const quote = fitQuote(picked);
+        const said = fitSentences(picked);
+        const quote = said.join(' ');
         const severity = severityFromText(quote);
-        matters.push({ s, p, quote, severity, order: si * 1000 + pi, legal: LEGAL_MATTER.test(quote) });
+        matters.push({ s, p, said, quote, severity, order: si * 1000 + pi, legal: LEGAL_MATTER.test(quote) });
       });
     });
     matters.sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || a.order - b.order);
@@ -841,29 +917,44 @@ export const wikipediaConnector = {
         date: yearOf(m.quote),
         data: { section: m.s.heading || null },
       }));
-      used.add(m.p);
+      for (const x of m.said) quoted.add(x);
     }
 
     // 3. Education and career statements
-    const pick = (list, words) => list.flatMap((s) => s.paragraphs.filter((p) => !used.has(p)).flatMap(sentencesIn)).filter((x) => quotable(x) && words.test(x));
-    const eduSections = sections.filter((s) => s.heading && (WP_EARLY_SECTION.test(s.heading) || WP_EARLY_SECTION.test(s.top)) && !WP_CAREER_SECTION.test(s.heading));
+    const pick = (list, test) => unique(list.flatMap((s) => s.paragraphs.flatMap(sentencesIn))).filter((x) => !quoted.has(x) && quotable(x) && test(x));
+    const eduSections = sections.filter((s) => s.heading && (WP_EARLY_SECTION.test(s.heading) || WP_EARLY_SECTION.test(s.top)) && !WP_CAREER_SECTION.test(s.heading)
+      && !WP_PRIVATE_SECTION.test(s.heading) && !WP_PRIVATE_SECTION.test(s.top));
     const eduSource = eduSections.length ? eduSections : (lead ? [lead] : []);
-    const eduSentences = pick(eduSource, EDUCATION_WORDS);
+    const eduSentences = pick(eduSource, (x) => EDUCATION_WORDS.test(x));
     if (eduSentences.length) {
       const heading = eduSections[0]?.heading || '';
       findings.push(build({ category: 'education', title: `${title}: education as described on Wikipedia${heading ? ` ("${heading}")` : ''}`, quote: fitQuote(eduSentences), url: sectionUrl(articleUrl, heading), data: { section: heading || null } }));
     }
+    const careerUrls = new Set();
+    const careerQuoted = new Set();
     const careerTops = unique(sections.filter((s) => s.heading && WP_CAREER_SECTION.test(s.top) && !WP_PRIVATE_SECTION.test(s.top)).map((s) => s.top)).slice(0, 4);
     for (const top of careerTops) {
       const group = sections.filter((s) => s.top === top && !WP_PRIVATE_SECTION.test(s.heading));
-      const sentences = pick(group, CAREER_WORDS);
+      const sentences = pick(group, careerSentence);
       if (!sentences.length) continue;
-      const quote = fitQuote(sentences);
-      findings.push(build({ category: 'career', title: `${title}: career as described on Wikipedia ("${top}")`, quote, url: sectionUrl(articleUrl, top), severity: severityFromText(quote), data: { section: top } }));
+      const said = fitSentences(sentences);
+      for (const x of said) careerQuoted.add(x);
+      const quote = said.join(' ');
+      const url = distinctUrl(careerUrls, sectionUrl(articleUrl, top), quote);
+      findings.push(build({ category: 'career', title: `${title}: career as described on Wikipedia ("${top}")`, quote, url, severity: severityFromText(quote), data: { section: top } }));
     }
     if (!careerTops.length && leadSentences.length > 4) {
-      const sentences = leadSentences.slice(4).filter((x) => CAREER_WORDS.test(x));
-      if (sentences.length) findings.push(build({ category: 'career', title: `${title}: career as described on Wikipedia`, quote: fitQuote(sentences), url: articleUrl }));
+      const said = fitSentences(leadSentences.slice(4).filter((x) => !quoted.has(x) && careerSentence(x)));
+      for (const x of said) careerQuoted.add(x);
+      if (said.length) findings.push(build({ category: 'career', title: `${title}: career as described on Wikipedia`, quote: said.join(' '), url: distinctUrl(careerUrls, articleUrl, said.join(' ')) }));
+    }
+    // Military or national service reported outside the career sections (often under early life)
+    const serviceSections = sections.filter((s) => s.heading && !WP_PRIVATE_SECTION.test(s.heading) && !WP_PRIVATE_SECTION.test(s.top));
+    const service = pick(serviceSections, (x) => SERVICE_WORDS.test(x) && !careerQuoted.has(x));
+    if (service.length) {
+      const where = serviceSections.find((s) => s.paragraphs.some((p) => sentencesIn(p).includes(service[0])));
+      const quote = fitQuote(service);
+      findings.push(build({ category: 'career', title: `${title}: military or national service as described on Wikipedia`, quote, url: distinctUrl(careerUrls, sectionUrl(articleUrl, where?.heading || ''), quote), data: { section: where?.heading || null } }));
     }
 
     // 4. Threads: companies, schools, associates, and relatives the article gives a public role
@@ -881,7 +972,7 @@ export const wikipediaConnector = {
         for (const r of relativesFromText(subject, text)) take(makeThread('relative', r.name, `${r.relation}; ${r.role} (Wikipedia)`, { trusted, relation: r.relation, role: r.role }));
         continue;
       }
-      for (const t of threadsFromResult(subject, { title, snippet: text, url: articleUrl }, { trusted })) take(t);
+      for (const t of threadsFromResult(subject, { title, snippet: withPronouns(subject, text), url: articleUrl }, { trusted })) take(t);
       for (const a of associatesFromText(subject, text)) take(makeThread('associate', a.name, `${a.why} (Wikipedia)`, { trusted }));
     }
     const cap = { company: 10, school: 5, associate: 8, relative: 6 };
@@ -1058,7 +1149,7 @@ function lsResult(ctx, entity, rels, family) {
     myOrgs.add(org.toLowerCase());
     const board = r.attrs?.category_attributes?.is_board === true;
     const what = r.category === LS_POSITION ? (r.mine || r.theirs || (board ? 'board member' : 'position'))
-      : r.category === LS_OWNERSHIP ? 'owner'
+      : r.category === LS_OWNERSHIP ? 'shareholder' // an ownership tie is a stake (often an investment), not running the company
       : r.category === LS_MEMBERSHIP ? (r.mine ? `member (${r.mine})` : 'member')
       : (r.mine || 'student');
     const made = push({
@@ -1128,7 +1219,7 @@ async function lsCompany(task, ctx) {
   const findings = [];
   for (const r of rels.slice(0, 6)) {
     const when = lsSpan(r.attrs);
-    const what = r.category === LS_POSITION ? (r.theirs || 'position') : r.category === LS_OWNERSHIP ? 'owner' : 'member';
+    const what = r.category === LS_POSITION ? (r.theirs || 'position') : r.category === LS_OWNERSHIP ? 'shareholder' : 'member';
     const made = makeFinding(subject, {
       source: LS_ID, sourceLabel: LS_LABEL, category: 'career', severity: 'info',
       title: `${r.other.name}: ${what} at ${org.name}${inBrackets(when)}`,

@@ -25,7 +25,7 @@ checked in code.
 | Identity and public roles | Wikidata, Wikipedia, LittleSis, GitHub, Hacker News, linked accounts (Keybase), academic record (ORCID, Crossref, theses.fr), scholarly publications (OpenAlex), US nonprofit filings (Form 990) | Education and career as the public record has them, public office, board seats and foundations, a claimed doctorate checked against thesis registries, handles and sites the person has linked |
 | Family and related parties | Wikidata and LittleSis relatives and their roles, related-party passages in SEC filings, family wording in press, the second reader | Relatives who hold a business, political or philanthropic role, organisations they share with the founder; each is screened against watchlists and searched together with the founder |
 | Courts and enforcement | US Department of Justice press releases, federal court case titles (Internet Archive copy of dockets), federal dockets and opinions (CourtListener, when `COURTLISTENER_API_TOKEN` is set), SEC enforcement releases, CFTC and CFPB enforcement actions, FINRA BrokerCheck and SEC adviser records, The Gazette (UK insolvency and disqualification notices), UK court judgments, the French official commercial bulletin (BODACC) | Charges, pleas, convictions, sentences, civil suits, bars, insolvency |
-| Sanctions and watchlists | Sanctions lists (US Consolidated Screening List, UN, EU, UK, Canada), US federal exclusion lists (SAM.gov, HHS OIG), ICIJ Offshore Leaks, wanted lists (FBI, EU Most Wanted) | Name screens for the founder, their companies, associates and relatives; a clean screen is reported as such |
+| Sanctions and watchlists | Sanctions lists (US Consolidated Screening List, UN, EU, UK, Canada), US federal exclusion lists (SAM.gov, HHS OIG), wanted lists (FBI, EU Most Wanted), ICIJ Offshore Leaks (the founder and their companies only) | Name screens for the founder, their companies, associates and relatives; a clean screen is reported as such, and the report marks any related person who was not screened in that run |
 | Filings and company records | SEC filings (full-text search, Form D fundraises, insider filings), UK Companies House (officers, disqualified directors), French company register, US state business registers, Legal Entity Identifier register, Y Combinator directory, patents, US trademarks, domain history | Roles and dates independent of what the founder says, earlier companies, dissolutions, co-directors and co-founders, inventorship |
 | Breach and leak-site exposure (company level) | Ransomware leak-site listings (RansomLook), known data breaches (Have I Been Pwned catalogue), regulators' breach registers | Whether the founder's companies appear as victims or in breach notices. Organisation, date and counts only |
 
@@ -169,7 +169,40 @@ checked in full.
 | `FOUNDER_DEEP_PUBLIC=true` | lets a check run without sign-in (local testing only) |
 | `FOUNDER_SOURCES_OFF` | comma-separated source ids to switch off |
 | `SEC_USER_AGENT` | a declared contact for SEC requests, if the default is ever refused |
+| `FOUNDER_HTTP_CONTACT` | a URL or address the owner chooses to declare to the sites it asks (nothing is declared by default) |
+| `FOUNDER_SEARCH_GOOGLE_NEWS=0` | turns off the Google News feed (see "Choices the owner should know about") |
+| `FOUNDER_SEARCH_METERED=0` | stops the deep check from ever using the site's backup search service |
+| `FOUNDER_SEARCH_BRAVE_HTML=1` | turns on Brave Search (off by default) |
 | `LLM_SKIP_GEMINI_FOR_PEOPLE=true` | keeps text about the person away from Gemini (see README, "AI models") |
+
+## Choices the owner should know about
+
+- **Google News feed.** Most open-web lookups are answered by Google's news
+  search feed. The feed is published for programs to read, but the site's
+  crawler rules do not list that path among the allowed ones. It is used
+  because each request is a lookup a person started, at a modest pace (at
+  most 60 in ten minutes). `FOUNDER_SEARCH_GOOGLE_NEWS=0` turns it off; the
+  check then leans on DuckDuckGo (a handful of lookups per ten minutes),
+  Bing News and Wikipedia, and finds much less press.
+- **The backup search service.** The site's ordinary search already uses a
+  metered search service (Serper, then Tavily). The deep check uses it only
+  as a last resort for its most valuable lookups, at most 20 times an hour.
+  `FOUNDER_SEARCH_METERED=0` keeps the deep check off it entirely.
+- **Gemini and personal information.** The strongest model that costs
+  nothing is Google's, and its terms for unpaid use ask not to submit
+  personal information. The summary sends it only text already published
+  about the person. `LLM_SKIP_GEMINI_FOR_PEOPLE=true` uses the next-best
+  models for people checks instead.
+- **Sources left out on purpose.** Certificate-transparency lookups, a
+  people search on a nonprofit database, a patent office's web-app search,
+  onion search engines and a ransomware-victim feed were removed or never
+  used because their terms do not allow automated or business use.
+  Political donation records are excluded by design.
+- **Pace.** Sources are asked no faster than they allow (the web archive
+  about 15 times a minute; two sites ask for ten seconds between requests),
+  so a full check takes three to five minutes, and several checks run back
+  to back will find less news until the search allowances refill (about ten
+  minutes).
 
 ## Limits per check
 

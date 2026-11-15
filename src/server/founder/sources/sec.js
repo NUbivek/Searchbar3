@@ -8,11 +8,18 @@
  *     insider      Forms 3/4/5 they filed as an officer, director or large
  *                  shareholder, and the holding vehicles that filed with them
  *     related      filings where the name sits next to a related-party or
- *                  family term (dealings with an executive's relatives)
- *     enforcement  SEC litigation releases and administrative proceedings
+ *                  family term, or a dealing with the company (a lease, a
+ *                  loan, a trademark sold to it)
+ *     family       relatives the person's company names in its own filings
+ *                  with a part in the business
+ *     enforcement  SEC litigation releases and administrative proceedings,
+ *                  and the complaints they cite, dated when filed
+ *     press        SEC press releases that name the person
  *   secCompanyConnector  for a company tied to the person: its Form D
  *     notices (and who else is named on them), filings that name the person
- *     together with the company, and 8-K cyber-incident reports.
+ *     together with the company, and 8-K cyber-incident reports. For a
+ *     company the person was only an affiliate of, only records that name
+ *     them are kept and its cyber incidents are not looked up.
  *
  * Three SEC hosts are used. The full-text search (efts.sec.gov) returns the
  * filing index only, never a text snippet, so quotes are either a passage
@@ -499,6 +506,18 @@ function kinScore(window, offset) {
   return { points: (kin ? 4 : 0) + (family ? 2 : 0) + (related ? 1 : 0), start: offset + hit.index, end: offset + hit.index + hit[0].length };
 }
 
+// A founder's dealings with their own company: buildings leased to it, loans, a trademark sold to it.
+const DEAL_TERM = /\b(leases?|leased|leasing|landlord|loans?|loaned|promissory notes?|trademarks?|purchased from|sold to|rent(?:al)?|reimburs\w*|paid (?:to|by)|payments? (?:to|of|from))\b/i;
+const DEAL_POINTS = 10;
+/** Dealings next to the name outrank a passage that only mentions a relative or a marriage. */
+function dealScore(window, offset) {
+  const kin = kinScore(window, offset);
+  const deals = [...window.matchAll(new RegExp(DEAL_TERM.source, 'gi'))];
+  if (!deals.length) return kin;
+  const first = deals[0];
+  return { points: DEAL_POINTS + new Set(deals.map((m) => m[0].toLowerCase())).size + (kin ? 1 : 0), start: offset + first.index, end: offset + first.index + first[0].length };
+}
+
 /**
  * A passage that names the person, read from the filing.
  *   null   the document could not be opened
@@ -561,6 +580,12 @@ function relativesInDisclosure(subject, passage) {
   // "Adam is married to Rebekah Neumann" / "Rebekah Neumann is married to Mr. Neumann"
   for (const m of text.matchAll(new RegExp(`(?<![A-Za-z])${possessor}\\s+is\\s+married\\s+to\\s+(${PERSON})`, 'g'))) add(m[1], 'spouse', m.index);
   for (const m of text.matchAll(new RegExp(`(${PERSON})\\s+is\\s+married\\s+to\\s+${who}`, 'g'))) add(m[1], 'spouse', m.index);
+  // "Mr. Roe's relatives, Jane Roe and John Roe, ..." / "Mr. Roe's brothers, Jim Roe and Joe Roe"
+  for (const m of text.matchAll(new RegExp(`${possessor}[’']s\\s+(relatives|brothers|sisters|siblings|cousins),?\\s+(${PERSON})(?:,?\\s+and\\s+(${PERSON}))?`, 'g'))) {
+    const relation = m[1].toLowerCase().replace(/s$/, '');
+    add(m[2], relation, m.index);
+    if (m[3]) add(m[3], relation, m.index);
+  }
   return [...found.values()];
 }
 
@@ -787,6 +812,9 @@ function pickFilings(groups, subject, { max = 14, perFiler = 4, maxNameOnly = 6 
   return out;
 }
 
+/** Issuers (by first filer) with at least one filing whose passage was read. A filing of theirs with no passage adds nothing. */
+const quotedFilers = (groups, passageOf) => new Set(groups.filter((g, i) => typeof passageOf(g, i) === 'string').map((g) => filerKey(g.entities[0])));
+
 // A proxy statement or a notice of a board change that names the person with a role is that company speaking about its own people.
 const ROLE_AT_FILER = /\b(directors?|officers?|chief|president|chair(?:man|woman|person)?|co-?founders?|founders?|nominees?|board|appointed|elected|resign\w*)\b/i;
 
@@ -825,9 +853,11 @@ async function personMentions(ctx) {
   const findings = [];
   const threads = [];
   const entries = [];
+  const quoted = quotedFilers(picked.slice(0, passages.length), (g, i) => passages[i]);
   picked.forEach((g, i) => {
     const passage = i < passages.length ? passages[i] : null;
     if (passage === false) return; // the index matched the words, but the document does not name the person
+    if (!passage && quoted.has(filerKey(g.entities[0]))) return; // the same issuer's filing with a passage already stands for it
     const item = notableItem(g.items);
     const title = `${g.form}${docLabel(g.best)} filed by ${filersOf(g)} mentions ${subject.name}${item ? ` (${item})` : ''}`;
     const quote = passage ? flat(passage) : recordLine(g);
@@ -954,14 +984,19 @@ const RELATED_QUERY = '"related party" OR "immediate family" OR "family member" 
 const RELATED_FORMS = 'S-1,S-4,S-11,F-1,F-4,1-A,10-K,20-F,DEF 14A,DEFM14A,424B3,424B4,8-K';
 // A prospectus sets out a founder's dealings at greatest length; then the yearly proxy and annual report.
 const RELATED_WEIGHT = [[/^(S-1|F-1|1-A)/, 4], [/^(DEF 14A|DEFM14A|10-K)/, 3], [/^(424B|S-4|F-4|S-11|20-F)/, 2]];
+// Searched beside RELATED_QUERY (EDGAR's search takes no brackets: the name and then any one of the terms).
+const DEALINGS_QUERY = '"related party transactions" OR lease OR landlord OR loan OR "promissory note" OR trademark OR "purchased from"';
+const MAIN_DISCLOSURE = /^(S-1|F-1|DEF 14A)$/;
+const RELATED_MAX_READS = 5;
 
 async function personRelated(ctx) {
   const { subject } = ctx;
   const names = searchNames(subject);
   const hits = [];
   const seen = new Set();
-  for (const name of names) {
-    const result = await searchFilings({ q: `"${name}" ${RELATED_QUERY}`, forms: RELATED_FORMS }, ctx);
+  // The family terms, then the founder's dealings with the company (leases, loans, a trademark), which a prospectus sets out apart from them.
+  for (const q of [...names.map((name) => `"${name}" ${RELATED_QUERY}`), `"${names[0]}" ${DEALINGS_QUERY}`]) {
+    const result = await searchFilings({ q, forms: RELATED_FORMS }, ctx);
     for (const h of result.hits) if (!seen.has(`${h.adsh}:${h.file}`)) { seen.add(`${h.adsh}:${h.file}`); hits.push(h); }
   }
   // Exhibits (employment and indemnity agreements) use these words as boilerplate: only main documents disclose dealings.
@@ -981,32 +1016,41 @@ async function personRelated(ctx) {
   }
   const distinct = [];
   for (let round = 0; distinct.length < kinds.size; round += 1) for (const list of perFiler.values()) if (list[round]) distinct.push(list[round]);
-  const toRead = distinct.slice(0, Math.max(1, 4 - names.length));
+  const toRead = distinct.slice(0, Math.max(3, 4 - names.length));
+  // The main prospectus or proxy of a company already tied to the person is always read: it is where their dealings are set out.
+  for (const list of perFiler.values()) {
+    if (toRead.length >= RELATED_MAX_READS) break;
+    if (!list[0].known || toRead.some((g) => list.includes(g) && MAIN_DISCLOSURE.test(g.rootForm))) continue;
+    const main = list.find((g) => MAIN_DISCLOSURE.test(g.rootForm));
+    if (main) toRead.push(main);
+  }
   const read = await mapLimit(toRead, 2, async (g) => {
     const text = await documentText(g.best, ctx);
     if (!text) return null;
     // Only a company's own filing calls its founder "Mr. Surname" or by first name throughout.
     const { own } = nameSpots(text, subject, { honorific: true, informal: g.known });
-    const spot = bestSpot(text, own, kinScore);
-    return spot ? excerptAround(text, spot.start, spot.end, { lead: 200, trail: 360 }) : false;
+    const spot = bestSpot(text, own, dealScore);
+    return spot ? { passage: excerptAround(text, spot.start, spot.end, { lead: 200, trail: 360 }), dealing: spot.points >= DEAL_POINTS } : false;
   });
 
   const findings = [];
   const threads = [];
   const entries = [];
   toRead.forEach((g, i) => {
-    const passage = read[i];
-    if (!passage) return; // not opened, or the terms are nowhere near the name
+    if (!read[i]) return; // not opened, or the terms are nowhere near the name
+    const { passage, dealing } = read[i];
     const quote = flat(passage);
     const filers = filersOf(g);
     const kin = KIN_WORD.exec(quote);
-    const about = kin ? `in a passage about a relative (${kin[0].toLowerCase()})` : FAMILY_TERM.test(quote) ? 'in a passage about immediate family members' : 'in a related-party disclosure';
+    const deal = dealing && DEAL_TERM.exec(quote);
+    const about = deal ? `in a passage about dealings with the company (${deal[0].toLowerCase()})`
+      : kin ? `in a passage about a relative (${kin[0].toLowerCase()})` : FAMILY_TERM.test(quote) ? 'in a passage about immediate family members' : 'in a related-party disclosure';
     const relatives = [...relativesFromText(subject, asSentences(passage)).map((r) => ({ name: r.name, relation: r.relation, role: r.role })), ...relativesInDisclosure(subject, passage)];
     const finding = makeFinding(subject, {
       source: PERSON_ID, sourceLabel: 'SEC EDGAR full-text search', category: 'related',
       title: `${g.form} filed by ${filers} names ${subject.name} ${about}`,
       quote, url: g.best.url, date: g.date,
-      severity: atLeast('low', severityFromText(quote)),
+      severity: atLeast(deal ? 'medium' : 'low', severityFromText(quote)),
       matchText: [subject.name, ...g.entities.map((e) => e.name), quote].join('. '),
       data: { form: g.form, accession: g.adsh, filers: g.entities.map((e) => e.name), ...(relatives[0] ? { person: relatives[0].name } : {}) },
     });
@@ -1023,6 +1067,101 @@ async function personRelated(ctx) {
   const unchecked = distinct.length - toRead.length + unread;
   if (unread && documentsBlocked()) notes.push(`SEC lists ${plural(distinct.length, 'filing')} that name ${subject.name} and use related-party or family terms, but the documents could not be opened to check that the terms refer to this person.`);
   else if (unchecked > 0) notes.push(`${plural(unchecked, 'more SEC filing names', 'more SEC filings name')} ${subject.name} and ${unchecked === 1 ? 'uses' : 'use'} related-party or family terms; ${unchecked === 1 ? 'its passage was' : 'their passages were'} not read.`);
+  return { findings, threads: dedupeThreads(threads), notes };
+}
+
+/* ------------------------------------------------------------------ person: relatives in the company's own filings */
+
+const FAMILY_QUERY = 'brother OR sister OR spouse OR "immediate family" OR relatives';
+const FAMILY_WORD = /\b(relatives?|brothers?(?:-in-law)?|sisters?(?:-in-law)?|siblings?|spouses?|wife|husband|father(?:-in-law)?|cousins?|immediate family)\b/i;
+
+/**
+ * Does "Mr. Surname" at `at` refer to the person? The last full name with
+ * that surname written before it must be theirs: a filing that also names a
+ * brother calls each of them "Mr. Surname" in turn.
+ */
+function honorificIsPerson(text, at, subject, surname) {
+  const before = text.slice(Math.max(0, at - 2500), at);
+  const re = new RegExp(`(?<![A-Za-z-])([A-ZÀ-Þ][a-zà-ÿ'’-]+(?:[ ]+[A-Z]\\.)?[ ]+${escapeRe(surname)})(?![A-Za-z-])`, 'g');
+  let last = null;
+  for (const m of before.matchAll(re)) {
+    const given = stripAccents(m[1].split(/\s+/)[0]).toLowerCase();
+    if (NAME_LEADERS.has(given) || SENTENCE_OPENERS.has(given)) continue;
+    last = m[1];
+  }
+  return Boolean(last) && namesPerson(last, subject);
+}
+
+/**
+ * Relatives a company tied to the person names in its own prospectus, proxy
+ * or annual report ("Mr. Milton's relatives, Jane Milton and John Milton,
+ * employees of the Company"). Searched by surname and limited to that
+ * company's filings; reported only when the filing also names the person in
+ * full and gives the relative a part in the business.
+ */
+async function personFamily(ctx) {
+  const { subject } = ctx;
+  const surname = surnameOf(subject);
+  if (surname.length < 3) return { findings: [] };
+  const companies = uniq([subject.company, ...[...(subject.anchors?.companies?.values?.() || [])].map((a) => a.value)].map(clean)).slice(0, 2);
+  if (!companies.length) return { findings: [] };
+  const candidates = [];
+  for (const company of companies) {
+    const { hits } = await searchFilings({ q: `"${surname}" ${FAMILY_QUERY}`, entityName: company, forms: RELATED_FORMS }, ctx);
+    const filers = companyFilers(hits, company);
+    if (filers.ambiguous) continue; // several companies resemble the name: none is known to be the person's
+    const groups = groupByFiling(hits.filter((h) => h.main && h.readable && filers.is(h)))
+      .map((g) => ({ ...g, weight: (RELATED_WEIGHT.find(([re]) => re.test(g.rootForm)) || [null, 1])[1] }))
+      .sort((a, b) => b.weight - a.weight || byDateDesc(a, b));
+    if (groups[0]) candidates.push(groups[0]);
+  }
+  const read = await mapLimit(candidates.slice(0, 2), 2, async (g) => {
+    const text = await documentText(g.best, ctx);
+    if (!text || !subject.hasName(text)) return text ? false : null; // the filing must name the person in full
+    const spots = [...subject.hasName.positions(text)];
+    const otherHonorific = []; // "Ms. Surname" that refers to someone else: no passage around it is used
+    for (const m of text.matchAll(new RegExp(`\\b(?:Mr|Ms|Mrs|Dr)\\.?[ ]+${escapeRe(surname)}(?![A-Za-z-])`, 'g'))) {
+      if (honorificIsPerson(text, m.index, subject, surname)) spots.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
+      else otherHonorific.push(m.index);
+    }
+    spots.sort((x, y) => x.start - y.start);
+    // Only a passage that names a relative with a part in the business counts.
+    let best = null;
+    for (const spot of spots.slice(0, 400)) {
+      if (otherHonorific.some((at) => at > spot.start - 700 && at < spot.end + 1000)) continue;
+      const lo = Math.max(0, spot.start - 120);
+      const window = text.slice(lo, Math.min(text.length, spot.end + 300));
+      const kin = FAMILY_WORD.exec(window);
+      if (!kin) continue;
+      const passage = excerptAround(text, Math.min(spot.start, lo + kin.index), Math.max(spot.end, lo + kin.index + kin[0].length), { lead: 160, trail: 360 });
+      const relatives = relativesInDisclosure(subject, passage);
+      if (relatives.length && (!best || relatives.length > best.relatives.length)) best = { passage, relatives };
+    }
+    return best || false;
+  });
+
+  const findings = [];
+  const threads = [];
+  candidates.slice(0, 2).forEach((g, i) => {
+    if (!read[i]) return;
+    const { passage, relatives } = read[i];
+    const quote = flat(passage);
+    const filers = filersOf(g);
+    const finding = makeFinding(subject, {
+      source: PERSON_ID, sourceLabel: 'SEC EDGAR full-text search', category: 'related',
+      title: `${g.form} filed by ${filers} names relatives of ${subject.name} in company roles: ${listText(relatives.map((r) => `${r.name} (${r.relation})`), 3)}`,
+      quote, url: g.best.url, date: g.date,
+      severity: atLeast('low', severityFromText(quote)),
+      // The filing is the company's own and names the person in full elsewhere; the passage may call them "Mr. Surname".
+      matchText: [subject.name, ...g.entities.map((e) => e.name), quote].join('. '),
+      data: { form: g.form, accession: g.adsh, filers: g.entities.map((e) => e.name), relatives: relatives.map((r) => ({ name: r.name, relation: r.relation, role: r.role })) },
+    });
+    if (!finding) return;
+    findings.push(finding);
+    const trusted = finding.match !== 'possible';
+    for (const r of relatives) threads.push(makeThread('relative', r.name, `${r.relation}; named with a part in the business by ${filers}`, { trusted, relation: r.relation, role: r.role }));
+  });
+  const notes = read.some((r) => r === null) && documentsBlocked() ? ['SEC filing documents could not be opened, so relatives named in the company\'s own filings were not checked.'] : [];
   return { findings, threads: dedupeThreads(threads), notes };
 }
 
@@ -1079,7 +1218,28 @@ async function readRelease(row, ctx) {
   }
   if (!spots.length) return null;
   const spot = bestSpot(text, spots, preferKnown(ctx.subject, enforcementScore), 240) || spots[0];
-  return { passage: excerptAround(text, spot.start, spot.end, { lead: 240, trail: 420 }), text: flat(text).slice(0, 8000) };
+  return { passage: excerptAround(text, spot.start, spot.end, { lead: 240, trail: 420 }), text: flat(text).slice(0, 8000), complaint: complaintCited(text) };
+}
+
+const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+/** "July 29, 2021" / "Sept. 3, 2021" -> "2021-07-29", or null. */
+function isoDate(written) {
+  const m = clean(written).match(/^([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})$/);
+  const month = m && MONTHS[m[1].toLowerCase()];
+  return month ? `${m[3]}-${String(month).padStart(2, '0')}-${m[2].padStart(2, '0')}` : null;
+}
+
+/**
+ * The case a litigation release cites, from its caption: "Securities and
+ * Exchange Commission v. Jane Roe, No. 1:21-cv-06445 (S.D.N.Y. filed July 29,
+ * 2021)". The release itself may be years later (a judgment, a dismissal);
+ * the complaint is dated when it was filed.
+ */
+function complaintCited(text) {
+  const m = String(text || '').match(/(?:Securities and Exchange Commission|SEC)\s+v\.\s+([^\n]{2,200}?)\s*,\s*(?:Civil Action\s+|Case\s+)?No\.\s*([0-9][\w:.-]{3,30}(?:\s*\([A-Z]{2,5}\))?)\s*\(([^()\n]{2,60}?)[,;]?\s+filed\s+([A-Z][a-z]{2,8}\.?\s+\d{1,2},?\s+\d{4})\)/);
+  if (!m) return null;
+  const filed = isoDate(m[4]);
+  return filed ? { caption: flat(m[0]).replace(/\s+,/g, ','), defendants: clean(m[1]), number: clean(m[2]), court: clean(m[3]), filed } : null;
 }
 
 async function personEnforcement(ctx) {
@@ -1122,8 +1282,117 @@ async function personEnforcement(ctx) {
     findings.push(finding);
     if (release) threads.push(...passageThreads(subject, release.passage, row.url, finding.match !== 'possible'));
   };
-  courtRows.forEach((row, i) => build(row, 'court', releases[i] || null));
+  // The complaint a release cites is its own record, dated when it was filed: the release that announced the
+  // charges is not always listed under the person's name, and a later release (a judgment, a dismissal) still cites it.
+  const complaints = new Set();
+  const buildComplaint = (row, release) => {
+    const c = release?.complaint;
+    if (!c || complaints.has(c.number) || !namesPerson(c.defendants, subject, { nickname: true })) return;
+    complaints.add(c.number);
+    const finding = makeFinding(subject, {
+      source: PERSON_ID, sourceLabel: 'SEC litigation releases', category: 'regulatory', severity: 'high',
+      title: `SEC complaint filed in ${c.court}: SEC v. ${c.defendants}, No. ${c.number}`,
+      quote: c.caption, url: row.url, date: c.filed,
+      matchText: [subject.name, row.respondents, release.text].join('. '),
+      data: { caseNumber: c.number, court: c.court, filed: c.filed, citedIn: row.number || null },
+    });
+    if (finding) findings.push(finding);
+  };
+  courtRows.forEach((row, i) => { build(row, 'court', releases[i] || null); buildComplaint(row, releases[i] || null); });
   adminRows.slice(0, 4).forEach((row) => build(row, 'admin', null));
+  return { findings, threads: dedupeThreads(threads), notes };
+}
+
+/* ------------------------------------------------------------------ person: SEC press releases */
+
+/** The rows of the SEC newsroom's press-release list: title, link, date and release number. */
+export function parsePressList(html) {
+  const page = String(html || '');
+  if (!/views-table|views-empty|view-empty|no-results/i.test(page)) throw new Error('The SEC press-release list returned an unexpected page');
+  const body = (page.match(/<tbody[\s\S]*?<\/tbody>/i) || [''])[0];
+  const rows = [];
+  for (const tr of body.match(/<tr[\s\S]*?<\/tr>/gi) || []) {
+    const link = tr.match(/<a\s[^>]*?href=['"](\/newsroom\/press-releases\/[^'"]+)['"][^>]*>([\s\S]*?)<\/a>/i);
+    if (!link) continue;
+    const number = clean(htmlToText((tr.match(/field-release-number[^>]*>([\s\S]*?)<\/td>/i) || [])[1] || ''));
+    rows.push({ url: new URL(decodeEntities(link[1]), SEC_SITE).toString(), title: clean(decodeEntities(htmlToText(link[2]))), number, date: (tr.match(/datetime=["']([^"']+)["']/i) || [])[1] || null });
+  }
+  return rows;
+}
+
+async function pressList(query, ctx) {
+  try {
+    return parsePressList(await getText(`${SEC_SITE}/newsroom/press-releases?${new URLSearchParams({ combine: query })}`, secOptions(ctx)));
+  } catch (error) {
+    noteRefusal(error);
+    throw error;
+  }
+}
+
+/** A press release's passage about the person, or false when it does not name them (null when it could not be opened). */
+async function readPress(row, ctx) {
+  const html = await openDocument(row.url, ctx);
+  if (!html) return null;
+  let text = filingText((html.match(/<main[\s\S]*<\/main>/i) || [html])[0]);
+  const start = text.search(/For Immediate Release/i);
+  if (start > 0) text = text.slice(start);
+  const end = text.search(/Last Reviewed or Updated/i);
+  if (end > 0) text = text.slice(0, end);
+  const { subject } = ctx;
+  if (!subject.hasName(text) && !namesPerson(text, subject, { nickname: true })) return false;
+  let spots = subject.hasName.positions(text);
+  if (!spots.length) {
+    // "Trevor R. Milton": the full name with a middle initial; the passage is placed at the surname.
+    const surname = surnameOf(subject);
+    spots = [...text.matchAll(new RegExp(`(?<![A-Za-z-])${escapeRe(surname)}(?![A-Za-z-])`, 'g'))].map((m) => ({ start: m.index, end: m.index + m[0].length }));
+  }
+  const spot = bestSpot(text, spots, preferKnown(subject, enforcementScore), 240) || spots[0];
+  return { passage: excerptAround(text, spot.start, spot.end, { lead: 240, trail: 420 }), text: flat(text).slice(0, 8000) };
+}
+
+/**
+ * SEC press releases (the newsroom) that name the person. The list searches
+ * titles only, and a charging release is often titled by the company ("SEC
+ * Charges Founder of Acme Corp. With Fraud"), so the person's name and their
+ * company are both searched; a release found by the company is kept only
+ * when its text names the person.
+ */
+async function personPress(ctx) {
+  const { subject } = ctx;
+  const company = clean(subject.company || [...(subject.anchors?.companies?.values?.() || [])][0]?.value || '');
+  const queries = uniq([clean(subject.name), company]).filter((q) => q.length >= 2);
+  const lists = await Promise.allSettled(queries.map((q) => pressList(q, ctx)));
+  if (lists.every((l) => l.status === 'rejected')) throw lists[0].reason;
+  const byName = (lists[0].status === 'fulfilled' ? lists[0].value : []).map((row) => ({ ...row, named: namesPerson(row.title, subject, { nickname: true }) }));
+  const adverse = new RegExp(ENFORCEMENT_WORDS.source, 'i');
+  const byCompany = (lists[1]?.status === 'fulfilled' ? lists[1].value : []).filter((row) => adverse.test(row.title));
+  const rows = [];
+  for (const row of [...byName.filter((r) => r.named), ...byCompany.map((r) => ({ ...r, named: namesPerson(r.title, subject, { nickname: true }) }))]) {
+    if (!rows.some((r) => r.url === row.url)) rows.push(row);
+  }
+  const shown = rows.slice(0, 4);
+  const read = await mapLimit(shown.slice(0, 2), 2, (row) => readPress(row, ctx));
+
+  const findings = [];
+  const threads = [];
+  shown.forEach((row, i) => {
+    const release = i < read.length ? read[i] : null;
+    if (release === false) return; // read, and it does not name the person
+    if (!release && !row.named) return; // found by the company and not read: nothing ties it to the person
+    const quote = release ? flat(release.passage) : row.title;
+    const finding = makeFinding(subject, {
+      source: PERSON_ID, sourceLabel: 'SEC press releases', category: 'regulatory',
+      title: `SEC press release${row.number ? ` ${row.number}` : ''}: ${row.title}${row.named ? '' : ` (names ${subject.name})`}`,
+      quote, url: row.url, date: row.date,
+      severity: atLeast('medium', severityFromText(`${row.title} ${quote}`)),
+      matchText: [subject.name, row.title, release ? release.text : ''].join('. '),
+      data: { release: row.number || null },
+    });
+    if (!finding) return;
+    findings.push(finding);
+    if (release) threads.push(...passageThreads(subject, release.passage, row.url, finding.match !== 'possible'));
+  });
+  const notes = lists.some((l) => l.status === 'rejected') ? ['Some SEC press releases could not be searched this time.'] : [];
   return { findings, threads: dedupeThreads(threads), notes };
 }
 
@@ -1132,11 +1401,14 @@ async function personEnforcement(ctx) {
 async function companyFormD(task, ctx) {
   const { subject } = ctx;
   const company = clean(String(task.value).replace(/"/g, ''));
+  // A company the person only sat on the board of, invested in or once worked at: only a notice that names them counts.
+  const affiliate = task.tie === 'affiliate';
   const { hits } = await searchFilings({ entityName: company, forms: 'D' }, ctx);
   // Funds and affiliates that merely carry the name are left to the person's own Form D lookup.
   const filers = companyFilers(hits, company);
   const own = hits.filter(filers.is).sort(byDateDesc);
   if (!own.length) return { findings: [] };
+  const namedOnly = filers.ambiguous || affiliate;
   // Normally the latest, the earliest and the one before the latest. When several different filers
   // merely resemble the name, the latest of each is read and only a notice that names the person is kept.
   const toRead = (filers.ambiguous
@@ -1155,7 +1427,7 @@ async function companyFormD(task, ctx) {
     const issuerName = h.entities[0].name;
     const on = doc ? subjectOnFormD(doc, subject, { nickname: true }) : {};
     const isNamed = Boolean(on.person || on.signer);
-    if (filers.ambiguous && !isNamed) continue;
+    if (namedOnly && !isNamed) continue;
     const others = doc ? doc.persons.filter((p) => p !== on.person) : [];
     const facts = doc ? [doc.totalSold ? `${money(doc.totalSold)} sold` : '', doc.firstSale ? `first sale ${doc.firstSale}` : ''].filter(Boolean).join(', ') : '';
     const finding = makeFinding(subject, {
@@ -1178,6 +1450,7 @@ async function companyFormD(task, ctx) {
   threads.push(...associateThreads(named));
   const notes = [];
   if (docs.some((d) => !d) && documentsBlocked()) notes.push('SEC filing documents could not be opened, so amounts and officers are not shown for some Form D notices.');
+  else if (affiliate && !findings.length) notes.push(`No Form D notice filed by a company named ${company} lists the person as an officer, director or promoter.`);
   return { findings, threads: dedupeThreads(threads), notes };
 }
 
@@ -1253,9 +1526,11 @@ async function companyJoint(task, ctx) {
   const findings = [];
   const threads = [];
   const entries = [];
+  const quoted = quotedFilers([...own, ...others], (g) => passageFor.get(g.adsh));
   for (const g of [...own, ...others]) {
     const passage = passageFor.has(g.adsh) ? passageFor.get(g.adsh) : null;
     if (passage === false) continue;
+    if (!passage && quoted.has(filerKey(g.entities[0]))) continue; // the same issuer's filing with a passage already stands for it
     const item = notableItem(g.items);
     const title = `${g.form}${docLabel(g.best)} filed by ${filersOf(g)} mentions ${subject.name}${item ? ` (${item})` : ''}`;
     const quote = passage ? flat(passage) : recordLine(g);
@@ -1291,6 +1566,8 @@ export const secPersonConnector = {
       { template: 'enforcement', prior: 0.6, why: 'SEC litigation releases and administrative proceedings' },
       { template: 'insider', prior: 0.5, why: 'companies the person reported on as an officer, director or large shareholder' },
       { template: 'related', prior: 0.45, why: 'filings that disclose dealings with relatives or related parties' },
+      { template: 'press', prior: 0.5, why: 'SEC press releases about charges or settlements that name the person' },
+      { template: 'family', prior: 0.35, why: 'relatives the person\'s company names in its own filings with a part in the business' },
     ];
   },
   async run(task, ctx) {
@@ -1298,6 +1575,8 @@ export const secPersonConnector = {
       case 'formd': return personFormD(ctx);
       case 'insider': return personInsider(ctx);
       case 'related': return personRelated(ctx);
+      case 'press': return personPress(ctx);
+      case 'family': return personFamily(ctx);
       case 'enforcement': return personEnforcement(ctx);
       default: return personMentions(ctx);
     }
@@ -1310,17 +1589,18 @@ export const secCompanyConnector = {
   kinds: ['company'],
   prior: 0.55,
   timeoutMs: 20000,
-  plan() {
+  plan(thread) {
     return [
       { template: 'formd', prior: 0.6, why: 'the company\'s private fundraises and who is named on them' },
       { template: 'joint', prior: 0.55, why: 'filings that name the person together with the company' },
-      { template: 'cyber', prior: 0.3, why: 'cyber incidents the company reported to the SEC' },
+      // A company the person was only an affiliate of: its own incidents do not reflect on them.
+      ...(thread?.tie === 'affiliate' ? [] : [{ template: 'cyber', prior: 0.3, why: 'cyber incidents the company reported to the SEC' }]),
     ];
   },
   async run(task, ctx) {
     if (!clean(task?.value)) return { findings: [] };
     switch (task?.template) {
-      case 'cyber': return companyCyber(task, ctx);
+      case 'cyber': return task.tie === 'affiliate' ? { findings: [] } : companyCyber(task, ctx);
       case 'joint': return companyJoint(task, ctx);
       default: return companyFormD(task, ctx);
     }

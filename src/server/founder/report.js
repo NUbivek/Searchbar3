@@ -23,6 +23,14 @@ const SEVERITY_WEIGHT = { high: 3, medium: 2, low: 1, info: 0 };
 // Records from the authority itself outrank a report about it.
 const AUTHORITY = { sanctions: 3, regulatory: 3, litigation: 3, leaks: 2.5, corporate: 2.5, archive: 2, ip: 2, education: 2, exposure: 2, career: 1.5, identity: 1.5, related: 1.5, press: 1 };
 
+// Which kind of source a record comes from, for choosing the record that leads a matter: the authority
+// itself (court, prosecutor, regulator, watchlist) first, then the encyclopaedias, then news and the web,
+// and a discussion forum last. A forum post is never the headline of a sentencing a court record reports.
+const PRIMARY_SOURCES = new Set(['doj-press-releases', 'court-dockets', 'court-records-open', 'us-enforcement-actions', 'finra-brokercheck', 'uk-gazette', 'uk-case-law', 'fr-bodacc', 'sec-filings', 'sec-company', 'sanctions-lists', 'us-exclusions', 'wanted-lists']);
+const REFERENCE_SOURCES = new Set(['wikipedia', 'wikidata']);
+const FORUM_SOURCES = new Set(['hacker-news']);
+const sourceAuthority = (f) => (PRIMARY_SOURCES.has(f.source) ? 3 : REFERENCE_SOURCES.has(f.source) ? 2 : FORUM_SOURCES.has(f.source) ? 0 : 1);
+
 export const NOT_COVERED = [
   'US state and county court records, and full federal dockets (PACER), beyond what CourtListener and news sources carry',
   'Criminal records, credit history, liens and judgments held by commercial background-check providers',
@@ -30,6 +38,29 @@ export const NOT_COVERED = [
   'Sources that are not in English or are behind a login or paywall',
   'Anything a person has had removed from the web and that was never archived',
 ];
+const NOT_ENGLISH = 3; // the entry above about sources not in English
+const COURT_DOCKETS = 'court-dockets';
+// A registry or court of a non-English-speaking country ('fr-companies'), or a search run in another language ('adverse-fr').
+const NON_ENGLISH_SOURCE = /^(?:fr|de|es|it|nl|pt|br|jp|cn|kr)-/;
+const NON_ENGLISH_TEMPLATE = /-(?:fr|de|es|it|nl|pt|ja|zh|ko)$/;
+const PARTLY_ANSWERED = 0.2; // share of failed lookups from which a source's answer is called partial
+const TIMELINE_MAX = 60;
+
+/** Which gaps no free source covered on this run: the fixed list, adjusted to what actually answered. */
+function notCoveredFor(state, allSources, answered, silent) {
+  const courts = allSources.find((s) => s.id === COURT_DOCKETS);
+  // A language the run did search: a source of another country, or a search made in another language.
+  const otherLanguage = allSources.some((s) => answered(s) && NON_ENGLISH_SOURCE.test(s.id))
+    || (state.done || []).some((key) => {
+      const [connector, , , template] = String(key).split('|');
+      return NON_ENGLISH_TEMPLATE.test(template || '') && state.sources?.[connector] && answered({ ...state.sources[connector] });
+    });
+  if (!(courts && silent(courts)) && !otherLanguage) return NOT_COVERED;
+  return [
+    ...(courts && silent(courts) ? [`Court dockets (CourtListener ${courts.off ? 'is not enabled on this deployment' : 'did not answer'}), including US state courts and the Delaware Court of Chancery`] : []),
+    ...NOT_COVERED.map((s) => (otherLanguage && s === NOT_COVERED[NOT_ENGLISH] ? 'Most non-English press, and sources behind a login or paywall' : s)),
+  ];
+}
 
 const matchWeight = (m) => (m === 'company' ? 2 : matchRank(m));
 // Sources that screen a person against official watchlists.
@@ -47,8 +78,55 @@ function whoOf(f) {
 }
 const when = (f) => (f.date ? Date.parse(f.date.length === 4 ? `${f.date}-01-01` : f.date) || 0 : 0);
 
-function score(f, corroboration) {
-  return (SEVERITY_WEIGHT[f.severity] || 0) * 3 + matchWeight(f.match) * 2 + (AUTHORITY[f.category] || 1) + Math.min(2, (corroboration - 1) * 0.75);
+/**
+ * Agreement adds a little weight: up to 2 for other sites carrying the same case number, but only up to 1
+ * for the same headline words (which reposts and forum threads share), and none for a forum post, so a
+ * widely reposted discussion never outranks the court or regulator record of the same matter.
+ */
+function score(f, corroboration, key = '') {
+  const cap = FORUM_SOURCES.has(f.source) ? 0 : key.startsWith('case|') ? 2 : 1;
+  return (SEVERITY_WEIGHT[f.severity] || 0) * 3 + matchWeight(f.match) * 2 + (AUTHORITY[f.category] || 1) + Math.min(cap, (corroboration - 1) * 0.75);
+}
+
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+const MONTH_RE = '(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sept?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\\.?';
+const DATED_PHRASES = [
+  // "September 10, 2020", "Sept. 10 2020"
+  [new RegExp(`\\b${MONTH_RE}\\s+(\\d{1,2}),?\\s+((?:19|20)\\d{2})\\b`, 'gi'), (m) => [m[1], m[2], m[3]]],
+  // "10 September 2020"
+  [new RegExp(`\\b(\\d{1,2})\\s+${MONTH_RE}\\s+((?:19|20)\\d{2})\\b`, 'gi'), (m) => [m[2], m[1], m[3]]],
+  // "In July 2021", "July of 2021"
+  [new RegExp(`\\b${MONTH_RE}\\s+(?:of\\s+)?((?:19|20)\\d{2})\\b`, 'gi'), (m) => [m[1], null, m[2]]],
+];
+const pad = (n) => String(n).padStart(2, '0');
+/** Every date a text gives to the month or day, as 'YYYY-MM' or 'YYYY-MM-DD', none in the future. */
+function datesIn(text) {
+  const out = [];
+  const today = new Date().toISOString().slice(0, 10);
+  for (const [re, parts] of DATED_PHRASES) {
+    for (const m of String(text || '').matchAll(re)) {
+      const [mon, day, year] = parts(m);
+      const month = MONTHS.findIndex((x) => x.startsWith(mon.toLowerCase().slice(0, 3))) + 1;
+      if (!month) continue;
+      const d = day && Number(day) >= 1 && Number(day) <= 31 ? `${year}-${pad(month)}-${pad(day)}` : `${year}-${pad(month)}`;
+      if (d.slice(0, 7) <= today.slice(0, 7)) out.push(d);
+    }
+  }
+  return out;
+}
+/**
+ * The date of the event a record reports, read from its own quotation when the record carries only a
+ * year ("On September 10, 2020, ..." -> 2020-09-10) or, for an encyclopaedia, only the date the article
+ * was last edited. A record dated to the month joins the other reports of its matter and sits in the
+ * right place on the timeline. The latest date of the record's own year is used; nothing is guessed.
+ */
+function eventDated(f) {
+  const revised = f.data?.revisedAt && f.date && String(f.data.revisedAt).startsWith(f.date) && f.date.length >= 7;
+  if (!(f.date && /^\d{4}$/.test(f.date)) && !revised) return f;
+  const dates = datesIn(f.quote).filter((d) => revised || d.startsWith(f.date)).sort();
+  if (dates.length) return { ...f, date: dates[dates.length - 1] };
+  // An edit date is not the date of the event: without a date in the text the record is undated.
+  return revised ? { ...f, date: null } : f;
 }
 
 /**
@@ -127,7 +205,7 @@ function matterKey(f) {
  * Pure: no network, no model.
  */
 export function buildReport(state) {
-  const findings = state.findings || [];
+  const findings = (state.findings || []).map(eventDated);
   const groups = new Map();
   for (const f of findings) {
     const key = corroborationKey(f);
@@ -138,7 +216,7 @@ export function buildReport(state) {
   }
   const ranked = findings
     .map((f) => ({ ...f, corroboration: groups.get(corroborationKey(f))?.size || 1 }))
-    .map((f) => ({ ...f, score: score(f, f.corroboration) }))
+    .map((f) => ({ ...f, score: score(f, f.corroboration, corroborationKey(f)) }))
     .sort((a, b) => b.score - a.score || when(b) - when(a));
 
   // Number the records once; the brief, the sections and the UI all cite the same numbers.
@@ -197,7 +275,10 @@ export function buildReport(state) {
   for (const list of [...matters.values()].flat()) {
     const person = list.filter((f) => f.match === 'confirmed' || f.match === 'likely');
     const company = list.filter((f) => f.match === 'company');
-    const lead = (person.length ? person : company.length ? company : list)[0]; // `cited` is in rank order, so the first is the strongest
+    // The authority's own record leads (court, prosecutor or regulator, then an encyclopaedia, then news, a
+    // forum last); among records of one kind, `cited` is in rank order, so the first is the strongest.
+    const tied = person.length ? person : company.length ? company : list;
+    const lead = tied.reduce((best, f) => (sourceAuthority(f) > sourceAuthority(best) ? f : best), tied[0]);
     const entry = { ...lead, more: list.filter((f) => f !== lead).map(short) };
     (person.length ? redFlags : company.length ? companyMatters : possibleNamesake).push(entry);
   }
@@ -209,9 +290,16 @@ export function buildReport(state) {
     .map((key) => ({ key, title: CATEGORIES[key], items: cited.filter((f) => f.category === key) }))
     .filter((s) => s.items.length > 0);
 
-  const timeline = cited
-    .filter((f) => f.date && f.match !== 'possible' && ['career', 'corporate', 'litigation', 'regulatory', 'sanctions', 'education', 'archive'].includes(f.category))
-    .sort((a, b) => when(a) - when(b))
+  // The timeline: each red flag once (its lead record), then the dated records of the person's career,
+  // strongest first, up to TIMELINE_MAX. Never a record matched by name only, one its source marked as
+  // not for the timeline (a company that only shares the name), or a further report of a red flag's matter.
+  const offTimeline = (f) => !f.date || f.match === 'possible' || f.excludeFromTimeline || f.data?.excludeFromTimeline;
+  const coverageOfFlag = new Set(redFlags.flatMap((r) => r.more.map((m) => m.n)));
+  const leads = redFlags.filter((f) => !offTimeline(f));
+  const rest = cited.filter((f) => !offTimeline(f) && !coverageOfFlag.has(f.n) && !leads.some((l) => l.n === f.n)
+    && ['career', 'corporate', 'litigation', 'regulatory', 'sanctions', 'education', 'archive'].includes(f.category));
+  const timeline = [...leads, ...rest].slice(0, TIMELINE_MAX)
+    .sort((a, b) => when(a) - when(b) || a.n - b.n)
     .map((f) => ({ date: f.date, title: f.title, category: f.category, n: f.n, severity: f.severity }));
 
   // A change seen on a page matched by name only may be a namesake's profile: not a claim that changed.
@@ -234,11 +322,16 @@ export function buildReport(state) {
   }
 
   const allSources = Object.entries(state.sources || {}).map(([id, s]) => ({ id, ...s }));
+  const answered = (s) => !s.off && s.runs > 0 && (s.errors || 0) < s.runs;
+  const silent = (s) => s.off || (s.runs > 0 && s.errors >= s.runs);
   const coverage = {
     // Only sources that answered at least once: a source whose every lookup failed searched nothing.
-    searched: allSources.filter((s) => s.runs > 0 && (s.errors || 0) < s.runs).map((s) => ({ id: s.id, label: s.label, lookups: s.runs, records: s.findings, failed: s.errors, lastError: s.errors ? s.lastError : null })),
-    notSearched: allSources.filter((s) => s.off || (s.runs > 0 && s.errors >= s.runs)).map((s) => ({ label: s.label, reason: s.lastError || 'No answer.' })),
-    notCovered: NOT_COVERED,
+    searched: allSources.filter(answered).map((s) => ({ id: s.id, label: s.label, lookups: s.runs, records: s.findings, failed: s.errors, lastError: s.errors ? s.lastError : null })),
+    // Answered, but a fifth or more of the lookups failed: what it found is a partial picture.
+    partlyAnswered: allSources.filter((s) => answered(s) && s.errors > 0 && s.errors / s.runs >= PARTLY_ANSWERED)
+      .map((s) => ({ label: s.label, failed: s.errors, lookups: s.runs, reason: `${s.errors} of ${s.runs} lookups failed${s.lastError ? `: ${s.lastError}` : ''}` })),
+    notSearched: allSources.filter(silent).map((s) => ({ label: s.label, reason: s.lastError || (s.off ? 'Not enabled on this deployment.' : 'No answer.'), ...(s.off ? { off: true } : {}) })),
+    notCovered: notCoveredFor(state, allSources, answered, silent),
     dropped: state.dropped || { tasks: 0, findings: 0, threads: 0 },
     lookups: state.tasksRun || 0,
     rounds: state.step || 0,
@@ -311,7 +404,8 @@ export function quotedDeepBrief(report, reason) {
   const possibleChanges = (report.sections.find((s) => s.key === 'archive')?.items || []).filter((f) => f.match === 'possible' && f.data?.kind === 'change');
   const gaps = [
     ...[...report.possibleNamesake.slice(0, 8), ...possibleChanges.slice(0, 5)].map((f) => `• Rule out a namesake: ${f.title} [Source ${f.n}]`),
-    ...report.coverage.notSearched.map((s) => `• ${s.label} did not answer: ${s.reason}`),
+    ...report.coverage.notSearched.map((s) => (s.off ? `• ${s.label}: not enabled on this deployment.` : `• ${s.label} did not answer: ${s.reason}`)),
+    ...(report.coverage.partlyAnswered || []).map((s) => `• ${s.label} answered only in part: ${s.reason}.`),
     ...report.coverage.notCovered.map((s) => `• Not covered: ${s}.`),
   ];
   return [
@@ -359,7 +453,10 @@ export async function writeDeepBrief(report, { deadline = null, maxRecords = 70,
   if (!PROVIDERS.some(providerEnabled)) return { brief: quotedDeepBrief(report, 'AI answers are not enabled on this deployment'), briefInfo: { mode: 'quoted', reason: 'AI answers are not enabled on this deployment' } };
 
   const identity = report.identity?.note ? `\nIdentity note: ${report.identity.note}` : '';
-  const coverage = `Sources that answered: ${report.coverage.searched.map((s) => s.label).join(', ') || 'none'}.\nSources that failed or are not enabled: ${report.coverage.notSearched.map((s) => s.label).join(', ') || 'none'}.\nNot covered by any free source: ${report.coverage.notCovered.join('; ')}.`;
+  const partly = report.coverage.partlyAnswered || [];
+  const notEnabled = report.coverage.notSearched.filter((s) => s.off).map((s) => s.label);
+  const failed = report.coverage.notSearched.filter((s) => !s.off).map((s) => s.label);
+  const coverage = `Sources that answered: ${report.coverage.searched.map((s) => s.label).join(', ') || 'none'}.\n${partly.length ? `Sources that answered only in part: ${partly.map((s) => `${s.label} (${s.reason})`).join('; ')}.\n` : ''}Sources that did not answer: ${failed.join(', ') || 'none'}.\nSources not enabled on this deployment: ${notEnabled.join(', ') || 'none'}.\nNot covered by any free source: ${report.coverage.notCovered.join('; ')}.`;
   const user = `Today's date: ${new Date().toISOString().slice(0, 10)}\nPerson: ${report.name}${report.company ? `\nCompany: ${report.company}` : ''}${identity}\n\n${coverage}\n\nRecords (${picked.length} of ${report.totals.records}, strongest first within each kind):\n${recordsBlock(picked)}`;
   const maxN = report.sources.length;
   // A citation is only valid if that record was actually shown to the model. Unshown ones are removed

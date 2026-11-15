@@ -55,7 +55,7 @@ test('serious records tied to the person are red flags; name-only ones are liste
 test('the report says what was searched, what failed and what no free source covers', () => {
   const { coverage, notice } = buildReport(sampleState());
   expect(coverage.searched.map((s) => s.label)).toEqual(['Courts']); // Registry failed every lookup: it searched nothing
-  expect(coverage.notSearched).toEqual([{ label: 'Registry', reason: 'HTTP 503' }, { label: 'Needs key', reason: 'Not enabled on this deployment.' }]);
+  expect(coverage.notSearched).toEqual([{ label: 'Registry', reason: 'HTTP 503' }, { label: 'Needs key', reason: 'Not enabled on this deployment.', off: true }]);
   expect(coverage.notCovered).toBe(NOT_COVERED);
   expect(coverage).toMatchObject({ lookups: 40, rounds: 3 });
   expect(notice).toMatch(/not a consumer report/);
@@ -71,7 +71,7 @@ test('a model-written brief is kept only if it has the sections and cites record
   expect(brief).not.toMatch(/\[Source 99\]/);
   const sent = providers.chatComplete.mock.calls[0][0][1].content;
   expect(sent).toMatch(/\[Source \d\] \(possible; Courts and litigation/); // the model is told which records are name-only
-  expect(sent).toMatch(/Sources that failed or are not enabled: Registry, Needs key/);
+  expect(sent).toMatch(/Sources that did not answer: Registry\.\nSources not enabled on this deployment: Needs key/);
 });
 
 test('without a usable model answer the brief is assembled from the records and says so', async () => {

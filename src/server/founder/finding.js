@@ -138,8 +138,46 @@ export function makeFinding(subject, f) {
 }
 
 const HIGH = /\b(indict(?:s|ed|ments?)?|convict(?:s|ed|ions?)?|plead(?:ed|s)? guilty|pled guilty|found guilty|guilty verdict|guilty of|jailed|sentenced|imprison\w*|felony|criminal charges?|charged with|securities fraud|wire fraud|bank fraud|fraud charges|ponzi|embezzl\w*|money launder\w*|bribe\w*|racketeer\w*|insider trading|sanctioned|sanctions list|debarred|barred from|disqualified|banned from|arrest(?:ed)?|extradit\w*|wanted by|cease[- ]and[- ]desist)\b/i;
-const MEDIUM = /\b(lawsuits?|sued|sues|suing|class[- ]action|complaint filed|settle(?:d|s|ment)|investigat(?:ion|ed|ing)|probe|subpoena\w*|fined|penalt(?:y|ies)|bankruptc(?:y|ies)|insolven\w*|liquidat\w*|receivership|fraud|misconduct|misappropriat\w*|harass\w*|discriminat\w*|retaliat\w*|whistleblower|allegations?|alleged(?:ly)?|fired(?! up)|ousted|terminated for cause|breach of (?:contract|fiduciary)|default judgment|restraining order|data breach|ransomware)\b/i;
+const MEDIUM = /\b(lawsuits?|sued|sues|suing|class[- ]action|complaint filed|settle(?:d|s|ment)|investigat(?:ion|ed|ing)|probe|subpoena\w*|fined|penalt(?:y|ies)|bankruptc(?:y|ies)|insolven\w*|liquidat\w*|receivership|fraud|misconduct|misappropriat\w*|harass\w*|discriminat\w*|retaliat\w*|whistleblower|allegations?|alleged(?:ly)?|fired(?! up)|ousted|forced out|terminated for cause|(?:steps?|stepped|stepping) down (?:under|amid) (?:\w+ )?pressure|breach of (?:contract|fiduciary)|default judgment|judgments? against|damages awards?|ordered to pay|restitution|arbitrat\w*|claw(?:s|ed|ing)?[- ]?backs?|restraining order|data breach|ransomware)\b/i;
 const LOW = /\b(resign(?:ed|s|ation)|stepped down|steps down|departed|controvers\w*|dispute[ds]?|layoffs?|shut(?:s|ting)? down|shutdown|wound down|dissolved|struck off|criticis\w*|criticiz\w*|backlash|restat(?:ed|ement))\b/i;
+
+// A probe or inquiry that a regulator declined, closed, dropped or cleared ("CMA decides not to
+// investigate", "regulator closes its inquiry into the deal"). The gap between the verb and the probe
+// word may not announce a new or widened one, or tie the probe to something else ("closed amid a probe").
+const PROBE_WORD = String.raw`(?:probes?|investigat\w*|inquir(?:y|ies))`;
+// Prepositions are barred too, so "shares dropped 5% on an SEC probe" is not read as a dropped probe.
+const PROBE_GAP = String.raw`(?:(?!\b(?:open\w*|launch\w*|start\w*|begin\w*|began|new|another|second|separate|expand\w*|widen\w*|reopen\w*|amid|after|following|during|despite|while|as|over|because|on|in|at|by|with|of|from|for)\b(?!-))[^.;]){0,40}?`;
+const NEGATED_PROBE = new RegExp(
+  String.raw`\b(?:(?:won'?t|will not|would not|did not|declin\w* to|decid\w* not to|refus\w* to)\s+(?:investigat\w*|(?:open|launch|pursue|begin|start|proceed with)\b${PROBE_GAP}\b${PROBE_WORD})`
+  + String.raw`|(?:clos(?:es|ed|ing)?|drop(?:s|ped|ping)?|clear(?:s|ed|ing)?|end(?:s|ed|ing)?|conclud(?:es|ed|ing)?)\b${PROBE_GAP}\b${PROBE_WORD}`
+  + String.raw`|clear(?:s|ed|ing)?\b[^.;]{0,60}?\b(?:after|following) (?:an? |its |the |a \w+ )?${PROBE_WORD})\b`,
+  'i',
+);
+// What a clause still reports once a cleared probe is taken out of it: a real outcome keeps the clause.
+const OUTCOME = /\b(fined|penalt(?:y|ies)|settle(?:d|s|ment)|ordered to pay|judgments? against|damages awards?|restitution|arbitration awards?|claw(?:s|ed|ing)?[- ]?backs?|subpoena\w*|bankruptc(?:y|ies)|receivership|ousted|forced out|fired(?! up))\b/i;
+// An article or claim the record says was defamatory or libellous: the only adverse content is the
+// disputed publication itself, so a lawsuit over it is low, not medium.
+const DISPUTED_PUBLICATION = /\b(?:article|story|stories|report|piece|column|op-?ed|editorial|post|book|documentary|podcast|blog|tweet|claims?|statements?)\b[^.;]{0,120}\b(?:defamatory|libell?ous)\b/i;
+const DISPUTED_BLOCK = new RegExp(`${OUTCOME.source}|\\b(investigat\\w*|probes?|inquir(?:y|ies)|misconduct|harass\\w*|discriminat\\w*|whistleblower|data breach|ransomware)\\b`, 'i');
+
+/** The text without its clauses that only report a probe that was declined, closed or cleared. */
+function withoutClearedProbes(t) {
+  if (!NEGATED_PROBE.test(t)) return t;
+  return t.split(/(?<=[.;!?])\s+|\n+/).filter((clause) => {
+    const m = clause.match(NEGATED_PROBE);
+    if (!m) return true;
+    const rest = clause.replace(m[0], ' ');
+    // keep a clause that still reports a criminal matter or an outcome (a fine, a settlement)
+    return HIGH.test(rest) || OUTCOME.test(rest);
+  }).join(' ');
+}
+
+function rawSeverity(t) {
+  if (HIGH.test(t)) return 'high';
+  if (MEDIUM.test(t)) return 'medium';
+  if (LOW.test(t)) return 'low';
+  return 'info';
+}
 
 /**
  * How much a record would matter if it is about the subject, judged from
@@ -148,10 +186,9 @@ const LOW = /\b(resign(?:ed|s|ation)|stepped down|steps down|departed|controvers
  */
 export function severityFromText(text) {
   const t = String(text || '');
-  if (HIGH.test(t)) return 'high';
-  if (MEDIUM.test(t)) return 'medium';
-  if (LOW.test(t)) return 'low';
-  return 'info';
+  const sev = rawSeverity(withoutClearedProbes(t));
+  if (sev === 'medium' && DISPUTED_PUBLICATION.test(t) && !DISPUTED_BLOCK.test(t)) return 'low';
+  return sev;
 }
 
 /** A thread to pull, or null when it is not usable. */

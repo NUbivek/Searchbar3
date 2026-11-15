@@ -33,7 +33,7 @@ describe('births and named children', () => {
 describe('month and year of birth', () => {
   test('born in a month and year keeps only the year', () => {
     expect(redactPII('Jane Doe was born in March 1984 in Ohio.')).toBe('Jane Doe was born in 1984 in Ohio.');
-    expect(redactPII('Jane Doe (born March 1984) is an American entrepreneur.')).toBe('Jane Doe (born in 1984) is an American entrepreneur.');
+    expect(redactPII('Jane Doe (born March 1984) is an American entrepreneur.')).toBe('Jane Doe is an American entrepreneur.');
   });
   test('a Companies House date of birth is removed', () => {
     expect(redactPII('Director: Jane DOE, Date of birth: March 1984, Nationality: British')).toBe('Director: Jane DOE, Date of birth [date removed], Nationality: British');

@@ -478,7 +478,7 @@ describe('offshoreLeaksConnector', () => {
     ] } }) });
     const out = await offshoreLeaksConnector.run({ kind: 'company', value: 'WeWork Inc.' }, ctxFor('Adam Neumann', 'WeWork'));
     expect(JSON.parse(calls[0].init.body).queries.q0.type).toBe('Entity');
-    expect(out.findings.map((f) => [f.url, f.match])).toEqual([['https://offshoreleaks.icij.org/nodes/1', 'company']]);
+    expect(out.findings.map((f) => [f.url, f.match])).toEqual([['https://offshoreleaks.icij.org/nodes/1', 'possible']]);
   });
 
   test('nothing found is a note; an unreadable answer throws', async () => {

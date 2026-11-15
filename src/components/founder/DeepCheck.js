@@ -387,10 +387,22 @@ function Report({ report, onRerun, headingRef = null }) {
             </li>
           ))}
         </ul>
-        {coverage.notSearched.length > 0 && (
+        {coverage.partlyAnswered?.length > 0 && (
+          <div className="mt-4">
+            <p className="eyebrow mb-1">Answered only in part</p>
+            <ul className="space-y-1 text-sm text-muted">{coverage.partlyAnswered.map((s) => <li key={s.label}><span className="font-medium text-ink">{s.label}</span>: {s.reason}</li>)}</ul>
+          </div>
+        )}
+        {coverage.notSearched.filter((s) => !s.off).length > 0 && (
           <div className="mt-4">
             <p className="eyebrow mb-1">Did not answer</p>
-            <ul className="space-y-1 text-sm text-muted">{coverage.notSearched.map((s) => <li key={s.label}><span className="font-medium text-ink">{s.label}</span>: {s.reason}</li>)}</ul>
+            <ul className="space-y-1 text-sm text-muted">{coverage.notSearched.filter((s) => !s.off).map((s) => <li key={s.label}><span className="font-medium text-ink">{s.label}</span>: {s.reason}</li>)}</ul>
+          </div>
+        )}
+        {coverage.notSearched.filter((s) => s.off).length > 0 && (
+          <div className="mt-4">
+            <p className="eyebrow mb-1">Not enabled on this deployment</p>
+            <ul className="space-y-1 text-sm text-muted">{coverage.notSearched.filter((s) => s.off).map((s) => <li key={s.label}><span className="font-medium text-ink">{s.label}</span></li>)}</ul>
           </div>
         )}
         <div className="mt-4">

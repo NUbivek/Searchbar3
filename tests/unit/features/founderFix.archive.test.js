@@ -98,8 +98,9 @@ describe('one page, copies of two different people', () => {
     const out = await archiveConnector.run({ kind: 'url', value: addr, depth: 1 }, ctxFor(subject));
     const change = out.findings.find((f) => f.data.kind === 'change');
     expect(change).toBeTruthy();
-    expect(change.match).toBe('confirmed');
-    expect(out.findings.find((f) => / as of 2015-01-01/.test(f.title)).match).toBe('confirmed');
+    // tied by one anchor and sharing a line with an untied copy: may be a merged profile, so held at possible (fix2 item 1)
+    expect(change.match).toBe('possible');
+    expect(out.findings.find((f) => / as of 2015-01-01/.test(f.title)).match).toBe('possible');
   });
 });
 

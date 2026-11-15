@@ -45,6 +45,7 @@ export const LIMITS = {
 };
 
 export const GAP_TEMPLATE = 'q.gap';
+const GIVEN_COMPANY = 'the company given';
 const KIND_WEIGHT = { subject: 1, url: 0.85, company: 0.8, relative: 0.72, associate: 0.62, school: 0.58, handle: 0.5, domain: 0.45 };
 const DEPTH_WEIGHT = [1, 0.8, 0.55];
 const ANCHOR_KIND = { company: 'companies', school: 'schools', associate: 'people', handle: 'handles', domain: 'domains' };
@@ -58,6 +59,17 @@ const threadKey = (t) => `${t.kind}|${t.kind === 'company' ? (companyKeys(t.valu
 const HEADLINE_LEAD = /^(why|how|what|when|where|who|inside|ousted|disgraced|former|ex|demise|rise|fall|collapse|conversation|interview|meet|watch|read|sec|doj|fbi|feds|exclusive|opinion|is|was|did|does|will|can|boyfriend|girlfriend|husband|wife|fianc[ée]e?|father|mother|brother|sister|son|daughter|ceo|judge|attorney|lawyer|prosecutors?|defendant|billionaire|convicted|jailed|fraudster)\b/i;
 const NOT_AN_ORGANISATION = /^(us|usa|uk|eu|un|united states|united kingdom|america|europe|government|congress|senate|police|court|state|city|county|inc|llc|ltd|company|the company|startup)$/i;
 const containsWords = (longer, shorter) => longer !== shorter && ` ${longer} `.includes(` ${shorter} `);
+// A job title read as an organisation ("Co-Founder", "Solutions Architect Lead"): every word is a title word or a
+// word that only qualifies one, and at least one is a title word.
+const TITLE_WORD = new Set(['ceo', 'cto', 'coo', 'cfo', 'cmo', 'cpo', 'cso', 'cio', 'chief', 'founder', 'cofounder', 'co-founder', 'founding', 'president', 'chair', 'chairman', 'chairwoman', 'chairperson', 'officer', 'director', 'vp', 'svp', 'evp', 'head', 'partner', 'principal', 'engineer', 'scientist', 'professor', 'manager', 'lead', 'leader', 'adviser', 'advisor', 'investor', 'analyst', 'associate', 'counsel', 'attorney', 'architect', 'designer', 'developer', 'researcher', 'fellow', 'owner', 'executive', 'secretary', 'treasurer', 'editor', 'consultant', 'entrepreneur', 'intern', 'student', 'lecturer', 'boss', 'member', 'board']);
+const TITLE_QUALIFIER = new Set(['co', 'vice', 'senior', 'sr', 'junior', 'jr', 'staff', 'assistant', 'deputy', 'interim', 'acting', 'managing', 'general', 'executive', 'technical', 'solutions', 'product', 'software', 'of', 'and', 'the', '&']);
+const looksLikeTitleOnly = (value) => {
+  const words = String(value || '').toLowerCase().replace(/[,;:/|()]+/g, ' ').split(/\s+/).filter(Boolean);
+  return words.length > 0 && words.some((w) => TITLE_WORD.has(w)) && words.every((w) => TITLE_WORD.has(w) || TITLE_QUALIFIER.has(w));
+};
+// An address is not an organisation name ("https://x.com/acme", "www.acme.io", "acme.com")
+const LOOKS_LIKE_HOST = /^(https?:|www\.)|\b[a-z0-9-]+\.(com|net|org|io|co|ai|app|dev|me|fr|uk|de)\b/i;
+const KEY_STOPWORDS = new Set(['we', 'the', 'co', 'us', 'a', 'an', 'it', 'our', 'my', 'and', 'of', 'in', 'on', 'at', 'to', 'for']);
 
 /**
  * Is this organisation thread worth recording? Returns:
@@ -72,6 +84,13 @@ function sameOrganisation(state, thread) {
   if (thread.kind === 'company' && HEADLINE_LEAD.test(raw) && (/\s/.test(raw) || HEADLINE_LEAD.exec(raw)[0].length === raw.length)) return 'junk';
   const key = threadKey(thread).slice(thread.kind.length + 1);
   if (!key) return 'junk';
+  // The company the user gave is followed whatever it is called; anything read from a record must look like a name.
+  if (thread.why !== GIVEN_COMPANY) {
+    if (looksLikeTitleOnly(thread.value)) return 'junk';
+    if (LOOKS_LIKE_HOST.test(String(thread.value || '').trim())) return 'junk';
+    // "We Co." keys to "we": too short or too common a word to tell one organisation from another
+    if (key.length <= 2 || key.split(' ').every((w) => KEY_STOPWORDS.has(w))) return 'junk';
+  }
   for (const [otherKey, other] of Object.entries(state.threads)) {
     if (other.kind !== thread.kind) continue;
     const k = otherKey.slice(other.kind.length + 1);
@@ -87,7 +106,16 @@ function sameOrganisation(state, thread) {
 // The same page reported twice is one record; a register page that lists several records is several.
 const headline = (title) => norm(title).replace(/\s+[-|–—]\s+[^-|–—]{2,40}$/, '').slice(0, 70);
 const pageKey = (f) => `${f.category}|${urlKey(f.url)}|${headline(f.title)}`;
-const taskKey = (t) => `${t.connector}|${t.kind}|${t.kind === 'company' ? (companyKeys(t.value)[0] || norm(t.value)) : norm(t.value)}|${t.template || ''}${t.template === GAP_TEMPLATE ? `|${norm(t.params?.query)}` : ''}`;
+// A lookup made while a company was only an affiliate is made again in full once it is promoted to primary.
+const taskKey = (t) => `${t.connector}|${t.kind}|${t.kind === 'company' ? (companyKeys(t.value)[0] || norm(t.value)) : norm(t.value)}|${t.template || ''}${t.template === GAP_TEMPLATE ? `|${norm(t.params?.query)}` : ''}${t.tie === 'affiliate' ? '|affiliate' : ''}`;
+// Two quotes are the same passage when their words agree; short quotes ("Director") say too little to merge on.
+// Archive snapshots of one page are kept apart on purpose (they show how the page changed).
+function quoteKey(f) {
+  if (!f?.quote || f.category === 'archive') return null;
+  const words = String(f.quote).toLowerCase().replace(/[^a-z0-9À-ɏ]+/g, ' ').trim();
+  if (words.length < 60) return null;
+  return `${f.source}|${f.category}|${words}`;
+}
 const learnKey = (t) => `${t.connector}${t.template ? `:${t.template}` : ''}`;
 // Two records are the same page when host, path, query and fragment agree. The query and fragment matter:
 // a forum thread is "item?id=N", a register row is a query, and one long page can hold several records at
@@ -161,7 +189,8 @@ export function startState({ name, company = '' }) {
  *              two together is looked up. A board seat at a large company must not fill the report with
  *              that company's litigation.
  */
-const PRIMARY_TIE = /\b(found(?:ed|er|ing)|co-?found\w*|started|launched|ran|runs|led|heads|headed|chief executive|CEO|CTO|COO|CFO|owner|owns|president|managing (?:director|partner|member)|general partner|principal|executive officer|sole (?:director|member|shareholder)|proprietor|10% owner|holding vehicle|promoter|earlier name|formerly named|the company given|the company most sources name)\b/i;
+// A bare "owner" or "owns" is not enough: an investor "owns" a stake. Owning it outright, or owning and running it, is.
+const PRIMARY_TIE = /\b(found(?:ed|er|ing)|co-?found\w*|started|launched|ran|runs|led|heads|headed|chief executive|CEO|CTO|COO|CFO|owner(?:[- ]operator| and (?:CEO|chief executive|founder|operator|president|managing director))|owns and (?:runs|operates|manages)|wholly owns|president|managing (?:director|partner|member)|general partner|principal|executive officer|sole (?:director|member|shareholder|owner|proprietor)|proprietor|10% owner|holding vehicle|promoter|earlier name|formerly named|the company given|the company most sources name)\b/i;
 export const tieOf = (thread) => (PRIMARY_TIE.test(`${thread.why || ''} ${thread.role || ''}`) ? 'primary' : 'affiliate');
 /** Sources that establish what the person did at a company; the only ones asked about an affiliate. */
 const AFFILIATE_SOURCES = new Set(['sec-company', 'uk-companies-house', 'fr-companies', 'yc-directory']);
@@ -176,8 +205,8 @@ function planTasks(thread, depth, connectors, subject) {
     const searcher = connectors.find((c) => c.id === 'web-search' && (typeof c.enabled !== 'function' || c.enabled()));
     if (searcher) {
       const both = `"${subject.name}" "${thread.value}"`;
-      out.push({ connector: searcher.id, kind: 'company', value: thread.value, depth, template: JOINT_TEMPLATES[0], params: { query: both }, prior: 0.5, why: thread.why || '', relation: null });
-      out.push({ connector: searcher.id, kind: 'company', value: thread.value, depth, template: JOINT_TEMPLATES[1], params: { query: `${both} lawsuit OR sued OR fraud OR investigation OR dispute OR fired OR bankruptcy` }, prior: 0.55, why: thread.why || '', relation: null });
+      out.push({ connector: searcher.id, kind: 'company', value: thread.value, depth, template: JOINT_TEMPLATES[0], params: { query: both }, prior: 0.5, why: thread.why || '', relation: null, tie: thread.tie || null });
+      out.push({ connector: searcher.id, kind: 'company', value: thread.value, depth, template: JOINT_TEMPLATES[1], params: { query: `${both} lawsuit OR sued OR fraud OR investigation OR dispute OR fired OR bankruptcy` }, prior: 0.55, why: thread.why || '', relation: null, tie: thread.tie || null });
     }
   }
   for (const c of connectors) {
@@ -189,7 +218,7 @@ function planTasks(thread, depth, connectors, subject) {
       out.push({
         connector: c.id, kind: thread.kind, value: thread.value, depth,
         template: v.template || null, params: v.params || null,
-        prior: v.prior ?? c.prior ?? 0.5, why: v.why || thread.why || '', relation: thread.relation || null, platform: thread.platform || null,
+        prior: v.prior ?? c.prior ?? 0.5, why: v.why || thread.why || '', relation: thread.relation || null, platform: thread.platform || null, tie: thread.tie || null,
       });
     }
   }
@@ -419,7 +448,7 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   if (state.step === 0 && state.queue.length === 0 && state.tasksRun === 0) {
     enqueue(state, planTasks({ kind: 'subject', value: subject.name, why: 'the person being checked' }, 0, connectors, subject));
     if (subject.company) {
-      const record = noteThread(state, subject, { kind: 'company', value: subject.company, why: 'the company given', trusted: true }, 1);
+      const record = noteThread(state, subject, { kind: 'company', value: subject.company, why: GIVEN_COMPANY, trusted: true }, 1);
       if (record) pullThread(state, subject, record, connectors);
     }
     // A source that is off because a fuller one replaced it is not something that failed to answer
@@ -444,6 +473,8 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   const batch = order.slice(0, room);
   const seenIds = new Set(state.findings.map((f) => f.id));
   const seenUrls = new Set(state.findings.map(pageKey));
+  const byQuote = new Map();
+  for (const f of state.findings) { const k = quoteKey(f); if (k && !byQuote.has(k)) byQuote.set(k, f); }
   const perSource = {};
   for (const f of state.findings) perSource[f.source] = (perSource[f.source] || 0) + 1;
 
@@ -468,7 +499,15 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   const outcomes = [];
   const reliability = [];
   const ran = new Set();
-  const ctxBase = { subject, known: () => exportAnchors(subject) };
+  // What a source may read about the check so far: who the person is tied to, the records already
+  // collected (so it does not say "nothing ties them to X" when an earlier record does), and the pages
+  // already tied to them (so a guessed address is not preferred over a known one). Read-only copies.
+  const ctxBase = {
+    subject,
+    known: () => exportAnchors(subject),
+    findings: () => state.findings.slice(),
+    knownUrls: () => Object.values(state.threads).filter((t) => t.kind === 'url' && t.trusted).map((t) => t.value),
+  };
 
   const worker = async () => {
     for (;;) {
@@ -536,13 +575,26 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
           if (f.match === 'possible') weak += 0.5; else strong += 0.5;
           continue;
         }
+        // The same passage on another page of the same source (one testimonial in three filings) is one record
+        const qk = quoteKey(f);
+        const twin = qk ? byQuote.get(qk) : null;
+        if (twin && urlKey(twin.url) !== urlKey(f.url) && matchRank(f.match) <= matchRank(twin.match)) {
+          const alsoIn = twin.data?.alsoIn || [];
+          if (f.url && !alsoIn.includes(f.url) && alsoIn.length < 8) twin.data = { ...(twin.data || {}), alsoIn: [...alsoIn, f.url] };
+          seenIds.add(f.id);
+          seenUrls.add(dupKey);
+          if (f.match === 'possible') weak += 0.5; else strong += 0.5;
+          continue;
+        }
         if (state.findings.length >= limits.maxFindings || (perSource[f.source] || 0) >= limits.maxPerSource) { state.dropped.findings += 1; continue; }
         seenIds.add(f.id);
         seenUrls.add(dupKey);
         perSource[f.source] = (perSource[f.source] || 0) + 1;
         // A record found while looking at an associate or relative is filed under that person in the report
         const about = task.kind === 'associate' || task.kind === 'relative' ? { data: { ...(f.data || {}), person: f.data?.person || task.value } } : {};
-        state.findings.push({ ...f, ...about, step: state.step, via: task.kind === 'subject' ? null : `${task.kind}: ${task.value}` });
+        const kept = { ...f, ...about, step: state.step, via: task.kind === 'subject' ? null : `${task.kind}: ${task.value}` };
+        state.findings.push(kept);
+        if (qk && !byQuote.has(qk)) byQuote.set(qk, kept);
         stat.findings += 1;
         newFindings += 1;
         if (f.match === 'possible') weak += 1; else strong += 1;

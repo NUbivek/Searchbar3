@@ -103,7 +103,7 @@ describe('connector shape and wording', () => {
         expect(p.why).not.toMatch(/\b(API|endpoint|free|paid|key|token)\b/i);
       }
     }
-    expect(secPersonConnector.plan(person('all'), subject).map((p) => p.template).sort()).toEqual(['all', 'enforcement', 'formd', 'insider', 'related']);
+    expect(secPersonConnector.plan(person('all'), subject).map((p) => p.template).sort()).toEqual(['all', 'enforcement', 'family', 'formd', 'insider', 'press', 'related']);
     expect(secCompanyConnector.plan(company('formd'), subject).map((p) => p.template).sort()).toEqual(['cyber', 'formd', 'joint']);
   });
 

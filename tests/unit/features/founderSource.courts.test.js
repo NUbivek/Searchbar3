@@ -138,7 +138,7 @@ describe('court-records-open (Internet Archive)', () => {
     ] } }]]);
     const out = await courtRecordsOpenConnector.run({ kind: 'company', value: 'Nikola Corporation' }, ctxFor(milton()));
     expect(out.findings).toHaveLength(1);
-    expect(out.findings[0].match).toBe('company');
+    expect(out.findings[0].match).toBe('likely'); // the company given against exactly the surname
     expect(out.findings[0].url).toBe('https://archive.org/details/gov.uscourts.azd.1382219');
   });
 });

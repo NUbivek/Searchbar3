@@ -16,7 +16,11 @@ import { makeThread } from './finding';
 import { mentionsMinor, isSensitive } from './guardrails';
 
 const NAME = "[A-ZÀ-Þ][a-zA-ZÀ-ÿ'’-]+(?:\\s+(?:[A-Z]\\.|de|van|von|bin|al|del|la|le|[A-ZÀ-Þ][a-zA-ZÀ-ÿ'’-]+)){1,3}";
-const RELATION_WORDS = 'father|mother|brother|sister|husband|wife|spouse|partner|uncle|aunt|cousin|grandfather|grandmother|stepfather|stepmother|step-father|step-mother|father-in-law|mother-in-law|brother-in-law|sister-in-law|son-in-law|daughter-in-law|fianc[ée]e?';
+// The same, also accepting a one-letter surname after a capitalised given
+// name ("Cédric O"). Used only where a role word sits right beside the name
+// (co-founder, adviser, minister), never on its own.
+const NAME_ROLE = `[A-ZÀ-Þ][a-zA-ZÀ-ÿ'’-]+(?:(?:\\s+(?:[A-Z]\\.|de|van|von|bin|al|del|la|le|[A-ZÀ-Þ][a-zA-ZÀ-ÿ'’-]+)){1,3}|\\s+[A-ZÀ-Þ](?![\\wÀ-ÿ'’.-]))`;
+const RELATION_WORDS ='father|mother|brother|sister|husband|wife|spouse|partner|uncle|aunt|cousin|grandfather|grandmother|stepfather|stepmother|step-father|step-mother|father-in-law|mother-in-law|brother-in-law|sister-in-law|son-in-law|daughter-in-law|fianc[ée]e?';
 const DESCENT_WORDS = 'son|daughter|nephew|niece|grandson|granddaughter|stepson|stepdaughter|scion|heir|heiress';
 
 // A public role: what makes a relative relevant to an investment decision.
@@ -62,8 +66,14 @@ function plausiblePerson(name, subject) {
   if (parts.length < 2 || parts.length > 5 || n.length > 60) return null;
   if (NOT_NAMES.test(n) || subject.hasName(n)) return null;
   if (/\b(Inc|LLC|Ltd|Corp|Capital|Ventures|Partners|University|College|School|Bank|Group|Holdings|Foundation|Institute|Company|Fund|Labs?|Technologies)\b/.test(n)) return null;
+  // "Paris-based AI", "French Tech", "US Senate": places, acronyms and adjectives, not people
+  if (parts.some((p) => /-based$/i.test(p) || /^[A-Z]{3,4}$/.test(p) || ACRONYMS_2.has(p))) return null;
+  if (NATIONALITY.test(parts[0])) return null;
   return n;
 }
+// Two-letter capitals that are words, not initials ("AJ Smith" stays a person).
+const ACRONYMS_2 = new Set(['AI', 'US', 'UK', 'EU', 'UN', 'VC', 'IT', 'PR', 'HR', 'TV', 'ML', 'AR', 'VR', 'IP', 'BI']);
+const NATIONALITY = /^(?:American|British|English|French|German|Italian|Spanish|Portuguese|Dutch|Belgian|Swiss|Austrian|Swedish|Norwegian|Danish|Finnish|Irish|Scottish|Welsh|Polish|Russian|Ukrainian|Greek|Turkish|Israeli|Arab|Saudi|Emirati|Qatari|Iranian|Indian|Pakistani|Chinese|Japanese|Korean|Taiwanese|Vietnamese|Thai|Indonesian|Singaporean|Malaysian|Filipino|Australian|Canadian|Mexican|Brazilian|Argentine|Argentinian|Chilean|Colombian|Peruvian|African|Nigerian|Kenyan|Egyptian|South|North|East|West|European|Asian|Parisian|Californian|Texan|Federal|National|State|Global|International)$/;
 
 /**
  * The public role a sentence gives to `name`: a role word right after the
@@ -149,8 +159,16 @@ export function associatesFromText(subject, text) {
     const name = plausiblePerson(rawName, subject);
     if (name && !out.has(name.toLowerCase())) out.set(name.toLowerCase(), { name, why });
   };
+  // Is the subject the one a successor took over from? Their name or a
+  // pronoun must come earlier in the same sentence.
+  const subjectBefore = (sentence, at) => {
+    const before = sentence.slice(Math.max(0, at - 90), at);
+    return subject.hasName(before) || /\b(?:he|she|they|him|her|them)\b/i.test(before);
+  };
   for (const sentence of sentencesAbout(subject, text)) {
-    for (const m of sentence.matchAll(new RegExp(`\\bco-?founders?\\s+(?:and\\s+[A-Za-z ]{1,30}?\\s+)?(${NAME})(?:\\s+and\\s+(${NAME}))?`, 'g'))) {
+    // The filler ("co-founder and chief scientist Tim Lee") never crosses
+    // of / the / at: "co-founder and CEO of Acme Jane Roe" names no one else.
+    for (const m of sentence.matchAll(new RegExp(`\\bco-?founders?\\s+(?:and\\s+(?:(?!(?:of|the|at)\\b)[A-Za-z]+\\s+){1,4}?)?(${NAME_ROLE})(?:\\s+and\\s+(${NAME_ROLE}))?`, 'g'))) {
       // "PayPal co-founders Elon Musk and Peter Thiel": co-founders of another company, not of the person's
       const lead = sentence.slice(Math.max(0, m.index - 40), m.index).match(/([A-Z][\w&.'-]+(?:\s+[A-Z][\w&.'-]+)?)\s*$/);
       const ofAnother = lead && !subject.hasName(lead[1]) && ![...subject.anchors.companies.values()].some((a) => a.test(lead[1]));
@@ -159,9 +177,45 @@ export function associatesFromText(subject, text) {
       if (m[2]) add(m[2], 'named as a co-founder');
     }
     for (const m of sentence.matchAll(new RegExp(`(${NAME})\\s+and\\s+(${NAME})\\s*,?\\s+(?:the\\s+)?(?:co-?founders|founders|who\\s+(?:co-?)?founded)`, 'g'))) { add(m[1], 'named as a co-founder'); add(m[2], 'named as a co-founder'); }
-    for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?founded|founded|started|launched)\\s+[^.]{0,60}?\\s+(?:with|alongside|together with)\\s+(${NAME})(?:\\s+and\\s+(${NAME}))?`, 'g'))) { add(m[1], 'founded a company together'); if (m[2]) add(m[2], 'founded a company together'); }
+    for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?founded|founded|started|launched)\\s+[^.]{0,60}?\\s+(?:with|alongside|together with)\\s+(?:(?:former|fellow|then|ex)[ -])?(?:(?:[a-z-]+\\s+){0,2}?(?:minister|secretary|advis[eo]r|colleague|classmate|researcher|engineer|scientist)\\s+)?(${NAME_ROLE})(?:\\s+and\\s+(${NAME_ROLE}))?`, 'g'))) { add(m[1], 'founded a company together'); if (m[2]) add(m[2], 'founded a company together'); }
+    // "adviser Jane Doe" / "former minister Cédric O, an adviser to ..."
+    for (const m of sentence.matchAll(new RegExp(`\\b(?:advis[eo]rs?|minister)\\s*,?\\s+(${NAME_ROLE})`, 'g'))) add(m[1], 'named as an adviser or official beside the person');
+    // Successors: "turned over the CEO role to John Roe", "was succeeded as CEO by John Roe",
+    // "John Roe succeeded him", "was replaced by John Roe as chairman"
+    for (const m of sentence.matchAll(new RegExp(`\\bturned\\s+over\\s+(?:the\\s+|his\\s+|her\\s+|their\\s+)?(?:CEO|chief executive(?: officer)?|chair(?:man|woman|person)?|president|top)\\s+(?:role|job|post|position|reins|title|seat)\\s+to\\s+(${NAME})`, 'g'))) if (subjectBefore(sentence, m.index)) add(m[1], 'succeeded the person in a role');
+    for (const m of sentence.matchAll(new RegExp(`\\bsucceeded\\s+(?:as\\s+(?:[A-Za-z-]+\\s+){1,3}?)?by\\s+(${NAME})`, 'g'))) if (subjectBefore(sentence, m.index)) add(m[1], 'succeeded the person in a role');
+    for (const m of sentence.matchAll(new RegExp(`\\breplaced\\s+by\\s+(${NAME})\\s+as\\b`, 'g'))) if (subjectBefore(sentence, m.index)) add(m[1], 'succeeded the person in a role');
+    for (const m of sentence.matchAll(new RegExp(`(${NAME})\\s+succeeded\\s+(?:him|her|them)\\b`, 'g'))) add(m[1], 'succeeded the person in a role');
     for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?defendants?|co-?conspirators?|business partners?|longtime partner|former partner)\\s*,?\\s+(${NAME})`, 'g'))) add(m[1], 'named as a co-defendant or business partner');
     for (const m of sentence.matchAll(new RegExp(`\\b(?:v\\.|vs\\.?|versus)\\s+(?:[A-Z][A-Za-z.&' -]{0,40}?,\\s+)?(${NAME})\\s+and\\s+(${NAME})`, 'g'))) { add(m[1], 'co-party in a case'); add(m[2], 'co-party in a case'); }
+  }
+  return [...out.values()];
+}
+
+// A company name: capitalised words ("St. George Security and Alarm") or a
+// camel-case word that starts lower case ("dHybrid", "eBay").
+const CO_TOKEN = "(?:[A-ZÀ-Þ0-9][\\wÀ-ÿ&'’.-]*|[a-z][A-Z][\\w-]+)";
+const CO_NAME = `${CO_TOKEN}(?:\\s+(?:(?:and|of|&|for|de)\\s+)?${CO_TOKEN}){0,5}`;
+const CAMEL = "[a-z][A-Z][\\w-]+";
+
+/**
+ * Companies a sentence about the subject names in forms the quick brief's
+ * extractor misses: "a company called dHybrid", "founded eBay".
+ * @returns {Array<{ name: string, why: string }>}
+ */
+export function companiesFromText(subject, text) {
+  const out = new Map();
+  const add = (raw, why) => {
+    let name = String(raw || '').replace(/[,.;:]+$/, '').trim();
+    // "a company called Acme and John Roe joined": the part after "and" is a person, not the name
+    const and = name.match(/^(.+?)\s+and\s+(.+)$/);
+    if (and && plausiblePerson(and[2], subject)) name = and[1];
+    if (name.length < 2 || subject.hasName(name) || /^(?:The|A|An|In|On|At)$/.test(name)) return;
+    if (!out.has(name.toLowerCase())) out.set(name.toLowerCase(), { name, why });
+  };
+  for (const sentence of sentencesAbout(subject, text)) {
+    for (const m of sentence.matchAll(new RegExp(`\\b(?:company|business|firm|startup|start-up|venture)\\s+(?:called|named)\\s+(${CO_NAME})`, 'g'))) add(m[1], 'company named with the person');
+    for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?founded|founded|started|launched|created)\\s+(${CAMEL})`, 'g'))) add(m[1], 'company the person started');
   }
   return [...out.values()];
 }
@@ -227,6 +281,12 @@ export function threadsFromResult(subject, result, { trusted }) {
   const evidence = extractFounderEvidence({ name: subject.hasName, company: subject.company, results: [{ title, snippet, url: result?.url || 'https://example.invalid/', source: 'web' }], keepAllSources: true });
   for (const c of evidence.pastCompanies) {
     threads.push(makeThread('company', c.company, c.role ? `${c.role}${c.status === 'past' ? ' (past)' : ''}` : c.status === 'past' ? 'earlier company' : 'named with the person', { trusted }));
+  }
+  const seenCompany = new Set(evidence.pastCompanies.map((c) => String(c.company).toLowerCase()));
+  for (const c of companiesFromText(subject, text)) {
+    if (seenCompany.has(c.name.toLowerCase())) continue;
+    seenCompany.add(c.name.toLowerCase());
+    threads.push(makeThread('company', c.name, c.why, { trusted }));
   }
   for (const e of evidence.education) threads.push(makeThread('school', e.school, 'named as their school', { trusted }));
   for (const a of associatesFromText(subject, text)) threads.push(makeThread('associate', a.name, a.why, { trusted }));

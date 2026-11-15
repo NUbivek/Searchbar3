@@ -35,7 +35,10 @@
  * name. A page counts as the person's only when its own name line is theirs;
  * it is graded confirmed or likely only when its text also names a company,
  * school or associate already tied to them. A page that carries only the
- * name stays "possible" and none of its threads are followed.
+ * name stays "possible" and none of its threads are followed. A guessed
+ * address is never more than "possible" and nothing on it is followed; a
+ * profile linked from a record already tied to the person is at least
+ * "likely".
  *
  * Privacy: location lines are never read, contact details are removed, and
  * resumes are reduced to headline, roles and education (archiveClaims.js).
@@ -368,7 +371,7 @@ const quoted = (s, n = 80) => `"${clip(s, n)}"`;
 /** One line that says what changed, for a finding's title. */
 export function describeChange(d) {
   if (d.field === 'headline') return `${d.aspect === 'title' ? 'title' : 'headline'} changed from ${quoted(d.before)} to ${quoted(d.after)}`;
-  if (d.field === 'bio') return 'bio rewritten';
+  if (d.field === 'bio') return d.expanded ? 'bio expanded' : 'bio rewritten';
   if (d.field === 'education') {
     if (d.change === 'changed') return `${d.aspect === 'dates' ? 'education dates' : 'degree'} changed from ${quoted(d.before)} to ${quoted(d.after)}`;
     if (d.change === 'removed') return d.aspect === 'section' ? `education no longer listed (${quoted(d.before, 110)})` : `${d.aspect === 'degree' ? 'degree' : 'school'} no longer listed: ${quoted(d.before, 110)}`;
@@ -383,11 +386,53 @@ const NOT_AN_EMPLOYER = /^(self[- ]?employed|freelanc\w*|independent|stealth\b.*
 
 const LEVEL_RANK = { none: 0, possible: 1, likely: 2, confirmed: 3 };
 const TIED = (level) => level === 'confirmed' || level === 'likely';
+const orgsOf = (c) => [...c.roles.map((r) => r.org), ...c.education.map((e) => e.school)].filter((o) => o && !NOT_AN_EMPLOYER.test(o));
+const linksOf = (c) => (c.links || []).map((l) => pageOf(l)).filter(Boolean);
 /** Do two copies list at least one employer or school in common? */
 function sharesOrg(a, b) {
-  const orgs = (c) => [...c.roles.map((r) => r.org), ...c.education.map((e) => e.school)].filter((o) => o && !NOT_AN_EMPLOYER.test(o));
-  const theirs = orgs(b);
-  return orgs(a).some((x) => theirs.some((y) => sameOrg(x, y)));
+  const theirs = orgsOf(b);
+  return orgsOf(a).some((x) => theirs.some((y) => sameOrg(x, y)));
+}
+/** Do two copies share an employer, a school or a linked profile? */
+function sharesLine(a, b) {
+  if (sharesOrg(a, b)) return true;
+  const theirs = linksOf(b);
+  return linksOf(a).some((x) => theirs.includes(x));
+}
+/** How many different anchors a grade rests on ("names Theranos", "names Stanford University"). */
+const anchorCount = (reasons) => new Set((reasons || []).filter((r) => /^names /.test(r)).map((r) => r.toLowerCase())).size;
+/** The weaker of two fixed grades (no fix means the copy was graded on its own text). */
+const weakerFix = (a, b) => (!a ? b || null : !b ? a : LEVEL_RANK[a.match] <= LEVEL_RANK[b.match] ? a : b);
+
+const wordSet = (s) => new Set(plainWords(s).filter((w) => w.length > 1));
+/** The newer text keeps every word of the older one and only adds: an expansion, not an edit. */
+function onlyAdds(before, after) {
+  const A = wordSet(before);
+  const B = wordSet(after);
+  return A.size > 0 && B.size > A.size && [...A].every((w) => B.has(w));
+}
+
+/** Names of schools: sent as a school thread, never as an employer. */
+const SCHOOL_WORDS = /(^|[\s,(])(lyc[ée]es?|[ée]coles?|universit(y|ies|é|e|at|ät|à|a)|institut(e|o)?|ENS|college|coll[èe]ge)(?=$|[\s,.)'’-])/i;
+const LOOKS_LIKE_HOST = /^(https?:|www\.)|\b[a-z0-9-]+\.(com|net|org|io|co)\b/i;
+/**
+ * Is this employer name worth following? Not a fragment of another name on the
+ * same copy ("Lyc" of "Lycée Hoche"), not a name cut after an initial
+ * ("Lycée H"), not an address, and not three letters or fewer unless it is an
+ * acronym that other copies of the page list too.
+ */
+export function usableOrg(org, siblings = [], elsewhere = []) {
+  const name = String(org || '').trim();
+  if (!name || LOOKS_LIKE_HOST.test(name)) return false;
+  if (/\s[A-Z]\.?$/.test(name)) return false;
+  const low = name.toLowerCase();
+  if (siblings.some((o) => { const other = String(o || '').trim().toLowerCase(); return other.length > low.length && other.startsWith(low); })) return false;
+  const letters = name.replace(/[^\p{L}\p{N}]/gu, '');
+  if (letters.length <= 3) {
+    if (!/^[A-Z0-9&.\s]+$/.test(name) || letters.length < 2) return false;
+    return elsewhere.some((o) => String(o || '').trim() === name);
+  }
+  return true;
 }
 
 /** Copies that say the same thing collapse into one version, remembered with the last date it was seen. */
@@ -426,7 +471,10 @@ function changeFindings(subject, base, what, page, versions) {
         education: from('education').claims.education,
         bioText: from('bio').claims.bioText,
       };
-      for (const d of compareClaims(older, cur.claims)) {
+      for (const raw of compareClaims(older, cur.claims)) {
+        // Words only added to a bio or a profile tagline say more, not something different: noted, not flagged.
+        const expanded = raw.change === 'changed' && (raw.field === 'bio' || (raw.field === 'headline' && raw.aspect !== 'title')) && onlyAdds(raw.before, raw.after);
+        const d = expanded ? { ...raw, severity: 'info', expanded: true } : raw;
         // a copy with lines hidden behind asterisks cannot show that something is gone or was reworded, only what was added
         if (cur.claims.masked && d.change !== 'added') continue;
         const source = from(d.field);
@@ -442,6 +490,8 @@ function changeFindings(subject, base, what, page, versions) {
   return unique.slice(0, MAX_CHANGES).map(({ d, before, after }) => makeFinding(subject, {
     ...base,
     ...(after.matchText ? { matchText: after.matchText } : {}),
+    // a change is only as sure as the less sure of its two copies
+    ...(weakerFix(before.fix, after.fix) || {}),
     title: `${what}: ${describeChange(d)} between ${ym(before.ts)} and ${ym(after.ts)}`,
     quote: `Before (${iso(before.ts)}): ${d.before ? `"${clip(d.before, 290)}"` : 'not listed'} After (${iso(after.ts)}): ${d.after ? `"${clip(d.after, 290)}"` : 'not listed'}`,
     url: replayUrl(after.ts, after.original),
@@ -451,14 +501,23 @@ function changeFindings(subject, base, what, page, versions) {
   }));
 }
 
+const GUESSED_FIX = { match: 'possible', matchReasons: ['matched by name only: an address guessed from the name is often a namesake\'s'] };
+const MERGED_FIX = { match: 'possible', matchReasons: ['this copy also lists lines found only in copies not tied to them: it may mix two people'] };
+const CONFLICTED_FIX = { match: 'possible', matchReasons: ['shares a line with a copy of the page that may mix two people'] };
+
 /**
  * Findings and threads for one page that was read.
  * `discovered`: the page came from a listing of look-alike addresses, so a
  * name-only match is reported in one line and the page itself becomes a
  * thread when it is tied to the subject.
+ * `guessed`: the address was guessed from the name: every line stays
+ * "possible" and nothing on it is followed.
+ * `linkedFrom`: the address was linked from a record tied to the subject: its
+ * copies that carry the name and nothing at odds with the tied copies are
+ * graded at least "likely", so their history is told.
  */
-function reportPage(subject, info, { discovered = false, guessed = false } = {}) {
-  const out = { findings: [], threads: [], notes: [], found: info.rows.length > 0, named: false, level: 'none' };
+function reportPage(subject, info, { discovered = false, guessed = false, linkedFrom = null } = {}) {
+  const out = { findings: [], threads: [], notes: [], found: info.rows.length > 0, named: false, level: 'none', directLevel: 'none' };
   if (!info.rows.length) return out;
   const fam = familyOf(info.page);
   const what = `${fam.label} ${fam.noun}`;
@@ -472,17 +531,42 @@ function reportPage(subject, info, { discovered = false, guessed = false } = {})
   // Each copy is graded on its own text: a namesake's copy of the same address must not borrow a tie from the person's copy.
   const graded = own.map((v) => {
     const text = `${subject.name}. ${contextText(v.claims, subject)}`.slice(0, 8000);
-    return { v, text, level: matchSubject(subject, text).level };
+    const m = matchSubject(subject, text);
+    return { v, text, level: m.level, direct: TIED(m.level) && !guessed, reasons: m.reasons, fix: null };
   });
-  const directlyTied = graded.filter((g) => TIED(g.level));
-  // A copy that names no anchor but lists an employer or school of a tied copy is the same person's page at another time.
+  out.directLevel = graded.reduce((best, g) => (LEVEL_RANK[g.level] > LEVEL_RANK[best] ? g.level : best), 'none');
+  const directlyTied = graded.filter((g) => g.direct);
+  // A copy that names no anchor but lists an employer, school or link of a tied copy is the same person's page at
+  // another time, but only when that tied copy rests on two anchors or more. A copy tied by one anchor that shares
+  // lines with untied copies may be a merged profile (the person's company next to a namesake's career): every
+  // copy involved stays "possible" and nothing on them is followed.
   for (const g of graded) {
-    if (TIED(g.level)) continue;
-    const link = directlyTied.find((t) => sharesOrg(t.v.claims, g.v.claims));
-    if (!link) continue;
-    g.text = `${g.text}. ${contextText(link.v.claims, subject)}`.slice(0, 8000);
-    g.level = matchSubject(subject, g.text).level;
+    if (g.direct || guessed) continue;
+    const links = directlyTied.filter((t) => sharesLine(t.v.claims, g.v.claims));
+    if (!links.length) continue;
+    const strong = links.find((t) => anchorCount(t.reasons) >= 2);
+    if (strong) {
+      g.text = `${g.text}. ${contextText(strong.v.claims, subject)}`.slice(0, 8000);
+      g.level = matchSubject(subject, g.text).level;
+      continue;
+    }
+    g.conflicted = true;
+    g.level = 'possible';
+    g.fix = CONFLICTED_FIX;
+    for (const t of links) t.merged = true;
   }
+  for (const t of directlyTied) if (t.merged) { t.direct = false; t.level = 'possible'; t.fix = MERGED_FIX; }
+  // A profile linked from a record tied to them: a copy that carries their name and nothing at odds with the tied copies is theirs.
+  if (linkedFrom && !guessed) {
+    const anyDirect = graded.some((g) => g.direct);
+    for (const g of graded) {
+      if (TIED(g.level) || g.conflicted || g.merged) continue;
+      if (anyDirect && orgsOf(g.v.claims).length) continue;
+      g.level = 'likely';
+      g.fix = { match: 'likely', matchReasons: [`profile linked from ${linkedFrom}`] };
+    }
+  }
+  if (guessed) for (const g of graded) { g.level = 'possible'; g.fix = GUESSED_FIX; }
   for (const g of graded) g.tied = TIED(g.level);
   out.level = graded.reduce((best, g) => (LEVEL_RANK[g.level] > LEVEL_RANK[best] ? g.level : best), 'none');
   const trusted = graded.some((g) => g.tied);
@@ -494,15 +578,16 @@ function reportPage(subject, info, { discovered = false, guessed = false } = {})
   const base = { source: ID, sourceLabel: LABEL, category: 'archive' };
   const first = info.rows[0].ts;
   const last = info.rows.reduce((max, r) => (r.end > max ? r.end : max), info.rows[info.rows.length - 1].ts);
-  let versions = distinctVersions(history.map((g) => ({ ...g.v, matchText: g.text })));
-  // A guessed address that only carries the name is most often a namesake: say it in two lines, not a history.
-  const brief = guessed && !trusted;
+  let versions = distinctVersions(history.map((g) => ({ ...g.v, matchText: g.text, fix: g.fix })));
+  // A guessed address is most often a namesake: say it in two lines, not a history.
+  const brief = guessed;
   if (brief) versions = versions.slice(-1);
 
   if (trusted || !discovered) {
     out.findings.push(makeFinding(subject, {
       ...base,
       matchText: latest.text,
+      ...(latest.fix || {}),
       title: info.captures === 1 ? `${what} archived once, on ${iso(first)}` : ym(first) === ym(last) ? `${what} archived ${info.captures} times in ${ym(first)}` : `${what} archived ${info.captures} times between ${ym(first)} and ${ym(last)}`,
       quote: claimsQuote(latest.v.claims, 300),
       url: `${WB}/web/*/${info.page}`,
@@ -511,12 +596,13 @@ function reportPage(subject, info, { discovered = false, guessed = false } = {})
       data: { kind: 'snapshot', page, first: iso(first), last: iso(last), captures: info.captures },
     }));
   }
-  const snapshotOf = (v, matchText) => {
+  const snapshotOf = (v, matchText, fix = null) => {
     const line = claimsHeadline(v.claims);
     if (!line) return;
     out.findings.push(makeFinding(subject, {
       ...base,
       matchText,
+      ...(fix || {}),
       title: `${what} as of ${iso(v.ts)}: ${line}`,
       quote: claimsQuote(v.claims),
       url: replayUrl(v.ts, v.original),
@@ -525,23 +611,27 @@ function reportPage(subject, info, { discovered = false, guessed = false } = {})
       data: { kind: 'snapshot', page, capturedAt: iso(v.ts) },
     }));
   };
-  for (const v of versions) snapshotOf(v, v.matchText);
+  for (const v of versions) snapshotOf(v, v.matchText, v.fix);
   // copies that carry only the name, next to copies tied to the person: one line each, graded on their own text, never diffed
   const otherSigs = new Set();
   for (const g of others) {
     const sig = claimsSignature(g.v.claims);
     if (otherSigs.has(sig)) continue;
     otherSigs.add(sig);
-    snapshotOf(g.v, g.text);
+    snapshotOf(g.v, g.text, g.fix);
   }
   const changes = brief ? [] : changeFindings(subject, base, what, page, versions);
   out.findings.push(...changes);
   if (changes.some((f) => f && f.data.change === 'removed')) out.notes.push(`Something missing from a later copy of ${info.page} can also mean the site showed less that day (for example to visitors who were not signed in): open both copies before relying on it.`);
   if (!brief && versions.length === 1 && history.length > 1) out.notes.push(`${what}: the ${history.length} copies read between ${ym(history[0].v.ts)} and ${ym(latest.v.ts)} say the same thing.`);
+  if (graded.some((g) => g.merged)) out.notes.push(`A saved copy of ${info.page} lists ${subject.name}'s company next to lines found only in copies not tied to them: it may mix two people, so it is kept as "possible" and nothing on it was followed.`);
   if (others.length) out.notes.push(`${others.length} saved ${others.length === 1 ? 'copy' : 'copies'} of ${info.page} carry ${subject.name}'s name but nothing else tied to them; ${others.length === 1 ? 'it was' : 'they were'} not compared with the others and may be someone else's.`);
   out.findings = out.findings.filter(Boolean);
 
-  // Threads: employers, schools and the other profiles the page links to. Followed only from copies tied to the subject.
+  // Threads: employers, schools and the other profiles the page links to. Trusted only from copies that name an
+  // anchor themselves (never from a copy tied through another copy, a merged copy or a guessed address), and
+  // never for a name first listed on a copy that is not tied to them.
+  if (guessed) return out;
   const seen = new Set();
   const counts = { company: 0, school: 0, url: 0 };
   const caps = { company: 12, school: 6, url: 5 };
@@ -555,23 +645,58 @@ function reportPage(subject, info, { discovered = false, guessed = false } = {})
     out.threads.push(thread);
   };
   const schools = [];
-  // tied copies first (newest first), so a name a tied copy shares with an untied one keeps its trust
-  for (const g of [...graded].reverse().sort((a, b) => Number(b.tied) - Number(a.tied))) {
+  const byTime = [...graded].sort((a, b) => a.v.ts.localeCompare(b.v.ts));
+  /** Was this name (or link) listed on a copy not tied to them before any tied copy listed it? */
+  const firstUntied = (match) => { const first = byTime.find((g) => match(g.v.claims)); return Boolean(first) && !first.direct; };
+  const school = (value, why, tie) => {
+    if (schools.some((x) => sameOrg(x, value))) return;
+    schools.push(value);
+    add('school', value, why, tie);
+  };
+  // directly tied copies first (newest first), so a name a tied copy shares with an untied one keeps its trust
+  for (const g of [...graded].reverse().sort((a, b) => Number(b.direct) - Number(a.direct))) {
     const { v } = g;
-    const tie = { trusted: g.tied };
+    const names = orgsOf(v.claims);
+    const elsewhere = graded.filter((x) => x !== g).flatMap((x) => orgsOf(x.v.claims));
+    const tieFor = (name) => ({ trusted: g.direct && !firstUntied((c) => orgsOf(c).some((o) => sameOrg(o, name))) });
     for (const r of v.claims.roles) {
-      if (r.org && r.org.length <= 80 && !NOT_AN_EMPLOYER.test(r.org) && !subject.hasName(r.org)) add('company', r.org, `${r.title ? `${clip(r.title, 60)}; ` : ''}listed on their ${what} (${ym(v.ts)})`, tie);
+      if (!r.org || r.org.length > 80 || NOT_AN_EMPLOYER.test(r.org) || subject.hasName(r.org)) continue;
+      if (!usableOrg(r.org, names.filter((o) => o !== r.org), elsewhere)) continue;
+      if (SCHOOL_WORDS.test(r.org)) school(r.org, `listed on their ${what} (${ym(v.ts)})`, tieFor(r.org));
+      else add('company', r.org, `${r.title ? `${clip(r.title, 60)}; ` : ''}listed on their ${what} (${ym(v.ts)})`, tieFor(r.org));
     }
     for (const e of v.claims.education) {
-      if (e.school && e.school.length <= 100 && !schools.some((x) => sameOrg(x, e.school))) { schools.push(e.school); add('school', e.school, `listed on their ${what} (${ym(v.ts)})`, tie); }
+      if (!e.school || e.school.length > 100 || !usableOrg(e.school, names.filter((o) => o !== e.school), elsewhere)) continue;
+      school(e.school, `listed on their ${what} (${ym(v.ts)})`, tieFor(e.school));
     }
     for (const link of v.claims.links || []) {
       const profile = profileFromUrl(link);
-      if (profile && pageOf(profile.url) && pageOf(profile.url) !== info.page) add('url', profile.url, `linked from their ${what}`, { platform: profile.platform, ...tie });
+      const target = profile && pageOf(profile.url);
+      if (!target || target === info.page) continue;
+      add('url', profile.url, `linked from their ${what}`, { platform: profile.platform, trusted: g.direct && !firstUntied((c) => linksOf(c).includes(target)) });
     }
   }
-  if (discovered && trusted) add('url', `https://${info.page}`, `their ${what}, found in the web archive`);
+  if (discovered && graded.some((g) => g.direct)) add('url', `https://${info.page}`, `their ${what}, found in the web archive`);
   return out;
+}
+
+/** Profile addresses the check already holds from records tied to the subject (when the loop provides them). */
+function knownPages(ctx) {
+  let list = [];
+  try { list = typeof ctx.knownUrls === 'function' ? ctx.knownUrls() || [] : []; } catch { list = []; }
+  return list.map((u) => pageOf(typeof u === 'string' ? u : u && u.value)).filter(Boolean);
+}
+
+/**
+ * The record a profile address was linked from, from the thread's reason ("linked from their Crunchbase
+ * profile", "linkedin profile listed on Wikidata"); null when the address was not given by a tied record.
+ */
+export function linkedSource(why, page) {
+  const text = String(why || '').trim();
+  if (!text || familyOf(page).key === 'page' || /found in the web archive/i.test(text)) return null;
+  const from = text.match(/\blinked from (.{3,80})$/i) || text.match(/\blisted on (?:the )?(.{3,80})$/i) || text.match(/\bprofile (?:on|from) (?:the )?(.{3,80})$/i);
+  if (from) return clip(from[1].replace(/^their\s+/i, 'their '), 80);
+  return /\bprofile\b/i.test(text) ? 'a record tied to them' : null;
 }
 
 const merge = (into, part) => {
@@ -583,19 +708,27 @@ const merge = (into, part) => {
 // ---------- the lookups ----------
 
 /** Guessed or given addresses: read the first one that turns out to be the person's page. */
-async function runPages(pages, ctx, budget, { guessed = false } = {}) {
+async function runPages(allPages, ctx, budget, { guessed = false, linkedFrom = null } = {}) {
   const out = { findings: [], threads: [], notes: [] };
   const empty = [];
   const unchecked = [];
+  let pages = allPages;
+  if (guessed) {
+    // A profile address already known from a record tied to them makes a guess on that site pointless, and a
+    // different guessed address there is someone else's.
+    const known = knownPages(ctx);
+    pages = allPages.filter((page) => !known.some((k) => familyOf(k).key !== 'page' && familyOf(k).key === familyOf(page).key));
+    if (!pages.length) return out;
+  }
   for (const [i, page] of pages.entries()) {
     if (budget.left < 2 || timeLeft(ctx) < 3000) { unchecked.push(...pages.slice(i)); break; }
     // a guessed spelling keeps two requests (a listing and a copy) for each spelling after it: the first one is often a namesake
     const reserve = guessed ? (pages.length - i - 1) * 2 : 0;
     const info = await readPage(page, ctx, budget, { reserve });
     if (!info.rows.length) { empty.push(page); continue; }
-    const part = reportPage(ctx.subject, info, { guessed });
+    const part = reportPage(ctx.subject, info, { guessed, linkedFrom });
     merge(out, part);
-    if (part.level === 'confirmed' || part.level === 'likely' || (part.named && !guessed)) break; // their page: the other spelling is not needed
+    if (part.directLevel === 'confirmed' || part.directLevel === 'likely' || (part.named && !guessed)) break; // their page: the other spelling is not needed
   }
   if (empty.length && !out.findings.length) out.notes.push(`The web archive holds no readable copy of ${empty.join(' or ')}.`);
   if (unchecked.length) out.notes.push(`${unchecked.join(' and ')} ${unchecked.length === 1 ? 'was' : 'were'} not checked in the web archive this time (the lookup reached its limit).`);
@@ -819,7 +952,8 @@ function urlPlans(thread) {
   const page = pageOf(thread.value);
   if (!page) return [];
   const fam = familyOf(page);
-  return [{ template: fam.template, params: { pages: [page] }, prior: fam.key === 'page' ? 0.5 : 0.65, why: `earlier versions of this ${fam.key === 'page' ? 'page' : `${fam.label} ${fam.noun}`}` }];
+  const linkedFrom = linkedSource(thread.why, page);
+  return [{ template: fam.template, params: { pages: [page], ...(linkedFrom ? { linkedFrom } : {}) }, prior: fam.key === 'page' ? 0.5 : 0.65, why: `earlier versions of this ${fam.key === 'page' ? 'page' : `${fam.label} ${fam.noun}`}` }];
 }
 
 function handlePlans(thread) {
@@ -870,7 +1004,7 @@ export const archiveConnector = {
     let out;
     if (params.domain) out = await runDomain(params.domain, ctx, budget);
     else if (params.prefix) out = await runPrefix(params.prefix, ctx, budget);
-    else out = await runPages((params.pages || []).map((p) => pageOf(p)).filter(Boolean), ctx, budget, { guessed: task.kind === 'subject' });
+    else out = await runPages((params.pages || []).map((p) => pageOf(p)).filter(Boolean), ctx, budget, { guessed: task.kind === 'subject', linkedFrom: task.kind === 'url' ? params.linkedFrom || null : null });
     return { findings: out.findings.filter(Boolean), threads: out.threads.filter(Boolean), notes: [...new Set(out.notes)] };
   },
 };

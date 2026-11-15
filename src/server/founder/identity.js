@@ -155,8 +155,21 @@ function orgMatcher(org, subject = null) {
     }
     return false;
   };
+  // Handles and domains often glue a word to the name ("@acmemotor", "acmemotor.com"). The company key
+  // (spaces removed) counts as the start of an @handle or a domain label when it has 5 or more characters,
+  // so short keys ("@flowstate") and the person's own name ("@janeroe" for a company called Jane) do not.
+  const prefixes = [...new Set(keyList.map((k) => k.replace(/\s+/g, '')))]
+    .filter((k) => k.length >= 5 && /^[a-z0-9]+$/.test(k) && !personWords.has(k))
+    .flatMap((k) => [
+      new RegExp(`(?<![A-Za-z0-9_])@${escapeRe(k)}[a-z0-9_]*(?![A-Za-z0-9_])`, 'gi'),
+      new RegExp(`(?<![A-Za-z0-9_-])${escapeRe(k)}[a-z0-9-]*\\.[a-z]{2,6}(?![A-Za-z0-9])`, 'gi'),
+    ]);
+  // The top-level domain is written lowercase: "Acmecorp.Then" is two sentences, not an address.
+  const handleOrDomain = (str) => prefixes.some((re) => [...str.matchAll(re)]
+    .some((m) => m[0].startsWith('@') || /\.[a-z]{2,6}$/.test(m[0])));
   return (text) => {
     const str = String(text || '');
+    if (handleOrDomain(str)) return true;
     return (exact.test(str) || (keys.length > 0 && keys.some((k) => k.test(norm(str))))) && writtenAsName(str);
   };
 }

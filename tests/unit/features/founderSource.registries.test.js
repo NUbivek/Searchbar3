@@ -265,7 +265,7 @@ describe('ukCompaniesConnector: a company', () => {
 
     const lookalike = out.findings.find((f) => f.url.endsWith('/company/99999999'));
     expect(lookalike).toMatchObject({ match: 'possible' });
-    expect(lookalike.title).toMatch(/same name as Mistral AI.*Arthur Mensch is not among its officers/);
+    expect(lookalike.title).toMatch(/same name as Mistral AI.*\(no listed officer matches the person\)/);
 
     const associates = out.threads.filter((t) => t.kind === 'associate');
     expect(associates.map((t) => t.value).sort()).toEqual(['Guillaume Lample', 'Timothée Lacroix']);

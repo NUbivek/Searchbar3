@@ -475,6 +475,34 @@ const isPerson = (person, name) => (typeof person === 'function'
 
 const hasContent = (c) => Boolean(c && (c.headline || c.bioText || c.roles.length || c.education.length));
 
+/** "linkedin.com/in/jane", "https://x.com/jane", "www.acme.io": an address, not an employer or a title. One token only, so "Booking.com Group" stays a name. */
+const isAddress = (s) => {
+  const t = clean(s);
+  return Boolean(t) && !/\s/.test(t) && (/^(https?:|www\.)/i.test(t) || /^[a-z0-9-]+(\.[a-z0-9-]+)*\.(com|net|org|io|co|me|ai)(\/\S*)?$/i.test(t));
+};
+const asUrl = (s) => (/^https?:\/\//i.test(clean(s)) ? clean(s) : `https://${clean(s)}`);
+/** Every word is a job word ("Co-Founder", "CEO & Founder"): a title in the employer slot. */
+const onlyTitleWords = (s) => {
+  const words = clean(s).split(/[\s,&/+]+/).filter((w) => w && !/^(and|of|the|co)$/i.test(w));
+  return words.length > 0 && words.every((w) => TITLE_WORDS.test(w));
+};
+/**
+ * A role whose halves were read into the wrong slots: "Unlockd, Co-Founder" gives org = Unlockd.
+ * An address in either slot goes to the page's links, never to an employer; an address as the employer drops the role.
+ */
+function tidyRole(r, links) {
+  let { title, org } = r;
+  // the employer slot held an address: the whole line was a link, and a title with no employer says nothing
+  if (isAddress(org)) { links.push(asUrl(org)); if (isAddress(title)) links.push(asUrl(title)); return { ...r, title: '', org: '' }; }
+  if (isAddress(title)) { links.push(asUrl(title)); title = ''; }
+  if (org && ((title && looksLikeTitle(org) && !looksLikeTitle(title)) || (!title && onlyTitleWords(org)))) [title, org] = [org, title];
+  return { ...r, title, org };
+}
+
+/** One word that names a field of study or a kind of school, not a school ("Business"). */
+const GENERIC_SCHOOL = /^(business|engineering|law|medicine|economics|finance|management|marketing|accounting|entrepreneurship|science|sciences|arts|humanities|mathematics|maths?|physics|chemistry|biology|history|psychology|philosophy|design|technology|computing|education|school|college|university|academy|institute|highschool|online|other|various|unknown|none|n\/a|self-taught)$/i;
+const genericSchool = (s) => GENERIC_SCHOOL.test(clean(s).replace(/[.,;:]+$/, ''));
+
 /**
  * What a saved page says about a person.
  * @param {string} html the page as it was served (not the archive's framed replay)
@@ -490,7 +518,7 @@ export function extractClaims(html, url = '', { person = null } = {}) {
   const host = hostOf(url);
   const reader = (READERS.find(([re]) => re.test(host)) || [])[1];
   let claims = reader ? reader($) : null;
-  const links = reader ? ownLinks($) : [];
+  let links = reader ? ownLinks($) : [];
   if (!hasContent(claims) && !(claims && claims.blocked)) {
     const fallback = generic($, source, person);
     const nameLine = claims ? clean(claims.name) : '';
@@ -514,8 +542,11 @@ export function extractClaims(html, url = '', { person = null } = {}) {
     return kept.length * 2 > words.length ? kept.join(' ') : '';
   };
   const short = (s, n) => clip(redactPII(unmask(s)), n);
-  const roles = claims.roles.map((r) => ({ title: short(r.title, 160), org: short(r.org, 160), dates: short(r.dates, 60) })).filter((r) => r.title || r.org);
-  const education = claims.education.map((e) => ({ school: short(e.school, 160), degree: short(e.degree, 200), dates: short(e.dates, 60) })).filter((e) => e.school);
+  const moved = [];
+  const roles = claims.roles.map((r) => tidyRole({ title: short(r.title, 160), org: short(r.org, 160), dates: short(r.dates, 60) }, moved)).filter((r) => r.title || r.org);
+  // An address read as a role is one of the page's own links (only a profile address is followed from there).
+  if (reader && moved.length) links = [...new Set([...links, ...moved.filter((u) => u.length < 300)])].slice(0, 12);
+  const education = claims.education.map((e) => ({ school: short(e.school, 160), degree: short(e.degree, 200), dates: short(e.dates, 60) })).filter((e) => e.school && !genericSchool(e.school) && !isAddress(e.school));
   const headline = isSensitive(claims.headline) || mentionsMinor(claims.headline) ? '' : short(claims.headline, 300);
   const bioText = safeText(unmask(claims.bioText), 1200);
   return {
@@ -651,6 +682,7 @@ function diffEntries(older, newer, { field, nameOf, detailOf, text, detailAspect
     for (const item of olds) {
       const want = phraseKey(detailOf(item));
       let i = news.findIndex((x) => phraseKey(detailOf(x)) === want);
+      if (i < 0 && field === 'education') i = news.findIndex((x) => sameDegree(detailOf(item), detailOf(x)));
       if (i < 0 && !want) i = 0; // the older copy gave no detail to compare
       if (i < 0) i = news.findIndex((x) => !phraseKey(detailOf(x)));
       if (i < 0) { unmatched.push(item); continue; }
@@ -713,6 +745,22 @@ function sameStanding(before, after) {
   if (!A.size || !B.size) return false;
   const subset = (X, Y) => [...X].every((w) => Y.has(w));
   return (subset(A, B) || subset(B, A)) && roleClasses(before) === roleClasses(after);
+}
+
+/** Words that only say at what level a subject was studied: "Undergraduate, Entrepreneurship" claims the same as "Entrepreneurship". */
+const DEGREE_LEVEL = new Set(['undergraduate', 'undergrad', 'graduate', 'postgraduate', 'grad', 'studies', 'program', 'programme', 'coursework']);
+/**
+ * One degree written twice: the same words once a level word is set aside, and only one copy gives a level
+ * (word order is already ignored). "Undergraduate" becoming "Graduate" is a different claim.
+ */
+function sameDegree(before, after) {
+  const split = (s) => {
+    const words = [...keyWords(s)];
+    return { level: words.filter((w) => DEGREE_LEVEL.has(w)), rest: words.filter((w) => !DEGREE_LEVEL.has(w)).sort().join(' ') };
+  };
+  const a = split(before);
+  const b = split(after);
+  return Boolean(a.rest) && a.rest === b.rest && (!a.level.length || !b.level.length);
 }
 
 const SEVERITY_ORDER = { medium: 0, low: 1, info: 2 };

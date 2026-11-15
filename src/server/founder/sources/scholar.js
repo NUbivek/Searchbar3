@@ -76,13 +76,31 @@ function nameParts(name) {
 // What may follow a school's name and still be the same school ("Stanford University School of Medicine").
 const SUB_UNIT = new Set(['university', 'school', 'college', 'faculty', 'department', 'graduate', 'business', 'law', 'medical', 'institute', 'center', 'centre', 'library', 'libraries', 'press']);
 const GENERIC_SCHOOL_WORD = new Set(['university', 'universite', 'universitat', 'universidad', 'universita', 'college', 'school', 'institute', 'institut', 'ecole', 'of', 'the', 'de', 'du', 'des', 'la', 'le', 'and', 'for', 'at', 'in', 'state', 'national', 'technology']);
-const schoolKey = (s) => nameTokens(String(s || '').replace(/\([^)]*\)/g, ' ')).join(' ');
+/*
+ * Schools that were renamed or merged into another: each group is one school
+ * under its successive names, the current name first. Data, kept short:
+ * only names that registries really use for the same institution.
+ */
+const SCHOOL_ALIASES = [
+  ['universite paris saclay', 'universite paris sud', 'universite paris 11', 'universite paris xi'],
+  ['telecom paris', 'telecom paristech', 'ecole nationale superieure des telecommunications'],
+];
+/** A school's key under its current name ("universite paris sud faculte" -> "universite paris saclay faculte"). */
+const currentName = (key) => {
+  for (const [now, ...before] of SCHOOL_ALIASES) {
+    for (const old of before) if (key === old || key.startsWith(`${old} `)) return `${now}${key.slice(old.length)}`;
+  }
+  return key;
+};
+const schoolKey = (s) => currentName(nameTokens(String(s || '').replace(/\([^)]*\)/g, ' ')).join(' '));
 
 /**
  * Are two institution names the same school? Equal once case, accents and
  * bracketed notes are removed, or one is the other followed by a sub-unit
  * ("Stanford" / "Stanford University" / "Stanford University School of
- * Medicine"). Deliberately narrow: "York University" is not "New York
+ * Medicine"), under the school's current name when it was renamed or
+ * merged (SCHOOL_ALIASES: "Université Paris-Sud" is "Université
+ * Paris-Saclay"). Deliberately narrow: "York University" is not "New York
  * University", "University of Washington" is not "Washington University".
  */
 export function sameSchool(a, b) {
@@ -95,8 +113,7 @@ export function sameSchool(a, b) {
   // "Boise State University, Albertsons Library" is Boise State University; two campuses
   // ("University of California, Berkeley" / "..., Los Angeles") are not each other.
   const [shortRaw, longRaw] = x.length <= y.length ? [String(a), String(b)] : [String(b), String(a)];
-  if (!shortRaw.includes(',') && longRaw.includes(',') && schoolKey(longRaw.split(',')[0]) === short) return true;
-  if (!long.startsWith(`${short} `)) return false;
+  if (!shortRaw.includes(',') && longRaw.includes(',') && schoolKey(longRaw.split(',')[0]) === short) return true;  if (!long.startsWith(`${short} `)) return false;
   return SUB_UNIT.has(long.slice(short.length + 1).split(' ')[0]);
 }
 
@@ -439,7 +456,7 @@ function thesisFinding(subject, t, { alsoKnownAs = '', namesakes = 1 } = {}) {
     source: 'academic-record', sourceLabel: ORCID_LABEL, category: 'education',
     title, quote, url: t.url, date: t.date || null, severity: 'info',
     ...grade.fields,
-    data: { registry: t.registry, degree: t.degree, defended: t.defended, institution: t.institution, ...(t.doi ? { doi: t.doi } : {}) },
+    data: { registry: t.registry, degree: t.degree, defended: t.defended, institution: t.institution, institutions: t.institutions.slice(0, 6), ...(t.doi ? { doi: t.doi } : {}) },
   }), grade.held);
 }
 
@@ -492,6 +509,18 @@ async function runTheses(subject, ctx) {
   return { ...thesisResult(subject, theses), notes };
 }
 
+/** A French school, whose doctorates are all in theses.fr. */
+const FRENCH_SCHOOL = /[éèêàâçô]|\b(?:universit[ée]|[ée]cole|sorbonne|paris|saclay|lyon|grenoble|toulouse|marseille|bordeaux|lille|strasbourg|nantes|montpellier|rennes|inria|cnrs|ENS|INSA|polytechnique|sciences po|mines|centrale|t[ée]l[ée]com)\b/i;
+
+/** Thesis and ORCID records found earlier in this check (when the loop hands them over) that already name the school. */
+function earlierRecordsAt(ctx, school) {
+  let list = [];
+  try { list = typeof ctx.findings === 'function' ? ctx.findings() : ctx.findings; } catch { list = []; }
+  return (Array.isArray(list) ? list : []).filter((f) => f?.source === 'academic-record' && f.data && [
+    f.data.institution, ...(f.data.institutions || []), ...(f.data.entries || []).map((e) => e?.organisation),
+  ].some((i) => i && sameSchool(i, school)));
+}
+
 /** What ties the subject to one school: an ORCID record that lists it, or a thesis it granted. */
 async function runSchool(subject, school, ctx) {
   const orcid = (async () => {
@@ -504,17 +533,26 @@ async function runSchool(subject, school, ctx) {
     const record = await orcidRecord(candidate.id, ctx);
     return orcidFindings(subject, candidate, record, { alsoKnownAs: school, namesakes: everyone.namesakes });
   })();
+  const french = FRENCH_SCHOOL.test(school);
   const theses = (async () => {
-    const found = await crossrefTheses(subject, ctx, school);
-    // The search prefers this school but also returns the name's theses elsewhere: they show whether the name is shared.
-    return thesisResult(subject, found.filter((t) => t.institutions.some((i) => sameSchool(i, school))), { alsoKnownAs: school, namesakes: thesisAuthors(found) });
+    const [crossref, fr] = await Promise.allSettled([
+      crossrefTheses(subject, ctx, school),
+      french ? frenchTheses(subject, ctx) : Promise.resolve([]),
+    ]);
+    if (crossref.status === 'rejected' && fr.status === 'rejected') throw crossref.reason;
+    const found = dedupeTheses([...(fr.value || []), ...(crossref.value || [])]);
+    // The searches also return the name's theses elsewhere: they show whether the name is shared.
+    const result = thesisResult(subject, found.filter((t) => t.institutions.some((i) => sameSchool(i, school))), { alsoKnownAs: school, namesakes: thesisAuthors(found) });
+    return { ...result, partial: crossref.status === 'rejected' || fr.status === 'rejected' };
   })();
   const [a, b] = await Promise.allSettled([orcid, theses]);
   if (a.status === 'rejected' && b.status === 'rejected') throw a.reason;
   const findings = [...(a.value?.findings || []), ...(b.value?.findings || [])];
   const notes = [];
-  if (!findings.length) {
-    notes.push(`No thesis or ORCID entry ties ${subject.name} to ${school} in the open academic registries${a.status === 'rejected' || b.status === 'rejected' ? ' that answered' : ''}. Most universities do not deposit theses there, so this neither confirms nor contradicts the claim.`);
+  // A thesis or ORCID record found earlier in the check may already name the school: then saying "none" would be false.
+  if (!findings.length && !earlierRecordsAt(ctx, school).length) {
+    const partial = a.status === 'rejected' || b.status === 'rejected' || b.value?.partial;
+    notes.push(`No thesis or ORCID entry ties ${subject.name} to ${school} in the open academic registries${partial ? ' that answered' : ''}. Most universities do not deposit theses there, so this neither confirms nor contradicts the claim.`);
   }
   // The school is already being followed; only its findings are new.
   return { findings, threads: [], notes };

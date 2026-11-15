@@ -502,7 +502,7 @@ describe('academic record: one school', () => {
     const subject = createSubject({ name: 'Arthur Mensch', company: 'Mistral AI' });
     addAnchor(subject, 'schools', 'École Polytechnique');
     const listed = await academicRecordConnector.run(schoolTask('École Polytechnique'), ctxFor(subject));
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(5); // a French school: theses.fr is asked too
     expect(listed.findings.map((f) => [f.category, f.match])).toEqual([['education', 'likely'], ['career', 'likely']]);
 
     const other = await academicRecordConnector.run(schoolTask('Harvard University'), ctxFor(subject));

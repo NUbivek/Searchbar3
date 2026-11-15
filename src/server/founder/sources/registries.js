@@ -97,6 +97,28 @@ export function nameTie(wanted, registered) {
   return r.startsWith(`${w} `) ? 'prefix' : null;
 }
 
+// Words that describe a business rather than name it: "Flow Labs" or "NTT Technologies" is still one word of name
+const DESCRIBING_WORDS = new Set(['and', 'of', 'labs', 'lab', 'tech', 'technology', 'technologies', 'group', 'holding', 'holdings', 'international', 'global', 'systems', 'solutions', 'services', 'software', 'ventures', 'capital', 'partners', 'digital', 'data', 'uk', 'us', 'usa', 'france', 'europe', 'sci', 'conseil', 'industries', 'enterprises', 'consulting', 'media', 'studio', 'studios', 'network', 'networks', 'management']);
+const LEGAL_SAME = { corporation: 'corp', incorporated: 'inc', limited: 'ltd', company: 'co' };
+const fullLegalKey = (name) => fold(name).replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim().replace(/^the /, '').split(' ').map((w) => LEGAL_SAME[w] || w).join(' ');
+/**
+ * Is a same-named company worth showing when no listed officer ties it to the
+ * person? Only when the name says more than one word of its own, or the given
+ * name carried a legal form and the register's name is exactly it ("Nikola
+ * Corporation" = "NIKOLA CORP", but not a French "NIKOLA" SAS).
+ */
+function distinctiveMatch(given, registeredNames) {
+  if (legalNorm(given).split(' ').filter((w) => w && !DESCRIBING_WORDS.has(w)).length > 1) return true;
+  if (withoutLegalForm(given) === clean(given)) return false;
+  return registeredNames.some((n) => fullLegalKey(n) === fullLegalKey(given));
+}
+/** Untied records are a namesake's company at best: graded 'possible' for good and kept off the timeline. */
+const untiedRecord = (finding) => { if (finding) { finding.matchFixed = true; finding.excludeFromTimeline = true; } return finding; };
+const isAffiliate = (task) => task.tie === 'affiliate';
+const untiedNote = (country, wanted, task) => (isAffiliate(task)
+  ? `No ${country} company named ${wanted} lists the person as an officer.`
+  : `${country} companies named ${wanted} were found, but no listed officer matches the person and the name alone is too common to tie them to the person; they are not reported.`);
+
 const knownCompanies = (subject) => uniqueBy([subject.company, ...[...(subject.anchors?.companies?.values?.() || [])].map((a) => a.value)].filter(Boolean), (v) => legalNorm(v));
 /**
  * The known company of the subject that a registered name IS, or null. A name
@@ -542,8 +564,13 @@ async function ukCompany(task, ctx) {
   }).filter((c) => c.page && (c.tie || c.namesake || c.nameOnly));
   // The register's own tie first; a bare name match last
   judged.sort((a, b) => Number(Boolean(b.tie)) - Number(Boolean(a.tie)));
-  const kept = judged.slice(0, 2);
-  if (!kept.length) return { findings: [], threads: [], notes: [] };
+  // With no officer tie, a company the person is only affiliated with adds nothing, and a one-word name is
+  // too common to show: say so in a note instead of a record. An officer sharing the person's name is kept
+  // (held at possible) for a company the person runs: it is something for the reader to check
+  const shown = judged.filter((c) => c.tie || (!isAffiliate(task) && (c.namesake || distinctiveMatch(task.value, [c.name, c.former].filter(Boolean)))));
+  const notes = shown.length < judged.length && !judged.some((c) => c.tie) ? [untiedNote('UK', wanted, task)] : [];
+  const kept = shown.slice(0, 2);
+  if (!kept.length) return { findings: [], threads: [], notes };
 
   let detail = null;
   try { detail = parseCompanyPage(await chPage(`/company/${kept[0].number}`, deadline)); } catch { detail = null; }
@@ -567,10 +594,10 @@ async function ukCompany(task, ctx) {
       ? `UK company record: ${c.name}${facts ? `, ${facts}` : ''}`
       : c.namesake
         ? `UK company whose name begins with ${wanted}: ${c.name}${facts ? `, ${facts}` : ''} (an officer shares the name ${subject.name}; nothing else ties it to them)`
-        : `UK company with the same name as ${wanted}: ${c.name}${facts ? `, ${facts}` : ''} (${subject.name} is not among its officers)`;
+        : `UK company with the same name as ${wanted}: ${c.name}${facts ? `, ${facts}` : ''} (no listed officer matches the person)`;
     const untiedReason = c.namesake
       ? `name begins with ${wanted} and an officer shares the name ${subject.name}; no known associate is on its board, so it may be another person's company`
-      : `same name as ${wanted}; ${subject.name} is not listed among its officers`;
+      : `same name as ${wanted}; no listed officer matches the person`;
     const finding = makeFinding(subject, {
       source: 'uk-companies-house',
       sourceLabel: CH_LABEL,
@@ -596,7 +623,7 @@ async function ukCompany(task, ctx) {
         previousNames: previous, officers: officers.slice(0, 40), ...(c.kind === 'former' ? { formerName: c.former } : {}),
       },
     });
-    if (finding) findings.push(finding);
+    if (finding) findings.push(c.tie ? finding : untiedRecord(finding));
     if (!c.tie) return;
 
     // The subject's own seat on this board: the company is one the check already ties to them
@@ -614,7 +641,7 @@ async function ukCompany(task, ctx) {
     ).slice(0, MAX_CO_DIRECTORS);
     for (const p of coDirectors) threads.push(makeThread('associate', p.short, `${p.resigned ? 'former ' : ''}${lower(p.role)} of ${c.name} (UK Companies House)`, { trusted: true }));
   });
-  return { findings, threads, notes: [] };
+  return { findings, threads, notes };
 }
 
 export const ukCompaniesConnector = {
@@ -791,9 +818,12 @@ async function frByCompany(task, ctx) {
   const matches = data.results.map(frCompany).filter((c) => c && c.names.some((n) => nameTie(task.value, n) === 'exact'))
     .map((c) => ({ c, tie: officerTie(subject, c.people.filter((p) => !p.auditor)) }));
   matches.sort((a, b) => Number(Boolean(b.tie)) - Number(Boolean(a.tie)));
+  // The same rule as for UK companies: no officer tie and an affiliate, or a one-word name, is a note, not a record
+  const shown = matches.filter(({ c, tie }) => tie || (!isAffiliate(task) && distinctiveMatch(task.value, c.names)));
+  const notes = shown.length < matches.length && !matches.some((m) => m.tie) ? [untiedNote('French', wanted, task)] : [];
   const findings = [];
   const threads = [];
-  for (const { c, tie } of matches.slice(0, 2)) {
+  for (const { c, tie } of shown.slice(0, 2)) {
     const officers = frOfficerList(c);
     const facts = [c.status ? frStatus(c) : '', c.created ? `created ${longDate(c.created)}` : ''].filter(Boolean).join(', ');
     const finding = makeFinding(subject, {
@@ -802,19 +832,19 @@ async function frByCompany(task, ctx) {
       category: 'corporate',
       title: tie
         ? `French company record: ${c.name}${facts ? `, ${facts}` : ''}`
-        : `French company with the same name as ${wanted}: ${c.name}${facts ? `, ${facts}` : ''} (${subject.name} is not among its officers)`,
+        : `French company with the same name as ${wanted}: ${c.name}${facts ? `, ${facts}` : ''} (no listed officer matches the person)`,
       quote: [...frFacts(c), c.size ? `Size class: ${c.size}` : '', officers ? `Officers: ${officers}` : ''].filter(Boolean).join(' — '),
       url: `${FR_PAGE}/entreprise/${c.siren}`,
       date: c.created,
       severity: c.status === 'ceased' ? 'low' : 'info',
       match: tie ? 'company' : 'possible',
-      matchReasons: [tie ? tie.reason : `same name as ${wanted}; ${subject.name} is not listed among its officers`],
+      matchReasons: [tie ? tie.reason : `same name as ${wanted}; no listed officer matches the person`],
       data: {
         siren: c.siren, status: c.status || null, created: c.created, closed: c.closed, legalForm: c.form || null,
         officers: [...c.people.map((p) => ({ name: p.display, role: p.role })), ...c.firms.map((f) => ({ name: f.name, role: f.role, company: true }))].slice(0, 30),
       },
     });
-    if (finding) findings.push(finding);
+    if (finding) findings.push(tie ? finding : untiedRecord(finding));
     if (!tie) continue;
     if (tie.self.length) {
       const seat = frRoleFinding(subject, c, tie.self[0], task.value);
@@ -825,7 +855,7 @@ async function frByCompany(task, ctx) {
       threads.push(makeThread('associate', p.short, `${frRole(p.role)} of ${c.name} (French company register)`, { trusted: true }));
     }
   }
-  return { findings, threads, notes: [] };
+  return { findings, threads, notes };
 }
 
 export const frCompaniesConnector = {
