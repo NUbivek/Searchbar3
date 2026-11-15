@@ -105,12 +105,14 @@ async function waitForHost(host, deadline) {
 }
 
 export class HttpError extends Error {
-  constructor(message, { status = null, url = '', retryable = false } = {}) {
+  constructor(message, { status = null, url = '', retryable = false, retryAt = null } = {}) {
     super(message);
     this.name = 'HttpError';
     this.status = status;
     this.url = url;
     this.retryable = retryable;
+    // When the host is resting: the time it is free again (epoch ms), so the caller can wait instead of failing
+    this.retryAt = retryAt;
   }
 }
 
@@ -129,7 +131,7 @@ export async function request(url, { method = 'GET', headers = {}, body = undefi
   let attempt = 0;
   for (;;) {
     const turn = await waitForHost(host, deadline);
-    if (turn === 'resting') throw new HttpError(`${host} asked us to wait; it is being left alone for now`, { url, retryable: true });
+    if (turn === 'resting') throw new HttpError(`${host} asked us to wait; it is being left alone for now`, { url, retryable: true, retryAt: restUntil.get(host) || null });
     if (turn === 'late') throw new HttpError('Out of time before the request could start', { url, retryable: true });
     const budget = deadline ? Math.min(timeoutMs, deadline - Date.now()) : timeoutMs;
     if (budget < 800) throw new HttpError('Out of time', { url, retryable: true });
@@ -183,7 +185,7 @@ export async function request(url, { method = 'GET', headers = {}, body = undefi
       // A host we pace on purpose that refuses the connection wants a rest, not an immediate second try
       if (!timedOut && paced && (HOST_GAP_MS[host] || 0) >= 1000) {
         rest(host, REFUSED_REST_MS);
-        throw new HttpError(`${host} refused the connection; it is being left alone for a minute`, { url, retryable: true });
+        throw new HttpError(`${host} refused the connection; it is being left alone for a minute`, { url, retryable: true, retryAt: restUntil.get(host) || nextSlot.get(host) || null });
       }
       if (!timedOut && attempt < retries && !(deadline && Date.now() + 2500 > deadline)) {
         attempt += 1;

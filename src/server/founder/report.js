@@ -328,8 +328,15 @@ export function buildReport(state) {
     // Only sources that answered at least once: a source whose every lookup failed searched nothing.
     searched: allSources.filter(answered).map((s) => ({ id: s.id, label: s.label, lookups: s.runs, records: s.findings, failed: s.errors, lastError: s.errors ? s.lastError : null })),
     // Answered, but a fifth or more of the lookups failed: what it found is a partial picture.
-    partlyAnswered: allSources.filter((s) => answered(s) && s.errors > 0 && s.errors / s.runs >= PARTLY_ANSWERED)
-      .map((s) => ({ label: s.label, failed: s.errors, lookups: s.runs, reason: `${s.errors} of ${s.runs} lookups failed${s.lastError ? `: ${s.lastError}` : ''}` })),
+    // Also: lookups that waited for a source's allowance and could not run within the check (not failures)
+    partlyAnswered: allSources.filter((s) => answered(s) && ((s.errors > 0 && s.errors / s.runs >= PARTLY_ANSWERED) || s.waitedOut > 0))
+      .map((s) => ({
+        label: s.label, failed: s.errors, lookups: s.runs, notRun: s.waitedOut || 0,
+        reason: [
+          s.errors > 0 && s.errors / s.runs >= PARTLY_ANSWERED ? `${s.errors} of ${s.runs} lookups failed${s.lastError ? `: ${s.lastError}` : ''}` : '',
+          s.waitedOut ? `${s.waitedOut} more lookup${s.waitedOut === 1 ? '' : 's'} not run because its allowance for the next few minutes was used up` : '',
+        ].filter(Boolean).join('; '),
+      })),
     notSearched: allSources.filter(silent).map((s) => ({ label: s.label, reason: s.lastError || (s.off ? 'Not enabled on this deployment.' : 'No answer.'), ...(s.off ? { off: true } : {}) })),
     notCovered: notCoveredFor(state, allSources, answered, silent),
     dropped: state.dropped || { tasks: 0, findings: 0, threads: 0 },

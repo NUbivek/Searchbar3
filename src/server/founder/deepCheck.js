@@ -38,8 +38,12 @@ export const LIMITS = {
   stepMs: 40000,
   concurrency: 8,
   taskTimeoutMs: 20000,
-  restMs: 20000, // how long a lookup waits when its host is resting
+  restMs: 20000, // how long a lookup waits when its host is resting and does not say until when
   maxRests: 4, // how many times one lookup may be put back for a resting host
+  // A host or the search engines may say when they are free again (an allowance per ten minutes, a pause
+  // after "slow down"). Lookups then wait for that time, but a check does not wait forever: past this age
+  // the lookups still waiting are reported as not run, never as sources that failed.
+  maxWaitAgeMs: 12 * 60 * 1000,
   // how many threads of each kind are pulled; the rest are listed, not followed
   pull: { company: 10, affiliate: 16, school: 6, associate: 10, relative: 8, handle: 6, domain: 6, url: 10 },
 };
@@ -537,6 +541,23 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
         if (cutShort && (task.retries || 0) < 2) {
           task.retries = (task.retries || 0) + 1;
           ran.delete(taskKey(task));
+          inFlight.set(task.connector, (inFlight.get(task.connector) || 1) - 1);
+          continue;
+        }
+        // The host or the search engines said when they are free again: wait for that, within the check's limit.
+        const retryAt = Number(error?.retryAt) || 0;
+        const maxAge = limits.maxWaitAgeMs ?? LIMITS.maxWaitAgeMs;
+        if (retryAt > Date.now() && (error?.code === 'SEARCH_RESTING' || HOST_RESTING.test(message))) {
+          if (retryAt - (state.startedAt || Date.now()) <= maxAge) {
+            task.notBefore = retryAt;
+            ran.delete(taskKey(task));
+            taken.delete(task);
+            inFlight.set(task.connector, (inFlight.get(task.connector) || 1) - 1);
+            continue;
+          }
+          // Too long to wait in this check: not run, and said so; not a failure of the source
+          stat.waitedOut = (stat.waitedOut || 0) + 1;
+          state.dropped.tasks += 1;
           inFlight.set(task.connector, (inFlight.get(task.connector) || 1) - 1);
           continue;
         }

@@ -540,6 +540,24 @@ async function takeTurn(engine, { deadline, maxWaitMs, siteSearch = false }) {
   return null;
 }
 
+/** The earliest time an engine of the kind asked for (web falls through to news, so both count) can take a question. */
+function nextFreeAt(news) {
+  const now = Date.now();
+  const times = [];
+  for (const engine of ENGINES) {
+    if (!isEnabled(engine) || (news && engine.kind !== 'news')) continue;
+    const h = stateOf(engine.id);
+    let at = Math.max(now, h.cooldownUntil || 0, h.nextFreeAt || 0);
+    if (engine.budget) {
+      const recent = h.recent.filter((t) => t > now - engine.budget.perMs).sort((x, y) => x - y);
+      const allowance = engine.budget.max - (engine.budget.reserve || 0);
+      if (recent.length >= allowance) at = Math.max(at, recent[recent.length - allowance] + engine.budget.perMs);
+    }
+    times.push(at);
+  }
+  return times.length ? Math.min(...times) + 500 : now + 60000;
+}
+
 function meteredLeft() {
   const now = Date.now();
   meteredStamps = meteredStamps.filter((t) => t > now - HOUR_MS);
@@ -635,7 +653,15 @@ export async function keylessSearch(query, { news = false, num = 10, withinDays,
 
   if (answered === 0) {
     const why = tried.map((t) => `${t.id === 'metered' ? 'the backup search service' : engineById(t.id)?.label || t.id}: ${OUTCOME_WORDS[t.outcome] || t.outcome}`).join('; ');
-    throw new Error(`No search engine answered${why ? ` (${why})` : ''}`);
+    const error = new Error(`No search engine answered${why ? ` (${why})` : ''}`);
+    // Every engine that was not asked was resting or busy, none actually failed: the caller can wait and ask
+    // again when the first one is free, instead of counting this as a failed lookup.
+    const waiting = tried.length > 0 && tried.every((t) => t.outcome === 'resting' || t.outcome === 'paused' || t.outcome === 'busy');
+    if (waiting) {
+      error.code = 'SEARCH_RESTING';
+      error.retryAt = nextFreeAt(news);
+    }
+    throw error;
   }
   return { results: [], engine: null, tried };
 }
