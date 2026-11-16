@@ -21,7 +21,9 @@ import { query, queryOne, persistenceMode } from '../db';
 import { cleanText } from './finding';
 
 export const RETENTION_HOURS = 72;
-const memory = new Map();
+// Kept on the process, not the module: the development server reloads modules while it runs, and a
+// check in progress must not vanish when it does.
+const memory = process.env.NODE_ENV === "test" ? new Map() : (globalThis.__founderJobs || (globalThis.__founderJobs = new Map()));
 
 // Saved checks go to the hosted database only. A check's state is hundreds of kilobytes, and the local
 // embedded database (PGlite) crashed under repeated writes of that size; locally, memory is enough.

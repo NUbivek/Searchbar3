@@ -14,7 +14,9 @@
 import { query, queryOne, persistenceMode } from '../db';
 import { cleanText } from './finding';
 
-const memory = new Map(); // key -> { at, value }
+// Kept on the process, not the module: the development server reloads modules while it runs, and a
+// check in progress must not vanish when it does.
+const memory = process.env.NODE_ENV === "test" ? new Map() : (globalThis.__founderSourceCache || (globalThis.__founderSourceCache = new Map()));
 const inflight = new Map(); // key -> Promise
 const failures = new Map(); // key -> { until, error }: a failed load with no older copy
 /** How long a failed load with no older copy is remembered before it is retried. */

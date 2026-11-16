@@ -17,7 +17,9 @@
  */
 import { query, persistenceMode } from './db';
 
-const memory = new Map(); // "kind|key" -> { tries, wins, totalMs }
+// Kept on the process, not the module: the development server reloads modules while it runs, and a
+// check in progress must not vanish when it does.
+const memory = process.env.NODE_ENV === "test" ? new Map() : (globalThis.__learningStats || (globalThis.__learningStats = new Map()));
 const loadedAt = new Map(); // kind -> epoch ms of the last database read
 const RELOAD_MS = 10 * 60 * 1000;
 const PRIOR_STRENGTH = 6;
