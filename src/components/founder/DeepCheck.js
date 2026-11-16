@@ -196,7 +196,7 @@ function Progress({ progress, name }) {
       <div className="flex flex-wrap items-center gap-2">
         <HiOutlineSparkles className="animate-glow text-brand-500" style={{ width: 16, height: 16 }} />
         <h2 className="section-title">Deep background check</h2>
-        <span className="chip">{progress?.phase === 'collect' ? `round ${(progress?.step || 0) + 1}` : 'writing the report'}</span>
+        <span className="chip">{!progress ? 'round 1' : progress.phase === 'collect' ? `round ${(progress.step || 0) + 1}` : 'writing the report'}</span>
         <span className="ml-auto text-xs text-muted">{progress ? `${progress.tasksRun} lookups · ${progress.findings} records` : `Starting on ${name}…`}</span>
       </div>
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
