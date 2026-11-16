@@ -120,6 +120,19 @@ function quoteKey(f) {
   if (words.length < 60) return null;
   return `${f.source}|${f.category}|${words}`;
 }
+// The same record read again with a stronger tie (a page reached from a linked profile rather than a guessed
+// address) lifts the copy already kept: whichever source finished first must not decide the grade. A grade
+// a source set by hand, or a record about the company rather than the person, is left as it is.
+function upgradeKept(kept, f) {
+  if (!kept || kept === f || kept.matchFixed || kept.match === 'company') return false;
+  if (matchRank(f.match) <= matchRank(kept.match)) return false;
+  kept.match = f.match;
+  kept.matchReasons = f.matchReasons;
+  if (f.matchFixed) kept.matchFixed = true;
+  if (f.gradeText) kept.gradeText = f.gradeText;
+  if (f.data?.linkedFrom) kept.data = { ...(kept.data || {}), linkedFrom: f.data.linkedFrom };
+  return true;
+}
 const learnKey = (t) => `${t.connector}${t.template ? `:${t.template}` : ''}`;
 // Two records are the same page when host, path, query and fragment agree. The query and fragment matter:
 // a forum thread is "item?id=N", a register row is a query, and one long page can hold several records at
@@ -377,7 +390,7 @@ function regrade(state, subject) {
   for (const f of state.findings) {
     if (f.match === 'confirmed' || f.match === 'company' || f.matchFixed) continue;
     // the text the record was first graded on (which may hold structured context the title lacks)
-    const graded = gradeOf(subject, f.gradeText || `${f.title} ${f.quote || ''}`);
+    const graded = gradeOf(subject, f.gradeText || `${f.title}\n${f.quote || ''}`);
     if (matchRank(graded.level) > matchRank(f.match)) { f.match = graded.level; f.matchReasons = graded.reasons; upgraded += 1; }
   }
   return upgraded;
@@ -479,6 +492,9 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   const seenUrls = new Set(state.findings.map(pageKey));
   const byQuote = new Map();
   for (const f of state.findings) { const k = quoteKey(f); if (k && !byQuote.has(k)) byQuote.set(k, f); }
+  // the kept copy of each record, by id and by page, so a stronger read of it can lift its grade
+  const keptBy = new Map();
+  for (const f of state.findings) { if (!keptBy.has(`id:${f.id}`)) keptBy.set(`id:${f.id}`, f); if (!keptBy.has(`page:${pageKey(f)}`)) keptBy.set(`page:${pageKey(f)}`, f); }
   const perSource = {};
   for (const f of state.findings) perSource[f.source] = (perSource[f.source] || 0) + 1;
 
@@ -522,6 +538,8 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
         // wait for it rather than ending the step (and spinning through empty steps).
         const next = Math.min(...batch.filter((t) => !taken.has(t) && t.notBefore && t.notBefore > Date.now()).map((t) => t.notBefore));
         if (Number.isFinite(next) && next < deadline - 6000) { await sleep(next - Date.now() + 5); continue; }
+        // The next one is free only after this step ends: wait out most of the step rather than return at once
+        if (Number.isFinite(next) && ran.size === 0 && Date.now() < deadline - 8000) { await sleep(Math.min(next, deadline - 6000) - Date.now()); continue; }
         return;
       }
       const c = byId.get(task.connector);
@@ -584,7 +602,7 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
       // A record graded on a company the check only inferred is at most "likely".
       for (const f of result.findings) {
         if (f.match !== 'confirmed' || f.matchFixed) continue;
-        const graded = gradeOf(subject, f.gradeText || `${f.title} ${f.quote || ''}`);
+        const graded = gradeOf(subject, f.gradeText || `${f.title}\n${f.quote || ''}`);
         if (graded.level !== 'confirmed') { f.match = graded.level; f.matchReasons = graded.reasons; }
       }
       let strong = 0;
@@ -593,13 +611,15 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
         const dupKey = pageKey(f);
         if (seenIds.has(f.id) || (seenUrls.has(dupKey) && f.category !== 'archive')) {
           // another source (or pattern) found the same record: partial credit, not none
+          const kept = (seenIds.has(f.id) && keptBy.get(`id:${f.id}`)) || keptBy.get(`page:${dupKey}`);
+          upgradeKept(kept, f);
           if (f.match === 'possible') weak += 0.5; else strong += 0.5;
           continue;
         }
         // The same passage on another page of the same source (one testimonial in three filings) is one record
         const qk = quoteKey(f);
         const twin = qk ? byQuote.get(qk) : null;
-        if (twin && urlKey(twin.url) !== urlKey(f.url) && matchRank(f.match) <= matchRank(twin.match)) {
+        if (twin && urlKey(twin.url) !== urlKey(f.url) && (matchRank(f.match) <= matchRank(twin.match) || upgradeKept(twin, f))) {
           const alsoIn = twin.data?.alsoIn || [];
           if (f.url && !alsoIn.includes(f.url) && alsoIn.length < 8) twin.data = { ...(twin.data || {}), alsoIn: [...alsoIn, f.url] };
           seenIds.add(f.id);
@@ -616,6 +636,8 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
         const kept = { ...f, ...about, step: state.step, via: task.kind === 'subject' ? null : `${task.kind}: ${task.value}` };
         state.findings.push(kept);
         if (qk && !byQuote.has(qk)) byQuote.set(qk, kept);
+        if (!keptBy.has(`id:${f.id}`)) keptBy.set(`id:${f.id}`, kept);
+        if (!keptBy.has(`page:${dupKey}`)) keptBy.set(`page:${dupKey}`, kept);
         stat.findings += 1;
         newFindings += 1;
         if (f.match === 'possible') weak += 1; else strong += 1;

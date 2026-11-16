@@ -10,8 +10,9 @@
  *  - contact and locating details are removed from quoted text (street
  *    addresses, phone numbers, email addresses, dates of birth, national ID
  *    numbers);
- *  - sentences about protected or intimate matters (health, religion,
- *    sexuality, immigration status) and about children are dropped;
+ *  - sentences about protected or intimate matters (health, including
+ *    substance use, religion, sexuality, immigration status) and about
+ *    children are dropped;
  *  - family members are only reported when the source places them in a
  *    public business, political or philanthropic role (see related.js).
  *
@@ -100,7 +101,7 @@ export function redactPII(text) {
 
 // Protected or intimate matters. A sentence that is about one of these is not
 // investment diligence and is dropped, whatever the source.
-const SENSITIVE = /\b(diagnos(?:ed|is)|cancer|chemotherap\w*|rehab(?:ilitation)?\b|addict(?:ed|ion)|overdos\w*|suicid\w*|mental (?:health|illness)|depress(?:ion|ed)|bipolar|schizophreni\w*|autis\w*|HIV|AIDS|pregnan\w*|miscarriage|abortion|disabilit(?:y|ies)|terminal(?:ly)? ill\w*|sexual orientation|\bgay\b|lesbian|bisexual|transgender|came out as|devout|practi[sc]ing (?:muslim|catholic|jew|christian|hindu|mormon|buddhist)|converted to (?:islam|christianity|judaism|hinduism|buddhism)|undocumented|immigration status|(?:LDS|Mormon)\s+mission\w*|served (?:an? )?(?:LDS |Mormon |church )?mission\b|(?<!mercenar(?:y|ies),?\s+(?:vs\.?|versus|not|or|and|over)\s+(?:a\s+)?)missionar(?:y|ies)\b(?![\s,]+(?:vs\.?|versus|not|or|and|over)\s+(?:a\s+)?mercenar)|Shabbat|Sabbath observ\w*|keeps? kosher|synagogues?|Kabbalah|asylum seeker|green card|visa overstay|(?<!corporate |global )citizenship|naturali[sz](?:ed|ation)|H-?1B|work visa|residency permit|deport\w*|(?:as|was|were|an?|former)\s+refugees?\b(?!\s+(?:charit\w*|camps?|organi[sz]ations?|non-?profits?|programmes?|programs?|funds?|agenc\w*|council|crisis|resettlement|services|support|aid|relief|startups?|apps?|platforms?)\b))\b/i;
+const SENSITIVE = /\b(diagnos(?:ed|is)|cancer|chemotherap\w*|rehab(?:ilitation)?\b|addict(?:ed|ion)|overdos\w*|drug (?:ab)?use|substance (?:ab)?use|(?:us(?:e|ed|es|ing)|snort\w*|smok\w*)\s+(?:of\s+)?(?:cocaine|marijuana|cannabis|ketamine|heroin|meth\w*)|(?:cocaine|marijuana|cannabis|ketamine|heroin)\s+(?:use|habit|binges?|abuse)|alcoholism|alcoholics?\b(?!\s+(?:beverages?|drinks?|brands?|spirits|products?|content|sales))|drinking problem|(?:heavy|binge|problem) drinking|suicid\w*|mental (?:health|illness)|depress(?:ion|ed)|bipolar|schizophreni\w*|autis\w*|HIV|AIDS|pregnan\w*|miscarriage|abortion|disabilit(?:y|ies)|terminal(?:ly)? ill\w*|sexual orientation|\bgay\b|lesbian|bisexual|transgender|came out as|devout|practi[sc]ing (?:muslim|catholic|jew|christian|hindu|mormon|buddhist)|converted to (?:islam|christianity|judaism|hinduism|buddhism)|undocumented|immigration status|(?:LDS|Mormon)\s+mission\w*|served (?:an? )?(?:LDS |Mormon |church )?mission\b|(?<!mercenar(?:y|ies),?\s+(?:vs\.?|versus|not|or|and|over)\s+(?:a\s+)?)missionar(?:y|ies)\b(?![\s,]+(?:vs\.?|versus|not|or|and|over)\s+(?:a\s+)?mercenar)|Shabbat|Sabbath observ\w*|keeps? kosher|synagogues?|Kabbalah|asylum seeker|green card|visa overstay|(?<!corporate |global )citizenship|naturali[sz](?:ed|ation)|H-?1B|work visa|residency permit|deport\w*|(?:as|was|were|an?|former)\s+refugees?\b(?!\s+(?:charit\w*|camps?|organi[sz]ations?|non-?profits?|programmes?|programs?|funds?|agenc\w*|council|crisis|resettlement|services|support|aid|relief|startups?|apps?|platforms?)\b))\b/i;
 // Religion named as a person's own faith: "Jane Doe, a Mormon, founded ...", "is a devout Catholic who".
 // Case-sensitive so that "the Catholic University" or "a Christian charity" are not caught.
 const RELIGION = /\b(?:[Aa]n?|[Ii]s|[Ww]as|[Aa]s)\s+(?:(?:devout|practi[sc]ing|observant|born-again|lifelong)\s+)?(?:Hindu|Muslim|Mormon|Catholic|Jew|Jewish|Evangelical|Sikh|Buddhist|Christian|Baptist|Methodist|[Aa]theist)\b(?=\s*(?:[,.;:)!?]|$)|\s+(?:and|who|whose|by|from|since|himself|herself|man|woman|convert|family|faith|household|upbringing)\b)/;

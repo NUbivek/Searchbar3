@@ -50,7 +50,8 @@ ${bio ? `<div id="summary"><p class="description">${bio}</p></div>` : ''}
 <ul>${schools.map((s) => `<li class="education__list-item"><h3 class="profile-section-card__title">${s}</h3></li>`).join('')}</ul></body></html>`;
 
 describe('item 1: guessed addresses', () => {
-  test('a guessed address whose copy names the company is still only "possible", told in two lines, and nothing on it is followed', async () => {
+  // round 3 (item 3): a copy naming the company the user entered is lifted to "likely" (never more); nothing is followed
+  test('a guessed address whose copy names the given company is "likely" at most, and nothing on it is followed', async () => {
     const subject = createSubject({ name: 'Jane Roe', company: 'Acmeworks' });
     const addr = 'https://www.crunchbase.com/person/jane-roe';
     network([
@@ -64,7 +65,7 @@ describe('item 1: guessed addresses', () => {
     const out = await archiveConnector.run({ kind: 'subject', value: subject.name, template: plan.template, params: plan.params, depth: 0 }, ctxFor(subject));
     expect(out.findings.length).toBeGreaterThan(0);
     for (const f of out.findings) {
-      expect(f.match).toBe('possible');
+      expect(f.match).toBe('likely');
       expect(f.matchFixed).toBe(true);
     }
     expect(out.findings.some((f) => f.data.kind === 'change')).toBe(false);

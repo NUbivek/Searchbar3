@@ -59,7 +59,7 @@ describe('a one-word company name must be placed as that company', () => {
     const subject = milton();
     addAnchor(subject, 'domains', 'nikolamotor.com', 'given');
     searchReturns([
-      r('Nikola recalls trucks after battery fires lawsuit'),
+      r('Regulators say Nikola recalls trucks after battery fires lawsuit'),
       r('Nikola Corp Faces Fraud Investigation By Regulators'),
       r('Nikola Motor Faces Fraud Lawsuit From Investors'),
       r('Nikola Shares Plunge After Fraud Lawsuit'),
@@ -80,7 +80,7 @@ describe('a one-word company name must be placed as that company', () => {
       const { findings } = await webSearchConnector.run(planned(webSearchConnector, { kind: 'company', value: 'Nikola' }, subject, 'q.company-legal'), ctxFor(subject));
       return findings.length === 1;
     };
-    expect(await kept(r('Nikola recalls trucks after battery fires lawsuit'))).toBe(true);
+    expect(await kept(r('Regulators say Nikola recalls trucks after battery fires lawsuit'))).toBe(true);
     expect(await kept(r('Nikola Corp faces fraud investigation'))).toBe(true);
     expect(await kept(r('Nikola Jokic and Milton named in fraud lawsuit'))).toBe(true); // the surname places it
     expect(await kept(r('Nikola Update On The Fraud Lawsuit', { url: 'https://nikolamotor.com/news/1' }))).toBe(true);
@@ -88,7 +88,7 @@ describe('a one-word company name must be placed as that company', () => {
     expect(await kept(r('Nikola Shares Plunge After Fraud Lawsuit'))).toBe(false);
     expect(await kept(r('Nikola Jokic Hit With Lawsuit Over Fraud Claims'))).toBe(false);
     // the snippet, in plain sentence case, can place a headline-case title
-    expect(await kept(r('Nikola Hit With Lawsuit Over Fraud Claims', { snippet: 'Nikola faces a lawsuit from buyers.' }))).toBe(true);
+    expect(await kept(r('Nikola Hit With Lawsuit Over Fraud Claims', { snippet: 'Buyers filed a lawsuit against Nikola.' }))).toBe(true);
     // a lower-case word is never the company
     expect(await kept(r('nikola fraud lawsuit thread'))).toBe(false);
   });
@@ -111,7 +111,7 @@ describe('a typical check stays within its share of the search allowance', () =>
     for (const name of ['Christian Holmes', 'Noel Holmes', 'Billy Evans']) total += count('relative', name);
     expect(total).toBeLessThanOrEqual(70);
     expect(newsArchiveConnector.plan({ kind: 'company', value: 'Theranos' }, subject)).toHaveLength(2);
-    expect(newsArchiveConnector.plan({ kind: 'subject', value: subject.name }, subject)).toHaveLength(6);
+    expect(newsArchiveConnector.plan({ kind: 'subject', value: subject.name }, subject)).toHaveLength(7);
     expect(webSearchConnector.plan({ kind: 'associate', value: 'Ramesh Balwani' }, subject)).toHaveLength(1);
     expect(webSearchConnector.plan({ kind: 'company', value: 'Theranos' }, subject).map((t) => t.template)).not.toContain('q.company-breach');
   });

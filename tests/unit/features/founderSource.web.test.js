@@ -120,7 +120,7 @@ describe('web-search: query patterns', () => {
     const subject = holmes();
     const templates = webSearchConnector.plan({ kind: 'subject', value: subject.name }, subject);
     expect(templates.map((t) => t.template)).toEqual([
-      'q.profile', 'q.linkedin', 'q.lawsuit', 'q.fraud', 'q.prior-ventures', 'q.employment', 'q.regulatory', 'q.education',
+      'q.profile', 'q.linkedin', 'q.lawsuit', 'q.fraud', 'q.prior-ventures', 'q.later-ventures', 'q.employment', 'q.regulatory', 'q.education',
       'q.insolvency', 'q.resume', 'q.interviews', 'q.family', 'q.forums', 'q.family-business', 'q.related-party',
     ]);
     expect(new Set(templates.map((t) => t.template)).size).toBe(templates.length);
@@ -198,11 +198,13 @@ describe('web-search: query patterns', () => {
   test('a company: legal trouble, leadership, distress (no separate data-breach lookup: the breach registers cover it)', () => {
     const subject = holmes();
     const templates = webTemplates({ kind: 'company', value: 'Theranos, Inc.' }, subject);
-    expect(templates.map((t) => t.template)).toEqual(['q.company-legal', 'q.company-leadership', 'q.company-distress']);
+    expect(templates.map((t) => t.template)).toEqual(['q.company-legal', 'q.company-leadership', 'q.company-distress', 'q.company-funding', 'q.company-backers']);
     expect(templates.map((t) => t.params.query)).toEqual([
       '"Theranos" (lawsuit OR fraud OR investigation)',
       '"Theranos" (founder OR CEO)',
       '"Theranos" (shutdown OR layoffs OR bankruptcy)',
+      '"Theranos" "Elizabeth Holmes" (funding OR raises OR investors OR led)',
+      '"Theranos" (adviser OR advisor OR shareholder OR board)',
     ]);
   });
 
@@ -409,17 +411,17 @@ describe('web-search: results become graded findings', () => {
     searchReturns([
       { title: 'Theranos - Wikipedia', snippet: 'Theranos was an American privately held health technology company.', url: 'https://en.wikipedia.org/wiki/Theranos', date: null },
       { title: 'Theranos lays off 340 employees', snippet: 'Theranos announced layoffs across its labs.', url: 'https://www.example.com/layoffs', date: null },
-      { title: 'Theranos sued by Walgreens for breach of contract', snippet: 'The lawsuit seeks $140 million.', url: 'https://www.example.com/walgreens', date: null },
-      { title: 'Theranos president indicted on wire fraud charges', snippet: 'A grand jury returned the indictment.', url: 'https://www.example.com/indicted', date: null },
-      { title: 'Theranos investors file class action', snippet: 'A class-action lawsuit was filed in California.', url: 'https://www.example.com/class-action', date: null },
+      { title: 'Walgreens sues Theranos for breach of contract', snippet: 'The lawsuit seeks $140 million.', url: 'https://www.example.com/walgreens', date: null },
+      { title: 'Grand jury indicts Theranos president on wire fraud charges', snippet: 'A grand jury returned the indictment.', url: 'https://www.example.com/indicted', date: null },
+      { title: 'Investors file class action against Theranos', snippet: 'A class-action lawsuit was filed in California.', url: 'https://www.example.com/class-action', date: null },
       { title: 'Theranos founder Elizabeth Holmes steps down as CEO', snippet: 'Elizabeth Holmes resigned after the charges.', url: 'https://www.example.com/steps-down', date: null },
     ]);
     const { findings, threads } = await webSearchConnector.run(planned(webSearchConnector, { kind: 'company', value: 'Theranos, Inc.' }, subject, 'q.company-legal'), ctxFor(subject));
     expect(findings.map((f) => [f.match, f.severity, f.title])).toEqual([
       ['confirmed', 'low', 'Theranos founder Elizabeth Holmes steps down as CEO'],
-      ['company', 'high', 'Theranos president indicted on wire fraud charges'],
-      ['company', 'medium', 'Theranos sued by Walgreens for breach of contract'],
-      ['company', 'medium', 'Theranos investors file class action'],
+      ['company', 'high', 'Grand jury indicts Theranos president on wire fraud charges'],
+      ['company', 'medium', 'Walgreens sues Theranos for breach of contract'],
+      ['company', 'medium', 'Investors file class action against Theranos'],
     ]);
     expect(findings[1].matchReasons).toEqual(['names Theranos, Inc.']);
     expect(Array.isArray(threads)).toBe(true);
@@ -429,10 +431,10 @@ describe('web-search: results become graded findings', () => {
     const subject = createSubject({ name: 'Patrick Collison', company: 'Stripe' });
     searchReturns([
       { title: 'How to fix a stripe pattern lawsuit', snippet: 'A dispute about a stripe design.', url: 'https://www.example.com/pattern', date: null },
-      { title: 'Stripe settles lawsuit over fees', snippet: 'The settlement ends a class action.', url: 'https://www.example.com/fees', date: null },
+      { title: 'Merchants settle lawsuit with Stripe over fees', snippet: 'The settlement ends a class action.', url: 'https://www.example.com/fees', date: null },
     ]);
     const { findings } = await webSearchConnector.run(planned(webSearchConnector, { kind: 'company', value: 'Stripe' }, subject, 'q.company-legal'), ctxFor(subject));
-    expect(findings.map((f) => f.title)).toEqual(['Stripe settles lawsuit over fees']);
+    expect(findings.map((f) => f.title)).toEqual(['Merchants settle lawsuit with Stripe over fees']);
     expect(findings[0].match).toBe('company');
   });
 
@@ -517,10 +519,10 @@ describe('news-archive', () => {
     expect(newsArchiveConnector.kinds).toEqual(['subject', 'company']);
   });
 
-  test('the person: an adverse-terms pass for all four windows, a plain pass for the two most recent; older windows have lower priors', () => {
+  test('the person: an adverse-terms pass for all four windows, a plain pass for the three most recent; older windows have lower priors', () => {
     const subject = holmes();
     const templates = newsArchiveConnector.plan({ kind: 'subject', value: subject.name }, subject);
-    expect(templates.map((t) => t.template)).toEqual(['n.recent', 'n.recent-adverse', 'n.1-3y', 'n.1-3y-adverse', 'n.3-8y-adverse', 'n.older-adverse']);
+    expect(templates.map((t) => t.template)).toEqual(['n.recent', 'n.recent-adverse', 'n.1-3y', 'n.1-3y-adverse', 'n.3-8y', 'n.3-8y-adverse', 'n.older-adverse']);
     expect(NEWS_WINDOWS.map((w) => w.label)).toEqual(['the last 12 months', '1 to 3 years ago', '3 to 8 years ago', 'more than 8 years ago']);
     const plain = templates.filter((t) => !t.template.endsWith('-adverse'));
     const adverse = templates.filter((t) => t.template.endsWith('-adverse'));
@@ -533,9 +535,9 @@ describe('news-archive', () => {
       expect(t.prior).toBeGreaterThanOrEqual(0.3);
       expect(t.prior).toBeLessThanOrEqual(0.8);
     }
-    expect(plain.map((t) => t.params.query)).toEqual(['"Elizabeth Holmes" Theranos', '"Elizabeth Holmes" Theranos']);
+    expect(plain.map((t) => t.params.query)).toEqual(['"Elizabeth Holmes" Theranos', '"Elizabeth Holmes" Theranos', '"Elizabeth Holmes" Theranos']);
     expect(adverse[0].params.query).toBe('"Elizabeth Holmes" (lawsuit OR fraud OR investigation OR charged OR bankruptcy OR scandal OR fired OR settlement)');
-    expect(plain.map((t) => t.params.window)).toEqual(['recent', '1-3y']);
+    expect(plain.map((t) => t.params.window)).toEqual(['recent', '1-3y', '3-8y']);
     expect(adverse.map((t) => t.params.window)).toEqual(['recent', '1-3y', '3-8y', 'older']);
   });
 
@@ -590,7 +592,7 @@ describe('news-archive', () => {
 
   test('a company window keeps the person\'s records and at most four company-only ones that report trouble', async () => {
     const subject = holmes();
-    const companyOnly = ['lawsuit', 'fraud probe', 'bankruptcy filing', 'settlement', 'investigation', 'layoffs'].map((word, i) => ({ title: `Theranos ${word} deepens - Wire ${i}`, snippet: '', url: `https://news.google.com/rss/articles/c${i}?oc=5`, date: '2018-06-01', host: 'example.com', publisher: `Wire ${i}` }));
+    const companyOnly = ['lawsuit', 'fraud probe', 'bankruptcy filing', 'settlement', 'investigation', 'layoffs'].map((word, i) => ({ title: `Report says Theranos ${word} deepens - Wire ${i}`, snippet: '', url: `https://news.google.com/rss/articles/c${i}?oc=5`, date: '2018-06-01', host: 'example.com', publisher: `Wire ${i}` }));
     searchReturns([
       ...companyOnly,
       { title: 'Theranos opens new lab - Wire', snippet: '', url: 'https://news.google.com/rss/articles/open?oc=5', date: '2015-06-01', host: 'example.com', publisher: 'Wire' },

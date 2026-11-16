@@ -84,6 +84,7 @@ const GENERIC_SCHOOL_WORD = new Set(['university', 'universite', 'universitat', 
 const SCHOOL_ALIASES = [
   ['universite paris saclay', 'universite paris sud', 'universite paris 11', 'universite paris xi'],
   ['telecom paris', 'telecom paristech', 'ecole nationale superieure des telecommunications'],
+  ['ecole normale superieure paris saclay', 'ens paris saclay', 'ecole normale superieure de cachan', 'ens cachan'],
 ];
 /** A school's key under its current name ("universite paris sud faculte" -> "universite paris saclay faculte"). */
 const currentName = (key) => {
@@ -93,6 +94,26 @@ const currentName = (key) => {
   return key;
 };
 const schoolKey = (s) => currentName(nameTokens(String(s || '').replace(/\([^)]*\)/g, ' ')).join(' '));
+// The word for "university", "school" or "institute" in the languages registries use, read as the English word.
+const SCHOOL_KIND = {
+  university: 'university', universite: 'university', universitat: 'university', universidad: 'university', universita: 'university', universiteit: 'university', universidade: 'university',
+  school: 'school', ecole: 'school', institute: 'institute', institut: 'institute', college: 'college',
+};
+/**
+ * The same school named in two languages: "Université Paris-Saclay" is
+ * "Paris-Saclay University". The distinctive words must be the same, in the
+ * same order, and the kind of school the same, and exactly one of the names
+ * must use a foreign word for it: two English names in a different order
+ * ("University of Washington" / "Washington University") stay different.
+ */
+function translatedSchool(x, y) {
+  const distinct = (k) => k.split(' ').filter((t) => !GENERIC_SCHOOL_WORD.has(t)).join(' ');
+  const kinds = (k) => [...new Set(k.split(' ').map((t) => SCHOOL_KIND[t]).filter(Boolean))].sort().join(' ');
+  const foreign = (k) => k.split(' ').some((t) => SCHOOL_KIND[t] && SCHOOL_KIND[t] !== t);
+  const d = distinct(x);
+  if (!d || d !== distinct(y) || !d.split(' ').some((t) => t.length >= 3)) return false;
+  return Boolean(kinds(x)) && kinds(x) === kinds(y) && foreign(x) !== foreign(y);
+}
 
 /**
  * Are two institution names the same school? Equal once case, accents and
@@ -100,20 +121,22 @@ const schoolKey = (s) => currentName(nameTokens(String(s || '').replace(/\([^)]*
  * ("Stanford" / "Stanford University" / "Stanford University School of
  * Medicine"), under the school's current name when it was renamed or
  * merged (SCHOOL_ALIASES: "Université Paris-Sud" is "Université
- * Paris-Saclay"). Deliberately narrow: "York University" is not "New York
+ * Paris-Saclay"), or the same name in another language (translatedSchool).
+ * Deliberately narrow: "York University" is not "New York
  * University", "University of Washington" is not "Washington University".
  */
 export function sameSchool(a, b) {
   const x = schoolKey(a);
   const y = schoolKey(b);
   if (!x || !y) return false;
-  if (x === y) return true;
+  if (x === y || translatedSchool(x, y)) return true;
   const [short, long] = x.length <= y.length ? [x, y] : [y, x];
   if (!short.split(' ').some((t) => t.length >= 3 && !GENERIC_SCHOOL_WORD.has(t))) return false;
   // "Boise State University, Albertsons Library" is Boise State University; two campuses
   // ("University of California, Berkeley" / "..., Los Angeles") are not each other.
   const [shortRaw, longRaw] = x.length <= y.length ? [String(a), String(b)] : [String(b), String(a)];
-  if (!shortRaw.includes(',') && longRaw.includes(',') && schoolKey(longRaw.split(',')[0]) === short) return true;  if (!long.startsWith(`${short} `)) return false;
+  if (!shortRaw.includes(',') && longRaw.includes(',') && schoolKey(longRaw.split(',')[0]) === short) return true;
+  if (!long.startsWith(`${short} `)) return false;
   return SUB_UNIT.has(long.slice(short.length + 1).split(' ')[0]);
 }
 
@@ -442,7 +465,71 @@ async function frenchTheses(subject, ctx) {
   return out;
 }
 
-function thesisFinding(subject, t, { alsoKnownAs = '', namesakes = 1 } = {}) {
+/* A defended thesis tied to the subject three ways at once ---------------- */
+
+/** Records of this check (when the loop hands them over) found so far. */
+function earlierFindings(ctx) {
+  let list = [];
+  try { list = typeof ctx?.findings === 'function' ? ctx.findings() : ctx?.findings; } catch { list = []; }
+  return Array.isArray(list) ? list.filter(Boolean) : [];
+}
+
+const yearsIn = (s) => (String(s || '').match(/\b(?:19|20)\d{2}\b/g) || []).map(Number);
+
+/**
+ * The schools and years a confirmed education record states: the entries of
+ * an ORCID record, or "educated at X (2011-2015)" / "student at X" in the
+ * title of a record from another source. A school without years is left out.
+ */
+function confirmedStudies(findings) {
+  const out = [];
+  for (const f of findings) {
+    if (f.match !== 'confirmed' || f.category !== 'education') continue;
+    if (Array.isArray(f.data?.entries)) {
+      for (const e of f.data.entries) if (e?.organisation && (e.start || e.end)) out.push({ organisation: e.organisation, start: Number(e.start) || 0, end: Number(e.end) || 0 });
+      continue;
+    }
+    const m = String(f.title || '').match(/\b(?:educated at|student at)\s+(.+?)(?:,|\s\(|$)/i);
+    const years = yearsIn(`${f.title} ${f.quote || ''}`);
+    if (m && years.length) out.push({ organisation: m[1], start: Math.min(...years), end: Math.max(...years) });
+  }
+  return out;
+}
+
+/** A defence in `year` falls within the stated years (the record may close a year late). */
+function yearFits(year, { start, end }) {
+  if (start && end) return year >= start && year <= end + 1;
+  if (end) return Math.abs(year - end) <= 1;
+  return year >= start && year <= start + 8;
+}
+
+/** Is the person named, first and last name together, in the text of a record? */
+function namesPerson(name, f) {
+  const want = nameTokens(name);
+  if (want.length < 2) return false;
+  const got = nameTokens(`${f.title || ''} ${f.quote || ''}`);
+  for (let i = 0; i + want.length <= got.length; i += 1) if (want.every((w, k) => got[i + k] === w)) return true;
+  return false;
+}
+
+/**
+ * Why a thesis is the subject's own beyond doubt, or '' when it is not:
+ * its school and defence year are those of a confirmed education record,
+ * and its supervisor is named in a confirmed record about the subject
+ * (other than this thesis). A namesake would have to share all three.
+ */
+function thesisConfirmation(t, earlier) {
+  const year = Number(String(t.date || '').slice(0, 4));
+  if (!t.defended || !year || !t.supervisors.length || !earlier.length) return '';
+  const confirmed = earlier.filter((f) => f.match === 'confirmed' && f.url !== t.url);
+  const study = confirmedStudies(confirmed).find((e) => t.institutions.some((i) => sameSchool(i, e.organisation)) && yearFits(year, e));
+  if (!study) return '';
+  const supervisor = t.supervisors.find((s) => confirmed.some((f) => namesPerson(s, f)));
+  if (!supervisor) return '';
+  return `defended at ${study.organisation} in ${year}, the school and years of a confirmed education record, under ${supervisor}, who is named in a confirmed record about the subject`;
+}
+
+function thesisFinding(subject, t, { alsoKnownAs = '', namesakes = 1, earlier = [] } = {}) {
   const year = t.date.slice(0, 4);
   const where = [t.institution, t.defended ? year : year && `registered ${year}`].filter(Boolean).join(', ');
   const topic = safe(t.title); // a thesis about a medical subject is not a statement about its author, but the filter cannot tell
@@ -451,7 +538,10 @@ function thesisFinding(subject, t, { alsoKnownAs = '', namesakes = 1 } = {}) {
   const quote = t.registry === 'theses.fr'
     ? [t.author, topic && safe(t.original || t.title), discipline, t.institution, t.defended ? (t.dateAsWritten ? `Soutenue le ${t.dateAsWritten}` : 'Soutenue') : 'Thèse en préparation', t.supervisors.length ? `Sous la direction de ${t.supervisors.join(', ')}` : ''].filter(Boolean).join('. ')
     : [t.author, topic, safe(t.degree), t.institutions.join('; '), t.date].filter(Boolean).join('. ');
-  const grade = gradeRecord(subject, `${subject.name}. ${t.author}. ${t.institutions.join('; ')}. ${alsoKnownAs}`, namesakes, 'the thesis registries');
+  const confirmation = thesisConfirmation(t, earlier);
+  const grade = confirmation
+    ? { fields: { match: 'likely', matchReasons: [confirmation] }, held: false }
+    : gradeRecord(subject, `${subject.name}. ${t.author}. ${t.institutions.join('; ')}. ${alsoKnownAs}`, namesakes, 'the thesis registries');
   return hold(makeFinding(subject, {
     source: 'academic-record', sourceLabel: ORCID_LABEL, category: 'education',
     title, quote, url: t.url, date: t.date || null, severity: 'info',
@@ -489,8 +579,8 @@ function dedupeTheses(list) {
   });
 }
 
-function thesisResult(subject, theses, { alsoKnownAs = '', namesakes = thesisAuthors(theses) } = {}) {
-  const pairs = theses.map((t) => ({ t, f: thesisFinding(subject, t, { alsoKnownAs, namesakes }) })).filter((p) => p.f);
+function thesisResult(subject, theses, { alsoKnownAs = '', namesakes = thesisAuthors(theses), earlier = [] } = {}) {
+  const pairs = theses.map((t) => ({ t, f: thesisFinding(subject, t, { alsoKnownAs, namesakes, earlier }) })).filter((p) => p.f);
   const findings = keepBest(pairs.map((p) => p.f), 3);
   const threads = [];
   for (const { t, f } of pairs) {
@@ -506,7 +596,7 @@ async function runTheses(subject, ctx) {
   if (crossref.status === 'rejected') notes.push('The Crossref thesis registry did not answer; only the French registry (theses.fr) was searched for a thesis.');
   if (french.status === 'rejected') notes.push('The French thesis registry (theses.fr) did not answer; only Crossref was searched for a thesis.');
   const theses = dedupeTheses([...(french.value || []), ...(crossref.value || [])]);
-  return { ...thesisResult(subject, theses), notes };
+  return { ...thesisResult(subject, theses, { earlier: earlierFindings(ctx) }), notes };
 }
 
 /** A French school, whose doctorates are all in theses.fr. */
@@ -514,9 +604,7 @@ const FRENCH_SCHOOL = /[éèêàâçô]|\b(?:universit[ée]|[ée]cole|sorbonne|p
 
 /** Thesis and ORCID records found earlier in this check (when the loop hands them over) that already name the school. */
 function earlierRecordsAt(ctx, school) {
-  let list = [];
-  try { list = typeof ctx.findings === 'function' ? ctx.findings() : ctx.findings; } catch { list = []; }
-  return (Array.isArray(list) ? list : []).filter((f) => f?.source === 'academic-record' && f.data && [
+  return earlierFindings(ctx).filter((f) => f?.source === 'academic-record' && f.data && [
     f.data.institution, ...(f.data.institutions || []), ...(f.data.entries || []).map((e) => e?.organisation),
   ].some((i) => i && sameSchool(i, school)));
 }
@@ -542,7 +630,7 @@ async function runSchool(subject, school, ctx) {
     if (crossref.status === 'rejected' && fr.status === 'rejected') throw crossref.reason;
     const found = dedupeTheses([...(fr.value || []), ...(crossref.value || [])]);
     // The searches also return the name's theses elsewhere: they show whether the name is shared.
-    const result = thesisResult(subject, found.filter((t) => t.institutions.some((i) => sameSchool(i, school))), { alsoKnownAs: school, namesakes: thesisAuthors(found) });
+    const result = thesisResult(subject, found.filter((t) => t.institutions.some((i) => sameSchool(i, school))), { alsoKnownAs: school, namesakes: thesisAuthors(found), earlier: earlierFindings(ctx) });
     return { ...result, partial: crossref.status === 'rejected' || fr.status === 'rejected' };
   })();
   const [a, b] = await Promise.allSettled([orcid, theses]);

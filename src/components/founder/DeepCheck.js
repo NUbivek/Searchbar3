@@ -439,9 +439,15 @@ export default function DeepCheck({ name, company = '', runKey = 0 }) {
         data = await startJob(name, company);
       }
       const { jobId } = data;
-      for (let i = 0; i < 40 && alive(); i += 1) {
+      // A check may wait minutes for a source's allowance: give up after a time limit, not a number of steps
+      const until = Date.now() + 25 * 60 * 1000;
+      let lastRun = -1;
+      while (Date.now() < until && alive()) {
         if (data.done) break;
         setState((s) => ({ ...s, progress: data.progress }));
+        const ran = data.progress?.tasksRun ?? -1;
+        if (ran === lastRun) await wait(5000); // nothing ran in that step: lookups are waiting for a resting source
+        lastRun = ran;
         data = await step(jobId);
       }
       if (!alive()) return;

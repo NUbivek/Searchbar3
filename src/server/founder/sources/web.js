@@ -99,6 +99,8 @@ function subjectTemplates(subject) {
   add('lawsuit', `${name} ${any('lawsuit', 'sued', 'court', 'complaint')}`, 0.7, 'lawsuits and court cases that name them');
   add('fraud', `${name} ${any('fraud', 'scam', 'investigation', 'indicted', 'charged')}`, 0.7, 'fraud allegations, investigations and charges');
   add('prior-ventures', `${name} ${any('founder', '"co-founder"', 'CEO')}${company ? ` -${phrase(company)}` : ''}`, 0.6, 'companies they founded or ran before', reference);
+  // what they started next, and who backed it: coverage of a later venture usually names the famous one too, so nothing is excluded
+  add('later-ventures', `${name} ${any('raises', 'funding', '"backed by"', 'launches', '"new company"')}`, 0.55, 'companies they started later and who invested in them');
   add('employment', `${name} ${any('fired', 'ousted', 'resigned', 'harassment', 'misconduct')}`, 0.55, 'how they left earlier roles');
   add('regulatory', `${name} ${any('SEC', 'FTC', 'regulator', 'fine', 'settlement')}`, 0.55, 'regulators, fines and settlements');
   add('education', `${name} ${any('graduated', 'alumni', 'degree', 'university')}`, 0.5, 'where they studied', reference);
@@ -117,14 +119,21 @@ function subjectTemplates(subject) {
   return out;
 }
 
-function companyTemplates(companyName) {
-  const c = phrase(shortCompany(companyName));
-  return [
+function companyTemplates(companyName, subject) {
+  const short = shortCompany(companyName);
+  const c = phrase(short);
+  const out = [
     { template: 'q.company-legal', params: { query: `${c} ${any('lawsuit', 'fraud', 'investigation')}` }, prior: 0.55, why: 'lawsuits and investigations at this company' },
     { template: 'q.company-leadership', params: { query: `${c} ${any('founder', 'CEO')}`, prefer: 'reference' }, prior: 0.5, why: 'who founded and ran this company' },
     { template: 'q.company-distress', params: { query: `${c} ${any('shutdown', 'layoffs', 'bankruptcy')}` }, prior: 0.45, why: 'whether this company shut down, cut staff or went bankrupt' },
     // no separate data-breach lookup: the breach registers (another source) cover it, and the search allowance is shared by the whole check
   ];
+  // A one-word name ("Flow") is also an ordinary word: its funding news is only found next to the person's name.
+  if (!/\s/.test(short) && subject?.name) {
+    out.push({ template: 'q.company-funding', params: { query: `${c} ${phrase(subject.name)} ${any('funding', 'raises', 'investors', 'led')}` }, prior: 0.45, why: 'who invested in this company, with the person named' });
+  }
+  out.push({ template: 'q.company-backers', params: { query: `${c} ${any('adviser', 'advisor', 'shareholder', 'board')}` }, prior: 0.35, why: 'advisers, shareholders and board members of this company' });
+  return out;
 }
 
 /**
@@ -148,7 +157,7 @@ export function webTemplates(thread, subject) {
   if (!subject?.name || !thread?.kind) return [];
   if (thread.kind === 'subject') return subjectTemplates(subject);
   if (!value) return [];
-  if (thread.kind === 'company') return companyTemplates(value);
+  if (thread.kind === 'company') return companyTemplates(value, subject);
   if (thread.kind === 'associate' || thread.kind === 'relative') return subject.hasName(value) ? [] : jointTemplates(thread.kind, value, subject);
   if (thread.kind === 'school') return [{ template: 'q.school', params: { query: `${phrase(subject.name)} ${phrase(value)}`, prefer: 'reference' }, prior: 0.5, why: 'whether this school and the person are named together' }];
   if (thread.kind === 'handle') return [{ template: 'q.handle', params: { query: `${phrase(value.replace(/^@/, ''))} ${phrase(subject.name)}` }, prior: 0.4, why: 'what is posted under this handle with their name' }];
@@ -236,8 +245,10 @@ const SURNAME_NEAR_WORDS = 5;
  * A one-word name ("Nikola", "Square") is also a first name or a plain word,
  * so it must be written as a name (capitalised), and not as the first half of
  * another name ("Nikola Jokic", "Square Enix"). Wherever a capital says
- * nothing (a headline-case title, "Flow Characteristics Of ..."), and always
- * for a name of three letters or fewer or a plain word ("We"), the result
+ * nothing (a headline-case title, "Flow Characteristics Of ...", or the start
+ * of a title or sentence, "Flow investigation of ..."), and always for a name
+ * of three letters or fewer, a plain word ("We") or a word the same text also
+ * uses in lower case ("... stagnation point flow"), the result
  * must place it some other way: a legal form right after it ("Nikola Corp"),
  * the company's own site, the subject's surname within five words, or the
  * subject's own name.
@@ -256,11 +267,17 @@ function companyTest(task, subject) {
   const surname = tokens.length > 1 ? tokens[tokens.length - 1] : '';
   const surnameRe = surname ? new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(surname)}(?![\\p{L}\\p{N}])`, 'iu') : null;
   const domains = [...(subject?.anchors?.domains?.values?.() || [])].map((a) => String(a.value).toLowerCase().replace(/^www\./, ''));
+  const lowerRe = company !== company.toLowerCase() ? new RegExp(`(?<![A-Za-z0-9])${escapeRe(company.toLowerCase())}(?![A-Za-z0-9])`) : null;
   return (text, { title = null, host = '' } = {}) => {
     const str = String(text);
     if (fullRe && fullRe.test(str)) return true; // the full name as given ("We Holdings Ltd")
     const mentions = [...str.matchAll(re)].filter((m) => /^[A-Z0-9]/.test(m[0]));
     if (!mentions.length) return false;
+    // the same word written plainly elsewhere ("... stagnation point flow") says the text is using the word, not the name
+    const weakHere = weak || Boolean(lowerRe && lowerRe.test(str));
+    // where the snippet starts in "title snippet": a sentence start too
+    const snippetStart = title != null ? String(title).length + 1 : -1;
+    const sentenceStart = (m) => m.index === snippetStart || /^[\s"“'‘(\[]*$/.test(str.slice(0, m.index)) || /[.!?:;]["”’)]?\s+["“'‘(\[]*$/.test(str.slice(0, m.index));
     if (host && domains.length && onHost(host, domains)) return true;
     if (typeof subject?.hasName === 'function' && subject.hasName(str)) return true;
     const after = (m) => str.slice(m.index + m[0].length);
@@ -276,10 +293,14 @@ function companyTest(task, subject) {
     for (const m of mentions) {
       if (LEGAL_FORM_AFTER.test(after(m))) return true; // "Nikola Corp", "We, Inc."
       if (surnameNear(m)) return true; // "Founder Milton: Nikola settles"
-      if (weak || m.index < titleEnd) continue;
-      const next = nextWord(m);
+      if (weakHere || m.index < titleEnd) continue;
+      // the last word of the title is followed by the snippet, not by a word of the same name
+      const next = m.index + m[0].length === snippetStart - 1 ? '' : nextWord(m);
       if (next && COMPANY_WORD.test(next)) return true; // "Nikola Motors", "Square Inc"
-      if (!next) return true; // "Nikola recalls trucks"; "Nikola Jokic" is another name
+      // On position alone: a capital mid-sentence ("regulators fined Nikola, the truck maker"; "a suit against
+      // Nikola over trucks"). A capital at the start of a sentence or title says nothing ("Flow investigation
+      // of ..."), and a capitalised word after it may make it part of another name ("Nikola Jokic").
+      if (!next && !sentenceStart(m)) return true;
     }
     return false;
   };
@@ -313,6 +334,22 @@ export function wikipediaKind(subject, task, title) {
   return names.some((n) => n && key(n) === bare) ? 'subject' : 'other';
 }
 
+/** One key per Wikipedia article: language and title, so the mobile site, an anchor (#History) or an encoded title still match. */
+function wikiKey(url) {
+  const title = wikipediaTitle(url);
+  if (!title) return '';
+  const lang = String(url).match(/^https?:\/\/([a-z]{2,3}(?:-[a-z]+)?)\./i)?.[1]?.toLowerCase() || '';
+  return `${lang}|${title.toLowerCase()}`;
+}
+
+/** The Wikipedia articles the encyclopedia source already turned into records in this check. */
+const WIKIPEDIA_SOURCE = 'wikipedia';
+function knownWikiPages(ctx) {
+  let list = [];
+  try { list = typeof ctx?.findings === 'function' ? ctx.findings() || [] : []; } catch { list = []; }
+  return new Set(list.filter((f) => f && f.source === WIKIPEDIA_SOURCE).map((f) => wikiKey(f.url)).filter(Boolean));
+}
+
 /**
  * Is a search result worth keeping? It names the person, or (for a lookup
  * about one of their companies) it names that company and reports trouble.
@@ -330,7 +367,7 @@ function acceptFor(subject, task) {
  * Grade each result, turn the ones that name the subject into findings, and
  * read them for threads.
  */
-function collect(subject, task, results, { source, sourceLabel, category = null, family = false, companyOnlyMax = 3 }) {
+function collect(subject, task, results, { source, sourceLabel, category = null, family = false, companyOnlyMax = 3, knownWiki = new Set() }) {
   const findings = [];
   const companyOnly = [];
   const threads = [];
@@ -360,11 +397,18 @@ function collect(subject, task, results, { source, sourceLabel, category = null,
     const wiki = wikipediaTitle(r.url);
     const wikiKind = wiki ? wikipediaKind(subject, task, wiki) : null;
     if (wikiKind === 'list') continue;
+    // the encyclopedia source already read this article
+    if (wiki && knownWiki.has(wikiKey(r.url))) continue;
     // An article about something else that mentions the person: background at most, never confirmed,
     // and never a record about the company alone.
     if (wikiKind === 'other') base.severity = 'info';
     let finding = makeFinding(subject, base);
-    if (finding && wikiKind === 'other') finding = makeFinding(subject, { ...base, match: 'possible', matchReasons: [`Wikipedia article about ${wiki}, not about the person`] });
+    if (finding && wikiKind === 'other') {
+      // kept only when the text also names something tied to them (their company): a name alone in
+      // an article about a film, an honours list or a namesake is not about them
+      if (finding.match !== 'confirmed') continue;
+      finding = makeFinding(subject, { ...base, match: 'possible', matchReasons: [`Wikipedia article about ${wiki}, not about the person`] });
+    }
     if (!finding) {
       // About the company the task gave us, not the person: kept when it reports trouble, and marked as such.
       if (namesCompany && !subject.hasName(text) && namesCompany(text, { title: r.title, host }) && base.severity !== 'info') {
@@ -423,7 +467,7 @@ export const webSearchConnector = {
       allowMetered: priorOf(task, subject, webTemplates) >= METERED_PRIOR,
       lang: planned.lang, prefer: planned.prefer, accept: acceptFor(subject, task),
     });
-    const { findings, threads } = collect(subject, task, results, { source: WEB_ID, sourceLabel: WEB_LABEL, family: Boolean(planned.family), companyOnlyMax: COMPANY_ONLY_MAX.web });
+    const { findings, threads } = collect(subject, task, results, { source: WEB_ID, sourceLabel: WEB_LABEL, family: Boolean(planned.family), companyOnlyMax: COMPANY_ONLY_MAX.web, knownWiki: knownWikiPages(ctx) });
     return { findings, threads, notes: pauseNotes(tried) };
   },
 };
@@ -443,8 +487,8 @@ export const COMPANY_NEWS_WINDOWS = [
   { id: 'last-3y', label: 'the last 3 years', fromDays: 3 * YEAR_DAYS, toDays: -1, prior: 0.45 },
   { id: 'before-3y', label: 'more than 3 years ago', fromDays: null, toDays: 3 * YEAR_DAYS, prior: 0.32 },
 ];
-/** The person's windows that also get a plain pass (no trouble words): older plain coverage rarely changes the picture. */
-const PLAIN_WINDOWS = new Set(['recent', '1-3y']);
+/** The person's windows that also get a plain pass (no trouble words): a later venture's funding news is often 3 to 8 years old; older plain coverage rarely changes the picture. */
+const PLAIN_WINDOWS = new Set(['recent', '1-3y', '3-8y']);
 const NEWS_ADVERSE = any('lawsuit', 'fraud', 'investigation', 'charged', 'bankruptcy', 'scandal', 'fired', 'settlement');
 const COMPANY_ADVERSE = any('lawsuit', 'fraud', 'investigation', 'bankruptcy', 'layoffs', '"shut down"', 'scandal', 'settlement');
 
@@ -458,7 +502,7 @@ export function windowDates(id, now = Date.now()) {
 
 /**
  * News lookups for a thread. The person: an adverse-terms pass for every
- * window, and a plain pass for the two most recent. A company: an
+ * window, and a plain pass for the three most recent. A company: an
  * adverse-terms pass for the last three years and one for everything older.
  */
 export function newsTemplates(thread, subject) {
@@ -502,7 +546,7 @@ export const newsArchiveConnector = {
     if (!query) return { findings: [], threads: [], notes: [] };
     const { after, before } = windowDates(planned.window);
     const { results, tried } = await keylessSearch(query, { news: true, after, before, num: 15, deadline: ctx.deadline, accept: acceptFor(subject, task) });
-    const { findings, threads } = collect(subject, task, results, { source: NEWS_ID, sourceLabel: NEWS_LABEL, category: 'press', companyOnlyMax: COMPANY_ONLY_MAX.news });
+    const { findings, threads } = collect(subject, task, results, { source: NEWS_ID, sourceLabel: NEWS_LABEL, category: 'press', companyOnlyMax: COMPANY_ONLY_MAX.news, knownWiki: knownWikiPages(ctx) });
     return { findings, threads, notes: pauseNotes(tried) };
   },
 };

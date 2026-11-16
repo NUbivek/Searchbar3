@@ -176,9 +176,9 @@ describe('ukCompaniesConnector: the person', () => {
     expect(calls.some((c) => /OTHER|CORP|\{\{/.test(c.url))).toBe(false);
 
     const mistral = out.findings.find((f) => /MISTRAL AI UK LTD/.test(f.title));
-    // the registered name only starts with the known one: held at possible (an officer search finds namesakes too)
+    // the registered name is the known company's UK arm (only a country word added): tied like the company itself
     expect(mistral).toMatchObject({
-      source: 'uk-companies-house', category: 'corporate', match: 'possible', matchFixed: true, severity: 'info', date: '2023-05-25',
+      source: 'uk-companies-house', category: 'corporate', match: 'confirmed', severity: 'info', date: '2023-05-25',
       url: 'https://find-and-update.company-information.service.gov.uk/company/14894136/officers',
     });
     expect(mistral.title).toMatch(/^Arthur Mensch: director of MISTRAL AI UK LTD \(UK company, active\), appointed 25 May 2023/);
@@ -193,8 +193,8 @@ describe('ukCompaniesConnector: the person', () => {
     const bakery = out.findings.find((f) => /LEEDS BAKERY/.test(f.title));
     expect(bakery).toMatchObject({ match: 'possible', severity: 'info' });
 
-    // threads: none is trusted, since no appointment is at a company that IS a known one
-    expect(out.threads.find((t) => t.value === 'MISTRAL AI UK')).toMatchObject({ kind: 'company', trusted: false });
+    // threads: only the known company's UK arm is trusted
+    expect(out.threads.find((t) => t.value === 'MISTRAL AI UK')).toMatchObject({ kind: 'company', trusted: true });
     expect(out.threads.find((t) => /AIRCRAFT/.test(t.value))).toMatchObject({ trusted: false });
 
     expect(new Set(out.findings.map((f) => pageOf(f.url))).size).toBe(out.findings.length);

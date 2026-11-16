@@ -81,6 +81,16 @@ const clip = (s, n) => {
   return `${cut.trimEnd()}…`;
 };
 
+// Like clip, but keeps line breaks: the grade reads a new line as a new sentence, so the title's last
+// words and the quote's first word ("Wikipedia" + "Nikola") must not be glued into one capitalised run.
+const clipLines = (s, n) => {
+  const str = cleanText(s).replace(/[^\S\n]+/g, ' ').replace(/ ?\n[\s]*/g, '\n').trim();
+  if (str.length <= n) return str;
+  let cut = str.slice(0, n - 1);
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return `${cut.trimEnd()}…`;
+};
+
 const isoDate = (value) => {
   if (!value) return null;
   const s = String(value).trim();
@@ -111,9 +121,11 @@ export function makeFinding(subject, f) {
   // re-read the title later and upgrade it. A graded record remembers the text it was graded on, so a
   // re-grade reads the same text (the structured context the source supplied), not just title and quote.
   const matchFixed = Boolean(match) || Boolean(f.matchFixed);
-  const gradeText = match ? null : clip(redactPII(f.matchText || `${f.title} ${f.quote || ''}`), 1500);
+  // Title and quote on separate lines, so each is read as its own sentence.
+  const text = f.matchText || `${f.title}\n${f.quote || ''}`;
+  const gradeText = match ? null : clipLines(redactPII(text), 1500);
   if (!match) {
-    const graded = matchSubject(subject, f.matchText || `${f.title} ${f.quote || ''}`);
+    const graded = matchSubject(subject, text);
     if (graded.level === 'none') return null;
     match = graded.level;
     reasons = graded.reasons;
@@ -157,7 +169,9 @@ const NEGATED_PROBE = new RegExp(
 const OUTCOME = /\b(fined|penalt(?:y|ies)|settle(?:d|s|ment)|ordered to pay|judgments? against|damages awards?|restitution|arbitration awards?|claw(?:s|ed|ing)?[- ]?backs?|subpoena\w*|bankruptc(?:y|ies)|receivership|ousted|forced out|fired(?! up))\b/i;
 // An article or claim the record says was defamatory or libellous: the only adverse content is the
 // disputed publication itself, so a lawsuit over it is low, not medium.
-const DISPUTED_PUBLICATION = /\b(?:article|story|stories|report|piece|column|op-?ed|editorial|post|book|documentary|podcast|blog|tweet|claims?|statements?)\b[^.;]{0,120}\b(?:defamatory|libell?ous)\b/i;
+const DISPUTED_PUBLICATION = /\b(?:article|story|stories|report|piece|column|op-?ed|editorial|post|book|documentary|podcast|blog|tweet|claims?|statements?)\b[^.;]{0,220}\b(?:defamatory|libell?ous)\b/i;
+// What the publication said: the criminal-matter word must come after one of these to be the disputed claim.
+const CLAIMING = /\b(?:claim(?:s|ed|ing)?|alleg\w*|say(?:s|ing)?|said|suggest\w*|accus\w*|that)\b/i;
 const DISPUTED_BLOCK = new RegExp(`${OUTCOME.source}|\\b(investigat\\w*|probes?|inquir(?:y|ies)|misconduct|harass\\w*|discriminat\\w*|whistleblower|data breach|ransomware)\\b`, 'i');
 
 /** The text without its clauses that only report a probe that was declined, closed or cleared. */
@@ -179,16 +193,48 @@ function rawSeverity(t) {
   return 'info';
 }
 
+// An aside about another named person: "Jane Roe, who was convicted of wire fraud," or "Jane Roe, the
+// former chief executive charged with fraud." It runs from the comma after the name to the next comma or
+// full stop, and only when it opens on a relative pronoun or a criminal-matter verb within a few words.
+const OTHER_PERSON_ASIDE = /\b([A-Z][\p{L}'’-]+ [A-Z][\p{L}'’-]+), (?:(?:an?|the) )?(?:[\p{L}'’-]+ ){0,4}?(?:who|convicted|charged|sentenced|accused|indicted|jailed|imprisoned|arrested)\b[^,.;]*/gu;
+const OBJECT_PRONOUN = /\b(?:him|his|her|hers|them|their)\b/i;
+
+/**
+ * The text without asides that report a criminal matter of someone other than the subject. An aside that
+ * names the subject, the subject's company or a pronoun that could point back at them is kept.
+ */
+function withoutOtherPeoplesMatters(t, subject) {
+  if (!subject || typeof subject.hasName !== 'function') return t;
+  const companies = [subject.company, ...(subject.anchors?.companies ? [...subject.anchors.companies.keys()] : [])]
+    .map((c) => String(c || '').toLowerCase().trim()).filter((c) => c.length >= 2);
+  return t.replace(OTHER_PERSON_ASIDE, (span, name) => {
+    if (subject.hasName(name) || subject.hasName(span) || OBJECT_PRONOUN.test(span)) return span;
+    const lower = span.toLowerCase();
+    if (companies.some((c) => lower.includes(c))) return span;
+    return name;
+  });
+}
+
 /**
  * How much a record would matter if it is about the subject, judged from
  * its own words. Sources that know better (a sanctions list, a court
- * docket) set the severity themselves.
+ * docket) set the severity themselves. With the subject, a criminal matter
+ * told about another named person in an aside ("Jane Roe, who was convicted
+ * of fraud") does not count against the subject.
  */
-export function severityFromText(text) {
-  const t = String(text || '');
+export function severityFromText(text, subject = null) {
+  const t = withoutOtherPeoplesMatters(String(text || ''), subject);
   const sev = rawSeverity(withoutClearedProbes(t));
-  if (sev === 'medium' && DISPUTED_PUBLICATION.test(t) && !DISPUTED_BLOCK.test(t)) return 'low';
-  return sev;
+  if (sev === 'low' || sev === 'info') return sev;
+  const disputed = t.match(DISPUTED_PUBLICATION);
+  if (!disputed || DISPUTED_BLOCK.test(t)) return sev;
+  if (sev === 'medium') return 'low';
+  // high: only when every criminal-matter word is inside the disputed claim itself
+  // ("an article claiming he was indicted, which he called defamatory")
+  const rest = t.slice(0, disputed.index) + t.slice(disputed.index + disputed[0].length);
+  if (HIGH.test(rest)) return sev;
+  const crime = disputed[0].match(HIGH);
+  return crime && CLAIMING.test(disputed[0].slice(0, crime.index)) ? 'low' : sev;
 }
 
 /** A thread to pull, or null when it is not usable. */

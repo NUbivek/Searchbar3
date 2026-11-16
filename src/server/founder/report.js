@@ -43,6 +43,31 @@ const COURT_DOCKETS = 'court-dockets';
 // A registry or court of a non-English-speaking country ('fr-companies'), or a search run in another language ('adverse-fr').
 const NON_ENGLISH_SOURCE = /^(?:fr|de|es|it|nl|pt|br|jp|cn|kr)-/;
 const NON_ENGLISH_TEMPLATE = /-(?:fr|de|es|it|nl|pt|ja|zh|ko)$/;
+// Courts and regulators of a country where the person's company is registered that no source here reads.
+const COUNTRY_GAPS = {
+  FR: 'French court decisions (Judilibre/Légifrance) and AMF enforcement decisions',
+  GB: 'UK county court judgments and FCA enforcement notices beyond what the sources searched carry',
+  DE: 'German court decisions and BaFin enforcement measures',
+  ES: 'Spanish court decisions (CENDOJ) and CNMV enforcement decisions',
+  IT: 'Italian court decisions and CONSOB enforcement decisions',
+  NL: 'Dutch court decisions (rechtspraak.nl) and AFM enforcement decisions',
+  CH: 'Swiss court decisions and FINMA enforcement proceedings',
+  CA: 'Canadian court decisions beyond CanLII and provincial securities-regulator enforcement',
+  IN: 'Indian court records and SEBI enforcement orders',
+};
+// Registers whose tied record places the company in a country.
+const COUNTRY_SOURCES = { 'fr-companies': 'FR', 'fr-bodacc': 'FR', 'uk-companies-house': 'GB' };
+const countryName = (code) => { try { return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) || code; } catch { return code; } };
+/** Countries other than the US where a record tied to the person or their company places the company. */
+function companyCountries(findings) {
+  const out = new Set();
+  for (const f of findings || []) {
+    if (!CORROBORATES.has(f.match)) continue;
+    const code = COUNTRY_SOURCES[f.source] || (f.source === 'lei-register' ? String(f.data?.jurisdiction || '').split('-')[0].toUpperCase() : '');
+    if (/^[A-Z]{2}$/.test(code) && code !== 'US') out.add(code);
+  }
+  return [...out];
+}
 const PARTLY_ANSWERED = 0.2; // share of failed lookups from which a source's answer is called partial
 const TIMELINE_MAX = 60;
 
@@ -55,10 +80,12 @@ function notCoveredFor(state, allSources, answered, silent) {
       const [connector, , , template] = String(key).split('|');
       return NON_ENGLISH_TEMPLATE.test(template || '') && state.sources?.[connector] && answered({ ...state.sources[connector] });
     });
-  if (!(courts && silent(courts)) && !otherLanguage) return NOT_COVERED;
+  const abroad = companyCountries(state.findings).map((c) => COUNTRY_GAPS[c] || `Court decisions and financial-regulator enforcement in ${countryName(c)}`);
+  if (!(courts && silent(courts)) && !otherLanguage && !abroad.length) return NOT_COVERED;
   return [
     ...(courts && silent(courts) ? [`Court dockets (CourtListener ${courts.off ? 'is not enabled on this deployment' : 'did not answer'}), including US state courts and the Delaware Court of Chancery`] : []),
     ...NOT_COVERED.map((s) => (otherLanguage && s === NOT_COVERED[NOT_ENGLISH] ? 'Most non-English press, and sources behind a login or paywall' : s)),
+    ...abroad,
   ];
 }
 
@@ -99,8 +126,8 @@ const DATED_PHRASES = [
   [new RegExp(`\\b${MONTH_RE}\\s+(?:of\\s+)?((?:19|20)\\d{2})\\b`, 'gi'), (m) => [m[1], null, m[2]]],
 ];
 const pad = (n) => String(n).padStart(2, '0');
-/** Every date a text gives to the month or day, as 'YYYY-MM' or 'YYYY-MM-DD', none in the future. */
-function datesIn(text) {
+/** Every date a text gives to the month or day, as 'YYYY-MM' or 'YYYY-MM-DD', none in the future; `at` is where it starts. */
+function datesIn(text, withPlace = false) {
   const out = [];
   const today = new Date().toISOString().slice(0, 10);
   for (const [re, parts] of DATED_PHRASES) {
@@ -109,11 +136,13 @@ function datesIn(text) {
       const month = MONTHS.findIndex((x) => x.startsWith(mon.toLowerCase().slice(0, 3))) + 1;
       if (!month) continue;
       const d = day && Number(day) >= 1 && Number(day) <= 31 ? `${year}-${pad(month)}-${pad(day)}` : `${year}-${pad(month)}`;
-      if (d.slice(0, 7) <= today.slice(0, 7)) out.push(d);
+      if (d.slice(0, 7) <= today.slice(0, 7)) out.push(withPlace ? { d, at: m.index } : d);
     }
   }
   return out;
 }
+// Sentences of a quotation; an abbreviation ("U.S.", "Sept. 10") does not end one.
+const sentencesOf = (text) => String(text || '').split(/(?<=[a-z0-9)"'\u201d]{2}[.!?])\s+(?=[A-Z"\u201c])/);
 /**
  * The date of the event a record reports, read from its own quotation when the record carries only a
  * year ("On September 10, 2020, ..." -> 2020-09-10) or, for an encyclopaedia, only the date the article
@@ -123,10 +152,41 @@ function datesIn(text) {
 function eventDated(f) {
   const revised = f.data?.revisedAt && f.date && String(f.data.revisedAt).startsWith(f.date) && f.date.length >= 7;
   if (!(f.date && /^\d{4}$/.test(f.date)) && !revised) return f;
-  const dates = datesIn(f.quote).filter((d) => revised || d.startsWith(f.date)).sort();
+  const fits = (d) => revised || d.startsWith(f.date);
+  const dates = datesIn(f.quote).filter(fits).sort();
+  // Several dates: the event's own sentence says which one ("He resigned in September 2020. ... In
+  // September 2024 an arbitrator ruled ..."): its first date, the most precise one given there.
+  const tag = dates.length > 1 && new Set(dates).size > 1 && eventOf(f);
+  if (tag) {
+    const re = EVENTS.find(([t]) => t === tag)[1];
+    for (const sentence of sentencesOf(f.quote)) {
+      if (!re.test(sentence)) continue;
+      const found = datesIn(sentence, true).filter((x) => fits(x.d)).sort((a, b) => a.at - b.at || b.d.length - a.d.length);
+      if (!found.length) continue;
+      const first = found[0].d;
+      return { ...f, date: found.map((x) => x.d).filter((d) => d.startsWith(first)).sort().pop() };
+    }
+    // No sentence gives both the event and a date: an edit date is not the event's date.
+    if (revised) return { ...f, date: null };
+  }
   if (dates.length) return { ...f, date: dates[dates.length - 1] };
   // An edit date is not the date of the event: without a date in the text the record is undated.
   return revised ? { ...f, date: null } : f;
+}
+
+const COURT_TERMS = /\bcourts?\b|\bdocket\w*|\blawsuits?\b|\bsue[ds]?\b|\bsuing\b|\bjudges?\b|\bplaintiffs?\b|\bdefendants?\b|\bv\.\s|\bvs\.?\s|\bcomplaint\b|\btrial\b|\bjury\b|\bverdict\b|\bindict\w*|\bcharged\b|\bconvict\w*|\bsettle\w*|\barbitrat\w*|\bbankrupt\w*|\bchapter (?:7|11)\b|\b\d{1,2}:\d{2}-[a-z]{2}-\d{3,6}\b/i;
+const BUY_BACK = /\bbuy[- ]?back\b|\bbuy(?:s|ing)? back\b|\bbids?\b|\bbidding\b|\boffer to (?:buy|acquire)\b|\btakeover\b/i;
+/**
+ * A departure or a bid to buy a company back, filed under litigation by a news search but carrying no
+ * court or docket term, is business history: a role it ended (career) or a deal (company records).
+ */
+function businessHistory(f) {
+  if (f.category !== 'litigation' || PRIMARY_SOURCES.has(f.source)) return f;
+  const text = `${f.title || ''} ${f.quote || ''}`;
+  if (COURT_TERMS.test(text)) return f;
+  if (EVENTS.find(([t]) => t === 'departure')[1].test(f.title || '')) return { ...f, category: 'career' };
+  if (BUY_BACK.test(f.title || '')) return { ...f, category: 'corporate' };
+  return f;
 }
 
 /**
@@ -184,15 +244,46 @@ function eventOf(f) {
   return null;
 }
 
+const docketOf = (f) => (`${f.title} ${f.quote || ''}`.toLowerCase().match(/\b\d{1,2}:\d{2}-[a-z]{2}-\d{3,6}\b/) || [])[0];
+// Events a person goes through once in a while: two reports of one within a month of each other, about the
+// same person, are one matter whatever words their headlines use. (Two lawsuits or investigations in a
+// month are common, so those still need matching headline words.)
+const RARE_EVENTS = new Set(['conviction', 'sentence', 'charges', 'pardon', 'departure', 'settlement', 'insolvency']);
+const WINDOW_MS = 31 * 24 * 3600 * 1000;
 /**
- * The matter a serious record belongs to: a case number when it has one,
- * otherwise the kind of event and the month it was reported, kept apart for
- * the person, their company, and each associate or relative. Twenty news
+ * Rare events tied to the person, clustered by date: sorted by date, a record more than 31 days after the
+ * previous one starts a new matter. Returns record id -> matter key.
+ */
+function dateWindows(serious) {
+  const kinds = new Map();
+  for (const f of serious) {
+    const tag = eventOf(f);
+    if ((f.match !== 'confirmed' && f.match !== 'likely') || !RARE_EVENTS.has(tag) || !f.date || f.date.length < 7 || docketOf(f)) continue;
+    const kind = `${tag}|${whoOf(f)}`;
+    if (!kinds.has(kind)) kinds.set(kind, []);
+    kinds.get(kind).push(f);
+  }
+  const out = new Map();
+  for (const [kind, list] of kinds) {
+    let i = 0;
+    list.sort((a, b) => when(a) - when(b)).forEach((f, j) => {
+      if (j > 0 && when(f) - when(list[j - 1]) > WINDOW_MS) i += 1;
+      out.set(f.id, `${kind}|window${i}`);
+    });
+  }
+  return out;
+}
+
+/**
+ * The matter a serious record belongs to: a case number when it has one, a date window for a rare
+ * event tied to the person (see dateWindows), otherwise the kind of event and the month it was
+ * reported, kept apart for the person, their company, and each associate or relative. Twenty news
  * reports of one sentencing are one matter, not twenty red flags.
  */
-function matterKey(f) {
-  const docket = `${f.title} ${f.quote || ''}`.toLowerCase().match(/\b\d{1,2}:\d{2}-[a-z]{2}-\d{3,6}\b/);
-  if (docket) return `case|${docket[0]}`;
+function matterKey(f, windows = new Map()) {
+  const docket = docketOf(f);
+  if (docket) return `case|${docket}`;
+  if (windows.has(f.id)) return windows.get(f.id);
   const tag = eventOf(f);
   // Undated records cannot be placed in a month, so nothing ties two of them to one matter.
   if (!tag || !f.date) return `single|${f.id}`;
@@ -205,7 +296,7 @@ function matterKey(f) {
  * Pure: no network, no model.
  */
 export function buildReport(state) {
-  const findings = (state.findings || []).map(eventDated);
+  const findings = (state.findings || []).map(eventDated).map(businessHistory);
   const groups = new Map();
   for (const f of findings) {
     const key = corroborationKey(f);
@@ -238,6 +329,23 @@ export function buildReport(state) {
     return subject.hasName(title) || [...subject.anchors.companies.values()].some((a) => a.test(title));
   };
   const serious = cited.filter((f) => (f.severity === 'high' || f.severity === 'medium') && aboutThem(f));
+  // Roles the person held with an end date ({ org, role, from, to }), from the identity anchors.
+  const tenures = [...(state.anchors?.roles || []), ...(subject.anchors.roles ? [...subject.anchors.roles.values()] : [])]
+    .map((r) => ({ org: String(r.org || r.value || '').trim(), to: String(r.to || '').slice(0, 10) }))
+    .filter((r) => r.org && /^\d{4}(?:-\d{2}){0,2}$/.test(r.to));
+  // The role whose end a record of the company's insolvency comes after, when insolvency is all the record reports.
+  const afterTenure = (f) => {
+    if (!tenures.length || !f.date) return null;
+    const text = `${f.title || ''} ${f.quote || ''}`;
+    if (!EVENTS.find(([t]) => t === 'insolvency')[1].test(text)) return null;
+    if (EVENTS.some(([t, re]) => t !== 'insolvency' && t !== 'departure' && re.test(text))) return null;
+    return tenures.find((r) => {
+      const key = companyKeys(r.org)[0] || norm(r.org);
+      const named = whoOf(f) === `company:${key}` || new RegExp(`(?<![A-Za-z0-9])${r.org.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9])`, 'i').test(text);
+      const n = Math.min(f.date.length, r.to.length);
+      return named && f.date.slice(0, n) > r.to.slice(0, n);
+    }) || null;
+  };
   // Two lawsuits reported in the same month are two matters: a record joins a matter only when it reports
   // the same thing as the matter's lead (same case number, same headline, or shared distinctive words).
   // Name-only records only group with each other (see matterKey), and need a closer match to do so.
@@ -254,11 +362,13 @@ export function buildReport(state) {
     return enough ? shared : 0;
   };
   const matters = new Map();
+  const windows = dateWindows(serious);
   for (const f of serious) {
-    const key = matterKey(f);
+    const key = matterKey(f, windows);
     if (!matters.has(key)) matters.set(key, []);
-    let same = key.startsWith('case|') ? matters.get(key)[0] : null;
-    if (!key.startsWith('case|')) {
+    const whole = key.startsWith('case|') || windows.has(f.id);
+    let same = whole ? matters.get(key)[0] : null;
+    if (!whole) {
       let best = 0;
       for (const list of matters.get(key)) {
         const a = agreement(f, list[0]);
@@ -280,11 +390,30 @@ export function buildReport(state) {
     const tied = person.length ? person : company.length ? company : list;
     const lead = tied.reduce((best, f) => (sourceAuthority(f) > sourceAuthority(best) ? f : best), tied[0]);
     const entry = { ...lead, more: list.filter((f) => f !== lead).map(short) };
+    // A company's insolvency reported after the person left it is context about the company, not a mark against them.
+    const left = tied !== list && tied.every((f) => afterTenure(f)) && afterTenure(lead);
+    if (left) {
+      companyMatters.push({ ...entry, severity: 'low', title: `${lead.title} (after the person left ${left.org}${left.to ? ` in ${left.to}` : ''})`, afterTenure: left });
+      continue;
+    }
     (person.length ? redFlags : company.length ? companyMatters : possibleNamesake).push(entry);
   }
   redFlags.sort((a, b) => a.n - b.n);
   companyMatters.sort((a, b) => a.n - b.n);
   possibleNamesake.sort((a, b) => a.n - b.n);
+  // A name-only news report whose headline reports a red flag's event within three days of it may be the same
+  // story. It stays with the possible namesakes (the name is all that ties it), marked with that red flag's number.
+  const DAY_MS = 24 * 3600 * 1000;
+  const day = (d) => (d && d.length === 10 ? Date.parse(d) : NaN);
+  for (const p of possibleNamesake) {
+    if (p.data?.person || p.category !== 'press' || !Number.isFinite(day(p.date))) continue;
+    const flag = redFlags.find((r) => {
+      const tag = eventOf(r);
+      const re = tag && EVENTS.find(([t]) => t === tag)[1];
+      return re && re.test(p.title || '') && [r, ...r.more].some((m) => m.match !== 'possible' && Math.abs(day(m.date) - day(p.date)) <= 3 * DAY_MS);
+    });
+    if (flag) p.sameStoryAs = flag.n;
+  }
 
   const sections = SECTION_ORDER
     .map((key) => ({ key, title: CATEGORIES[key], items: cited.filter((f) => f.category === key) }))
@@ -410,7 +539,7 @@ export function quotedDeepBrief(report, reason) {
   const checks = [...of('education'), ...of('career'), ...of('corporate'), ...of('ip')].slice(0, 10);
   const possibleChanges = (report.sections.find((s) => s.key === 'archive')?.items || []).filter((f) => f.match === 'possible' && f.data?.kind === 'change');
   const gaps = [
-    ...[...report.possibleNamesake.slice(0, 8), ...possibleChanges.slice(0, 5)].map((f) => `• Rule out a namesake: ${f.title} [Source ${f.n}]`),
+    ...[...report.possibleNamesake.slice(0, 8), ...possibleChanges.slice(0, 5)].map((f) => `• Rule out a namesake: ${f.title} [Source ${f.n}]${f.sameStoryAs ? ` (reports the same kind of event within days of [Source ${f.sameStoryAs}]; it may be the same story)` : ''}`),
     ...report.coverage.notSearched.map((s) => (s.off ? `• ${s.label}: not enabled on this deployment.` : `• ${s.label} did not answer: ${s.reason}`)),
     ...(report.coverage.partlyAnswered || []).map((s) => `• ${s.label} answered only in part: ${s.reason}.`),
     ...report.coverage.notCovered.map((s) => `• Not covered: ${s}.`),

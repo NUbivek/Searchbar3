@@ -100,7 +100,7 @@ describe('a one-word name in a headline-case title', () => {
 
   test('a sentence-case snippet can still place it', async () => {
     const s = subject();
-    expect(await keptByBoth(s, 'Flow', r('Flow Hit With Lawsuit Over Fraud Claims', { snippet: 'Flow faces a lawsuit from tenants.' }))).toBe(true);
+    expect(await keptByBoth(s, 'Flow', r('Flow Hit With Lawsuit Over Fraud Claims', { snippet: 'Tenants filed a lawsuit against Flow last week.' }))).toBe(true);
   });
 });
 

@@ -49,6 +49,8 @@ import { mentionsMinor, isSensitive } from '../guardrails';
 const SEARCH_URL = 'https://efts.sec.gov/LATEST/search-index';
 const ARCHIVES_URL = 'https://www.sec.gov/Archives/edgar/data';
 const SEC_SITE = 'https://www.sec.gov';
+const SUBMISSIONS_URL = 'https://data.sec.gov/submissions';
+const REGISTRANT_TTL_MS = 6 * 60 * 60 * 1000;
 const INDEX_START = '2001-01-01'; // the text index begins in 2001
 const BLOCK_PAUSE_MS = 10 * 60 * 1000;
 const DOCUMENT_MAX_BYTES = 32 * 1024 * 1024; // a prospectus or merger proxy runs to many megabytes
@@ -199,6 +201,29 @@ const knownCompany = (subject, text) => [...(subject.anchors?.companies?.values?
 const exactKnownIssuer = (subject, names) => [...(subject.anchors?.companies?.values?.() || [])]
   .some((a) => names.some((n) => n && companyTier(n, a.value) === 2));
 const entityLabel = (e) => (e.tickers ? `${e.name} (${e.tickers})` : e.name);
+/** The known company this name is, give or take the legal form or a generic word, or null. */
+const sameAsKnown = (subject, name) => [...(subject.anchors?.companies?.values?.() || [])].find((a) => companyTier(name, a.value) > 0) || null;
+
+/**
+ * SEC registrants (CIKs) already tied to the person by a confirmed filing: a
+ * Form D that lists them, or the company's own filing. A later filing by the
+ * same registrant under another name (WeWork Companies Inc. became The We
+ * Company) is theirs by registry identifier, not by a name that a namesake
+ * could share. Kept beside the anchors, out of their export.
+ */
+function knownCiks(subject) {
+  const anchors = subject.anchors || (subject.anchors = {});
+  if (!anchors.ciks) Object.defineProperty(anchors, 'ciks', { value: new Set(), enumerable: false, writable: true, configurable: true });
+  return anchors.ciks;
+}
+const hasCik = (subject, cik) => Boolean(cik) && Boolean(knownCiks(subject).has(cik));
+function noteCik(subject, cik) {
+  if (!cik) return;
+  const set = knownCiks(subject);
+  if (typeof set.add === 'function') set.add(cik);
+  else if (typeof set.set === 'function') set.set(cik, { value: cik, origin: 'found', test: () => false });
+}
+const tiedByCik = (subject, g) => g.entities.some((e) => hasCik(subject, e.cik));
 
 /* ------------------------------------------------------------------ requests */
 
@@ -210,8 +235,9 @@ function secOptions(ctx, extra = {}) {
 
 let documentsBlockedUntil = 0;
 const documentsBlocked = () => Date.now() < documentsBlockedUntil;
-/** Forget a refusal by the document host (tests). */
-export function __resetSecForTests() { documentsBlockedUntil = 0; }
+const registrantCache = new Map(); // CIK -> { names, at }
+/** Forget a refusal by the document host and the registrant names read (tests). */
+export function __resetSecForTests() { documentsBlockedUntil = 0; registrantCache.clear(); }
 const noteRefusal = (error) => { if (error?.status === 403 || error?.status === 429) documentsBlockedUntil = Date.now() + BLOCK_PAUSE_MS; };
 
 /**
@@ -229,6 +255,55 @@ async function openDocument(url, ctx) {
     noteRefusal(error);
     return null;
   }
+}
+
+/** A registrant's current and former names from EDGAR's submissions record, or null when it cannot be had. */
+async function registrantNames(cik, ctx) {
+  const cached = registrantCache.get(cik);
+  if (cached && Date.now() - cached.at < REGISTRANT_TTL_MS) return cached.names;
+  if (ctx.deadline && ctx.deadline - Date.now() < 3500) return null;
+  try {
+    const json = await getJson(`${SUBMISSIONS_URL}/CIK${cik}.json`, secOptions(ctx, { timeoutMs: 6000 }));
+    const names = uniq([clean(json?.name), ...(Array.isArray(json?.formerNames) ? json.formerNames.map((f) => clean(f?.name)) : [])]);
+    registrantCache.set(cik, { names, at: Date.now() });
+    return names;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Is the filer of this filing a registrant tied to the person? Either its CIK
+ * is already known from a confirmed filing, or one of its EDGAR names (now or
+ * formerly) is a known company of theirs, give or take the legal form. Returns
+ * { cik, filer, names, via } and remembers the CIK, or null.
+ */
+async function filerTie(subject, g, ctx) {
+  const filer = g.entities[0];
+  if (!filer?.cik) return null;
+  const names = uniq([filer.name, ...((await registrantNames(filer.cik, ctx)) || [])]);
+  let via = null;
+  for (const n of names) {
+    const a = sameAsKnown(subject, n);
+    if (a) { via = { name: n, anchor: a.value }; break; }
+  }
+  if (!via && !hasCik(subject, filer.cik)) return null;
+  noteCik(subject, filer.cik);
+  return { cik: filer.cik, filer: filer.name, names, via };
+}
+
+/** The tie of a filing whose filer CIK is already known, without asking EDGAR anything. */
+const cikTie = (subject, g) => (g.entities[0]?.cik && hasCik(subject, g.entities[0].cik) ? { cik: g.entities[0].cik, filer: g.entities[0].name, names: [g.entities[0].name], via: null } : null);
+
+/** The registrant's EDGAR names, as companies of the person (the tie is the registry identifier). */
+const registrantThreads = (tie) => tie.names.slice(0, 5)
+  .map((n) => makeThread('company', n, `a name of SEC registrant ${Number(tie.cik)}, ${tie.via ? `which has filed as ${tie.via.name}` : 'tied to the person by an earlier filing'}`, { trusted: true }));
+
+/** A name-only finding by a registrant tied to the person is theirs: graded by that tie. */
+function gradeByTie(subject, finding, fields, tie) {
+  if (!finding || finding.match !== 'possible' || !tie) return finding;
+  const why = tie.via && companyTier(tie.via.name, tie.filer) !== 2 ? `, which also filed as ${tie.via.name}` : '';
+  return makeFinding(subject, { ...fields, match: 'confirmed', matchReasons: [`filed by ${tie.filer} (SEC CIK ${Number(tie.cik)})${why}, a company the person is confirmed at`] }) || finding;
 }
 
 /** "Nikola Corp  (NKLA)  (CIK 0001731289)" -> { name, tickers, cik } */
@@ -467,6 +542,24 @@ function nameSpots(text, subject, { honorific = false, informal = false } = {}) 
   return { own, longer };
 }
 
+// Sentence ends inside a quoted passage ("Mr." and an initial are not ends; a semicolon is).
+const SENTENCE_SPLIT = new RegExp(`${NOT_SENTENCE_END}[.!?;]["”’)]*\\s+`);
+
+/**
+ * How serious a passage is, read only from the sentences that name the
+ * person: a merger deck's career bio of another executive ("... through its
+ * bankruptcy") says nothing about them. 'info' when no sentence names them.
+ */
+function personSeverity(subject, passage) {
+  const text = asSentences(passage);
+  const surname = surnameOf(subject);
+  const honorific = surname && !sharesSurname(text, subject, surname) ? new RegExp(`\\b(?:Mr|Ms|Mrs|Dr)\\.?[ ]+${escapeRe(surname)}(?![A-Za-z-])`) : null;
+  const sentences = text.split(SENTENCE_SPLIT).filter((s) => subject.hasName(s) || (honorific && honorific.test(s)));
+  return sentences.length ? severityFromText(sentences.join(' ')) : 'info';
+}
+/** Exhibits (decks, press releases, agreements) and 8-Ks talk about many people: only the person's own sentences are graded. */
+const passageSeverity = (subject, g, quote) => (!g.best.main || /^8-K/.test(g.rootForm) ? personSeverity(subject, quote) : severityFromText(quote));
+
 /**
  * The best place in a document: each spot (a mention of the name) is scored
  * by what stands within `radius` characters of it. `score(window, offset)`
@@ -550,11 +643,30 @@ const KIN = 'brother-in-law|sister-in-law|father-in-law|mother-in-law|brother|si
 const BUSINESS_ROLE = /\b(employ\w*|serv(?:es|ed|ing) as|officer|director|president|chief|manager|owner|owns|owned|controls?|controlled|founder|partner|consult\w*|compensation|salary|paid|lease[sd]?|leasing|landlord|purchas\w*|loan\w*|lender|invest\w*|stockholder|shareholder|trustee|affiliate\w*|vendor|supplier|contractor)\b/i;
 const NOT_A_PERSON = /^(The|Our|We|In|On|At|And|But|Mr|Mrs|Ms|Dr|Each|Such|This|That|Certain|Company|Chief|President|Chairman|Director|Executive|Board|Related|Party)\b|\b(Inc|LLC|Ltd|Corp|Capital|Ventures|Partners|Company|Fund|Trust|Holdings|Agreement|Board|Committee|Officer|Director|Chairman|President)\b/;
 
+// A clause that goes on with a verb is about the name just before it ("Jane Roe, the sister of Mr. Roe, is employed as").
+const PREDICATE_START = /^[\s,]*(?:(?:and|who)\s+)?(?:also\s+)?(?:is|are|was|were|has|have|had|serves?|served|works?|worked|holds?|held|owns?|owned|controls?|controlled|receives?|received|leases?|leased|provides?|provided|acts?|acted|became|becomes|remains?|remained|joined|employ\w*)\b/i;
+const TITLE_WORD = /^(?:[A-Z][A-Za-z&'’-]*|of|and|for|the|our|its)$/;
+
+/** The phrase a role word opens, cut at the clause's next comma: "employees of Legacy Acme", "serves as our Vice President of Sales". */
+function rolePhrase(region, at) {
+  const words = region.slice(0, at).split(/\s+/).filter(Boolean);
+  let back = 0;
+  // the start of a title the role word ends ("Vice President")
+  while (back < 3 && words.length - back > 0 && /^[A-Z][a-z]+$/.test(words[words.length - 1 - back])) back += 1;
+  const lead = back ? `${words.slice(words.length - back).join(' ')} ` : '';
+  const tail = region.slice(at).split(/[,;.]/)[0].trim().split(/\s+/).slice(0, 10).join(' ');
+  return clean(`${lead}${tail}`).replace(/\s+(?:and|or|the|of|our|its|a|an)$/i, '');
+}
+
 /**
  * Relatives a related-party passage names, in the phrasing filings use
  * ("Jane Roe, the sister of Mr. Roe, is employed as ..."). Kept only when the
- * words that follow give the relative a part in the business; sons and
- * daughters are never read.
+ * clause that names the relative gives them a part in the business: the
+ * words after their name when the clause goes on about them, or the words
+ * before it ("employees of Legacy Acme, including Ms. Roe's relatives, ...")
+ * when no one else is named there. A role that follows another person's name
+ * ("Jim Doe, our Chief Legal Officer") is that person's. Sons and daughters
+ * are never read.
  */
 function relativesInDisclosure(subject, passage) {
   const words = nameWords(subject);
@@ -564,27 +676,66 @@ function relativesInDisclosure(subject, passage) {
   const possessor = `(?:(?:Mr|Ms|Mrs|Dr)\\.?\\s+${surname}|${full}${words[0].length >= 4 ? `|${escapeRe(words[0])}` : ''})`;
   const text = flat(passage);
   if (mentionsMinor(text) || isSensitive(text)) return [];
+  // Someone else named in a stretch of the clause: an honorific, a name with an initial, a name with an
+  // appositive ("Jim Doe, our ..."), or the person themselves.
+  const otherPeople = (region, relative) => {
+    const re = new RegExp(`\\b(?:Mr|Ms|Mrs|Dr)\\.?\\s+[A-ZÀ-Þ][A-Za-zÀ-ÿ'’-]+|[A-ZÀ-Þ][a-zà-ÿ'’-]+\\s+[A-Z]\\.\\s+[A-ZÀ-Þ][a-zà-ÿ'’-]+|(?:${PERSON})(?=,\\s+(?:our|the|its|their|his|her|who)\\b)|(?<![A-Za-z])${possessor}(?![A-Za-z])`, 'g');
+    return [...region.matchAll(re)].filter((m) => !m[0].includes(relative) && !relative.includes(m[0])).map((m) => m.index);
+  };
+  const clauseStart = (at) => {
+    let a = 0;
+    for (const m of text.slice(0, at).matchAll(BOUNDARY)) a = m.index + m[0].length;
+    return Math.max(a, text.lastIndexOf(';', at - 1) + 1);
+  };
+  const clauseEnd = (at) => {
+    const rest = text.slice(at);
+    const m = [...rest.matchAll(BOUNDARY)][0];
+    const semi = rest.indexOf(';');
+    return at + Math.min(m ? m.index : rest.length, semi >= 0 ? semi : rest.length);
+  };
+  /** The role the words after `from` give the name just before it, when the clause goes on about that name. */
+  const roleAfter = (from, relative) => {
+    const region = text.slice(from, clauseEnd(from));
+    if (!PREDICATE_START.test(region)) return '';
+    const cut = otherPeople(region, relative)[0];
+    const own = cut === undefined ? region : region.slice(0, cut);
+    const m = own.match(BUSINESS_ROLE);
+    return m ? rolePhrase(own, m.index) : '';
+  };
+  /** The role the words before `to` in the same clause give, when no one else is named there. */
+  const roleBefore = (to, relative) => {
+    const region = text.slice(clauseStart(to), to);
+    if (otherPeople(region, relative).length) return '';
+    const all = [...region.matchAll(new RegExp(BUSINESS_ROLE.source, 'gi'))];
+    return all.length ? rolePhrase(region, all[all.length - 1].index) : '';
+  };
   const found = new Map();
-  const add = (rawName, relation, at) => {
+  const add = (rawName, relation, start, end, aboutRelative = true) => {
     const name = clean(rawName).replace(/[’']s$/, '').replace(/[,.;:]+$/, '');
     const parts = name.split(' ');
     if (parts.length < 2 || parts.length > 4 || NOT_A_PERSON.test(name) || subject.hasName(name)) return;
-    const role = text.slice(at, at + 320).match(BUSINESS_ROLE);
+    let role = (aboutRelative && roleAfter(end, name)) || roleBefore(start, name);
+    // elsewhere in the passage, a clause about the relative by name ("Jane Roe serves as ...")
+    for (const m of text.matchAll(new RegExp(`(?<![A-Za-z])${escapeRe(name)}(?![A-Za-z])`, 'g'))) {
+      if (role) break;
+      role = roleAfter(m.index + m[0].length, name);
+    }
     if (!role) return; // family only: not our business
-    if (!found.has(name.toLowerCase())) found.set(name.toLowerCase(), { name, relation: relation.toLowerCase(), role: role[0] });
+    if (!found.has(name.toLowerCase())) found.set(name.toLowerCase(), { name, relation: relation.toLowerCase(), role });
   };
-  for (const m of text.matchAll(new RegExp(`(${PERSON}),\\s+(?:who\\s+is\\s+)?(?:the|a)\\s+(${KIN})\\s+of\\s+${who}`, 'g'))) add(m[1], m[2], m.index);
-  for (const m of text.matchAll(new RegExp(`(${PERSON})\\s+is\\s+(?:the\\s+|a\\s+)?(${KIN})\\s+of\\s+${who}`, 'g'))) add(m[1], m[2], m.index);
-  for (const m of text.matchAll(new RegExp(`${possessor}[’']s\\s+(${KIN}),?\\s+(${PERSON})`, 'g'))) add(m[2], m[1], m.index);
-  for (const m of text.matchAll(new RegExp(`\\b(${KIN})\\s+of\\s+${who},\\s+(${PERSON})`, 'g'))) add(m[2], m[1], m.index);
-  // "Adam is married to Rebekah Neumann" / "Rebekah Neumann is married to Mr. Neumann"
-  for (const m of text.matchAll(new RegExp(`(?<![A-Za-z])${possessor}\\s+is\\s+married\\s+to\\s+(${PERSON})`, 'g'))) add(m[1], 'spouse', m.index);
-  for (const m of text.matchAll(new RegExp(`(${PERSON})\\s+is\\s+married\\s+to\\s+${who}`, 'g'))) add(m[1], 'spouse', m.index);
+  const end = (m) => m.index + m[0].length;
+  for (const m of text.matchAll(new RegExp(`(${PERSON}),\\s+(?:who\\s+is\\s+)?(?:the|a)\\s+(${KIN})\\s+of\\s+${who}`, 'g'))) add(m[1], m[2], m.index, end(m));
+  for (const m of text.matchAll(new RegExp(`(${PERSON})\\s+is\\s+(?:the\\s+|a\\s+)?(${KIN})\\s+of\\s+${who}`, 'g'))) add(m[1], m[2], m.index, end(m));
+  for (const m of text.matchAll(new RegExp(`${possessor}[’']s\\s+(${KIN}),?\\s+(${PERSON})`, 'g'))) add(m[2], m[1], m.index, end(m));
+  for (const m of text.matchAll(new RegExp(`\\b(${KIN})\\s+of\\s+${who},\\s+(${PERSON})`, 'g'))) add(m[2], m[1], m.index, end(m));
+  // "Adam is married to Rebekah Neumann" (the clause goes on about Adam) / "Rebekah Neumann is married to Mr. Neumann"
+  for (const m of text.matchAll(new RegExp(`(?<![A-Za-z])${possessor}\\s+is\\s+married\\s+to\\s+(${PERSON})`, 'g'))) add(m[1], 'spouse', m.index, end(m), false);
+  for (const m of text.matchAll(new RegExp(`(${PERSON})\\s+is\\s+married\\s+to\\s+${who}`, 'g'))) add(m[1], 'spouse', m.index, end(m));
   // "Mr. Roe's relatives, Jane Roe and John Roe, ..." / "Mr. Roe's brothers, Jim Roe and Joe Roe"
   for (const m of text.matchAll(new RegExp(`${possessor}[’']s\\s+(relatives|brothers|sisters|siblings|cousins),?\\s+(${PERSON})(?:,?\\s+and\\s+(${PERSON}))?`, 'g'))) {
     const relation = m[1].toLowerCase().replace(/s$/, '');
-    add(m[2], relation, m.index);
-    if (m[3]) add(m[3], relation, m.index);
+    add(m[2], relation, m.index, end(m));
+    if (m[3]) add(m[3], relation, m.index, end(m));
   }
   return [...found.values()];
 }
@@ -772,6 +923,8 @@ async function personFormD(ctx) {
     if (!finding) return;
     findings.push(finding);
     const trusted = finding.match !== 'possible';
+    // A confirmed notice that lists the person (or is filed by exactly their company) ties the registrant to them.
+    if (finding.match === 'confirmed' && doc) noteCik(subject, issuer.latest.entities[0].cik);
     threads.push(makeThread('company', issuer.name, on.person ? `Form D names the person as ${rolesText(on.person.roles)}` : 'a Form D by this issuer names the person', { trusted }));
     if (doc && on.person) named.push({ doc, person: on.person, issuerName: issuer.name, trusted });
   });
@@ -793,7 +946,7 @@ const formWeight = (g) => (g.items.includes('5.02') ? 3 : (FORM_WEIGHT.find(([re
  * to the person are matched by name alone, so only a handful are kept.
  */
 function pickFilings(groups, subject, { max = 14, perFiler = 4, maxNameOnly = 6 } = {}) {
-  const ranked = groups.map((g) => ({ ...g, known: Boolean(g.own) || knownCompany(subject, g.entities.map((e) => e.name).join('. ')), weight: formWeight(g) }))
+  const ranked = groups.map((g) => ({ ...g, known: Boolean(g.own) || knownCompany(subject, g.entities.map((e) => e.name).join('. ')) || tiedByCik(subject, g), weight: formWeight(g) }))
     .sort((a, b) => Number(b.known) - Number(a.known) || b.weight - a.weight || byDateDesc(a, b) || a.rank - b.rank);
   const perKey = new Map();
   const out = [];
@@ -818,6 +971,15 @@ const quotedFilers = (groups, passageOf) => new Set(groups.filter((g, i) => type
 // A proxy statement or a notice of a board change that names the person with a role is that company speaking about its own people.
 const ROLE_AT_FILER = /\b(directors?|officers?|chief|president|chair(?:man|woman|person)?|co-?founders?|founders?|nominees?|board|appointed|elected|resign\w*)\b/i;
 
+/** "our Co-Founder and Chief Executive Officer, Jane Roe": any filer's own main document speaking of its founder. */
+function founderAtFiler(subject, passage) {
+  const names = (subject.variants?.length ? subject.variants : [subject.name]).map((v) => clean(String(v).replace(/"/g, '')).split(' ').map(escapeRe).join('\\s+'));
+  return new RegExp(`\\bour\\s+(?:co-?)?founder,?\\s+(?:and|&)\\s+chief\\s+executive\\s+officer,?\\s+(?:${names.join('|')})(?![A-Za-z-])`, 'i').test(flat(passage));
+}
+/** The filer's own notice about its people: a board change, a proxy, or its main document naming its founder and CEO. */
+const ownNoticeOf = (subject, g, finding, passage) => finding.match !== 'possible' && Boolean(passage) && g.entities.length === 1
+  && (((g.items.includes('5.02') || /^DEF 14A/.test(g.rootForm)) && ROLE_AT_FILER.test(passage)) || (g.best.main && founderAtFiler(subject, passage)));
+
 /**
  * Company threads for the filers of the findings just built (one per
  * company, never the person themselves). A filer is followed only when it
@@ -833,9 +995,7 @@ function filerThreads(subject, entries, groups, why) {
   for (const { g, finding, passage } of entries) {
     for (const e of g.entities) {
       if (!looksLikeOrg(e) || namesAgree(edgarPersonTokens(e.name), want)) continue;
-      const ownNotice = finding.match !== 'possible' && Boolean(passage) && g.entities.length === 1
-        && (g.items.includes('5.02') || /^DEF 14A/.test(g.rootForm)) && ROLE_AT_FILER.test(passage);
-      const tied = knownCompany(subject, e.name) || ownNotice;
+      const tied = knownCompany(subject, e.name) || hasCik(subject, e.cik) || ownNoticeOf(subject, g, finding, passage);
       byName.set(e.name, { trusted: Boolean(byName.get(e.name)?.trusted) || tied, count: filings.get(e.name) || 1 });
     }
   }
@@ -861,16 +1021,19 @@ async function personMentions(ctx) {
     const item = notableItem(g.items);
     const title = `${g.form}${docLabel(g.best)} filed by ${filersOf(g)} mentions ${subject.name}${item ? ` (${item})` : ''}`;
     const quote = passage ? flat(passage) : recordLine(g);
-    const finding = makeFinding(subject, {
+    const fields = {
       source: PERSON_ID, sourceLabel: 'SEC EDGAR full-text search', category: 'corporate',
       title, quote, url: g.best.url, date: g.date,
-      severity: passage ? severityFromText(quote) : 'info',
+      severity: passage ? passageSeverity(subject, g, quote) : 'info',
       matchText: [subject.name, ...g.entities.map((e) => e.name), quote].join('. '),
       data: { form: g.form, accession: g.adsh, filers: g.entities.map((e) => e.name), items: g.items },
-    });
+    };
+    // A passage read from a filing by a registrant already tied to the person (by CIK) is theirs.
+    const finding = gradeByTie(subject, makeFinding(subject, fields), fields, passage ? cikTie(subject, g) : null);
     if (!finding) return;
     findings.push(finding);
     entries.push({ g, finding, passage });
+    if (finding.match === 'confirmed' && g.entities.length === 1 && (sameAsKnown(subject, g.entities[0].name) || ownNoticeOf(subject, g, finding, passage))) noteCik(subject, g.entities[0].cik);
     if (passage) threads.push(...passageThreads(subject, passage, g.best.url, finding.match !== 'possible'));
   });
   threads.push(...filerThreads(subject, entries, groups, (n) => `${plural(n, 'SEC filing')} by this company ${n === 1 ? 'names' : 'name'} the person`));
@@ -987,6 +1150,14 @@ const RELATED_WEIGHT = [[/^(S-1|F-1|1-A)/, 4], [/^(DEF 14A|DEFM14A|10-K)/, 3], [
 // Searched beside RELATED_QUERY (EDGAR's search takes no brackets: the name and then any one of the terms).
 const DEALINGS_QUERY = '"related party transactions" OR lease OR landlord OR loan OR "promissory note" OR trademark OR "purchased from"';
 const MAIN_DISCLOSURE = /^(S-1|F-1|DEF 14A)$/;
+// A filer's own account of itself and its people: where it names its founder's relatives and dealings.
+const OWN_DISCLOSURE = /^(S-1|F-1|DEF 14A|10-K)$/;
+/** A relative or family member next to the name (not a related-party term alone). */
+const kinOnlyScore = (window, offset) => {
+  if (!KIN_WORD.test(window) && !FAMILY_TERM.test(window)) return null;
+  const s = kinScore(window, offset);
+  return s && BUSINESS_ROLE.test(window) ? { ...s, points: s.points + 3 } : s; // a relative with a part in the business first
+};
 const RELATED_MAX_READS = 5;
 
 async function personRelated(ctx) {
@@ -1027,10 +1198,22 @@ async function personRelated(ctx) {
   const read = await mapLimit(toRead, 2, async (g) => {
     const text = await documentText(g.best, ctx);
     if (!text) return null;
+    // A filer not known by name may be the person's company under another name: its registrant record says so.
+    const tie = g.known ? cikTie(subject, g) : (OWN_DISCLOSURE.test(g.rootForm) && subject.hasName(text) ? await filerTie(subject, g, ctx) : null);
+    const known = g.known || Boolean(tie);
     // Only a company's own filing calls its founder "Mr. Surname" or by first name throughout.
-    const { own } = nameSpots(text, subject, { honorific: true, informal: g.known });
+    const { own } = nameSpots(text, subject, { honorific: true, informal: known });
     const spot = bestSpot(text, own, dealScore);
-    return spot ? { passage: excerptAround(text, spot.start, spot.end, { lead: 200, trail: 360 }), dealing: spot.points >= DEAL_POINTS } : false;
+    if (!spot) return false;
+    const passages = [{ passage: excerptAround(text, spot.start, spot.end, { lead: 200, trail: 360 }), dealing: spot.points >= DEAL_POINTS }];
+    // The company's own prospectus, proxy or annual report sets out relatives it employs apart from the founder's
+    // dealings: that passage is reported too, when it gives a relative a part in the business.
+    if (known && OWN_DISCLOSURE.test(g.rootForm) && passages[0].dealing) {
+      const kin = bestSpot(text, own, kinOnlyScore);
+      const passage = kin && (kin.start > spot.end + 560 || kin.end < spot.start - 560) ? excerptAround(text, kin.start, kin.end, { lead: 200, trail: 360 }) : '';
+      if (passage && relativesInDisclosure(subject, passage).length) passages.push({ passage, dealing: false, relative: true });
+    }
+    return { passages, tie };
   });
 
   const findings = [];
@@ -1038,28 +1221,32 @@ async function personRelated(ctx) {
   const entries = [];
   toRead.forEach((g, i) => {
     if (!read[i]) return; // not opened, or the terms are nowhere near the name
-    const { passage, dealing } = read[i];
-    const quote = flat(passage);
-    const filers = filersOf(g);
-    const kin = KIN_WORD.exec(quote);
-    const deal = dealing && DEAL_TERM.exec(quote);
-    const about = deal ? `in a passage about dealings with the company (${deal[0].toLowerCase()})`
-      : kin ? `in a passage about a relative (${kin[0].toLowerCase()})` : FAMILY_TERM.test(quote) ? 'in a passage about immediate family members' : 'in a related-party disclosure';
-    const relatives = [...relativesFromText(subject, asSentences(passage)).map((r) => ({ name: r.name, relation: r.relation, role: r.role })), ...relativesInDisclosure(subject, passage)];
-    const finding = makeFinding(subject, {
-      source: PERSON_ID, sourceLabel: 'SEC EDGAR full-text search', category: 'related',
-      title: `${g.form} filed by ${filers} names ${subject.name} ${about}`,
-      quote, url: g.best.url, date: g.date,
-      severity: atLeast(deal ? 'medium' : 'low', severityFromText(quote)),
-      matchText: [subject.name, ...g.entities.map((e) => e.name), quote].join('. '),
-      data: { form: g.form, accession: g.adsh, filers: g.entities.map((e) => e.name), ...(relatives[0] ? { person: relatives[0].name } : {}) },
-    });
-    if (!finding) return;
-    findings.push(finding);
-    entries.push({ g, finding, passage: null });
-    const trusted = finding.match !== 'possible';
-    for (const r of relatives) threads.push(makeThread('relative', r.name, `${r.relation}; named in a related-party disclosure by ${filers}`, { trusted, relation: r.relation, ...(r.role ? { role: r.role } : {}) }));
-    for (const a of associatesFromText(subject, asSentences(passage))) threads.push(makeThread('associate', a.name, a.why, { trusted }));
+    const { tie } = read[i];
+    if (tie) threads.push(...registrantThreads(tie));
+    for (const { passage, dealing, relative } of read[i].passages) {
+      const quote = flat(passage);
+      const filers = filersOf(g);
+      const kin = KIN_WORD.exec(quote);
+      const deal = dealing && DEAL_TERM.exec(quote);
+      const about = deal ? `in a passage about dealings with the company (${deal[0].toLowerCase()})`
+        : kin ? `in a passage about a relative (${kin[0].toLowerCase()})` : relative || FAMILY_TERM.test(quote) ? 'in a passage about immediate family members' : 'in a related-party disclosure';
+      const relatives = [...relativesFromText(subject, asSentences(passage)).map((r) => ({ name: r.name, relation: r.relation, role: r.role })), ...relativesInDisclosure(subject, passage)];
+      const fields = {
+        source: PERSON_ID, sourceLabel: 'SEC EDGAR full-text search', category: 'related',
+        title: `${g.form} filed by ${filers} names ${subject.name} ${about}`,
+        quote, url: g.best.url, date: g.date,
+        severity: atLeast(deal ? 'medium' : 'low', passageSeverity(subject, g, quote)),
+        matchText: [subject.name, ...g.entities.map((e) => e.name), quote].join('. '),
+        data: { form: g.form, accession: g.adsh, filers: g.entities.map((e) => e.name), ...(relatives[0] ? { person: relatives[0].name } : {}) },
+      };
+      const finding = gradeByTie(subject, makeFinding(subject, fields), fields, tie);
+      if (!finding) continue;
+      findings.push(finding);
+      entries.push({ g, finding, passage: null });
+      const trusted = finding.match !== 'possible';
+      for (const r of relatives) threads.push(makeThread('relative', r.name, `${r.relation}; named in a related-party disclosure by ${filers}`, { trusted, relation: r.relation, ...(r.role ? { role: r.role } : {}) }));
+      for (const a of associatesFromText(subject, asSentences(passage))) threads.push(makeThread('associate', a.name, a.why, { trusted }));
+    }
   });
   threads.push(...filerThreads(subject, entries, groups, () => 'discloses related-party or family dealings that name the person'));
   const notes = [];
@@ -1151,7 +1338,7 @@ async function personFamily(ctx) {
       source: PERSON_ID, sourceLabel: 'SEC EDGAR full-text search', category: 'related',
       title: `${g.form} filed by ${filers} names relatives of ${subject.name} in company roles: ${listText(relatives.map((r) => `${r.name} (${r.relation})`), 3)}`,
       quote, url: g.best.url, date: g.date,
-      severity: atLeast('low', severityFromText(quote)),
+      severity: atLeast('low', passageSeverity(subject, g, quote)),
       // The filing is the company's own and names the person in full elsewhere; the passage may call them "Mr. Surname".
       matchText: [subject.name, ...g.entities.map((e) => e.name), quote].join('. '),
       data: { form: g.form, accession: g.adsh, filers: g.entities.map((e) => e.name), relatives: relatives.map((r) => ({ name: r.name, relation: r.relation, role: r.role })) },
@@ -1398,6 +1585,22 @@ async function personPress(ctx) {
 
 /* ------------------------------------------------------------------ company: Form D */
 
+// The legal form a name may carry without becoming another name.
+const LEGAL_FORM = new Set(['the', 'inc', 'incorporated', 'llc', 'ltd', 'limited', 'corp', 'corporation', 'co', 'company', 'companies', 'plc', 'lp', 'llp', 'sa', 'sas', 'ag', 'nv', 'bv', 'gmbh']);
+const nameWordsOf = (name) => stripAccents(name).toLowerCase().replace(/\./g, '').replace(/&/g, ' and ').split(/[^a-z0-9]+/).filter(Boolean);
+/** Does the issuer's name add words beyond the company's own and a legal form ("Flow Holdings, Inc." for "Flow")? */
+function addsWords(issuerName, company) {
+  const want = new Set(nameWordsOf(company));
+  return nameWordsOf(issuerName).some((w) => !want.has(w) && !LEGAL_FORM.has(w));
+}
+/** A Form D listing three or more people, none of them the person or a known associate. */
+function strangersOnly(subject, doc) {
+  const people = doc.persons.filter((p) => !p.isOrg);
+  if (people.length < 3) return false;
+  const associates = [...(subject.anchors?.people?.values?.() || [])];
+  return !people.some((p) => subject.hasName(p.name) || associates.some((a) => a.test(p.name)));
+}
+
 async function companyFormD(task, ctx) {
   const { subject } = ctx;
   const company = clean(String(task.value).replace(/"/g, ''));
@@ -1428,6 +1631,9 @@ async function companyFormD(task, ctx) {
     const on = doc ? subjectOnFormD(doc, subject, { nickname: true }) : {};
     const isNamed = Boolean(on.person || on.signer);
     if (namedOnly && !isNamed) continue;
+    // An issuer whose name adds words to the company's ("Flow Holdings, Inc." for Flow) may be another business that
+    // shares it, and a notice listing several people none of whom is the person or a known associate is not theirs.
+    if (!isNamed && (addsWords(issuerName, company) || (doc && strangersOnly(subject, doc)))) continue;
     const others = doc ? doc.persons.filter((p) => p !== on.person) : [];
     const facts = doc ? [doc.totalSold ? `${money(doc.totalSold)} sold` : '', doc.firstSale ? `first sale ${doc.firstSale}` : ''].filter(Boolean).join(', ') : '';
     const finding = makeFinding(subject, {
@@ -1442,6 +1648,7 @@ async function companyFormD(task, ctx) {
     if (!finding) continue;
     findings.push(finding);
     if (!doc) continue;
+    if (isNamed && finding.match === 'confirmed') noteCik(subject, h.entities[0].cik);
     // Co-executives are followed only from a notice that also names the person.
     if (on.person) named.push({ doc, person: on.person, issuerName, trusted: true });
     // An earlier name is the same company; it is followed when the notice ties the person to it.
@@ -1537,7 +1744,7 @@ async function companyJoint(task, ctx) {
     const finding = makeFinding(subject, {
       source: COMPANY_ID, sourceLabel: 'SEC EDGAR full-text search', category: 'corporate',
       title, quote, url: g.best.url, date: g.date,
-      severity: passage ? severityFromText(quote) : 'info',
+      severity: passage ? passageSeverity(subject, g, quote) : 'info',
       matchText: [subject.name, ...g.entities.map((e) => e.name), ...(g.own ? [company] : []), quote].join('. '),
       data: { form: g.form, accession: g.adsh, filers: g.entities.map((e) => e.name), items: g.items },
     });

@@ -43,7 +43,7 @@
 import { getJson, getText, mapLimit } from '../http';
 import { makeFinding, makeThread, severityFromText } from '../finding';
 import { nameTokens, matchSubject, companyKeyStrict } from '../identity';
-import { threadsFromResult, relativesFromText, associatesFromText, mentions } from '../extract';
+import { threadsFromResult, relativesFromText, associatesFromText, plausiblePersonName, mentions } from '../extract';
 import { isSensitive, mentionsMinor } from '../guardrails';
 
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -708,6 +708,11 @@ function yearOf(text) {
   const years = (String(text || '').match(/\b(?:19|20)\d{2}\b/g) || []).map(Number).filter((y) => y <= thisYear());
   return years.length ? String(Math.max(...years)) : null;
 }
+/** The year a quotation names when it names exactly one ("joined in 2020" -> "2020"); several years or none -> null. */
+function singleYearOf(text) {
+  const years = unique((String(text || '').match(/\b(?:19|20)\d{2}\b/g) || []).filter((y) => Number(y) <= thisYear()));
+  return years.length === 1 ? years[0] : null;
+}
 /** The sentences, in order, that fit in a quotation. */
 function fitSentences(sentences, limit = QUOTE_CHARS) {
   const out = [];
@@ -787,6 +792,40 @@ function distinctUrl(used, url, quote) {
   return url;
 }
 
+/** A role at a company that a company article gives a person beside its founders. */
+const CO_ROLE = '(?:co-founding\\s+)?advis[eo]r|shareholder|investor|board\\s+member|member\\s+of\\s+the\\s+board';
+const CO_ROLE_SENTENCE = /\b(?:(?:co-founding\s+)?advis[eo]rs?|shareholders?|investors?|board\s+members?|member\s+of\s+the\s+board|former\s+(?:[\w\u00C0-\u00FF-]+\s+){0,2}?minister)\b/i;
+// A name, also with a one-letter surname right beside a role word ("Cédric O"); the same shape extract.js uses.
+const CO_PERSON = "[A-Z\u00C0-\u00DE][a-zA-Z\u00C0-\u00FF'\u2019-]+(?:(?:\\s+(?:[A-Z]\\.|de|van|von|bin|al|del|la|le|[A-Z\u00C0-\u00DE][a-zA-Z\u00C0-\u00FF'\u2019-]+)){1,3}|\\s+[A-Z\u00C0-\u00DE](?![\\w\u00C0-\u00FF'\u2019.-]))";
+const CO_ROLE_BEFORE = new RegExp(`\\b(?:((?:${CO_ROLE})s?(?:\\s+and\\s+(?:${CO_ROLE})s?)?)|(former\\s+(?:[A-Za-z\u00C0-\u00FF-]+\\s+){0,2}?minister))\\s*,?\\s+(${CO_PERSON})(?:\\s+and\\s+(${CO_PERSON}))?`, 'g');
+const CO_ROLE_AFTER = new RegExp(`(${CO_PERSON})\\s*,\\s+(?:a|an|the)\\s+(former\\s+)?(?:(?!(?:who|which|and|of|at)\\b)[A-Za-z\u00C0-\u00FF-]+\\s+){0,3}?(${CO_ROLE}|minister)\\b`, 'g');
+const roleLabel = (raw) => {
+  const r = String(raw || '').toLowerCase().replace(/\s+/g, ' ');
+  if (/minister/.test(r)) return 'Former minister';
+  // "advisers and shareholders" -> "Adviser and shareholder"
+  const said = r.replace(/advisor/g, 'adviser').replace(/member of the board/g, 'board member').replace(/(adviser|shareholder|investor|member)s\b/g, '$1');
+  return said.charAt(0).toUpperCase() + said.slice(1);
+};
+/**
+ * People a company article names with a role at the company ("adviser and
+ * shareholder Jane Doe", "Jane Doe, a former digital minister"), read from
+ * every sentence of the article, not only those naming the person.
+ * @returns {Array<{ name: string, role: string }>}
+ */
+function companyRolesFromText(subject, text) {
+  const out = new Map();
+  const add = (raw, role) => {
+    const name = plausiblePersonName(raw, subject);
+    if (name && !out.has(name.toLowerCase())) out.set(name.toLowerCase(), { name, role: roleLabel(role) });
+  };
+  for (const sentence of sentencesIn(text).filter((x) => CO_ROLE_SENTENCE.test(x))) {
+    for (const m of sentence.matchAll(CO_ROLE_BEFORE)) { add(m[3], m[1] || m[2]); if (m[4]) add(m[4], m[1] || m[2]); }
+    // A minister only when a former one: a serving official merely quoted about the company is no associate
+    for (const m of sentence.matchAll(CO_ROLE_AFTER)) if (m[3] !== 'minister' || m[2]) add(m[1], m[3] === 'minister' ? 'former minister' : m[3]);
+  }
+  return [...out.values()];
+}
+
 /** A company the person founded or runs (or the one given); an affiliate (a stake, an investment) is not read. */
 const primaryCompany = (x) => x?.kind === 'company' && (!x.tie || x.tie === 'primary');
 
@@ -822,8 +861,16 @@ async function wpCompany(task, ctx) {
   const trusted = matchSubject(subject, clean(`${subject.name}. ${company}. ${title}. ${about.join(' ')}`).slice(0, 3900)).level !== 'possible';
   const threads = [];
   for (const a of associatesFromText(subject, text).slice(0, 8)) threads.push(makeThread('associate', a.name, `${a.why} (Wikipedia article on ${title})`, { trusted }));
-  for (const r of relativesFromText(subject, text).slice(0, 4)) {
+  const relatives = relativesFromText(subject, text).slice(0, 4);
+  for (const r of relatives) {
     threads.push(makeThread('relative', r.name, `${r.relation}; ${r.role} (Wikipedia article on ${title})`, { trusted, relation: r.relation, role: r.role }));
+  }
+  // Advisers, shareholders, investors and board members the article gives a
+  // role at the company, even in sentences that do not name the person. They
+  // are associates of the company (the article names them), never relatives.
+  const family = new Set(relatives.map((r) => r.name.toLowerCase()));
+  for (const a of companyRolesFromText(subject, text).slice(0, 6)) {
+    if (!family.has(a.name.toLowerCase())) threads.push(makeThread('associate', a.name, `${a.role} of ${title} (Wikipedia article on ${title})`, { trusted, role: a.role }));
   }
   const seen = new Set();
   return { ...empty, threads: threads.filter((t) => t && !seen.has(`${t.kind}|${t.value.toLowerCase()}`) && seen.add(`${t.kind}|${t.value.toLowerCase()}`)) };
@@ -941,12 +988,12 @@ export const wikipediaConnector = {
       for (const x of said) careerQuoted.add(x);
       const quote = said.join(' ');
       const url = distinctUrl(careerUrls, sectionUrl(articleUrl, top), quote);
-      findings.push(build({ category: 'career', title: `${title}: career as described on Wikipedia ("${top}")`, quote, url, severity: severityFromText(quote), data: { section: top } }));
+      findings.push(build({ category: 'career', title: `${title}: career as described on Wikipedia ("${top}")`, quote, url, severity: severityFromText(quote), date: singleYearOf(quote), data: { section: top } }));
     }
     if (!careerTops.length && leadSentences.length > 4) {
       const said = fitSentences(leadSentences.slice(4).filter((x) => !quoted.has(x) && careerSentence(x)));
       for (const x of said) careerQuoted.add(x);
-      if (said.length) findings.push(build({ category: 'career', title: `${title}: career as described on Wikipedia`, quote: said.join(' '), url: distinctUrl(careerUrls, articleUrl, said.join(' ')) }));
+      if (said.length) findings.push(build({ category: 'career', title: `${title}: career as described on Wikipedia`, quote: said.join(' '), url: distinctUrl(careerUrls, articleUrl, said.join(' ')), date: singleYearOf(said.join(' ')) }));
     }
     // Military or national service reported outside the career sections (often under early life)
     const serviceSections = sections.filter((s) => s.heading && !WP_PRIVATE_SECTION.test(s.heading) && !WP_PRIVATE_SECTION.test(s.top));

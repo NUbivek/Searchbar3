@@ -268,6 +268,10 @@ function angel($) {
 
 // ---------- Crunchbase person pages ----------
 
+/** The name of a link to a profile or site ("LinkedIn", "Blog", "Website"), which a page lists beside its roles. */
+const WEB_PRESENCE = /^(?:(?:my|personal|company|official)\s+)?(?:linked\s?in|twitter|facebook|instagram|youtube|angel\s?list|angel\.co|github|crunchbase|blog|web\s?site|homepage|home\s?page|web\s?presence)(?:\s+(?:profile|page|account|url))?$/i;
+export const isWebPresenceLabel = (s) => WEB_PRESENCE.test(clean(s).replace(/[.:,;]+$/, ''));
+
 function crunchbase($) {
   const roles = [];
   const education = [];
@@ -278,10 +282,12 @@ function crunchbase($) {
   if ($('#col2_internal, .col1_people_name').length) {
     // 2008-2014
     name = textOf($, $('h1.h1_first, #col2_internal h1').first(), '.right');
+    // A role is a name with its own title right after it; a bare name is a link ("LinkedIn" under Web Presence), not an employer.
     $('.col1_people_name').each((i, el) => {
       const org = textOf($, el);
-      const title = textOf($, $(el).nextAll('.col1_people_title').first());
-      if (org) roles.push({ title, org, dates: '' });
+      const title = textOf($, $(el).nextUntil('.col1_people_name').filter('.col1_people_title').first());
+      if (!org || !title || (isWebPresenceLabel(org) && !looksLikeTitle(title))) return;
+      roles.push({ title, org, dates: '' });
     });
     $('h2').filter((i, el) => /^\s*Degrees/.test($(el).text())).first().nextAll('.col1_content').first().find('tr, li').each((i, el) => {
       const cells = $(el).find('td').length ? $(el).find('td').map((j, td) => textOf($, td)).get().filter(Boolean) : [textOf($, el)];

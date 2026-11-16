@@ -264,6 +264,42 @@ export function federalCourtName(code) {
   if (m && STATES[m[1]]) return `US ${m[3] === 'b' ? 'Bankruptcy' : 'District'} Court, ${m[2] ? `${DISTRICTS[m[2]]} District` : 'District'} of ${STATES[m[1]]}`;
   return c ? `US federal court (${c})` : 'US federal court';
 }
+// Court-citation abbreviations of states ("S.D.N.Y.", "N.D. Cal.", "D. Mass."), as written in releases.
+const STATE_ABBR = {
+  'ala': 'al', 'alaska': 'ak', 'ariz': 'az', 'ark': 'ar', 'cal': 'ca', 'calif': 'ca', 'colo': 'co', 'conn': 'ct', 'del': 'de', 'dc': 'dc',
+  'fla': 'fl', 'ga': 'ga', 'haw': 'hi', 'idaho': 'id', 'ill': 'il', 'ind': 'in', 'iowa': 'ia', 'kan': 'ks', 'ky': 'ky', 'la': 'la',
+  'me': 'me', 'md': 'md', 'mass': 'ma', 'mich': 'mi', 'minn': 'mn', 'miss': 'ms', 'mo': 'mo', 'mont': 'mt', 'neb': 'ne', 'nev': 'nv',
+  'nh': 'nh', 'nj': 'nj', 'nm': 'nm', 'ny': 'ny', 'nc': 'nc', 'nd': 'nd', 'ohio': 'oh', 'okla': 'ok', 'or': 'or', 'ore': 'or', 'pa': 'pa',
+  'pr': 'pr', 'ri': 'ri', 'sc': 'sc', 'sd': 'sd', 'tenn': 'tn', 'tex': 'tx', 'utah': 'ut', 'vt': 'vt', 'va': 'va', 'wash': 'wa',
+  'wva': 'wv', 'wis': 'wi', 'wyo': 'wy',
+};
+const STATE_BY_NAME = new Map(Object.entries(STATES).map(([code, name]) => [name.replace(/^the /, '').toLowerCase(), code]));
+const STATE_NAMES = [...STATE_BY_NAME.keys()].sort((a, b) => b.length - a.length).map((n) => escapeRe(n).replace(/ /g, '\\s+')).join('|');
+const DISTRICT_WORD = '(Northern|Southern|Eastern|Western|Middle|Central)';
+
+/**
+ * The federal district courts a text names, as court codes: "the Southern
+ * District of New York", "S.D.N.Y." and "USAO - New York, Southern" are all
+ * "nysd"; "the District of New Jersey" and "D.N.J." are "njd".
+ */
+export function districtCodes(text) {
+  const t = String(text || '');
+  const out = [];
+  const add = (dir, state) => { if (state && STATES[state]) out.push(`${state}${dir ? dir[0].toLowerCase() : ''}d`); };
+  for (const m of t.matchAll(new RegExp(`\\b(?:${DISTRICT_WORD}\\s+)?District\\s+of\\s+(?:the\\s+)?(${STATE_NAMES}|Columbia)\\b`, 'gi'))) {
+    add(m[1], STATE_BY_NAME.get(m[2].replace(/\s+/g, ' ').toLowerCase()));
+  }
+  for (const m of t.matchAll(new RegExp(`\\bUSAO\\s*-\\s*(${STATE_NAMES}|District of Columbia),\\s*${DISTRICT_WORD}?`, 'gi'))) {
+    add(m[2], STATE_BY_NAME.get(m[1].replace(/\s+/g, ' ').replace(/^district of /i, '').toLowerCase()));
+  }
+  // "S.D.N.Y.", "N.D. Cal.", "D. Mass.", "D.N.J.", "D.D.C."
+  for (const m of t.matchAll(/(?<![A-Za-z.])(?:([NSEWMC])\.\s?)?D\.\s?((?:[A-Z][a-z]*\.\s?){1,2}|(?:Alaska|Idaho|Iowa|Ohio|Utah)\b)/g)) {
+    const parts = m[2].split('.').map((p) => p.trim().toLowerCase()).filter(Boolean);
+    add(m[1] ? DISTRICTS[m[1].toLowerCase()] : '', STATE_ABBR[parts.join('')] || STATE_ABBR[parts[0]]);
+  }
+  return uniq(out);
+}
+
 const isBankruptcyCourt = (code, name = '') => /^(?:nmi|[a-z]{2})[nsewmc]?b$/.test(String(code || '').toLowerCase()) || /bankruptcy/i.test(name);
 const isCriminalCase = (caseName, docketNumber = '') => /-(?:cr|mj)-/i.test(docketNumber)
   || (/^(?:united states(?: of america)?|usa|u\.s\.a?\.?|people|state|commonwealth)\b[^,]*\sv\.?\s/i.test(caseName) && !/-(?:cv|bk|ap|mc|md)-/i.test(docketNumber) && !/\$|\bfunds\b|\breal property\b/i.test(caseName));
@@ -445,8 +481,10 @@ const IA_ID = 'court-records-open';
 const IA_LABEL = 'US federal court case titles (Internet Archive copy of court dockets)';
 const IA_SEARCH = 'https://archive.org/advancedsearch.php';
 
-async function iaTitles(terms, ctx, rows = 100) {
-  const q = ['collection:usfederalcourts', ...terms.map((t) => `title:(${quoted(t)})`)].join(' AND ');
+/** Dockets whose title carries every term; `anyOf` titles are alternatives, `court` a court code. */
+async function iaTitles(terms, ctx, rows = 100, { anyOf: alternatives = [], court = '' } = {}) {
+  const q = ['collection:usfederalcourts', ...(court ? [`court:${court.replace(/[^a-z0-9]/g, '')}`] : []), ...terms.map((t) => `title:(${quoted(t)})`),
+    ...(alternatives.length ? [`(${alternatives.map((t) => `title:(${quoted(t)})`).join(' OR ')})`] : [])].join(' AND ');
   const fields = ['identifier', 'title', 'court', 'source_url', 'publicdate'].map((f) => `fl[]=${f}`).join('&');
   const json = await getJson(`${IA_SEARCH}?q=${encodeURIComponent(q)}&${fields}&rows=${rows}&output=json`, { deadline: ctx.deadline });
   if (!json?.response || !Array.isArray(json.response.docs)) throw new HttpError('The Internet Archive court search returned something unexpected');
@@ -506,6 +544,70 @@ function iaFinding(doc, ctx, who, { company = '', tie = null } = {}) {
   return finding ? { finding, surnameSide: Boolean(surnameSide) } : { skip: 'not-named' };
 }
 
+const CHARGE_SOURCES = new Set(['doj-press-releases', 'sec-filings']);
+const YEAR_MS = 366 * 24 * 60 * 60 * 1000;
+
+/**
+ * Where and when the subject was charged, from confirmed Justice Department
+ * or SEC records already in this check: [{ court, dates, record }], at most two courts.
+ */
+function chargeDistricts(ctx) {
+  let list = [];
+  try { list = typeof ctx.findings === 'function' ? ctx.findings() : ctx.findings; } catch { list = []; }
+  const byCourt = new Map();
+  for (const f of Array.isArray(list) ? list : []) {
+    if (!f || f.match !== 'confirmed' || !CHARGE_SOURCES.has(f.source) || !isoDay(f.date)) continue;
+    for (const court of districtCodes(`${f.title} ${f.quote || ''} ${f.data?.office || ''}`)) {
+      const entry = byCourt.get(court) || { court, dates: [], record: f.title };
+      entry.dates.push(Date.parse(isoDay(f.date)));
+      byCourt.set(court, entry);
+    }
+  }
+  return [...byCourt.values()].slice(0, 2);
+}
+
+/**
+ * Criminal dockets are titled by surname only ("United States v. Milton"), so
+ * the full-name search cannot find them. A docket in the district that charged
+ * the subject, titled with exactly their surname and first copied to the
+ * archive within a year of the charges, is reported as possible: the title
+ * alone cannot tell them from someone else with the same surname.
+ */
+async function chargedDockets(ctx, who, seen) {
+  const findings = [];
+  if (!who.surname) return findings;
+  for (const { court, dates } of chargeDistricts(ctx)) {
+    const { docs } = await iaTitles([], ctx, 50, { court, anyOf: [`United States v. ${who.surname}`, `USA v. ${who.surname}`] });
+    for (const doc of docs) {
+      if (seen.has(doc.identifier)) continue;
+      const code = clean(arr(doc.court)[0]) || (String(doc.identifier).match(/^gov\.uscourts\.([a-z0-9]+)\./) || [])[1] || '';
+      const caseName = clean(arr(doc.title)[0]);
+      const { sides } = caseParties(caseName);
+      const copied = Date.parse(String(arr(doc.publicdate)[0] || ''));
+      if (code !== court || sides.length !== 2 || !isCriminalCase(caseName)) continue;
+      if (plainKey(sides[1]) !== plainKey(who.surname) || !/^(?:united states(?: of america)?|usa)$/i.test(sides[0])) continue;
+      if (Number.isNaN(copied) || !dates.some((d) => Math.abs(copied - d) <= YEAR_MS)) continue;
+      seen.add(doc.identifier);
+      const courtName = federalCourtName(code);
+      const finding = makeFinding(ctx.subject, {
+        source: IA_ID,
+        sourceLabel: IA_LABEL,
+        category: 'litigation',
+        title: `${caseName} (${courtName}, federal court docket)`,
+        quote: caseName,
+        url: iaUrl(doc),
+        date: null, // the archive records when the copy was made, not when the case was filed
+        severity: 'high',
+        data: { caseNumber: null, court: courtName, archiveId: String(doc.identifier) },
+        match: 'possible',
+        matchReasons: [`criminal case in the district and year of the charges against ${who.name}; the case title gives only the surname`],
+      });
+      if (finding) findings.push(finding);
+    }
+  }
+  return findings.slice(0, 3);
+}
+
 export const courtRecordsOpenConnector = {
   id: IA_ID,
   label: IA_LABEL,
@@ -536,7 +638,12 @@ export const courtRecordsOpenConnector = {
     const read = docs.map((d) => iaFinding(d, ctx, who));
     if (read.some((r) => r.skip === 'personal-bankruptcy')) notes.push(`Personal bankruptcy cases under the name ${who.name} are reported only when the record also names a company tied to them; none found here did.`);
     notes.push('Only case titles were searched (a public copy of federal dockets); most cases are titled by surname, so a case can exist without appearing here.');
-    return { findings: read.map((r) => r.finding).filter(Boolean).slice(0, 8), threads: [], notes };
+    const named = read.map((r) => r.finding).filter(Boolean).slice(0, 8);
+    const charged = await chargedDockets(ctx, who, new Set(docs.map((d) => d.identifier))).catch(() => {
+      notes.push(`The search for criminal dockets in the district that charged ${who.name} did not answer.`);
+      return [];
+    });
+    return { findings: [...named, ...charged], threads: [], notes };
   },
 };
 
@@ -865,7 +972,9 @@ export const ukGazetteConnector = {
     if (task.kind === 'company') {
       const company = clean(task.value);
       const core = companyCore(company);
-      const named = new RegExp(`(?:Trading Names?|Previous Names? of Company)s?:[^:]{0,120}?(?<![A-Za-z0-9])${escapeRe(core)}(?![A-Za-z0-9])`, 'i');
+      // The whole trading name, not its first word: "T/A Flow Creative" is not Flow. A name ends at a comma,
+      // a bracket, a legal form, the next field of the notice or the end of the shown text.
+      const named = new RegExp(`(?:Trading Names?|Previous Names? of Company)s?:[^:]{0,120}?(?<![A-Za-z0-9])(?:T\\/A\\s+)?${escapeRe(core)}\\s*(?=$|[,;)…]|\\.{3}|\\b(?:Ltd|Limited|LLP|PLC)\\b|\\(\\s*Company Number|\\b(?:Trading Names?|Previous Names? of Company|Nature of Business|Company Number|Registered|Principal)\\b)`, 'i');
       const { entries } = await gazetteNotices([company], ctx);
       for (const n of entries.map(readNotice).filter(Boolean)) {
         if (!sameCompany(n.title, company) && !named.test(n.snippet)) continue;

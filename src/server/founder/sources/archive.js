@@ -35,10 +35,11 @@
  * name. A page counts as the person's only when its own name line is theirs;
  * it is graded confirmed or likely only when its text also names a company,
  * school or associate already tied to them. A page that carries only the
- * name stays "possible" and none of its threads are followed. A guessed
- * address is never more than "possible" and nothing on it is followed; a
- * profile linked from a record already tied to the person is at least
- * "likely".
+ * name stays "possible" and none of its threads are followed. A copy of a
+ * guessed address is "possible" unless its own text names the company the
+ * user entered or two anchors (then "likely", never more), and nothing on a
+ * guessed address is followed; a profile linked from a record already tied
+ * to the person is at least "likely".
  *
  * Privacy: location lines are never read, contact details are removed, and
  * resumes are reduced to headline, roles and education (archiveClaims.js).
@@ -382,7 +383,7 @@ export function describeChange(d) {
   return `role added: ${quoted(d.after, 110)}`;
 }
 
-const NOT_AN_EMPLOYER = /^(self[- ]?employed|freelanc\w*|independent|stealth\b.*|confidential|n\/?a|various|unemployed|retired|student|none|private|consultant)$/i;
+const NOT_AN_EMPLOYER = /^(self[- ]?employed|freelanc\w*|independent|stealth\b.*|confidential|n\/?a|various|unemployed|retired|student|none|private|consultant|tba|tbd|tbc|coming soon|[-–—]+|options?)$/i;
 
 const LEVEL_RANK = { none: 0, possible: 1, likely: 2, confirmed: 3 };
 const TIED = (level) => level === 'confirmed' || level === 'likely';
@@ -413,7 +414,7 @@ function onlyAdds(before, after) {
 }
 
 /** Names of schools: sent as a school thread, never as an employer. */
-const SCHOOL_WORDS = /(^|[\s,(])(lyc[ée]es?|[ée]coles?|universit(y|ies|é|e|at|ät|à|a)|institut(e|o)?|ENS|college|coll[èe]ge)(?=$|[\s,.)'’-])/i;
+const SCHOOL_WORDS = /(^|[\s,(])(lyc[ée]es?|[ée]coles?|universit(y|ies|é|e|at|ät|à|a)|institut(e|o)?|ENS|ENSAE|ParisTech|Polytechnique|T[ée]l[ée]com (?:Paris|SudParis|Bretagne)|Sciences Po|college|coll[èe]ge)(?=$|[\s,.)'’-])/i;
 const LOOKS_LIKE_HOST = /^(https?:|www\.)|\b[a-z0-9-]+\.(com|net|org|io|co)\b/i;
 /**
  * Is this employer name worth following? Not a fragment of another name on the
@@ -447,6 +448,61 @@ function distinctVersions(versions) {
   return out;
 }
 
+const ORG_FILLER = new Set(['inc', 'incorporated', 'llc', 'ltd', 'limited', 'corp', 'corporation', 'co', 'company', 'gmbh', 'plc', 'the']);
+/** Does this text name the organisation? "Co-founder and CEO of WeWork" and "we work" both name "WeWork, Inc.". */
+export function textNamesOrg(text, org) {
+  const want = plainWords(org).filter((w) => !ORG_FILLER.has(w)).join('');
+  if (want.length < 3) return false;
+  const words = plainWords(text);
+  for (let i = 0; i < words.length; i += 1) {
+    let joined = '';
+    for (let j = i; j < Math.min(words.length, i + 4) && joined.length < want.length; j += 1) {
+      joined += words[j];
+      if (joined === want) return true;
+    }
+  }
+  return false;
+}
+
+const OPEN_END = /\b(present|current|now|today|ongoing)\b/i;
+/** A role shown as current ("2010 - Present") that a later copy shows with an end ("2010 - Sep 2019"). */
+const roleEnded = (before, after) => OPEN_END.test(String(before || '')) && !OPEN_END.test(String(after || ''))
+  && /(?:[-–—]|\bto\b)\s*(?:[A-Za-z]{3,9}\.?\s+)?(?:19|20)\d{2}\b/.test(String(after || ''));
+
+/**
+ * Role differences as a reader should weigh them: an employer the newer copy still names in its bio or
+ * headline is not gone (the roles table did not show it that day); a title that only grew ("Co-Founder" to
+ * "Co-Founder & CEO") is noted, not flagged; a role shown as current that later has an end date is a
+ * change of dates, reported at low severity.
+ */
+function adjustRoleChanges(list, older, newer) {
+  const oldRoles = (older && older.roles) || [];
+  const newRoles = (newer && newer.roles) || [];
+  const out = [];
+  for (const d of list) {
+    if (d.field !== 'role') { out.push(d); continue; }
+    if (d.change === 'removed' && d.aspect !== 'section' && d.about && (textNamesOrg(newer.bioText, d.about) || textNamesOrg(newer.headline, d.about))) continue;
+    if (d.change === 'changed' && d.aspect === 'title') {
+      const was = oldRoles.find((r) => roleText(r) === d.before);
+      const now = newRoles.find((r) => roleText(r) === d.after);
+      if (was && now && onlyAdds(was.title, now.title)) {
+        out.push(roleEnded(was.dates, now.dates) ? { ...d, aspect: 'dates', severity: 'low' } : { ...d, severity: 'info' });
+        continue;
+      }
+    }
+    out.push(d);
+  }
+  // the same role, same title, shown as current and later with an end date: the comparison treats that as leaving a job and says nothing
+  for (const was of oldRoles) {
+    if (!was.org || !OPEN_END.test(String(was.dates || ''))) continue;
+    const before = roleText(was);
+    if (out.some((d) => d.field === 'role' && d.before === before)) continue;
+    const now = newRoles.find((r) => r.org && sameOrg(r.org, was.org) && roleText(r) !== before && roleEnded(was.dates, r.dates));
+    if (now) out.push({ field: 'role', change: 'changed', before, after: roleText(now), about: was.org, aspect: 'dates', severity: 'low' });
+  }
+  return out;
+}
+
 /**
  * The differences between versions, oldest to newest. Each part of a page
  * (headline, roles, education, bio) is compared with the last earlier
@@ -471,7 +527,7 @@ function changeFindings(subject, base, what, page, versions) {
         education: from('education').claims.education,
         bioText: from('bio').claims.bioText,
       };
-      for (const raw of compareClaims(older, cur.claims)) {
+      for (const raw of adjustRoleChanges(compareClaims(older, cur.claims), older, cur.claims)) {
         // Words only added to a bio or a profile tagline say more, not something different: noted, not flagged.
         const expanded = raw.change === 'changed' && (raw.field === 'bio' || (raw.field === 'headline' && raw.aspect !== 'title')) && onlyAdds(raw.before, raw.after);
         const d = expanded ? { ...raw, severity: 'info', expanded: true } : raw;
@@ -506,12 +562,44 @@ const MERGED_FIX = { match: 'possible', matchReasons: ['this copy also lists lin
 const CONFLICTED_FIX = { match: 'possible', matchReasons: ['shares a line with a copy of the page that may mix two people'] };
 
 /**
+ * Grades on a guessed address. A copy keeps its own grade, capped at "likely", only when its own text names
+ * the company the user entered, or two different anchors, and no copy of the page looks like a mix of two
+ * people (a copy tied by a single anchor that shares a line with a copy not tied to them). Every other copy
+ * is "possible". A copy is never lifted through another copy.
+ */
+function liftGuessed(subject, graded) {
+  const given = [...((subject.anchors && subject.anchors.companies) || new Map()).values()].filter((a) => a.origin === 'given');
+  const namedAnchors = (g) => [...new Set((g.reasons || []).filter((r) => /^names /.test(r)).map((r) => r.slice(6)))];
+  const lifted = graded.filter((g) => g.level === 'confirmed' && (given.some((a) => a.test(g.text)) || anchorCount(g.reasons) >= 2));
+  for (const g of graded) {
+    if (lifted.includes(g)) continue;
+    const links = lifted.filter((t) => anchorCount(t.reasons) < 2 && sharesLine(t.v.claims, g.v.claims));
+    if (!links.length) continue;
+    g.conflicted = true;
+    for (const t of links) t.merged = true;
+  }
+  const mixed = graded.some((g) => g.conflicted || g.merged);
+  for (const g of graded) {
+    if (!mixed && lifted.includes(g)) {
+      const own = given.filter((a) => a.test(g.text)).map((a) => a.value);
+      const names = [...new Set([...own, ...namedAnchors(g)])].slice(0, 2);
+      g.level = 'likely';
+      g.fix = { match: 'likely', matchReasons: [`address guessed from the name, but this copy names ${names.join(' and ')}`] };
+    } else {
+      g.level = 'possible';
+      g.fix = GUESSED_FIX;
+    }
+  }
+}
+
+/**
  * Findings and threads for one page that was read.
  * `discovered`: the page came from a listing of look-alike addresses, so a
  * name-only match is reported in one line and the page itself becomes a
  * thread when it is tied to the subject.
- * `guessed`: the address was guessed from the name: every line stays
- * "possible" and nothing on it is followed.
+ * `guessed`: the address was guessed from the name: a line is "possible"
+ * unless its copy is lifted by liftGuessed (then "likely"), and nothing on
+ * it is followed.
  * `linkedFrom`: the address was linked from a record tied to the subject: its
  * copies that carry the name and nothing at odds with the tied copies are
  * graded at least "likely", so their history is told.
@@ -566,7 +654,7 @@ function reportPage(subject, info, { discovered = false, guessed = false, linked
       g.fix = { match: 'likely', matchReasons: [`profile linked from ${linkedFrom}`] };
     }
   }
-  if (guessed) for (const g of graded) { g.level = 'possible'; g.fix = GUESSED_FIX; }
+  if (guessed) liftGuessed(subject, graded);
   for (const g of graded) g.tied = TIED(g.level);
   out.level = graded.reduce((best, g) => (LEVEL_RANK[g.level] > LEVEL_RANK[best] ? g.level : best), 'none');
   const trusted = graded.some((g) => g.tied);
@@ -579,8 +667,8 @@ function reportPage(subject, info, { discovered = false, guessed = false, linked
   const first = info.rows[0].ts;
   const last = info.rows.reduce((max, r) => (r.end > max ? r.end : max), info.rows[info.rows.length - 1].ts);
   let versions = distinctVersions(history.map((g) => ({ ...g.v, matchText: g.text, fix: g.fix })));
-  // A guessed address is most often a namesake: say it in two lines, not a history.
-  const brief = guessed;
+  // A guessed address is most often a namesake: say it in two lines, not a history (unless copies of it were lifted on their own text).
+  const brief = guessed && !trusted;
   if (brief) versions = versions.slice(-1);
 
   if (trusted || !discovered) {
@@ -963,8 +1051,10 @@ function handlePlans(thread) {
   const onlyGithub = /github/.test(why);
   const onlyTwitter = /twitter|(^|\W)x(\W|$)/.test(why);
   const plans = [];
-  if (!onlyTwitter && /^[A-Za-z0-9-]+$/.test(handle)) plans.push({ template: 'archive.github', params: { pages: [`github.com/${handle}`] }, prior: 0.35, why: 'earlier versions of this GitHub profile' });
-  if (!onlyGithub && /^[A-Za-z0-9_]{2,15}$/.test(handle)) plans.push({ template: 'archive.twitter', params: { pages: [`twitter.com/${handle}`] }, prior: 0.4, why: 'earlier versions of this Twitter bio' });
+  // a handle given by a record tied to them (Wikidata, a linked profile) grades its pages as urlPlans does
+  const from = (page) => { const linkedFrom = linkedSource(thread.why, page); return linkedFrom ? { linkedFrom } : {}; };
+  if (!onlyTwitter && /^[A-Za-z0-9-]+$/.test(handle)) plans.push({ template: 'archive.github', params: { pages: [`github.com/${handle}`], ...from(`github.com/${handle}`) }, prior: 0.35, why: 'earlier versions of this GitHub profile' });
+  if (!onlyGithub && /^[A-Za-z0-9_]{2,15}$/.test(handle)) plans.push({ template: 'archive.twitter', params: { pages: [`twitter.com/${handle}`], ...from(`twitter.com/${handle}`) }, prior: 0.4, why: 'earlier versions of this Twitter bio' });
   return plans;
 }
 
@@ -1004,7 +1094,7 @@ export const archiveConnector = {
     let out;
     if (params.domain) out = await runDomain(params.domain, ctx, budget);
     else if (params.prefix) out = await runPrefix(params.prefix, ctx, budget);
-    else out = await runPages((params.pages || []).map((p) => pageOf(p)).filter(Boolean), ctx, budget, { guessed: task.kind === 'subject', linkedFrom: task.kind === 'url' ? params.linkedFrom || null : null });
+    else out = await runPages((params.pages || []).map((p) => pageOf(p)).filter(Boolean), ctx, budget, { guessed: task.kind === 'subject', linkedFrom: task.kind === 'url' || task.kind === 'handle' ? params.linkedFrom || null : null });
     return { findings: out.findings.filter(Boolean), threads: out.threads.filter(Boolean), notes: [...new Set(out.notes)] };
   },
 };

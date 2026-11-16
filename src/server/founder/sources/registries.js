@@ -23,9 +23,11 @@
  *   - an appointment is graded by finding.js from the company it is at: only
  *     a known company of the subject lifts it above "possible". The check
  *     here is stricter than the general one: the registered name must BE the
- *     known company's name. One that only starts with it ("Mistral AI UK Ltd"
- *     for "Mistral AI", or "Flow Hair Salon Limited" for "Flow") is held at
- *     "possible", and "Mistral Aircraft Limited" never ties at all;
+ *     known company's name, or that name plus only words for a country arm,
+ *     a holding or a legal form ("Mistral AI UK Ltd" for "Mistral AI", when
+ *     the known name has two words of its own). One that only starts with it
+ *     otherwise ("Flow Hair Salon Limited", or "Flow UK Ltd", for "Flow") is
+ *     held at "possible", and "Mistral Aircraft Limited" never ties at all;
  *   - a company found by name is reported as the subject's company only when
  *     the register itself ties it to them (the subject, or a known associate,
  *     is among its officers or founders). A company whose name only starts
@@ -119,16 +121,37 @@ const untiedNote = (country, wanted, task) => (isAffiliate(task)
   ? `No ${country} company named ${wanted} lists the person as an officer.`
   : `${country} companies named ${wanted} were found, but no listed officer matches the person and the name alone is too common to tie them to the person; they are not reported.`);
 
+// Words a group adds to its own name for a country arm, a holding or an employee vehicle ("Mistral AI UK Ltd")
+const BRANCH_WORDS = new Set(['uk', 'gb', 'france', 'us', 'usa', 'europe', 'eu', 'emea', 'germany', 'holding', 'holdings', 'employees', 'spv', 'ltd', 'limited', 'sas', 'inc']);
+/**
+ * Does a registered name add to a known company's name only words for a
+ * country, a holding or a legal form? Only for a known name of two words of
+ * its own or more: "Mistral AI UK Ltd" is Mistral AI's UK arm, but "Flow UK
+ * Ltd" could be anyone's.
+ */
+function isBranchOf(company, registered) {
+  if (nameTie(company, registered) !== 'prefix') return false;
+  const known = legalNorm(company);
+  if (known.split(' ').filter((w) => w && !DESCRIBING_WORDS.has(w)).length < 2) return false;
+  const extra = legalNorm(registered).slice(known.length).trim().split(' ').filter(Boolean);
+  return extra.length > 0 && extra.every((w) => BRANCH_WORDS.has(w));
+}
+
 const knownCompanies = (subject) => uniqueBy([subject.company, ...[...(subject.anchors?.companies?.values?.() || [])].map((a) => a.value)].filter(Boolean), (v) => legalNorm(v));
 /**
  * The known company of the subject that a registered name IS, or null. A name
  * that only starts with a known one ("Flow Hair Salon Limited" for "Flow") is
  * not enough: with a namesake officer it would pin a stranger's company on the
  * subject. Such a company is tied only through a known associate (ukCompany).
+ * The one exception is the company's own country arm or holding (isBranchOf).
  */
 function knownCompanyFor(subject, registered) {
-  for (const company of knownCompanies(subject)) {
+  const companies = knownCompanies(subject);
+  for (const company of companies) {
     if (nameTie(company, registered) === 'exact') return { company, tie: 'exact' };
+  }
+  for (const company of companies) {
+    if (isBranchOf(company, registered)) return { company, tie: 'branch' };
   }
   return null;
 }
@@ -558,7 +581,8 @@ async function ukCompany(task, ctx) {
     const found = page ? officerTie(subject, people) : null;
     // A name that only starts with the wanted one is tied through a known associate on its board, never
     // through an officer who merely shares the subject's name: that is how a namesake's company slips in
-    const tie = found && (c.kind !== 'prefix' || found.associate) ? found : null;
+    // (a known company's own country arm, "Mistral AI UK Ltd", is tied by the subject's seat like the company itself)
+    const tie = found && (c.kind !== 'prefix' || found.associate || (found.self.length && knownCompanyFor(subject, c.name))) ? found : null;
     const namesake = found && !tie ? found : null;
     return { ...c, page, people, tie, namesake, nameOnly: !found && c.kind !== 'prefix' };
   }).filter((c) => c.page && (c.tie || c.namesake || c.nameOnly));
