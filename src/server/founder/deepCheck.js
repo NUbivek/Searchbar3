@@ -44,6 +44,8 @@ export const LIMITS = {
   // after "slow down"). Lookups then wait for that time, but a check does not wait forever: past this age
   // the lookups still waiting are reported as not run, never as sources that failed.
   maxWaitAgeMs: 12 * 60 * 1000,
+  // When only waiting lookups are left, the longest the check sits idle for the next one
+  tailWaitMs: 90 * 1000,
   // how many threads of each kind are pulled; the rest are listed, not followed
   pull: { company: 10, affiliate: 16, school: 6, associate: 10, relative: 8, handle: 6, domain: 6, url: 10 },
 };
@@ -686,9 +688,25 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   state.log.push({ step: state.step, text: `Round ${state.step + 1}: ${ran.size} lookups, ${newFindings} new records${fresh.length ? `, ${fresh.length} new threads to pull (${kindsText})` : ''}${upgraded ? `, ${upgraded} earlier records now tied to the person` : ''}.` });
 
   // Nothing ran because every remaining lookup waits for a resting host: not a round, and not a dry one.
+  // But a check does not sit idle for minutes for its last few lookups: when only waiting lookups are left
+  // and the next is more than tailWaitMs away, they are reported as not run and the check moves on.
   if (ran.size === 0 && state.queue.some((t) => t.notBefore && t.notBefore > Date.now())) {
-    state.log.pop();
-    return { state, progress: summarize(state) };
+    const waiting = state.queue.filter((t) => t.notBefore && t.notBefore > Date.now());
+    const next = Math.min(...waiting.map((t) => t.notBefore));
+    const onlyWaiting = waiting.length === state.queue.length;
+    if (onlyWaiting && next - Date.now() > (limits.tailWaitMs ?? LIMITS.tailWaitMs)) {
+      for (const t of waiting) {
+        const stat = state.sources[t.connector] || (state.sources[t.connector] = { label: byId.get(t.connector)?.label || t.connector, runs: 0, findings: 0, errors: 0, ms: 0 });
+        stat.waitedOut = (stat.waitedOut || 0) + 1;
+      }
+      state.dropped.tasks += waiting.length;
+      state.queue = state.queue.filter((t) => !waiting.includes(t));
+      state.log.pop();
+      state.log.push({ step: state.step, text: `${waiting.length} last lookup${waiting.length === 1 ? '' : 's'} not run: ${waiting.length === 1 ? 'its source' : 'their sources'} asked to wait more than a minute and a half.` });
+    } else {
+      state.log.pop();
+      return { state, progress: summarize(state) };
+    }
   }
 
   state.step += 1;

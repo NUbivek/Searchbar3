@@ -65,3 +65,15 @@ describe('the search engines say when they are free again', () => {
     if (last.code === 'SEARCH_RESTING') expect(last.retryAt).toBeGreaterThan(Date.now());
   });
 });
+
+test('a check does not sit idle for minutes for its last few lookups', async () => {
+  let calls = 0;
+  const web = { id: 'web-search', label: 'Open-web search', kinds: ['subject'], prior: 0.6, run: async () => { calls += 1; throw resting(Date.now() + 5 * 60 * 1000); } };
+  const state = startState({ name: 'Trevor Milton', company: 'Nikola' });
+  const t0 = Date.now();
+  for (let i = 0; i < 20 && state.phase === 'collect'; i += 1) await stepDeepCheck(state, { connectors: [web], deadline: Date.now() + 5000 });
+  expect(Date.now() - t0).toBeLessThan(15000);
+  expect(state.phase).toBe('report');
+  expect(state.sources['web-search']).toMatchObject({ errors: 0, waitedOut: 1 });
+  expect(state.log.map((l) => l.text).join(' ')).toMatch(/last lookup not run/);
+});
