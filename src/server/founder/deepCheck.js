@@ -208,7 +208,18 @@ export function startState({ name, company = '' }) {
  */
 // A bare "owner" or "owns" is not enough: an investor "owns" a stake. Owning it outright, or owning and running it, is.
 const PRIMARY_TIE = /\b(found(?:ed|er|ing)|co-?found\w*|started|launched|ran|runs|led|heads|headed|chief executive|CEO|CTO|COO|CFO|owner(?:[- ]operator| and (?:CEO|chief executive|founder|operator|president|managing director))|owns and (?:runs|operates|manages)|wholly owns|president|managing (?:director|partner|member)|general partner|principal|executive officer|sole (?:director|member|shareholder|owner|proprietor)|proprietor|10% owner|holding vehicle|promoter|earlier name|formerly named|the company given|the company most sources name)\b/i;
-export const tieOf = (thread) => (PRIMARY_TIE.test(`${thread.why || ''} ${thread.role || ''}`) ? 'primary' : 'affiliate');
+// A role read out of free text ("CEO", "founder (past)": the words next to a company name in a snippet) can
+// belong to someone else in the same sentence ("... and Airbus CEO Guillaume Faury"). Such a thread is
+// looked at as an affiliate until a record that states the tie (a register, a filing, a knowledge graph,
+// the person's own profile: their "why" names the source) says the person ran the company.
+const LOOSE_ROLE = /^\s*[\w&.' -]{1,40}?(?:\s*\((?:past|current)\))?\s*$/;
+const STATED = /\(|given|most sources name|earlier name|formerly|filing|register|form d|wikidata|littlesis|profile|insider|appointment|official/i;
+export const tieOf = (thread) => {
+  const why = String(thread.why || '');
+  if (why === 'the company given' || why.startsWith('the company most sources name')) return 'primary';
+  if (!PRIMARY_TIE.test(`${why} ${thread.role || ''}`)) return 'affiliate';
+  return LOOSE_ROLE.test(why) && !STATED.test(why.replace(/\((?:past|current)\)/g, '')) ? 'affiliate' : 'primary';
+};
 /** Sources that establish what the person did at a company; the only ones asked about an affiliate. */
 const AFFILIATE_SOURCES = new Set(['sec-company', 'uk-companies-house', 'fr-companies', 'yc-directory']);
 export const JOINT_TEMPLATES = ['q.joint-role', 'q.joint-adverse'];

@@ -18,7 +18,7 @@ function fakeSources(calls) {
       run: async (task, { subject }) => {
         calls.push(`profiles:${task.value}`);
         const f = finding(subject, { title: 'Trevor Milton, founder of Nikola', quote: 'Trevor Milton founded Nikola after dHybrid Systems.', category: 'career' });
-        return { findings: [f], threads: [makeThread('company', 'dHybrid Systems', 'founder (past)', { trusted: f.match !== 'possible' }), makeThread('company', 'Milton Bakery', 'a namesake', { trusted: false })] };
+        return { findings: [f], threads: [makeThread('company', 'dHybrid Systems', 'founder (past; Wikidata)', { trusted: f.match !== 'possible' }), makeThread('company', 'Milton Bakery', 'a namesake', { trusted: false })] };
       },
     },
     {
@@ -224,7 +224,7 @@ test('a company the person only sits on the board of, invested in or worked at i
         const f = finding(subject, { title: 'Patrick Collison of Stripe', quote: 'Patrick Collison co-founded Stripe and sits on the board of Meta Platforms.', category: 'career' });
         return { findings: [f], threads: [
           makeThread('company', 'Meta Platforms', 'board member (Wikidata)', { trusted: true }),
-          makeThread('company', 'Auctomatic', 'co-founder (past)', { trusted: true }),
+          makeThread('company', 'Auctomatic', 'co-founder (past; Wikidata)', { trusted: true }),
           makeThread('company', 'Arc Institute', 'named with the person', { trusted: true }),
         ] };
       },
@@ -264,7 +264,7 @@ test('a company first seen as an affiliation is checked in full once a record sh
     },
     {
       id: 'web-search', label: 'Web', kinds: ['company'], prior: 0.5, plan: () => [{ template: 'q.any', params: { query: 'x' } }],
-      run: async (task) => (task.value === 'dHybrid Systems' && task.template === 'q.joint-role' ? { findings: [], threads: [makeThread('company', 'dHybrid Systems', 'founder', { trusted: true })] } : { findings: [] }),
+      run: async (task) => (task.value === 'dHybrid Systems' && task.template === 'q.joint-role' ? { findings: [], threads: [makeThread('company', 'dHybrid Systems', 'founder (Wikidata)', { trusted: true })] } : { findings: [] }),
     },
   ];
   const state = startState({ name: 'Trevor Milton', company: 'Nikola' });

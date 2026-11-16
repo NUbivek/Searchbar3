@@ -11,7 +11,7 @@ jest.mock('../../../src/server/founder/sources', () => {
     CONNECTORS: [{
       id: 'fake', label: 'Fake registry', kinds: ['subject', 'company'],
       run: async (task, { subject }) => (task.kind === 'subject'
-        ? { findings: [makeFinding(subject, { source: 'fake', sourceLabel: 'Fake registry', category: 'regulatory', severity: 'high', title: 'Jane Roe of Acme barred by regulator', quote: 'Jane Roe, CEO of Acme, was barred.', url: 'https://reg.test/1', date: '2024-02-02' })], threads: [makeThread('company', 'Beta Labs', 'founder (past)', { trusted: true })] }
+        ? { findings: [makeFinding(subject, { source: 'fake', sourceLabel: 'Fake registry', category: 'regulatory', severity: 'high', title: 'Jane Roe of Acme barred by regulator', quote: 'Jane Roe, CEO of Acme, was barred.', url: 'https://reg.test/1', date: '2024-02-02' })], threads: [makeThread('company', 'Beta Labs', 'founder (past; Wikidata)', { trusted: true })] }
         : { findings: [makeFinding(subject, { source: 'fake', sourceLabel: 'Fake registry', category: 'corporate', title: `${task.value}: Jane Roe listed as director`, quote: `Jane Roe is a director of ${task.value}.`, url: `https://reg.test/co/${encodeURIComponent(task.value)}` })] }),
     }],
   };

@@ -72,7 +72,7 @@ test('a re-grade reads the text the record was graded on, and never touches a gr
         ] };
       }
       const f = finding(subject, { title: 'Jane Roe founded Zeta Robotics', quote: 'Jane Roe founded Zeta Robotics.', category: 'career', url: 'https://profile.test/jr' });
-      return { findings: [f], threads: [makeThread('company', 'Zeta Robotics', 'founder', { trusted: true })] };
+      return { findings: [f], threads: [makeThread('company', 'Zeta Robotics', 'founder (Wikidata)', { trusted: true })] };
     },
   };
   const state = startState({ name: 'Jane Roe', company: 'Other Co' });
@@ -88,7 +88,7 @@ test('a thread first seen deep is pulled at the shallower depth once a record ti
     run: async (task, { subject }) => {
       calls.push(`${task.kind}:${task.value}`);
       if (task.kind !== 'subject') return { findings: [] };
-      return { findings: [finding(subject, { title: 'Jane Roe founded Gamma Works', quote: '', category: 'career' })], threads: [makeThread('company', 'Gamma Works', 'founder', { trusted: true })] };
+      return { findings: [finding(subject, { title: 'Jane Roe founded Gamma Works', quote: '', category: 'career' })], threads: [makeThread('company', 'Gamma Works', 'founder (Wikidata)', { trusted: true })] };
     },
   };
   const state = startState({ name: 'Jane Roe', company: 'Acme' });
@@ -101,7 +101,7 @@ test('a thread first seen deep is pulled at the shallower depth once a record ti
 test('a trusted thread too deep to pull is counted as dropped', async () => {
   const src = {
     id: 'p', label: 'P', kinds: ['subject'],
-    run: async (task, { subject }) => ({ findings: [finding(subject, { title: 'Jane Roe of Acme', quote: '', category: 'career' })], threads: [makeThread('company', 'Deepwater Plumbing', 'founder', { trusted: true })] }),
+    run: async (task, { subject }) => ({ findings: [finding(subject, { title: 'Jane Roe of Acme', quote: '', category: 'career' })], threads: [makeThread('company', 'Deepwater Plumbing', 'founder (Wikidata)', { trusted: true })] }),
   };
   const state = startState({ name: 'Jane Roe', company: 'Acme' });
   state.threads['company|deepwater plumbing'] = { kind: 'company', value: 'Deepwater Plumbing', why: '', depth: 3, trusted: false, support: 1, pulled: false };
@@ -109,7 +109,7 @@ test('a trusted thread too deep to pull is counted as dropped', async () => {
   await runToEnd(state, [src]);
   expect(state.threads['company|deepwater plumbing'].pulled).toBe(true);
   const s2 = startState({ name: 'Jane Roe', company: 'Acme' });
-  const deep = { id: 'q', label: 'Q', kinds: ['subject', 'company'], run: async (task, { subject }) => (task.value === 'Acme' ? { findings: [], threads: [makeThread('company', 'Thirdway Plumbing', 'founder', { trusted: true })] } : { findings: [] }) };
+  const deep = { id: 'q', label: 'Q', kinds: ['subject', 'company'], run: async (task, { subject }) => (task.value === 'Acme' ? { findings: [], threads: [makeThread('company', 'Thirdway Plumbing', 'founder (Wikidata)', { trusted: true })] } : { findings: [] }) };
   s2.queue.push({ connector: 'q', kind: 'company', value: 'Acme', depth: 2, template: 'x', params: null, prior: 0.5, why: '', relation: null });
   s2.tasksRun = 1; // skip the opening plan
   await stepDeepCheck(s2, { connectors: [deep], deadline: Date.now() + 5000 });
@@ -137,7 +137,7 @@ test('a trusted longer organisation does not turn a shorter namesake organisatio
     id: 'p', label: 'P', kinds: ['subject'], plan: () => [{ template: 'a' }, { template: 'b' }],
     run: async (task, { subject }) => (task.template === 'a'
       ? { findings: [], threads: [makeThread('company', 'Meta', 'a namesake', { trusted: false })] }
-      : { findings: [], threads: [makeThread('company', 'Meta Materials', 'founder', { trusted: true })] }),
+      : { findings: [], threads: [makeThread('company', 'Meta Materials', 'founder (Wikidata)', { trusted: true })] }),
   };
   const state = startState({ name: 'Jane Roe', company: 'Acme Robotics' });
   await stepDeepCheck(state, { connectors: [src], deadline: Date.now() + 5000, limits: { ...LIMITS, concurrency: 1 } });

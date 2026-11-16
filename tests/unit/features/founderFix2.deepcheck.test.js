@@ -46,7 +46,7 @@ test('job titles, addresses and tiny or common words are never recorded as organ
     id: 'web-search', label: 'Web', kinds: ['subject', 'company'],
     run: async (task, { subject }) => (task.kind !== 'subject' ? { findings: [] } : {
       findings: [finding(subject, { title: 'Jane Roe of Acme Robotics', quote: 'Jane Roe of Acme Robotics.' })],
-      threads: [...junk.map((v) => makeThread('company', v, 'worked there', { trusted: true })), makeThread('company', 'Initech Partners', 'co-founded', { trusted: true })],
+      threads: [...junk.map((v) => makeThread('company', v, 'worked there', { trusted: true })), makeThread('company', 'Initech Partners', 'co-founded (Wikidata)', { trusted: true })],
     }),
   };
   const state = startState({ name: 'Jane Roe', company: 'Acme Robotics' });
@@ -69,11 +69,14 @@ test('a bare owner or owns is an affiliate tie; owning outright or owning and ru
   expect(tieOf({ why: 'owner of (LittleSis)' })).toBe('affiliate');
   expect(tieOf({ why: 'owns a stake in the company' })).toBe('affiliate');
   expect(tieOf({ why: 'shareholder (LittleSis)' })).toBe('affiliate');
-  expect(tieOf({ why: 'sole owner of the business' })).toBe('primary');
-  expect(tieOf({ why: 'owner and CEO' })).toBe('primary');
-  expect(tieOf({ why: 'owns and runs the shop' })).toBe('primary');
+  expect(tieOf({ why: 'sole owner of the business (company register)' })).toBe('primary');
+  expect(tieOf({ why: 'owner and CEO (Wikidata)' })).toBe('primary');
+  expect(tieOf({ why: 'owns and runs the shop (company register)' })).toBe('primary');
   expect(tieOf({ why: '10% owner (Form 4)' })).toBe('primary');
-  expect(tieOf({ why: 'founded it' })).toBe('primary');
+  expect(tieOf({ why: 'founded it (Wikidata)' })).toBe('primary');
+  // read loosely out of a snippet, a role may belong to someone else in the sentence: an affiliation until a record states it
+  expect(tieOf({ why: 'sole owner of the business' })).toBe('affiliate');
+  expect(tieOf({ why: 'CEO' })).toBe('affiliate');
 });
 
 test('the same passage on several pages of one source is one record listing the other pages', async () => {
@@ -132,7 +135,7 @@ test('a company promoted from affiliate to primary is looked up again in full', 
       if (task.value === 'Globex Industries' && task.tie === 'affiliate') {
         return {
           findings: [finding(subject, { title: 'Jane Roe co-founded Globex Industries', quote: 'Jane Roe of Acme Robotics co-founded Globex Industries.', url: 'https://news.test/globex' })],
-          threads: [makeThread('company', 'Globex Industries', 'co-founded it', { trusted: true })],
+          threads: [makeThread('company', 'Globex Industries', 'co-founded it (Wikidata)', { trusted: true })],
         };
       }
       return { findings: [] };
