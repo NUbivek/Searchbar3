@@ -331,7 +331,7 @@ export function buildReport(state) {
     // Also: lookups that waited for a source's allowance and could not run within the check (not failures)
     partlyAnswered: allSources.filter((s) => answered(s) && ((s.errors > 0 && s.errors / s.runs >= PARTLY_ANSWERED) || s.waitedOut > 0))
       .map((s) => ({
-        label: s.label, failed: s.errors, lookups: s.runs, notRun: s.waitedOut || 0,
+        label: s.label, failed: s.errors, lookups: s.runs, ...(s.waitedOut ? { notRun: s.waitedOut } : {}),
         reason: [
           s.errors > 0 && s.errors / s.runs >= PARTLY_ANSWERED ? `${s.errors} of ${s.runs} lookups failed${s.lastError ? `: ${s.lastError}` : ''}` : '',
           s.waitedOut ? `${s.waitedOut} more lookup${s.waitedOut === 1 ? '' : 's'} not run because its allowance for the next few minutes was used up` : '',
