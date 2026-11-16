@@ -23,7 +23,9 @@ import { cleanText } from './finding';
 export const RETENTION_HOURS = 72;
 const memory = new Map();
 
-const useDb = () => persistenceMode() !== 'none';
+// Saved checks go to the hosted database only. A check's state is hundreds of kilobytes, and the local
+// embedded database (PGlite) crashed under repeated writes of that size; locally, memory is enough.
+const useDb = () => persistenceMode() === 'neon';
 
 /** A store failure the caller should answer with "try again shortly". */
 function unavailable(what, error) {
