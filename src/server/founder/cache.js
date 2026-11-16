@@ -22,7 +22,9 @@ export const FAILURE_HOLD_MS = 5 * 60 * 1000;
 /** Values larger than this stay in memory only. */
 export const MAX_STORED_BYTES = 6 * 1024 * 1024;
 
-const useDb = () => persistenceMode() !== 'none';
+// Shared copies only in the hosted database. The local embedded one (PGlite) runs inside the server's own
+// memory, and repeatedly writing multi-megabyte lists into it crashed it; locally, memory alone is enough.
+const useDb = () => persistenceMode() === 'neon';
 
 async function readStored(key) {
   if (!useDb()) return null;

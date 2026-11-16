@@ -4,7 +4,7 @@
 const mockRows = new Map();
 let mockWriteGate = null; // when set, the database write waits on this promise
 jest.mock('../../../src/server/db', () => ({
-  persistenceMode: jest.fn(() => 'pglite'),
+  persistenceMode: jest.fn(() => 'neon'),
   query: jest.fn(async (text, params) => {
     if (mockWriteGate) await mockWriteGate;
     if (/INSERT INTO source_cache/.test(text)) mockRows.set(params[0], { body: params[1], fetched_at: new Date().toISOString() });
