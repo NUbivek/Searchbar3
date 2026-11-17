@@ -1,0 +1,282 @@
+{
+ "averageScore": 75.3,
+ "summary": "Round 4 average is 75.3 (Milton 80, Neumann 74, Mensch 72). No record was tied to the wrong person and there were no privacy violations. Most of what is wrong comes from three shared causes, all checked in the code.\n\n1. Role tenures are never recorded. addRoleAnchor (identity.js:245) is called only by restoreSubject. Every matchSubject call (finding.js:128, deepCheck.js:394) passes no date, and roleMatch returns null at identity.js:336 without one. So report.js afterTenure (line 337) never fires, and headlines that name only the role (\"WeWork CEO gives back $5.9M\") are never tied to the person.\n\n2. Headline-only press about the subject is graded \"possible\" when it names the subject alongside a known event or counterparty. As a result, Milton's own S.D.N.Y. docket and pardon coverage appear under POSSIBLE NAMESAKES, and about 20 Neumann stories are matched by name only.\n\n3. Readers stop at one passage or one language. sec.js personRelated keeps one bestSpot per filing (line 1206), which misses the WeWork loans (a MUST item). wpCompany reads only English Wikipedia, which misses C\u00e9dric O.\n\nThe other shared problems:\n- **Severity and ordering:** NEGATED_PROBE (finding.js:162) has no \"face\" verb, does not accept the typographic apostrophe, and has no reject/decline form. So the UK competition regulator's clearance of Mistral is shown as a concern. redFlags.sort orders by record number only (report.js:401).\n- **Dedupe:** pageKey includes the category and quoteKey includes the source (deepCheck.js:113-123).\n- **Related parties:** report.js links a record to a related party only through data.person (line 448).\n- **Coverage:** a state register that times out is not counted as a failure.\n\nDropped:\n- The Wikidata-descriptor anchor (generic words like \"AI\" next to a name would tie namesakes to the subject).\n- The surname-plus-company-anchor upgrade (a surname alone is a namesake risk).\n- Any change that would upgrade to 'confirmed'.\n\nThe new anchors that are kept are capped at 'likely'. The pacing fix overlaps with work other engineers are already doing.",
+ "fixes": [
+  {
+   "file": "src/server/founder/sources/knowledge.js, src/server/founder/sources/sec.js, src/server/founder/identity.js, src/server/founder/finding.js, src/server/founder/deepCheck.js",
+   "change": "Record role tenures and pass dates when grading.\n(1) In the Wikidata roles reader (knowledge.js around rolesQuery/roleRows, ~line 652), on an entity already confirmed as the subject: for each row that is P169 (CEO of), a P39/P108 position whose label contains 'chief executive' or 'CEO', or P112 (founded by), call addRoleAnchor(subject, { org, role: 'ceo' or 'founder', from: pq:P580, to: pq:P582, origin: finding.id }).\n(2) In sec.js, a Form D that lists the person as Executive Officer of an issuer already tied to them adds a role with a from-date only.\n(3) Accept role 'founder' in roleMatch only when Wikidata P112 for that company lists exactly one person and that person is the subject. Then '<Company> founder' with no name, dated inside or after the tenure, grades 'likely'. The existing isOther/otherHolder guards still apply.\n(4) Pass the record's date into grading: in makeFinding (finding.js:128) call matchSubject(subject, text, { date: f.date }). Store the date on the finding (e.g. gradeDate) so that gradeOf/regrade (deepCheck.js:393-401) also pass { date }. Today no caller passes a date, so roleMatch always returns null.",
+   "why": "With no role anchors and no dates, three features are dead code: roleMatch, report.afterTenure and the tenures list. That is why 'WeWork CEO gives back $5.9M from We trademark' (#81) and 'landlord to WeWork' (#212) are not tied to Neumann, and why the AP and HN 'Nikola founder\u2026 pardon' stories are graded 'company'. It is also why bankruptcy and buy-back news from years after each person left is listed as their red flag (Neumann #1/#7/#12/#17, Milton #58).",
+   "impact": "high",
+   "subjects": [
+    "Adam Neumann",
+    "Trevor Milton"
+   ]
+  },
+  {
+   "file": "src/server/founder/finding.js",
+   "change": "Widen NEGATED_PROBE (line 162):\n(a) Replace won'?t with won['\u2019]?t.\n(b) Add 'face' and 'be subject to' to the verbs after won't, will not, would not and did not, for example (?:won['\u2019]?t|will not|would not|did not)\\s+(?:face|be subject to)\\b${PROBE_GAP}\\b${PROBE_WORD}.\n(c) Add a reject/rule-out alternative: (?:reject(?:s|ed|ing)?|rul(?:es|ed|ing) out|dismiss(?:es|ed)?)\\b${PROBE_GAP}\\b${PROBE_WORD}.\nAdd unit tests for these two headlines, which must come out 'info': 'Microsoft partnership with France\u2019s Mistral AI won\u2019t face British antitrust probe' and 'UK's CMA rejects probe into Microsoft-Mistral AI tie-up'.",
+   "why": "A regulator clearing the company is currently graded medium and shown as the only company concern in a clean subject's brief. A false concern costs investor trust and affects every subject with a 'probe cleared' headline.",
+   "impact": "high",
+   "subjects": [
+    "Arthur Mensch"
+   ]
+  },
+  {
+   "file": "src/server/founder/sources/sec.js",
+   "change": "In personRelated (~lines 1193-1215), for a main disclosure (S-1, F-1, 10-K, DEF 14A) from a registrant already tied to the person, collect up to 3 dealing passages instead of the single bestSpot(text, own, dealScore). Take the best spot from each DEAL_TERM family: (i) lease or landlord; (ii) loan, promissory note or line of credit; (iii) trademark, intellectual property or 'purchased from'. Discard any spot within 560 characters of one already chosen. Each passage becomes its own record with the filing's grade. Extra passages do not count against RELATED_MAX_READS (line 1161), which still caps how many documents are opened. Also raise the kin passage (kinOnlyScore) when the passage says 'other members of [his/her] family' even when no relative is named, but quote it without naming anyone who has no public role.",
+   "why": "The We Co. S-1/A sets out the leases, the $5.9M 'We' trademark purchase and the loans to Neumann as separate paragraphs. Only the lease paragraph was kept, so the loans (a MUST item) are missing, and the trademark appears only through an HN story that is not tied to him.",
+   "impact": "high",
+   "subjects": [
+    "Adam Neumann"
+   ]
+  },
+  {
+   "file": "src/server/founder/identity.js, src/server/founder/sources/knowledge.js",
+   "change": "Add two anchor kinds. Both may raise a grade only to 'likely', never 'confirmed', and both still require the subject's full name in the text.\n(1) 'events': when the check holds a confirmed regulator, court or Wikidata record of a conviction, sentence, pardon, indictment or charge, or an SEC complaint, register the event word family with the record's date. In matchSubject, a text with the full name plus that event word (convicted/found guilty, sentenced, pardoned, indicted/charged), dated on or after the event, grades 'likely' with the reason 'names <event> reported in <record n>'.\n(2) 'encyclopedia': from the confirmed subject's own Wikipedia lead and career section and its LittleSis entry, add the linked organisations and people (investors, acquirers, co-founders, counterparties) as company/people anchors with origin 'encyclopedia'. They count like 'schools' anchors: full name plus one anchor gives 'likely'.",
+   "why": "Headline-only stories that are plainly about the subject are listed as possible namesakes. Milton: FOX 13 and Park Record 'pardon of Utah billionaire Trevor Milton who was convicted of fraud' (#95/#96), and #119, #217, #219, #220. Neumann: 'Adam Neumann, SoftBank Near Settlement' (#65), and the NYT a16z, Semafor and TIME items (#255-#272). Mensch has a similar under-grading pattern with no event or counterparty in the headline ([108]-[122]); that case is left alone because a descriptor anchor would risk tying namesakes to him.",
+   "impact": "high",
+   "subjects": [
+    "Trevor Milton",
+    "Adam Neumann"
+   ]
+  },
+  {
+   "file": "src/server/founder/sources/profiles.js",
+   "change": "(1) In storyFinding (lines 402-417), when a company is passed, do not hard-set match:'company'. Grade the story first with matchText = title + text and the story date. Use match:'company' only when that grade is 'none' or 'possible', so that a role or name match ('likely'/'confirmed') wins.\n(2) In hnAboutCompany (~line 486), drop a company-only story dated before the year the person's tie to that company began (role anchor 'from', or the thread's earliest dated record).\n(3) Drop a company-only story where a different capitalised organisation directly precedes a one-word company name used as a common noun ('Facebook Launches Flow').",
+   "why": "#81 ($5.9M 'We' trademark) and #212 (Neumann 'makes millions as landlord to WeWork') are about him but were locked at company/info. #213 (Facebook's 2014 Flow type checker) was attributed to his 2022 company, Flow.",
+   "impact": "high",
+   "subjects": [
+    "Adam Neumann",
+    "Trevor Milton"
+   ]
+  },
+  {
+   "file": "src/server/founder/report.js, src/server/founder/finding.js",
+   "change": "Fix red-flag ordering and severity.\n(a) Replace redFlags.sort((a,b)=>a.n-b.n) at line 401 with a sort by event weight, then source authority, then n. The weights, highest first: criminal (indict/convict/sentence); regulator action (SEC/DOJ/charged); lawsuit or settlement against the person; related-party or self-dealing; forced departure; everything else.\n(b) In the afterTenure branch (line 394), drop the `tied !== list` condition, so a matter whose only adverse content is the insolvency of a company the person had already left moves to companyMatters even when the record names the person.\n(c) Add to MEDIUM (line 153): 'landlord to', 'related[- ]party (?:transactions?|deals?)', 'self[- ]dealing', 'conflicts? of interest', 'bankrupt\\b', 'chapter 11'.\n(d) Treat 'steps down'/'stepped down' within 30 days of a role anchor's end date as the same departure matter, so the low-severity WSJ, CNBC and HN records join the medium-severity NYT 'under pressure' matter.",
+   "why": "For Neumann, the top four red flags are a 2024 buy-back sentence, a refinancing quote and a proxy statement. The 2019 S-1 self-dealing ranks 5th and 6th and the forced step-down ranks 15th. 'WeWork Goes Bankrupt' is graded info. An investor reading top-down sees the least important items first.",
+   "impact": "medium",
+   "subjects": [
+    "Adam Neumann",
+    "Trevor Milton"
+   ]
+  },
+  {
+   "file": "src/server/founder/sources/courts.js",
+   "change": "In chargedDockets (~line 576), keep 'possible' by default. Grade an archived federal docket 'likely' only when all of these hold:\n- the party name is the subject's full name;\n- the court district equals the district of a confirmed DOJ or SEC charge record in the check;\n- the item's publicdate is within 7 days after that charge record's date.\nIn that case, set reason 'filed in <district> within N days of the charge in <record n>'. Also read the case number (\\b\\d{1,2}[-:](?:cr|cv)[-:]\\d{3,5}\\b) from the confirmed DOJ or SEC record's text into data.caseNumber and show it on the docket. Use the CourtListener source_url from the item's _meta.xml as the docket link when present.",
+   "why": "Milton's own criminal docket (#66/#67) is listed under POSSIBLE NAMESAKES with high severity, and the case number 21-cr-478, a MUST item, never appears. Requiring the same district, a tight date window and a confirmed charge record keeps namesake risk negligible.",
+   "impact": "medium",
+   "subjects": [
+    "Trevor Milton"
+   ]
+  },
+  {
+   "file": "src/server/founder/sources/knowledge.js, src/server/founder/extract.js, src/server/founder/sources/web.js",
+   "change": "Read related parties and backers in the company's home language.\n(1) In wpCompany (knowledge.js ~line 840), after the en article, also fetch the company article on each language in languageHints(subject) (import it from ./web). Apply the same check that the title equals the company name. Run French role patterns on that article: CO_ROLE_FR = actionnaire|conseill(?:er|\u00e8re)(?:\\s+en\\s+[\\w\u00e9 ]+)?|administrat(?:eur|rice)|membre du conseil d'administration|investisseur|cofondat(?:eur|rice), with the shape `(${CO_PERSON})\\s*,\\s+(?:l['\u2019]|le |la |un |une )?(?:ancien(?:ne)?\\s+[^,]{0,40},?\\s+)?(?:${CO_ROLE_FR})\\b[^.]{0,60}?\\bde\\s+<company>`. Map each role to its English label.\n(2) In associatesFromText (extract.js), add French equivalents of the co-founder, 'founded with' and '<Name>, shareholder/adviser' patterns. Run them only when languageHints includes 'fr' or the sentence contains French letters or function words.\n(3) In web.js companyTemplates: raise q.company-backers prior from 0.35 to 0.5. Add q.company-investors: `\"<c>\" (\"led by\" OR \"lead investor\" OR \"Series A\" OR \"Series B\" OR \"Series C\")`. When languageHints has 'fr', add a French backers template: `\"<c>\" (actionnaire OR conseiller OR \"ancien ministre\" OR \"conflit d'int\u00e9r\u00eats\")`.",
+   "why": "C\u00e9dric O, the former minister who advises Mistral and holds shares in it (its main conflict-of-interest question), is absent; he is named only on fr.wikipedia and in French press. ASML, the Series C lead, and all other investor names are also absent, so the cap table cannot be read.",
+   "impact": "medium",
+   "subjects": [
+    "Arthur Mensch"
+   ]
+  },
+  {
+   "file": "src/server/founder/report.js, src/server/founder/deepCheck.js",
+   "change": "Attach records to related parties.\n(1) In the related-party pass (report.js ~lines 448-451), also push a cited record to a party when any of these holds:\n- personKey matches a name in f.data.relatives[], f.data.relatedPersons[] or f.data.persons[];\n- the record is confirmed or likely for the subject and nameMatcher([party.name]) matches its title or quote (full name only).\n(2) When party.role is null, fill it from relatedPersons[].roles, or from '<Name> (?:to assume|named|becomes) (?:the )?<Role>' / '<Role> <Name>' in a cited record.\n(3) In deepCheck's duplicate branch (~line 624, seenIds/seenUrls hit), when task.kind is 'associate' or 'relative', append task.value to kept.data.persons before continuing.",
+   "why": "All four of Milton's related parties show 0 records, although S-1 #110, #121/#128/#129 and the dHybrid Form D #130 name them. Mark Russell's role is null although #129 states he became CEO. Joint associate queries return pages already kept and are discarded without tagging the person.",
+   "impact": "medium",
+   "subjects": [
+    "Trevor Milton",
+    "Adam Neumann"
+   ]
+  },
+  {
+   "file": "src/server/founderCheck.js",
+   "change": "In extractFounderEvidence's COMPANY_PATTERNS loop (the nearName(text, hasName, re) call before cleanCompany), reject a match when another person is named first. The test: the text directly before the role span matches /([A-Z\u00c0-\u00de][\\p{L}'\u2019-]+\\s+[A-Z\u00c0-\u00de][\\p{L}'\u2019-]+),\\s*(?:the\\s+)?$/u and !hasName(that name). Equivalently, require that the nearest person name before the role word is the subject's.",
+   "why": "'Arthur Mensch, co-founder\u2026 of Mistral AI, and Guillaume Faury, CEO of Airbus' produced an 'Airbus' company thread for the subject (reproduced live). That wasted register lookups and lists Airbus as one of his companies. Any press release naming two executives triggers this.",
+   "impact": "medium",
+   "subjects": [
+    "Arthur Mensch"
+   ]
+  },
+  {
+   "file": "src/server/founder/sources/web.js, src/server/founder/sources/searchEngines.js",
+   "change": "(1) For company threads that are prior ventures (dated in a Form D or Wikipedia career passage before the given company), add a template `\"<Company>\" \"<Subject>\" (sued OR lawsuit OR judgment)` with prefer:'reference' and allowMetered.\n(2) In searchEngines.js, when the only engine available is the Google News RSS fallback and the lookup has prefer:'reference', do not let the fallback answer. Report the lookup as not run ('needs a general web search; news feed covers recent items only'), so the gap shows in coverage instead of returning recent coverage that is already known.",
+   "why": "The Swift Transportation v. dHybrid suit (a SHOULD item) was unreachable because DuckDuckGo was paused and the fallback is a recency-biased news feed. Any older lawsuit about an earlier venture is lost in the same way, and silently.",
+   "impact": "medium",
+   "subjects": [
+    "Trevor Milton"
+   ]
+  },
+  {
+   "file": "src/server/founder/sources/registries.js, src/server/founder/deepCheck.js, src/server/founder/sources/archive.js",
+   "change": "Report partial and blocked failures honestly.\n(1) In the state-register loop (registries.js ~lines 997-1011), collect the states that timed out and return them on the result (result.partial = ['Colorado', ...]) instead of adding only a note.\n(2) In deepCheck's stat accounting (~line 604), add stat.partial. Have report.coverage.partlyAnswered list 'US state business registers: Colorado, New York, Texas did not answer in time', and remove those states from the searched label.\n(3) In the deepCheck catch block, store a sanitized failure class (HTTP status, timeout, DNS/TLS, blocked by host) next to plainFailure's text and write it to the run log.\n(4) In archive.js, detect the Wayback 'suspected abusive bot traffic' page and report it as 'turned automated requests away', not as a timeout.",
+   "why": "Coverage shows 0 failures for state registers while four states timed out, which overstates what was searched. News-archive and Wayback failures cannot be diagnosed, and some 'timeouts' are actually bot blocks.",
+   "impact": "medium",
+   "subjects": [
+    "Adam Neumann",
+    "Arthur Mensch",
+    "Trevor Milton"
+   ]
+  },
+  {
+   "file": "src/server/founder/deepCheck.js",
+   "change": "Pacing (check first whether the pacing work already covers this). When the queue holds only lookups waiting for a resting search host, and no lookup is running, drop the waiting lookups after tailWaitMs, or at once when their prior is below 0.45, instead of waiting for maxWaitAgeMs (12 min). Record them in coverage as not run.",
+   "why": "The Mensch run sat idle from about 360s to 720s for 2 web lookups that were then dropped anyway. The Milton run idled about 100s with 6 queued and nothing running. That doubles runtime for 0 records.",
+   "impact": "medium",
+   "subjects": [
+    "Arthur Mensch",
+    "Trevor Milton"
+   ]
+  },
+  {
+   "file": "src/server/founder/report.js",
+   "change": "In quotedDeepBrief, under '## RED FLAGS', add a 'Screens with no match:' line listing the screens that came back clean. Build it from report.coverage.searched entries with records===0, failed===0 and an id in a SCREEN set: sanctions-lists, us-exclusions, wanted-lists, finra-brokercheck, court-records-open, uk-case-law, doj-press-releases, us-enforcement-actions, uk-gazette, bodacc, icij. Use their human labels, for example 'sanctions (US, UN, EU, UK, Canada), US exclusion lists, FBI/EU wanted lists, FINRA, DOJ releases, ICIJ'. Show the line even when there are red flags.",
+   "why": "Clean screens appear only in log[]. 'None found in the records searched' does not tell an investor which screens ran, which is the main reassurance for a clean subject.",
+   "impact": "medium",
+   "subjects": [
+    "Arthur Mensch"
+   ]
+  },
+  {
+   "file": "src/server/founder/deepCheck.js",
+   "change": "Merge duplicate records.\n(1) pageKey (line 113): drop f.category for non-archive records, keying on `${urlKey(f.url)}|${headline(f.title)}`. For wikipedia.org/wiki/<Title> URLs, key on the normalised URL alone (fragment stripped), so a web-search copy of an article the wikipedia source already holds is dropped.\n(2) quoteKey (line 119): replace f.source with a source family (the prefix before the first '-', so sec-filings and sec-company are both 'sec'), so the CoreWeave quote in [6] merges into [5].\n(3) Add taid to TRACKING (line 142), and strip a leading 'Hacker News (N points\u2026): ' prefix in headline().\n(4) Let upgradeKept apply to archive summary records of the same page. Normalise country subdomains (fr.linkedin.com to linkedin.com) in urlKey for profile hosts, so a copy reached from a Wikidata link lifts the copy whose address was guessed from the name and replaces it.",
+   "why": "There are duplicate pairs in every report: Wikipedia #11/#56 (#56 quoting reference-list text, listed as a high red flag), [10]/[57] across sections, [5]/[6], the Economist interview [41]/[110] graded differently, LinkedIn [12]/[89], and HN copies of press stories. They inflate counts and repeat red flags.",
+   "impact": "low",
+   "subjects": [
+    "Trevor Milton",
+    "Adam Neumann",
+    "Arthur Mensch"
+   ]
+  },
+  {
+   "file": "src/server/founder/sources/knowledge.js, src/server/founder/sources/web.js, src/server/founder/report.js",
+   "change": "Fix event dates.\n(1) For Wikipedia passage records, take the date from the first year named in the passage's first sentence (the sentence used as its title), not from the latest year in the whole quotation (helper ~line 706).\n(2) For Google News RSS items, mark the date approximate (data.dateApprox) when the URL slug or headline names a year earlier than the RSS date, or when the headline says 'CEO <name>' in the present tense after the role anchor's end. Keep approximate-dated records off the timeline and out of recency ranking.\n(3) Flag a Wikidata role start date that is earlier than the company's founding date in the report (WeWork CEO from 2008-05, founded 2010) as an inconsistency instead of listing it as a timeline event.",
+   "why": "Milton's 2020 resignation and 2021 indictment are dated 2024-09 and appear after his sentencing. A 2019 ABC story about Neumann is dated 2026-02-14. Neumann's CEO start date predates the company.",
+   "impact": "low",
+   "subjects": [
+    "Trevor Milton",
+    "Adam Neumann"
+   ]
+  },
+  {
+   "file": "src/server/founder/sources/sec.js",
+   "change": "Apply the CIK/registrant tie that personRelated uses (cikTie/gradeByTie) to the plain full-text 'mentions' path (~line 1752). An accession already tied to the person's company grades the same as the related-party record, and is merged into it when the accession matches. For counterparty filers, run gradeByTie with the company anchors against the passage that was read, so a filing that names the subject and his company grades 'company' or 'likely'.",
+   "why": "#225/#226 come from the same We Co. S-1/A accession as confirmed #6 but are graded possible. The GM 8-K (#207) and CNH 6-K (#208) documenting Nikola's partnerships, and the Selina filings naming Neumann's family office, are listed as name-only matches.",
+   "impact": "low",
+   "subjects": [
+    "Adam Neumann",
+    "Trevor Milton"
+   ]
+  },
+  {
+   "file": "src/server/founder/extract.js",
+   "change": "When threads are extracted from confirmed press records and Wikipedia career passages, read the snippet or quote as well as the title. Add patterns for earlier ventures: 'startups? (?:called|named) (NAME)', 'founded (NAME)', 'an? (?:online )?(?:marketplace|company|startup),\\s+(NAME)'. Accept a name only if it is capitalised and is not the given company or a known publisher.",
+   "why": "uPillar (a SHOULD item) is never extracted, although the WSJ #170 and BI #168 pieces that cover it are already in the report. Earlier failed ventures matter to an investor.",
+   "impact": "low",
+   "subjects": [
+    "Trevor Milton"
+   ]
+  },
+  {
+   "file": "src/server/founder/sources/archiveClaims.js",
+   "change": "(1) Add the given company's own domain (from Wikidata P856 or a confirmed company record) /about, /team and /leadership pages to the candidate URLs, and compare the earliest and latest readable snapshots for claims about the subject.\n(2) In bioText, cut at the first /\\b(see more|voir plus|ver m\u00e1s|mehr anzeigen)\\b/i and drop sentences matching /Welcome back|Email or phone|Forgot password|Te damos la bienvenida|Contrase\u00f1a|User Agreement|Condiciones de uso/i.\n(3) For LinkedIn JSON-LD roles where startDate===endDate on a past role, drop the dates so compareClaims does not diff them.\n(4) When a profile has more than one capture, read the earliest and latest instead of only one (e.g. the Twitter 2019 and 2023+ bios).",
+   "why": "The company's own pages, where the most disputed founder claims changed, are never compared over time. LinkedIn quotes carry login-page text. The JSON-LD dates ('DeepMind 2023-05 - 2023-05') could produce a false 'dates changed' finding.",
+   "impact": "low",
+   "subjects": [
+    "Trevor Milton",
+    "Arthur Mensch"
+   ]
+  },
+  {
+   "file": "src/server/founder/sources/web.js, src/server/founder/report.js",
+   "change": "In wikipediaKind (line 326), classify a Wikipedia title equal to the subject's surname or first name alone ('Neumann', 'Trevor') as 'list'. Cap Wikipedia articles of kind 'other' at 3 per check, and file them under a 'Background' group instead of Press.",
+   "why": "About 15 unrelated Wikipedia pages (Bill Graham, Andrew Ross Sorkin, the 'Neumann' surname list, 'Trevor - Wikipedia', '2021 in the United States') add clutter to the press section.",
+   "impact": "low",
+   "subjects": [
+    "Adam Neumann",
+    "Trevor Milton"
+   ]
+  },
+  {
+   "file": "src/server/founder/sources/registries.js",
+   "change": "Run the French company register and BODACC tasks only when France is linked to the subject: the company's LEI country, Wikidata P17/P159 country or register hit is FR, languageHints(subject) includes 'fr', or a confirmed record places the subject in France. Apply the same rule to other national registers through a country map.",
+   "why": "Seven lookups, two of them timeouts, were spent on French registers for a US company, which adds to the pacing pressure.",
+   "impact": "low",
+   "subjects": [
+    "Trevor Milton"
+   ]
+  },
+  {
+   "file": "src/server/founder/sources/profiles.js (LittleSis relative blurbs)",
+   "change": "When quoting a relative's blurb, strip clauses that only describe a family tie to a third party: /\\b(?:cousin|niece|nephew|aunt|uncle|sister|brother|daughter|son)(?:-in-law)? of [^.;,]+[.;,]?/i. Keep the relative's own business or public role.",
+   "why": "#112 quotes a relative's celebrity-cousin tie, which is unrelated to any business role. The change tightens the privacy rule at no cost to diligence.",
+   "impact": "low",
+   "subjects": [
+    "Adam Neumann"
+   ]
+  }
+ ],
+ "grades": [
+  {
+   "subject": "Trevor Milton / Nikola (round 4, r5 run: 229 records, 5 rounds, 157 lookups, 277s)",
+   "score": 80,
+   "recallMust": "8 of 9 MUST facts are found and tied to him as confirmed. Found: conviction in Oct 2022 in S.D.N.Y. (Wikidata #5/#6, Wikipedia #2, CBS/CNN/CNBC #33-#40, FreightWaves #80); four-year sentence in Dec 2023 (DOJ press release #3, notice to victims #4, Reuters/BBC/CNN #18-#27); presidential pardon in March 2025 (CNBC #14, KJZZ #17, HN #13/#15, Wikipedia #60); SEC charges in July 2021 (SEC complaint #8 No. 1:21-cv-06445, SEC release 2021-141 #59, DOJ charge release #9); Nikola's $125M settlement in Dec 2021 (SEC release 2021-267 #7, Axios #83); the Hindenburg report in Sept 2020 (Wikipedia #10, dated 2020-09-10); resignation as executive chairman in Sept 2020 (WSJ #85, NBC #86, Forbes #88, 8-K #97). MISS: the criminal case number US v. Milton, 21-cr-478 appears nowhere. The two S.D.N.Y. \"United States v. Milton\" dockets (#66, #67) were found but graded possible, with caseNumber null, and filed under POSSIBLE NAMESAKES. An investor therefore sees the subject's own criminal docket listed as a possible namesake's case.",
+   "recallShould": "5 of 7. Found: dHybrid (Form D #130 lists Trevor Robert Milton as Executive Officer and Director of dHybrid, Inc. in 2011; Wikipedia #118 and #134; Crunchbase archive #188/#189). St. George Security and Alarm (Wikipedia #134 quote only; a thread was opened but it produced no record of its own). Arbitration award to Nikola (FreightWaves #79 \"claws back $165 million\"; Wikipedia #1 gives about $168M confirmed in Sept 2024). Nikola Chapter 11 in Feb 2025 (Wikipedia #58; CNBC/Guardian/Reuters #101-#103 as company records). Left Utah Valley University without a degree (Wikipedia #132 \"dropped out after one semester\"; Wikidata #131). MISSES: (1) Swift Transportation's lawsuit against dHybrid. The dHybrid thread was pulled, but the keyless web search fell back to Google News RSS because DuckDuckGo was paused. A live probe of the q.company-legal query '\"dHybrid\" (lawsuit OR fraud OR investigation)' returned only recent Nikola coverage that was already in the report (BI #167/#168, FT #169). The 2013-era suit is not reachable through a recency-biased news engine, and the federal-docket title archive does not cover state courts. (2) uPillar: never extracted as a thread, and no record names it. The WSJ \"Long Before Nikola Trucks, Trevor Milton Sold Investors on Startups That Faded\" (#170) and BI \"Tumultuous Past\" (#168) cover it, but only their headlines are kept.",
+   "wrongAttributions": [],
+   "privacyViolations": [],
+   "noise": "1) Under-grading of plainly-his records puts them in POSSIBLE NAMESAKES and \"matched by name only\": #95 FOX 13 \"Trump explains pardon of Utah billionaire Trevor Milton who was convicted of fraud\", #96 Park Record \"Trump pardons convicted former Summit County resident Trevor Milton\", #119 TokenPost (FBI account), #217 The Information, #219 The Hill \"Who is Trevor Milton, the startup founder and donor pardoned by Trump\", #220 FreightWaves \"Trevor Milton trial delayed\". The S.D.N.Y. criminal dockets #66/#67 are listed as possible namesakes with high severity. A live probe confirmed that matchSubject returns possible for the FOX 13 headline, and none for AP #61 \"Convicted of bilking investors, Nikola founder and Trump donor gets a presidential pardon\", which ends up graded \"company\". The same applies to HN #63/#106 (\"Nikola founder\u2026\"). EDGAR hits by counterparties are possible only: GM 8-K #207 (the Sept 2020 partnership), CNH 6-K #208. 2) Duplicates: Wikipedia appears as #11 (Wikipedia source, identity) and again as #56 (web-search, press, high red flag) for the same URL. #56's quote is reference-list junk (\"Retrieved November 6, 2026\"). pageKey includes category and headline, so the two are not merged. Red flags #1, #2, #11, #56 and #60 are all the same Wikipedia article. 36 red flags carry many repeats of the same events: ten sentencing articles, eight conviction articles. 3) Generic pages: #225 \"Trevor - Wikipedia\", #228 History of GM, #229 \"2021 in the United States\", graded possible/info, which is harmless but clutter. 4) Timeline/dating: Wikipedia passage #1 (\"In 2020, Milton resigned\u2026\") and #2 (\"In July 2021\u2026 indictment\") are dated 2024-09 because knowledge.js dates a passage by the latest year it names. On the timeline they sit after the 2023 sentencing. #134 career passage is dated 2015. 5) Severity: #58 (Nikola Chapter 11) is counted as a person red flag rather than a company matter, which is minor. Otherwise the top red flags (DOJ sentencing, Wikidata convictions, SEC $125M, SEC complaint, DOJ charges, Hindenburg) are the right ones, in a sensible order. 6) Wasted lookups: the French company register (5 lookups, 2 timeouts) and BODACC were searched for a US company.",
+   "sourcesFailing": [
+    "Web archive (earlier versions of profiles and bios): 3 of 8 lookups failed, 'could not be reached'. Reported in coverage, and trevormilton.com was 'not answered by the archive'.",
+    "Patents (Google Patents): 'could not be reached'. Listed under NOT SEARCHED (honest). Nikola/Milton design patents, e.g. the Tesla Semi design dispute, were therefore not checked.",
+    "French company register (Annuaire des Entreprises): 2 of 5 lookups 'did not respond in time'. It should not have been queried for a US subject at all.",
+    "CourtListener: not enabled on this deployment (reported honestly). As a result, the S.D.N.Y. criminal case number 21-cr-478 is never shown. The Internet Archive copies (gov.uscourts.nysd.564174/564175) have no docket number in their metadata, only a CourtListener source_url.",
+    "Open-web search: DuckDuckGo paused ('asked for fewer searches'). The keyless fallback is Google News RSS, which is recency-biased, so the dHybrid company-legal lookup could not reach the older Swift Transportation lawsuit (confirmed with one live run).",
+    "Pacing: the round-3 status line repeats unchanged from 103s to 205s with 'queued 6' and nothing running, about 100s idle. Other engineers are already fixing pacing; noted, not proposed again."
+   ]
+  },
+  {
+   "subject": "Adam Neumann / WeWork (evaluation round 4, r5 run: 287 records, 178 confirmed, 16 red flags, 720s)",
+   "score": 74,
+   "recallMust": "About 5.5 of the 7 MUST sub-facts are found and tied to him. FOUND: (1) Sept 2019 step-down: #36 NYT \"Steps Down Under Pressure\" (red flag), #37 CBS, #60 WSJ, #61/#38 HN, #63 Wikipedia \"On September 24, 2019, he resigned\", all confirmed. (2) Related-party leases in the S-1: #6 S-1/A We Co. 2019-09-13 (leases with landlord entities in which Adam has an ownership interest) and #5 S-1 2022 (landlord), both confirmed and medium red flags. (3) SoftBank $3B tender suit 2020: #25 NYT, #26 CNN, #28 Bloomberg, #29 CNBC \"failed tender offer\", #30 WSJ, #4 DEF 14A. (4) 2021 settlement: #21 Forbes, #22-24 WSJ/Fox, #3 Wikipedia. (5) Chapter 11 Nov 2023: #41 bankruptcy docket (company), #208 HN \"WeWork Goes Bankrupt\" (company), and confirmed press #19 and #20. PARTIAL: the $5.9M \"We\" trademark, given back, appears only as #81, an HN story graded company/low (\"WeWork CEO gives back $5.9M from 'We' trademark\"). It is not tied to him, not a red flag and not in the brief. A WSJ story on the same theme, #212 \"WeWork's CEO Makes Millions as Landlord to WeWork\", is also graded company/info. MISSED: company loans to Neumann. No record mentions a loan. The SEC related-party reader reads only one best passage per filing (sec.js personRelated: bestSpot), so the lease passage of the We Co. S-1/A is kept and the loan and trademark passages in the same document are never quoted. Its own note admits that 9 more related-party filings were not read.",
+   "recallShould": "All 8 SHOULD items are present, one only weakly. Miguel McKelvey: #56 S-1/A quote, #113 Wikipedia, and a Form D associate thread. Krawlers: only inside #101 (Wikipedia \"Business career\"). Green Desk: #101, #83 Crunchbase, #205 NY register. Flow / a16z / $350M: #167 Inc ($350M, confirmed), #168 HN \"Backing from Andreessen Horowitz\" (confirmed), #95 Wikidata Flow CEO from 2022. The NYT a16z story #267, TechCrunch #264 and Fortune #266 are graded possible. 2024 buy-back: #1, #10-16, #142-162. Discrimination complaint: #34 CBS \"accused of gender discrimination\" (red flag). Baruch, degree finished in 2017: #91 LittleSis and #94 Wikipedia. Israeli Navy: #115 Wikipedia. Weak spot: Krawlers and the navy come only from Wikipedia sentences graded info.",
+   "wrongAttributions": [
+    "No record graded confirmed or likely is about a different person. The namesake handling held: UK directors #96, #97, #227 and #228, GitHub #251-253, OpenAlex #243/#244/#249, ORCID #254, Netflix Form 144 'Neumann Spencer Adam' #217/#218 and LinkedIn 'Senior Software Engineer at Pivotal Labs' #248 are all possible, and none is confirmed.",
+    "#213 (company/info): 'Hacker News: Facebook Launches Flow, Static Type Checker for JavaScript' (2014) is graded 'about Flow, a company of the subject'. It is Facebook's JavaScript tool, eight years before Neumann's Flow existed. In profiles.js hnAboutCompany, a company-only story passes when BUSINESS.test(title) is true ('Launches'), with no check that the story falls after the person's tie to the company began.",
+    "#131 (confirmed/info): ABC 'WeWork board members reportedly want CEO Adam Neumann to step down' is right about the person but dated 2026-02-14. This is a 2019 story carrying a Google News RSS republish date, so the timeline and recency ranking are wrong for it.",
+    "Misgraded the other way (records about him downgraded; less harmful): #65 The Real Deal 'Adam Neumann, SoftBank Near Settlement Agreement' is listed under POSSIBLE NAMESAKES. #255-#272 (NYT a16z, Semafor DIFC office, Curbed, CoStar Flow, TIME 100, NYT 'Art of Failing Up') are possible ('matched by name only'). #225/#226 S-1/A filed by We Co. are possible, although #6, from the same accession 0001193125-19-244329, is confirmed through the CIK tie. #202/#220 Selina filings name 'controlling owner of 166 2nd' and are still possible. #55 'WeWork, SoftBank, Neumann Hit with Shareholder Lawsuit' is graded company, not person, because only the surname appears."
+   ],
+   "privacyViolations": [
+    "No home address, phone number, personal email, date of birth, ID number, health, religion, sexuality or immigration detail appears, and no people-search site is cited. Children appear only in the phrase 'children's clothing company, Krawlers'.",
+    "Minor: #112 (LittleSis) quotes Rebekah Neumann's blurb, 'Cousin of actress Gwyneth Paltrow'. This is a family tie of a relative, unrelated to any business role. Rebekah herself has a public role, so she may be shown, but the cousin clause adds nothing for an investor. A rule that strips 'cousin/niece/nephew of <celebrity>' clauses from relative blurbs would be enough."
+   ],
+   "noise": "1) Red-flag ranking is wrong. All 16 flags are 'medium' and are sorted by record number (report.js redFlags.sort by n). Score breaks ties by recency, so the top four are a Wikipedia sentence about the 2024 buy-back attempt (#1, filed under Courts and litigation only because it contains 'bankruptcy'), a minority-shareholder lawsuit, a refinancing quote and a DEF 14A. The S-1 self-dealing (#5, #6) ranks 5-6, the 2019 step-down #36 ranks 15th, and the $5.9M trademark and 'landlord to WeWork' stories are not flags at all. Buy-back and bankruptcy-exit stories (#7, #12, #17) are red flags although the adverse event is the company's bankruptcy years after he left. report.js afterTenure() was written for exactly this case, but it never fires because no role tenures exist (see fixes). 2) The step-down is split: NYT/HN 'under pressure' is medium, while WSJ #60, CNBC #62 and HN #61 (728 points) are low, because 'steps down' matches only the LOW regex. 3) 15 Wikipedia pages about other things are listed as possible press: Avi Yehiel, Bill Graham (promoter), Andrew Ross Sorkin, Jamie Hodari, International Workplace Group, Meetup, Baruch College, and 'Neumann - Wikipedia', a surname list that WIKI_NAME_LIST misses because it has no '(surname)' suffix. #200 'Adam Neumann - Wikipedia' duplicates the Wikipedia source's own records. 4) Company noise: 13 Colorado/NY/TX/CT 'Flow' register entries and LEI 'FLOW' France/Italy records (#214-#242), and USPTO 'Flow' 1996 (#250). Correctly graded possible, but this is clutter. 5) Timeline: mostly sensible (2019 step-down, 2019 suits, 2020 suit, 2021 settlement, 2024 buy-back). It includes GREEN DESK LLC 2007 and two plain company Form Ds, lacks the Nov 2023 Chapter 11 filing as a dated event, and carries the Wikidata '2008-05' CEO start date. 6) HN duplicates: #38/#61 and #31/#32 are the same stories as the press records. They are clustered, but each counts as its own record in totals.",
+   "sourcesFailing": [
+    "US state business registers: the log says 'The Colorado business register did not answer in time', and the same for New York, Texas and Oregon in rounds 2 and 3, yet coverage.searched shows failed: 0 and the label still claims 'Colorado, New York, Connecticut, Oregon, Texas'. registries.js (lines ~997-1011) turns a per-state timeout into a note only and throws only when every state fails, so deepCheck never counts a partial failure (stat.errors) and partlyAnswered never lists it.",
+    "News archives: 2 of 17 lookups failed ('could not be reached'). This is reported correctly in coverage.",
+    "Web archive: 2 of 10 lookups failed ('could not be reached'), and linkedin.com/in/adam-neumann was not checked because 'the lookup reached its limit'. Reported in coverage and the log.",
+    "Patents (Google Patents): 'could not be reached'. Listed under notSearched, which is correct.",
+    "CourtListener is off on this deployment and is declared as such. The Internet Archive docket copy returned only company cases. No federal case naming Neumann personally appears (for example the 2019 shareholder suit or the 2020 suit against SoftBank in Delaware Chancery, which is a state court and not covered). This is a coverage gap, not a failure.",
+    "SEC related-party reader: 'about 9 more SEC filings name Adam Neumann and use related-party or family terms; their passages were not read'. This is a self-imposed cap (RELATED_MAX_READS = 5, one passage per filing), and it is why the loans and trademark were missed."
+   ]
+  },
+  {
+   "subject": "Arthur Mensch / Mistral AI (round 4, r5 run: 720s, 8 rounds, 215 lookups, 122 records, 0 red flags)",
+   "score": 72,
+   "recallMust": "All 3 MUST items were found and tied to him (all sub-facts: 5 of 5).\n(1) Co-founder and CEO of Mistral AI, created 28 April 2023, with Lample and Lacroix: [9] French register lists him as Pr\u00e9sident de SAS and both of them as Directeurs G\u00e9n\u00e9raux; also [22] Wikidata, [21] Wikipedia, [62] press naming all three. All confirmed.\n(2) Previously at DeepMind: [23] Wikipedia \"Early career at DeepMind\", confirmed.\n(3) Education: \u00c9cole Polytechnique [19][20][13], confirmed. ENS Paris-Saclay appears as \"\u00c9cole Normale Sup\u00e9rieure de Cachan, Master MVA\" in [17] (ORCID) and in [20] (Wikipedia), confirmed. PhD 2018: [93] theses.fr \"Apprentissage de repr\u00e9sentations en imagerie fonctionnelle\", Universit\u00e9 Paris-Saclay, defended 28/09/2018, supervised by Bertrand Thirion. [16] and [24] back it up (ORCID: PhD candidate, Inria Parietal, 2015-2018).\nOnly defect: the thesis [93] is graded likely, not confirmed, even though it is matched to a confirmed ORCID record by school, years and supervisor.\nMisses: none.",
+   "recallShould": "Mostly found. Present:\n- Company register entry: [9] MISTRAL AI SAS (president), plus [82] and [83] (LEI), [8] Mistral AI UK Ltd (director), and [7], [3], [4] for the Employees SPV and Project K/P SPVs.\n- Funding rounds: seed $113m at [78] and [103]; \u20ac2bn valuation at [102]; Series B $640m at [71] and [99]; Series C \u20ac1.7bn at [97] (graded company only); a 2026 round of \u20ac3bn at [40].\n- Publications: [14] OpenAlex, 57 works and 37k citations, confirmed.\n- GitHub: [25] arthur-mensch and [26] arthurmensch, confirmed.\nMiss: ASML as Series C lead is nowhere in the report (0 hits for \"ASML\"). The only Series C record is an HN title (\"Mistral AI raises 1.7B\u20ac\") with no snippet. No investor names at all (Lightspeed, a16z, General Catalyst, ASML), so the cap-table story is thin.\nClean screens: sanctions (US, UN, EU, UK, Canada), HHS OIG, SAM, FBI and EU wanted lists, ICIJ, BrokerCheck and BODACC were all run with no match. However, those results appear only in log[]. The brief says only \"None found in the records searched\" and never lists the screens that came back clean. That is partial credit for the requirement that the report \"should say the screens came back clean\".",
+   "wrongAttributions": [
+    "None of the confirmed or likely records is about someone else. I checked [3], [4], [5], [6], [29], [51], [84], [94] and [104]. The SPVs [3] and [4] share officers Lacroix and Lample with MISTRAL AI. [5] and [6] carry a quote by Mensch as CEO of Mistral. The namesake [107] (Arthur H. Mensch, Yale 1968) is correctly graded possible.",
+    "Thread-level misattribution (not a record): 'company | Airbus | CEO'. It came from the snippet of [40]: 'Arthur Mensch, co-founder and director general of Mistral AI, and Guillaume Faury, CEO of Airbus'. extractFounderEvidence in src/server/founderCheck.js (COMPANY_PATTERNS via nearName) gave Faury's 'CEO of Airbus' to the subject. I reproduced this live with threadsFromResult and got [{kind:'company', value:'Airbus', why:'CEO'}]. Effect: wasted lookups in the French and UK registers ('No French/UK company named Airbus lists the person as an officer') and Airbus shown in the report's threads as one of his companies.",
+    "Severity misclassification, close to a false flag: [1] 'Microsoft partnership with France's Mistral AI won't face British antitrust probe' (Fortune) and [2] 'UK's CMA rejects probe into Microsoft-Mistral AI tie-up' (Reuters) are graded severity medium. [1] is the only item in the brief's 'About their companies' concerns. Both report a clearance, not a matter."
+   ],
+   "privacyViolations": [],
+   "noise": "1. Duplicates:\n- [10] and [57] have the identical Google News URL. [10] (web-search, filed under education) and [57] (news-archive, filed under press) are both kept, because pageKey includes the category.\n- [5] and [6] have the identical CoreWeave testimonial quote. [5] already lists [6]'s URL in alsoIn, yet [6] is still a separate record, because quoteKey includes f.source ('sec-filings' vs 'sec-company').\n- [41] and [110] are the same Economist interview. The URLs differ only by ?taid=, which is not in TRACKING, and the HN title prefix breaks the headline key. [110] is also graded possible while [41] is confirmed.\n- [12] and [89] are duplicate LinkedIn summaries; the SPV person record and company record also appear twice in the timeline.\n2. Under-graded: 15 press records [108]-[122] are graded possible ('matched by name only'), but they are plainly about him: Time 100 AI, Le Monde 'meteoric rise', Forbes, The Times, Politico, Paperjam. Google News RSS gives no snippet, so only the headline is graded. This is conservative rather than wrong, but it pads 'matched by name only' to 19.\n3. Misleading severity: [1] and [2] (CMA clearance) are graded medium, and [1] is shown as the one company concern in the brief.\n4. Irrelevant records: HN company items [96] Forge, [98] Magistral, [100] 8x22B, [101] Mixtral-Next are product launches with no diligence value. Funding posts [97], [99], [102] and [103] are useful.\n5. Timeline: sensible in order. But it includes 'profile archived N times' rows, has no funding events, and does not list DeepMind except through the 2020 Wikipedia row.\n6. Ranking: there are no red flags, which is correct.",
+   "sourcesFailing": [
+    "News archives: 2 of 13 lookups failed with 'could not be reached'. That is plainFailure's catch-all text; the raw error goes only to console.warn, and the eval log has no '[deep-check] \u2026 failed' line, so the cause cannot be diagnosed from the report.",
+    "Web archive: 2 of 14 failed with 'did not respond in time'. The log also says 'The web archive did not answer for amens.ch' and 'did not list amens.ch in time'. When I fetched a snapshot directly with the raw id_ form, the Wayback answered 'Your request is being blocked because our system has flagged it as suspected abusive bot traffic'. Some timeouts may really be blocks, and those should be reported differently.",
+    "Patents (Google Patents): 'could not be reached'. It is correctly listed under notSearched.",
+    "Open-web search: 2 lookups were not run because the allowance was used up. This is reported under 'answered only in part' (which is honest), but the check sat idle about 6 minutes, from round 6 to round 8 (about 360s to 720s), waiting for them. It then dropped them at maxWaitAgeMs (12 min). Total runtime roughly doubled for 0 records.",
+    "CourtListener is not enabled on this deployment. That is reported honestly."
+   ]
+  }
+ ]
+}

@@ -8,6 +8,9 @@ in deal workspaces, and watch companies for new funding, people and filings.
 Next.js 14 (pages router), React 18, Tailwind. Deploys to Vercel. Every AI
 feature runs on free providers first; nothing is paid unless you turn it on.
 
+
+Maintainers: start with `CODEX-HANDOVER.md` (current state, hard rules, daily run) and `AGENTS.md`.
+
 ## Design and language
 
 The interface is deliberately quiet (`DESIGN.md`): a light canvas, white
