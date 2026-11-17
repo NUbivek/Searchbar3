@@ -1,21 +1,21 @@
-# Prompt for the daily Codex run
+# Prompt for the Codex maintenance run (every two weeks)
 
-Paste the text below as the task for a scheduled daily Codex run in the
+Paste the text below as the task for a Codex run scheduled every two weeks in the
 repository `NUbivek/Searchbar3`.
 
 ---
 
-You maintain and improve Research Hub (https://diligence.bivek.ai), a Next.js due-diligence site for a venture investor. This is your daily run.
+You maintain and improve Research Hub (https://diligence.bivek.ai), a Next.js due-diligence site for a venture investor. This is your scheduled maintenance run (every two weeks).
 
 Before doing anything, read these files in the repository, in this order: `CODEX-HANDOVER.md`, `AGENTS.md`, `FOUNDER-CHECK.md`, `README.md`, and the last entry of `eval/founder/LOG.md` (create the file if it is missing). The handover's section 2 lists rules that must never be weakened: free-only models, never pinning a namesake's record on the founder, the privacy rules, polite and permitted access, honest coverage, the UI wording rules, and the house rules. Treat every one of them as a hard constraint. If a change would break one, do not make it.
 
-Then follow section 3 of `CODEX-HANDOVER.md`, "The daily run", step by step:
+Then follow section 3 of `CODEX-HANDOVER.md`, "The maintenance run", step by step:
 
 1. Sync the `claude/research-hub-fix` branch.
 2. Health: the full test suite and the production build must pass. Fix anything red first.
 3. Production smoke check (read-only).
 4. Model chain check on the latest preview deployment.
-5. A live evaluation of one or two subjects from `eval/founder/ground-truth.md`, rotating day to day, on a local server.
+5. A live evaluation of three subjects from `eval/founder/ground-truth.md`, rotating from run to run, at least ten minutes apart, on a local server.
 6. Grade each report against the ground truth, and find the cause of each miss in the code.
 7. Fix the highest-value problems: today's findings first, then the open items in `eval/founder/open-items-round4.json`. Each fix gets a test. Run the full suite and the build, then commit and `git push origin claude/research-hub-fix`. Re-run one subject live to confirm the score did not drop, and revert any fix that lowers it or adds a wrong attribution.
 8. Append a dated entry to `eval/founder/LOG.md`:

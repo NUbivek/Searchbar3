@@ -1,10 +1,10 @@
 # Codex handover: Research Hub (diligence.bivek.ai)
 
-Written 2026-11-17 by Claude for Codex, which takes over maintenance and a
-daily improvement run. Read this file, then `AGENTS.md` (house rules, design,
+Written 2026-11-17 by Claude for Codex, which takes over maintenance and an
+improvement run every two weeks. Read this file, then `AGENTS.md` (house rules, design,
 architecture), `FOUNDER-CHECK.md` (the deep background check) and `README.md`
 (features, AI models, setup). Nothing here replaces them; this file says what
-state things are in and how to run the daily loop.
+state things are in and how to run the maintenance loop.
 
 ## 1. Where things stand
 
@@ -51,7 +51,10 @@ These are the owner's decisions. A change that breaks one is a regression, whate
    - Always `git push origin <branch>`.
    - **Production only on the owner's explicit "push to production"**, by a merge commit of `claude/research-hub-fix` into `openclaw-fixes` (procedure in AGENTS.md).
 
-## 3. The daily run (what Codex does every day)
+## 3. The maintenance run (what Codex does every two weeks)
+
+The owner chose a run every two weeks (not daily). The prompt to schedule is
+`CODEX-RUN-PROMPT.md`.
 
 Goal: keep the site healthy and keep improving the deep check's accuracy, without ever breaking the rules above. Work only on `claude/research-hub-fix`. Do not release to production on your own: leave a release note for the owner (step 8).
 
@@ -73,7 +76,7 @@ Goal: keep the site healthy and keep improving the deep check's accuracy, withou
    - If a provider shows "sign-in problem", its key was rejected: note it for the owner. Never change keys yourself.
    - If the model line-up changed (new or retired models), update the table at the top of `providers.js`, keeping the free-only allow-list rules and the tests green.
 
-5. **Live evaluation (one or two subjects a day, rotating).**
+5. **Live evaluation (three subjects per run, rotating from run to run).**
    1. Start a local server that allows unsigned checks:
       ```
       PGLITE_DIR=.data/pglite-codex ALLOW_DEV_LOGIN=true FOUNDER_DEEP_PUBLIC=true NEXT_DIST_DIR=.next-dev npx next dev -p 3009
