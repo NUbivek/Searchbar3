@@ -251,11 +251,13 @@ Misc: `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_PRODUCTION_URL`, `FEATURE_*`,
 `vercel env ls` shows names; use `vercel env add NAME preview <branch> --value '…' --yes`
 for non-interactive adds (the owner normally pastes secret values himself).
 
-## 8. Current state (2026-11-14)
+## 8. Current state
 
-Production `openclaw-fixes` is at `bcacb2b`. The preview branch
-`claude/research-hub-fix` is AHEAD of production and has NOT been released:
-the owner must say "push to production" first. What is on preview only:
+**Read `CODEX-HANDOVER.md` first** (2026-11-17): it has the current state, the rules that must never be weakened, the daily run and the open items. The text below is the earlier record.
+
+### Earlier record (2026-11-14)
+
+Production `openclaw-fixes` was at `bcacb2b`; on 2026-11-17 everything below was released (`eb6ee9d`). What was then on preview only:
 
 - the loading-placeholder fix (`ddeb651`);
 - **Tavus removed** (`f8d1d3f`): the video guide component, config, docs and
