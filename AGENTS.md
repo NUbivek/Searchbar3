@@ -22,7 +22,7 @@ segmented control at the top of every page:
 |---|---|---|
 | Open Research | `/` | Searches curated VC/startup sources, Hacker News, the web, SEC and grouped official/institutional sites; writes a cited answer (free LLMs) or quotes sources; checks funding/valuation claims across sources. |
 | Network Map | `/network` | The user's own contacts (LinkedIn export, CSV/XLSX, X, Attio placeholder) on a see-through 3D globe (you → group → sub-group → company → person), with a dashboard beside it, grouped by role / company / industry / country, plus "ask your network" (raise / source / diligence lenses, intro paths). |
-| Founder Check | `/founder` | Background brief on a person, plus who in the user's network can help diligence them. |
+| Founder Check | `/founder` | Quick brief on a person, plus a deep background check (signed in): a loop over about forty free public sources that pulls every thread it finds, grades each record for identity, and reports red flags, claims that changed between archived versions, and related parties. Read `FOUNDER-CHECK.md` before touching it. |
 
 Secondary pages: `/company/<name>` (company profile), `/workspaces`
 (deal workspaces, data-room Q&A, memo export), `/watchlist` (daily alerts),
@@ -65,9 +65,13 @@ These come from the owner. Treat them as hard constraints.
    files** (names, sizes and dates only). Never move, copy or delete
    `~/ab_copy`, `~/im_copy`, `~/wa_full_copy` or any messaging/contacts
    database.
-5. **Free tools only.** The LLM chain is free-first (Groq → OpenRouter `:free`
-   → Gemini); paid Together only with `LLM_ALLOW_PAID=true`. Do not add paid
-   services without asking.
+5. **Free tools only.** The model chain (`src/server/llm/providers.js`) can
+   only call models on its allow-list, all of which cost nothing (Gemini free
+   tier, OpenRouter `:free`, Groq free plan, optional NVIDIA). There is no
+   paid switch any more: do not add one, do not add a provider whose free
+   access is a trial credit or needs a card, and do not read the paid keys
+   that still sit in Vercel. `tests/unit/features/llmChain.test.js` holds
+   these guarantees. Do not add paid services without asking.
 6. **Keep the UI clean** (see section 6): no pricing/tier/API-key/env-var
    wording in the UI; say "not enabled on this deployment" when a capability is
    missing. The owner repeatedly asked to remove filler copy, taglines and
@@ -117,9 +121,12 @@ src/pages/                 UI pages: index (Open Research), network, founder, co
                            workspaces/*, history/*, watchlist, signin, privacy, terms
 src/pages/api/             search/open, founder, company, upload, llm/models, sources/curated,
                            history/*, workspaces/**, watchlist, alerts, cron/watchlists,
+                           founder/deep (the deep background check, one step per request),
                            network/{contacts,query,helpers,attio,twitter},
-                           auth/[...nextauth], auth/{linkedin,twitter}/*, debug/env-check
-src/server/                search/ (queryPlan, retrieve, rank, answer), llm/providers (free-first chain),
+                           auth/[...nextauth], auth/{linkedin,twitter}/*, debug/{env-check,llm-check}
+src/server/                search/ (queryPlan, retrieve, rank, answer), llm/providers (the model chain: only models that cost
+                           nothing, strongest first), learning (what has worked before), founder/ (the deep background
+                           check: loop, identity grading, privacy rules, report, and sources/ with one file per family),
                            founderCheck, companyProfile, dataroom, memo, watchlist,
                            network/{store,query}, store, db, auth
 src/utils/                 sourceTiers, claimCheck, evidence, sourceIntegration (search handlers),
@@ -128,11 +135,9 @@ src/utils/                 sourceTiers, claimCheck, evidence, sourceIntegration 
                            theme (day / night)
 src/components/            OpenSearch, SourceSelector, ModelSelector (no longer rendered),
                            layout/PageShell (TopBar, ThemeToggle, SectionSwitch),
-                           network/{NetworkGraph,NetworkHelpers}, tavus/{TavusGuide,guideTools},
+                           network/{NetworkGraph,NetworkHelpers},
                            search/results/*, workspace/*, watchlist/*
 src/styles/globals.css     colour tokens for day and night, component classes
-docs/tavus/                the video guide's instructions (00-), tool specs (03-) and seven
-                           knowledge files (kb-*); README.md there says what goes where
 src/sourcing/              curated registry pipeline (scripts/sourcing-*.js)
 sources/registry.json      ~800 curated sources (RSS/HTML/API) incl. government, ip_research,
                            institutions_research categories
@@ -197,14 +202,14 @@ Key behaviours worth knowing before editing:
   (`src/utils/oauthUtils.js` ignores `*_REDIRECT_URI` overrides that are not
   real URLs or point at another host).
 
-- **Tavus video guide.** `src/components/tavus/TavusGuide.js` renders the one
-  `<tavus-widget>` (deployment id in `src/config/tavus.js`), loaded in
-  `_app.js` with `next/dynamic` and `ssr: false`. Tool logic and page
-  descriptions are in `guideTools.js` (unit-tested in
-  `tests/unit/features/tavusGuide.test.js`); the PAL Maker tool specs are in
-  `docs/tavus/03-pal-tools.md`. Keep `@tavus/widget` on the `latest` tag.
-  Open Research keeps its current query in the URL (`?q=`) so the agent and
-  links stay in sync; do not mount the widget per page (a remount ends calls).
+- **Video guide (Tavus): removed on 2026-11-14 at the owner's request ("for
+  now").** The widget, its config, tests and the `docs/tavus/` text files
+  are gone from the tree. To bring it back, restore these paths from commit
+  `ddeb651`: `src/components/tavus/`, `src/config/tavus.js`,
+  `tests/unit/features/tavusGuide.test.js`, `docs/tavus/*.txt|*.md`, the
+  mount in `src/pages/_app.js`, and the `@tavus/widget` dependency. Open
+  Research still keeps its query in the URL (`?q=`) and Founder Check accepts
+  `?name=&company=`; both are useful as plain links.
 
 ## 6. Design rules (short; full version in DESIGN.md)
 
@@ -228,8 +233,10 @@ added for day without a night value.
 
 ## 7. Environment variables (names only — values live in Vercel)
 
-Free LLMs: `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GOOGLE_AI_API_KEY`
-(also present but paid/unused by default: `TOGETHER_API_KEY`, `PERPLEXITY_API_KEY`, `CEREBRAS_API_KEY`).
+AI models: `GOOGLE_AI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`; optional
+`NVIDIA_API_KEY` (not set) and `LLM_SKIP_GEMINI_FOR_PEOPLE`.
+(Still present in Vercel but never read by the app: `TOGETHER_API_KEY`,
+`PERPLEXITY_API_KEY`, `CEREBRAS_API_KEY`. They can be deleted.)
 Search/data: `SERPER_API_KEY`, `TAVILY_API_KEY`, `FMP_API_KEY`, `FRED_API_KEY`.
 DB: `DATABASE_URL` and the `DATABASE_*` family from the Neon integration.
 Auth: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXTAUTH_SECRET`, `CRON_SECRET`.
@@ -244,14 +251,30 @@ Misc: `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_PRODUCTION_URL`, `FEATURE_*`,
 `vercel env ls` shows names; use `vercel env add NAME preview <branch> --value '…' --yes`
 for non-interactive adds (the owner normally pastes secret values himself).
 
-## 8. Current state (2026-11-10)
+## 8. Current state (2026-11-14)
 
 Production `openclaw-fixes` is at `bcacb2b`. The preview branch
-`claude/research-hub-fix` has the same application code, plus one newer
-commit that only updates this file
-(`git diff --stat origin/openclaw-fixes origin/claude/research-hub-fix`
-should list `AGENTS.md` and nothing else). Nothing is waiting to be deployed. 580 tests pass; the production build
-compiles.
+`claude/research-hub-fix` is AHEAD of production and has NOT been released:
+the owner must say "push to production" first. What is on preview only:
+
+- the loading-placeholder fix (`ddeb651`);
+- **Tavus removed** (`f8d1d3f`): the video guide component, config, docs and
+  package are gone; restore from `ddeb651` if it is ever wanted again;
+- **the model chain rewrite** (`0dec692`): only models that cost nothing can
+  be called, strongest first (README "AI models";
+  `tests/unit/features/llmChain.test.js` holds the guarantees);
+- **the deep background check** on the Founder Check page
+  (`FOUNDER-CHECK.md`): `src/server/founder/**`, `src/pages/api/founder/deep.js`,
+  `src/components/founder/DeepCheck.js`, new tables `founder_jobs`,
+  `learning_stats`, `source_cache` (created on first use).
+
+1,135 tests pass; the production build compiles. Rules for the deep check
+that must not be weakened: a name-only match is never shown as a fact;
+no private personal data, no people-search sites, no stolen data; relatives
+only with a public role stated beside their name; associates and relatives
+are never checked on their own; only free sources and models that cost
+nothing. Local testing: start the dev server with `FOUNDER_DEEP_PUBLIC=true`
+and drive `POST /api/founder/deep` (start, then step until done).
 
 Shipped on 2026-11-09 and 2026-11-10 (all live):
 
@@ -270,16 +293,12 @@ Shipped on 2026-11-09 and 2026-11-10 (all live):
 Still true from before: full audit and overhaul; free-first LLM chain;
 Google sign-in on both hosts; custom domain; privacy / terms; Open Research
 source groups (Gov, Patents & IP, Institutions) with All / Custom chips;
-Tavus video guide with three page tools; avatar knowledge docs in
-`docs/tavus/` (keep them in step with UI changes; the owner uploads them to
-the guide's knowledge base himself).
+(The Tavus video guide was removed on 2026-11-14; see section 5.)
 
 On purpose, do not undo:
 
 - `docs/tavus/media/` is untracked (banner and background JPGs for the
   owner's video). Leave it uncommitted unless he asks.
-- A Tavus findings report and `?tavusDebug=1` timing marks were added and
-  reverted (`eb29785`). The owner keeps that report outside the repo.
 
 ### How production is released
 
@@ -304,20 +323,36 @@ before all of this work).
 
 ## 9. Open items — pick up here
 
-Not yet verified (worth doing first):
+Verified on 2026-11-14 (local server, signed-in test user):
 
-1. **Night mode on pages nobody opened at night:** a live Open Research
-   search and Founder Check run (only a saved result was viewed), workspace
-   detail, memo and company profile pages. They use the same tokens; look
-   for leftover light panels or unreadable text and fix with token classes.
-2. **Classification on the owner's real contacts.** The under-5% result for
+- Night mode on a live Open Research search (both result tabs), a Founder
+  Check run, a company profile, a workspace and its memo. No leftover light
+  panels or unreadable text.
+- Network Map "By company" and "By industry" (including opening a group),
+  and pinch zoom with a simulated two-finger gesture.
+- Fixed while verifying: loading placeholders (`.skeleton`, used in 54
+  places) slid sideways out of their cards because an old
+  `@keyframes shimmer` (a translate) overrode the intended one. The two
+  animations now have separate names; `tests/unit/theme.test.js` guards it.
+
+Still not verified:
+
+1. **Classification on the owner's real contacts.** The under-5% result for
    "Everyone else" and industry "Other" was measured on synthetic test
-   contacts. If the owner reports a large leftover bucket, extend `ROLES`,
-   `COMPANY_WORD_INDUSTRY` or `FUNCTION_GROUP` and add the case to
-   `tests/unit/features/networkGrouping.test.js`. Do not print his contacts.
-3. **Network Map checks not done:** touch pinch on a phone, full-screen mode
-   with the dashboard hidden, and "By company" / "By industry" after the
-   last layout changes.
+   contacts. Reading his private network workbook needs his explicit
+   go-ahead in the conversation; do not read it otherwise. If he reports a
+   large leftover bucket, extend `ROLES`, `COMPANY_WORD_INDUSTRY` or
+   `FUNCTION_GROUP` and add the case to
+   `tests/unit/features/networkGrouping.test.js`. Never print his contacts.
+2. **Full-screen mode on the Network Map.** The embedded test browser blocks
+   the full-screen API, so it has to be checked in a normal browser. In full
+   screen the dashboard is hidden and details float over the globe; consider
+   making the globe and dashboard go full screen together.
+3. **Real touch on a phone** (pinch was only simulated).
+4. `~/Documents/research-hub-private` is a broken link: its target moved
+   from `…/MBA/2027Resume/Operating Jobs/6 Research Hub` to
+   `…/MBA/2027 Job Search/Operating Jobs/6 Research Hub`. Outside the repo;
+   repoint only if the owner asks.
 
 Waiting on the owner:
 
@@ -328,12 +363,6 @@ Waiting on the owner:
    `TWITTER_CLIENT_ID` / `TWITTER_CLIENT_SECRET` in Vercel and production
    needs a redeploy; then test Connect X and `GET /api/auth/twitter/token`
    (expect `authenticated: true`), then "Import follows".
-5. **Tavus setup.** The owner pastes `docs/tavus/00-agent-instructions.txt`
-   into the guide's instructions, creates the three tools from
-   `03-pal-tools.md`, and uploads the seven `kb-*.txt` files (see
-   `docs/tavus/README.md`). Until the tools exist the guide talks but cannot
-   navigate. When the UI changes, update the matching `kb-*.txt` file and
-   tell him to re-upload it.
 6. **Stale env overrides in Vercel** (the code already ignores them):
    `TWITTER_REDIRECT_URI`, `LINKEDIN_REDIRECT_URI`,
    `NEXT_PUBLIC_LINKEDIN_REDIRECT_URI`, and `NEXT_PUBLIC_BASE_URL` /
@@ -372,7 +401,7 @@ Ideas discussed, not started (build only if he asks):
 - Gives feedback fast and in fragments while watching the page, and changes
   direction when he sees the result. Build the smallest version that shows
   the idea, show it, then refine. Keep what already worked.
-- Wants docs (README, NETWORK-MAP.md, DESIGN.md, `docs/tavus/kb-*.txt`) updated
+- Wants docs (README, NETWORK-MAP.md, DESIGN.md) updated
   with every feature change.
 - Prefers a short plain summary at the end: what changed, what is verified,
   what is not, what is left on his side.

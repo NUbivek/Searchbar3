@@ -497,15 +497,30 @@
   position: absolute;
   inset: 0;
   background-image: linear-gradient(to right, transparent, white/20, transparent);
-  animation: shimmer 2s infinite;
+  animation: shimmer-sweep 2s infinite;
 }
 
-@keyframes shimmer {
+/* A highlight that sweeps across .loading-shimmer (a pseudo-element moves). */
+@keyframes shimmer-sweep {
   from {
     transform: translateX(-100%);
   }
   to {
     transform: translateX(100%);
+  }
+}
+
+/*
+ * Loading placeholders (.skeleton): the highlight moves inside the bar; the
+ * bar itself stays put. This used to share the name "shimmer" with the sweep
+ * above, which moved the whole bar sideways out of its card.
+ */
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
   }
 }
 

@@ -1,6 +1,11 @@
 /**
  * Database access for signed-in features (history, workspaces, notes,
- * watchlists, alerts, data-room documents).
+ * watchlists, alerts, data-room documents), plus three tables that need no
+ * sign-in: founder_jobs (the state of a deep background check between
+ * requests), learning_stats (which queries, sources and models have
+ * worked, so the next run tries the best first) and source_cache (public
+ * list files, such as sanctions lists, kept so they are not downloaded on
+ * every check).
  *
  * - Production: Neon Postgres (DATABASE_URL, added by Vercel's Neon
  *   integration), via the serverless HTTP driver.
@@ -97,6 +102,31 @@ CREATE TABLE IF NOT EXISTS alerts (
   UNIQUE (watch_id, url)
 );
 CREATE INDEX IF NOT EXISTS alerts_user_idx ON alerts(user_id, seen, created_at DESC);
+CREATE TABLE IF NOT EXISTS founder_jobs (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  name TEXT NOT NULL,
+  company TEXT,
+  status TEXT NOT NULL DEFAULT 'running',
+  state JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS founder_jobs_updated_idx ON founder_jobs(updated_at);
+CREATE TABLE IF NOT EXISTS learning_stats (
+  kind TEXT NOT NULL,
+  key TEXT NOT NULL,
+  tries INTEGER NOT NULL DEFAULT 0,
+  wins DOUBLE PRECISION NOT NULL DEFAULT 0,
+  total_ms BIGINT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (kind, key)
+);
+CREATE TABLE IF NOT EXISTS source_cache (
+  key TEXT PRIMARY KEY,
+  body JSONB NOT NULL,
+  fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 `;
 
 let clientPromise = null;

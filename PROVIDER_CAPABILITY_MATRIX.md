@@ -14,19 +14,22 @@ degrades honestly: missing providers are listed on the page, never faked.
 | Verified: market data (FMP) | `FMP_API_KEY` | SEC only |
 | Litigation (CourtListener) | `COURTLISTENER_API_TOKEN` (free account) | skipped and stated |
 
-## AI answers (search answer, founder brief, data-room Q&A)
-Free-first chain; the best model each provider serves today is picked from
-its live model list (`src/server/llm/providers.js`).
-| Order | Provider | Key | Cost |
-|---|---|---|---|
-| 1 | Groq (gpt-oss-120b, Qwen 3.x) | `GROQ_API_KEY` | free tier |
-| 2 | OpenRouter free models (Nemotron, Gemma) | `OPENROUTER_API_KEY` | free models only |
-| 3 | Google Gemini (Flash first) | `GOOGLE_AI_API_KEY` (or `GEMINI_API_KEY`) | free tier, **only while the key's Google project has no billing account** |
-| 4 | Together | `TOGETHER_API_KEY` **and** `LLM_ALLOW_PAID=true` | paid, off by default |
+## AI answers (search answer, founder brief, deep background check, data-room Q&A)
+Only models that cost nothing can be called, and the strongest one that can
+answer in time is asked first (`src/server/llm/providers.js`; the README
+section "AI models" explains the rules).
+| Provider | Key | What is used |
+|---|---|---|
+| Google Gemini | `GOOGLE_AI_API_KEY` (or `GEMINI_API_KEY`) | free-tier models, **only free while the key's Google project has no billing account** |
+| OpenRouter | `OPENROUTER_API_KEY` | `:free` text models priced at zero |
+| Groq | `GROQ_API_KEY` | the free plan's chat models |
+| NVIDIA (optional) | `NVIDIA_API_KEY` | a short list of hosted models |
 
-Each provider is tried in order; a rate limit or error moves to the next.
-Gemini's free tier lets Google use prompts (the question and source
-excerpts) to improve its products; contact data is never sent to any model.
+A rate limit, an error or an answer that fails its checks moves to the next
+model. Gemini's free tier lets Google use prompts (the question and source
+excerpts) to improve its products, and its terms ask not to submit personal
+information: `LLM_SKIP_GEMINI_FOR_PEOPLE=true` keeps people checks off it.
+Contact data is never sent to any model.
 
 Without any of these, answers are quoted directly from sources (same
 sections), and the page says so.
@@ -43,4 +46,4 @@ sections), and the page says so.
 - X following (needs a paid X API tier): `TWITTER_CLIENT_ID`, `TWITTER_CLIENT_SECRET`
 - Contact data is never sent to AI providers; only the question text is.
 
-Use `/api/debug/env-check` and `/api/llm/models` to inspect what is configured.
+Use `/api/debug/env-check`, `/api/llm/models` and `/api/debug/llm-check` to inspect what is configured.

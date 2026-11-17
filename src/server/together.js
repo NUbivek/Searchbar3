@@ -1,8 +1,8 @@
 /**
  * Plain completion helper used by data-room Q&A and claim checking.
- * Now backed by the provider chain in ./llm/providers.js (free Groq and
- * OpenRouter first; paid Together only with LLM_ALLOW_PAID=true). The names
- * are kept for compatibility with existing callers.
+ * Backed by the model chain in ./llm/providers.js, which only ever calls
+ * models that cost nothing. The names are historical (this once called
+ * Together) and are kept for compatibility with existing callers.
  *
  * Returns null when no provider is configured or every call fails, so
  * callers fall back to an extractive (quoted) answer instead of guessing.

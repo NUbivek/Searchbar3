@@ -163,8 +163,25 @@ export function nameMatcher(name) {
   return test;
 }
 
-/** Is a match of `re` within NEAR_CHARS of a capitalized mention of the name? */
-function nearName(text, hasName, re, window = NEAR_CHARS) {
+// "Guillaume Faury, CEO of Airbus": a capitalized two-word name, a comma, then the match.
+const OTHER_PERSON_BEFORE = /([A-ZÀ-Þ][\p{L}'’-]+\s+[A-ZÀ-Þ][\p{L}'’-]+),\s*(?:the\s+)?$/u;
+
+/**
+ * Does another person's name directly precede position `a` ("..., and
+ * Guillaume Faury, CEO of Airbus")? Then the role belongs to that person.
+ */
+function otherPersonBefore(text, names, a) {
+  const m = String(text).slice(0, a).match(OTHER_PERSON_BEFORE);
+  if (!m) return false;
+  const nameEnd = m.index + m[1].length;
+  return !names.some(({ end }) => end === nameEnd);
+}
+
+/**
+ * Is a match of `re` within NEAR_CHARS of a capitalized mention of the name?
+ * With `ownOnly`, a match that another named person directly precedes is skipped.
+ */
+function nearName(text, hasName, re, window = NEAR_CHARS, { ownOnly = false } = {}) {
   const names = hasName.positions(text);
   if (!names.length) return null;
   const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
@@ -172,7 +189,9 @@ function nearName(text, hasName, re, window = NEAR_CHARS) {
     const a = m.index;
     const b = a + m[0].length;
     const hit = names.some(({ start, end }) => (a >= end && a - end <= window) || (start >= b && start - b <= window) || (a < end && b > start));
-    if (hit) return m;
+    if (!hit) continue;
+    if (ownOnly && otherPersonBefore(text, names, a)) continue;
+    return m;
   }
   return null;
 }
@@ -365,7 +384,7 @@ export function extractFounderEvidence({ name, company, results, keepAllSources 
       }
 
       for (const { kind, re } of [...COMPANY_PATTERNS, ...namedPatterns]) {
-        const m = nearName(text, hasName, re);
+        const m = nearName(text, hasName, re, NEAR_CHARS, { ownOnly: true });
         if (!m) continue;
         const co = cleanCompany(m.groups?.co, personName, hostOf(result));
         if (!co) continue;
@@ -753,12 +772,16 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
       : `No source mentions "${displayName}" by full name.`);
   }
 
-  // Brief: AI (free chain) with checked citations, else quoted
+  // Brief: AI (the model chain in llm/providers.js) with checked citations, else quoted
   let brief = null;
   let briefInfo = { mode: 'quoted', reason: 'AI answers are not enabled on this deployment' };
   if (ranked.length > 0 && useLLM && PROVIDERS.some(providerEnabled)) {
     const user = `Today's date: ${new Date().toISOString().slice(0, 10)}\nPerson: ${displayName}${co ? `\nCompany (to disambiguate): ${co}` : ''}\n\nSources:\n${sourcesBlock(ranked)}`;
-    const out = await chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], { preferred: model, maxTokens: 3000, deadline });
+    // An answer that fails the citation checks sends the request to the next model rather than giving up on AI
+    const out = await chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], {
+      preferred: model, maxTokens: 3000, deadline, personal: true,
+      accept: (text) => validateAnswer(text, ranked.length, BRIEF_SECTIONS).ok,
+    });
     if (out) {
       const checked = validateAnswer(out.text, ranked.length, BRIEF_SECTIONS);
       if (checked.ok) {

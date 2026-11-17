@@ -68,7 +68,7 @@ sit quietly at the top right for signed-in users.
 - Claim check (`src/utils/claimCheck.js`, no model needed): funding and
   valuation figures are extracted from every source and marked
   corroborated (2+ sites agree), single-source, or conflicting.
-- The model is always "Auto": the best free model available right now
+- The model is always "Auto": the strongest model available right now
   (`/api/llm/models`); there is no model menu in the UI. Under the search
   box, the "Published" date filter and the workspace filing are one quiet
   line; the source row starts with an **All**
@@ -79,14 +79,21 @@ sit quietly at the top right for signed-in users.
   your network cover its sector (see Network Map).
 
 ### Founder Check (`/founder`)
-Background brief on a person: career timeline, past companies, education,
-litigation mentions (CourtListener, with a free token), press, public profile
-snippets as they appear in web search, disambiguation when several people
-share a name, and *Who can help diligence this founder*: people in your
-imported network at the founder's current and past companies (reference
-calls, backchannel) plus sector experts. Every item is a sentence copied
-from a fetched source; the brief is AI-written with checked citations or
-quoted when no model is configured.
+A background check on one named person, in two parts. The **quick brief**
+(under a minute): career timeline, past companies, education, litigation
+mentions, press, public profile snippets, disambiguation when several people
+share a name, and *Who can help diligence this founder* from your imported
+network. The **deep background check** (a few minutes, signed in): a loop
+over about forty free public sources that pulls every thread it finds:
+courts and regulators, sanctions and watchlists, SEC filings and company
+registers in several countries, patents, archived versions of profiles and
+bios with **claims that changed over time**, relatives and associates in
+public roles (related-party diligence), and company-level breach and
+leak-site exposure. Every record is graded for whether it is really about
+this person (a name-only match is never shown as a fact), cleaned by fixed
+privacy rules, and cited. It learns which sources and queries produce
+evidence and runs those first next time. Full description, rules and how to
+add a source: `FOUNDER-CHECK.md`.
 
 ### Network Map (`/network`)
 Your own contacts as a map, sorted by what they can do for a fund. Drop
@@ -126,18 +133,6 @@ network** panel lists who you know at the company, at its investors and
 competitors, and which experts and investors in your network cover its
 sector (`POST /api/network/helpers`).
 
-### Video guide (Tavus, every page)
-A floating Tavus video agent (`<tavus-widget>` from `@tavus/widget`, mounted
-once in `src/pages/_app.js` via `src/components/tavus/TavusGuide.js`) can talk
-the visitor through the site and act on it. It knows which page the visitor is
-on and their current query (told at the start of a call and updated on every
-page change), and it has three tools defined on the PAL: `go_to_section`
-(Open Research, Network Map, Founder Check), `run_research` and
-`run_founder_check`. The page performs them with client-side navigation, so a
-call keeps going. Deployment id: `src/config/tavus.js`; tool specs for the PAL
-Maker: `docs/tavus/03-pal-tools.md`; the launcher's look, persona and limits
-are set in the Tavus portal.
-
 ### Company profile (`/company/<name>`)
 Funding rounds, investors, key people, competitors, headcount and
 public-company data gathered from the curated registry, Hacker News, web
@@ -166,20 +161,50 @@ and daily via the Vercel cron in `vercel.json`. Alerts show in the app
 (`/watchlist` and the account menu badge); with `RESEND_API_KEY` set, each
 scheduled run also emails a digest.
 
-## AI providers (free first)
+## AI models (only ones that cost nothing, strongest first)
 
-`src/server/llm/providers.js` tries, in order:
+`src/server/llm/providers.js` keeps two promises.
 
-| Order | Provider | Key | Cost |
-|---|---|---|---|
-| 1 | Groq | `GROQ_API_KEY` | free tier |
-| 2 | OpenRouter, `:free` models only | `OPENROUTER_API_KEY` | free |
-| 3 | Google Gemini (Flash first) | `GOOGLE_AI_API_KEY` or `GEMINI_API_KEY` | free only while the key's Google project has no billing account |
-| 4 | Together | `TOGETHER_API_KEY` **and** `LLM_ALLOW_PAID=true` | paid, off by default |
+**It cannot spend money.** A model is only called when it is on that
+provider's allow-list:
 
-Each provider's live model list is fetched and cached, so a retired model id
-cannot break answers. A rate limit or error moves to the next provider; with
-none configured, answers are quoted from sources and the page says so.
+| Provider | Key | What may be called |
+|---|---|---|
+| Google Gemini | `GOOGLE_AI_API_KEY` or `GEMINI_API_KEY` | the models on the free tier (Gemini 4 Hydrogen, the Flash and Flash-Lite models, Gemma). Free only while the key's Google project has no billing account: that cannot be checked from code |
+| OpenRouter | `OPENROUTER_API_KEY` | ids ending in `:free` that the catalogue prices at zero and that output text only |
+| Groq | `GROQ_API_KEY` | the three chat models on the free plan. If Groq ever reports paid-plan limits for the key, Groq is switched off |
+| NVIDIA (optional) | `NVIDIA_API_KEY` | a short list of hosted models; off until a key is added |
+
+Keys for paid services (Together, Cerebras, Perplexity, OpenAI) are never
+read, and there is no switch that turns a paid model on. A model id sent by
+the model menu goes through the same list, so an id that is not on it is
+ignored.
+
+**It asks the strongest model that can answer in time.** Every allowed model
+has a quality score from public benchmark results (the table at the top of
+`providers.js`; refresh it when the line-up changes). The order is that
+score adjusted by what has happened on this site (`src/server/learning.js`):
+how often the model answered, whether its answer passed the caller's checks,
+and how long it takes compared with the time left. On top of that:
+
+- **Tasks.** `analysis` (the deep background check report: strongest models,
+  more thinking, and no model with a poor record on made-up facts), `chat`
+  (search answers, data room) and `extract` (many small structured calls:
+  the high-allowance models first).
+- **Allowances.** A model that is out of allowance rests until its limit
+  resets, on every server instance, instead of being asked on each request.
+  The last daily calls of the best models are kept for reports.
+- **Checks.** Callers pass their own check of the answer (sections,
+  citations). An answer that fails goes to the next model, and only when
+  every model fails does the page fall back to an answer quoted from sources.
+- **People.** Text about a named person under review is not sent to models
+  served from another jurisdiction. Set `LLM_SKIP_GEMINI_FOR_PEOPLE=true` to
+  also keep it away from Gemini, whose free-tier terms ask not to submit
+  personal information (people checks then use the next-best models).
+
+`GET /api/debug/llm-check` shows the order in use for each task without
+calling a model; `?run=chat|analysis|extract|json` makes one small real call.
+With no key set, answers are quoted from sources and the page says so.
 `PROVIDER_CAPABILITY_MATRIX.md` lists what each key unlocks.
 
 ## Setup
@@ -201,8 +226,8 @@ Environment variables (all in `.env.local.example`):
 
 | Variable | Used for |
 |---|---|
-| `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GOOGLE_AI_API_KEY` | free AI answers |
-| `TOGETHER_API_KEY` + `LLM_ALLOW_PAID=true` | paid AI answers (opt-in) |
+| `GOOGLE_AI_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY` (optional `NVIDIA_API_KEY`) | AI answers, from models that cost nothing |
+| `LLM_SKIP_GEMINI_FOR_PEOPLE` | `true` keeps text about a person under review away from Gemini |
 | `SERPER_API_KEY` or `TAVILY_API_KEY` | web and news search, and every site-restricted source |
 | `FMP_API_KEY` | market data for public companies (Verified source, company profile) |
 | `COURTLISTENER_API_TOKEN` | litigation search in Founder Check (free account) |

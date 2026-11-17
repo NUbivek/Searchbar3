@@ -4,6 +4,7 @@
  * /api/search/open response contract.
  */
 jest.mock('axios', () => ({ get: jest.fn(), post: jest.fn() }));
+jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
 jest.mock('../../../src/server/search/retrieve', () => ({ retrieve: jest.fn() }));
 jest.mock('../../../src/components/search/categories/processors/CategoryProcessor', () => ({ processCategories: jest.fn(async () => []) }));
 jest.mock('../../../src/server/auth', () => ({ getUserId: jest.fn(async () => null) }));
@@ -126,79 +127,31 @@ describe('validateAnswer', () => {
 });
 
 describe('LLM provider chain', () => {
+  // The chain's own behaviour is covered in llmChain.test.js; this checks the pieces the search answer relies on.
   const env = { ...process.env };
   afterEach(() => { process.env = { ...env }; jest.resetModules(); axios.get.mockReset(); axios.post.mockReset(); });
 
-  test('paid Together is skipped unless LLM_ALLOW_PAID=true', () => {
-    process.env.TOGETHER_API_KEY = 'x';
-    delete process.env.GROQ_API_KEY;
-    delete process.env.OPENROUTER_API_KEY;
-    delete process.env.GOOGLE_AI_API_KEY;
-    delete process.env.GEMINI_API_KEY;
-    const { PROVIDERS, providerEnabled } = require('../../../src/server/llm/providers');
-    expect(PROVIDERS.filter(providerEnabled).map((p) => p.id)).toEqual([]);
-    process.env.LLM_ALLOW_PAID = 'true';
-    expect(PROVIDERS.filter(providerEnabled).map((p) => p.id)).toEqual(['together']);
-  });
-
-  test('uses the best model the provider serves today and falls back on failure', async () => {
-    process.env.GROQ_API_KEY = 'g';
-    process.env.OPENROUTER_API_KEY = 'o';
-    jest.resetModules();
-    const axios = require('axios'); // the instance the freshly loaded module uses
-    axios.get.mockImplementation(async (url) => (url.includes('groq')
-      ? { data: { data: [{ id: 'whisper-large-v3' }, { id: 'openai/gpt-oss-120b' }, { id: 'qwen/qwen3.8-27b' }] } }
-      : { data: { data: [{ id: 'nvidia/nemotron-3-ultra-550b-a55b:free' }, { id: 'paid/model', pricing: { prompt: '1', completion: '1' } }] } }));
-    axios.post.mockImplementation(async (url, body) => {
-      if (url.includes('groq')) throw Object.assign(new Error('rate limited'), { response: { status: 429 } });
-      return { data: { choices: [{ message: { content: `answer from ${body.model}` } }] } };
-    });
-    const { chatComplete } = require('../../../src/server/llm/providers');
-    const out = await chatComplete([{ role: 'user', content: 'hi' }]);
-    const tried = axios.post.mock.calls.map(([url, body]) => `${url.includes('groq') ? 'groq' : 'openrouter'}:${body.model}`);
-    expect(tried.slice(0, 2)).toEqual(['groq:openai/gpt-oss-120b', 'groq:qwen/qwen3.8-27b']);
-    expect(out).toEqual(expect.objectContaining({ provider: 'openrouter', model: 'nvidia/nemotron-3-ultra-550b-a55b:free' }));
-  });
-
-  test('Gemini: free-tier chat models only, newest version first, key aliases', async () => {
-    delete process.env.GROQ_API_KEY; delete process.env.OPENROUTER_API_KEY; delete process.env.GOOGLE_AI_API_KEY;
-    process.env.GEMINI_API_KEY = 'gm';
-    jest.resetModules();
-    const axios = require('axios');
-    axios.get.mockResolvedValue({ data: { data: [
-      { id: 'models/text-embedding-004' }, { id: 'models/imagen-4.0-generate-001' }, { id: 'models/gemini-2.5-flash-preview-tts' },
-      { id: 'models/gemini-2.0-flash' }, { id: 'models/gemini-2.5-flash' }, { id: 'models/gemini-3-flash-preview' }, { id: 'models/gemini-2.5-pro' },
-    ] } });
-    const { PROVIDERS, providerEnabled, pickModels, llmStatus } = require('../../../src/server/llm/providers');
-    const gemini = PROVIDERS.find((p) => p.id === 'gemini');
-    expect(PROVIDERS.filter(providerEnabled).map((p) => p.id)).toEqual(['gemini']);
-    expect(await pickModels(gemini, 3)).toEqual(['gemini-2.5-flash', 'gemini-3-flash-preview', 'gemini-2.5-pro']);
-    expect(axios.get.mock.calls[0][1].headers.Authorization).toBe('Bearer gm');
-    expect(llmStatus().find((p) => p.id === 'gemini').note).toMatch(/no billing account/);
-  });
-
-  test('falls through Groq and OpenRouter to Gemini with a short reasoning budget', async () => {
+  test('falls through to the next model and reports what was skipped', async () => {
     process.env.GROQ_API_KEY = 'g'; process.env.OPENROUTER_API_KEY = 'o'; process.env.GOOGLE_AI_API_KEY = 'ga';
     jest.resetModules();
     const axios = require('axios');
     axios.get.mockImplementation(async (url) => ({ data: { data: url.includes('groq') ? [{ id: 'openai/gpt-oss-120b' }]
-      : url.includes('openrouter') ? [{ id: 'google/gemma-4-31b-it:free' }] : [{ id: 'models/gemini-2.5-flash' }] } }));
+      : url.includes('openrouter') ? [{ id: 'nvidia/nemotron-3-ultra-550b-a55b:free' }] : [{ id: 'models/gemini-3.8-flash' }] } }));
     axios.post.mockImplementation(async (url, body) => {
-      if (!url.includes('generativelanguage')) throw Object.assign(new Error('rate limited'), { response: { status: 429 } });
-      return { data: { choices: [{ message: { content: `answer from ${body.model} (${body.reasoning_effort})` } }] } };
+      if (!url.includes('groq')) throw Object.assign(new Error('rate limited'), { response: { status: 429 } });
+      return { data: { choices: [{ message: { content: `answer from ${body.model}` } }] } };
     });
     const { chatComplete } = require('../../../src/server/llm/providers');
     const out = await chatComplete([{ role: 'user', content: 'hi' }]);
-    expect(out).toEqual(expect.objectContaining({ provider: 'gemini', providerLabel: 'Google Gemini', model: 'gemini-2.5-flash', text: 'answer from gemini-2.5-flash (low)' }));
-    const geminiCall = axios.post.mock.calls.find(([url]) => url.includes('generativelanguage'));
-    expect(geminiCall[0]).toBe('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions');
-    expect(geminiCall[2].headers.Authorization).toBe('Bearer ga');
+    // strongest first: Gemini 3.8 Flash, then Nemotron Ultra, and the weak model only as the last resort
+    expect(axios.post.mock.calls.map(([url]) => (url.match(/generativelanguage|openrouter|groq/) || [])[0])).toEqual(['generativelanguage', 'openrouter', 'groq']);
+    expect(out).toEqual(expect.objectContaining({ provider: 'groq', providerLabel: 'Groq', model: 'openai/gpt-oss-120b', text: 'answer from openai/gpt-oss-120b' }));
     expect(out.skipped).toEqual([
-      { provider: 'Groq', model: 'openai/gpt-oss-120b', why: 'rate limited or out of free quota' },
-      { provider: 'OpenRouter', model: 'google/gemma-4-31b-it:free', why: 'rate limited or out of free quota' },
+      { provider: 'Google Gemini', model: 'gemini-3.8-flash', why: 'resting until its allowance resets' },
+      { provider: 'OpenRouter', model: 'nvidia/nemotron-3-ultra-550b-a55b:free', why: 'resting until its allowance resets' },
     ]);
     const { skippedNote } = require('../../../src/utils/skippedNote');
-    expect(skippedNote(out.skipped)).toBe(' · Skipped: gpt-oss-120b (rate limited or out of free quota), gemma-4-31b-it (rate limited or out of free quota)');
+    expect(skippedNote(out.skipped)).toBe(' · Skipped: gemini-3.8-flash (resting until its allowance resets), nemotron-3-ultra-550b-a55b (resting until its allowance resets)');
     expect(skippedNote([])).toBe('');
   });
 
@@ -206,8 +159,8 @@ describe('LLM provider chain', () => {
     process.env.GROQ_API_KEY = 'g'; process.env.GOOGLE_AI_API_KEY = 'ga'; delete process.env.OPENROUTER_API_KEY;
     jest.resetModules();
     const axios = require('axios');
-    axios.get.mockImplementation(async (url) => ({ data: { data: url.includes('groq') ? [{ id: 'openai/gpt-oss-120b' }] : [{ id: 'models/gemini-3.8-flash' }] } }));
-    axios.post.mockImplementation(async (url, body) => {
+    axios.get.mockImplementation(async (url) => ({ data: { data: url.includes('groq') ? [{ id: 'qwen/qwen3.8-27b' }] : [{ id: 'models/gemini-3.8-flash' }] } }));
+    axios.post.mockImplementation(async (url) => {
       if (url.includes('generativelanguage')) throw Object.assign(new Error('timeout of 28000ms exceeded'), { code: 'ECONNABORTED' });
       return { data: { choices: [{ message: { content: 'fast answer' } }] } };
     });
@@ -227,7 +180,7 @@ describe('LLM provider chain', () => {
   });
 
   test('returns null when no provider is configured', async () => {
-    delete process.env.GROQ_API_KEY; delete process.env.OPENROUTER_API_KEY; delete process.env.TOGETHER_API_KEY; delete process.env.GOOGLE_AI_API_KEY; delete process.env.GEMINI_API_KEY;
+    delete process.env.GROQ_API_KEY; delete process.env.OPENROUTER_API_KEY; delete process.env.GOOGLE_AI_API_KEY; delete process.env.GEMINI_API_KEY; delete process.env.NVIDIA_API_KEY;
     const { chatComplete } = require('../../../src/server/llm/providers');
     expect(await chatComplete([{ role: 'user', content: 'hi' }])).toBeNull();
   });
@@ -235,7 +188,7 @@ describe('LLM provider chain', () => {
 
 describe('/api/search/open contract', () => {
   const env = { ...process.env };
-  beforeEach(() => { delete process.env.GROQ_API_KEY; delete process.env.OPENROUTER_API_KEY; delete process.env.TOGETHER_API_KEY; delete process.env.GOOGLE_AI_API_KEY; delete process.env.GEMINI_API_KEY; });
+  beforeEach(() => { delete process.env.GROQ_API_KEY; delete process.env.OPENROUTER_API_KEY; delete process.env.GOOGLE_AI_API_KEY; delete process.env.GEMINI_API_KEY; delete process.env.NVIDIA_API_KEY; });
   afterAll(() => { process.env = env; });
   const handler = require('../../../src/pages/api/search/open').default;
   const { retrieve } = require('../../../src/server/search/retrieve');
@@ -306,9 +259,9 @@ describe('citation styles from real models', () => {
 describe('reasoning models', () => {
   const env = { ...process.env };
   afterEach(() => { process.env = { ...env }; jest.resetModules(); });
-  test('gpt-oss on Groq gets low reasoning effort; retried without it if rejected', async () => {
+  test('thinking settings are sent, and the request is retried without them if rejected; thinking text is removed', async () => {
     process.env.GROQ_API_KEY = 'g';
-    delete process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_API_KEY; delete process.env.GOOGLE_AI_API_KEY; delete process.env.GEMINI_API_KEY;
     jest.resetModules();
     const ax = require('axios');
     ax.get.mockResolvedValue({ data: { data: [{ id: 'openai/gpt-oss-120b' }] } });
@@ -317,7 +270,8 @@ describe('reasoning models', () => {
       .mockResolvedValueOnce({ data: { choices: [{ message: { content: '<think>x</think>## SUMMARY ok' } }] } });
     const { chatComplete } = require('../../../src/server/llm/providers');
     const out = await chatComplete([{ role: 'user', content: 'q' }]);
-    expect(ax.post.mock.calls[0][1].reasoning_effort).toBe('low');
+    expect(ax.post.mock.calls[0][1].reasoning_effort).toBe('medium');
+    expect(ax.post.mock.calls[0][1].include_reasoning).toBe(false);
     expect(ax.post.mock.calls[1][1].reasoning_effort).toBeUndefined();
     expect(out.text).toBe('## SUMMARY ok');
   });

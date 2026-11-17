@@ -41,9 +41,10 @@ export function webSearchConfigured() {
  * @param {string} q
  * @param {{ news?: boolean, withinDays?: number, num?: number }} options
  */
-export async function searchWeb(q, { news = false, withinDays = 0, num = 10 } = {}) {
+export async function searchWeb(q, { news = false, withinDays = 0, num = 10, fallback = true } = {}) {
   const serper = process.env.SERPER_API_KEY;
-  const tavily = process.env.TAVILY_API_KEY;
+  // fallback: false asks one service only, for callers that count each use (the deep background check)
+  const tavily = fallback || !serper ? process.env.TAVILY_API_KEY : null;
   if (!serper && !tavily) throw new Error('Web search is not enabled on this deployment');
   if (serper) {
     try {
