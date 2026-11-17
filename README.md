@@ -9,7 +9,7 @@ Next.js 14 (pages router), React 18, Tailwind. Deploys to Vercel. Every AI
 feature runs on free providers first; nothing is paid unless you turn it on.
 
 
-Maintainers: start with `CODEX-HANDOVER.md` (current state, hard rules, daily run) and `AGENTS.md`.
+Maintainers: start with `CODEX-HANDOVER.md` (current state, hard rules, maintenance run every two weeks) and `AGENTS.md`.
 
 ## Design and language
 

@@ -1,4 +1,4 @@
-# Deep check daily log
+# Deep check maintenance log (a run every two weeks)
 
 ## 2026-11-17 (Claude, handover)
 - Health: 1,735 tests pass; production build compiles.

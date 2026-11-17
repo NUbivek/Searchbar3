@@ -253,7 +253,7 @@ for non-interactive adds (the owner normally pastes secret values himself).
 
 ## 8. Current state
 
-**Read `CODEX-HANDOVER.md` first** (2026-11-17): it has the current state, the rules that must never be weakened, the daily run and the open items. The text below is the earlier record.
+**Read `CODEX-HANDOVER.md` first** (2026-11-17): it has the current state, the rules that must never be weakened, the maintenance run (every two weeks) and the open items. The text below is the earlier record.
 
 ### Earlier record (2026-11-14)
 
