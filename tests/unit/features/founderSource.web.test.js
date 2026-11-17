@@ -198,13 +198,14 @@ describe('web-search: query patterns', () => {
   test('a company: legal trouble, leadership, distress (no separate data-breach lookup: the breach registers cover it)', () => {
     const subject = holmes();
     const templates = webTemplates({ kind: 'company', value: 'Theranos, Inc.' }, subject);
-    expect(templates.map((t) => t.template)).toEqual(['q.company-legal', 'q.company-leadership', 'q.company-distress', 'q.company-funding', 'q.company-backers']);
+    expect(templates.map((t) => t.template)).toEqual(['q.company-legal', 'q.company-leadership', 'q.company-distress', 'q.company-funding', 'q.company-backers', 'q.company-investors']);
     expect(templates.map((t) => t.params.query)).toEqual([
       '"Theranos" (lawsuit OR fraud OR investigation)',
       '"Theranos" (founder OR CEO)',
       '"Theranos" (shutdown OR layoffs OR bankruptcy)',
       '"Theranos" "Elizabeth Holmes" (funding OR raises OR investors OR led)',
       '"Theranos" (adviser OR advisor OR shareholder OR board)',
+      '"Theranos" ("led by" OR "lead investor" OR "Series A" OR "Series B" OR "Series C")',
     ]);
   });
 

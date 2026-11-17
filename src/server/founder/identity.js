@@ -201,22 +201,39 @@ export function createSubject({ name, company = '' }) {
     hasName: nameMatcher(variants),
     slugs: slugCandidates(person),
     company: String(company || '').trim(),
-    anchors: { companies: new Map(), schools: new Map(), people: new Map(), handles: new Map(), domains: new Map(), roles: new Map() },
+    anchors: { companies: new Map(), schools: new Map(), people: new Map(), handles: new Map(), domains: new Map(), roles: new Map(), related: new Map(), events: new Map() },
   };
   if (subject.company) addAnchor(subject, 'companies', subject.company, 'given');
   return subject;
 }
 
+// An origin of 'encyclopedia' (or 'encyclopedia:<finding id>') marks an organisation or person linked to the
+// subject in their own encyclopedia entry (investors, acquirers, co-founders, counterparties).
+const isEncyclopedia = (origin) => /^encyclopedia(?::|$)/.test(String(origin || ''));
+
 /**
  * Record something learned about the subject. `origin` says how we know:
  * 'given' (the user typed it) or the finding id that established it.
+ * An organisation or person from the subject's encyclopedia entry (origin 'encyclopedia') is kept apart as a
+ * 'related' anchor: it counts like a school (full name plus one gives 'likely', never 'confirmed') and is never
+ * treated as the subject's own company.
  * Returns true when the anchor is new.
  */
 export function addAnchor(subject, kind, value, origin = 'found') {
   const v = String(value || '').trim();
-  if (v.length < 2 || !subject.anchors[kind] || kind === 'roles') return false;
+  if (v.length < 2 || !subject.anchors[kind] || kind === 'roles' || kind === 'events' || kind === 'related') return false;
   const key = kind === 'companies' ? (companyKeys(v)[0] || v.toLowerCase()) : v.toLowerCase();
   if (!key || subject.anchors[kind].has(key)) return false;
+  if (isEncyclopedia(origin)) {
+    if (kind !== 'companies' && kind !== 'people') return false;
+    if (!subject.anchors.related) subject.anchors.related = new Map();
+    const rkey = `${kind}|${key}`;
+    if (subject.anchors.related.has(rkey) || subject.hasName(v)) return false;
+    const test = kind === 'people' ? nameMatcher([v]) : orgMatcher(v, subject);
+    if (!test) return false;
+    subject.anchors.related.set(rkey, { value: v, origin, as: kind, test });
+    return true;
+  }
   // The person's own name is never an anchor for themselves.
   if (kind !== 'handles' && subject.hasName(v)) return false;
   // A handle or domain that is just one of the person's own names ("jack" for
@@ -239,21 +256,25 @@ const isoDay = (d) => { const s = String(d || '').slice(0, 10); return DAY.test(
  * the person in the role states it (Wikidata "position held" with start and
  * end, a Form D, a confirmed register record). Only one person is a
  * company's CEO on a given day, so a record from that time that names "Acme's
- * CEO" is about them. Only the CEO role counts: founders and co-founders
- * share their title. Returns true when the anchor is new.
+ * CEO" is about them.
+ * role 'founder' is accepted only from a caller that has checked the company has exactly one founder and that
+ * it is the subject (Wikidata "founded by" listing only them); co-founders share their title. A founder anchor
+ * only ever adds to a record that also names the person in full: "Acme founder" alone may mean anyone who
+ * claims the title. Returns true when the anchor is new.
  */
 export function addRoleAnchor(subject, { org, role = 'ceo', from, to = '', origin = 'found' } = {}) {
   const value = String(org || '').trim();
   const start = isoDay(from);
   const end = isoDay(to);
-  if (role !== 'ceo' || value.length < 2 || !start || (to && !end) || (end && end < start)) return false;
+  if ((role !== 'ceo' && role !== 'founder') || value.length < 2 || !start || (to && !end) || (end && end < start)) return false;
   if (!subject.anchors.roles) subject.anchors.roles = new Map();
-  const key = `${companyKeys(value)[0] || value.toLowerCase()}|${start}`;
+  const key = `${companyKeys(value)[0] || value.toLowerCase()}|${start}${role === 'ceo' ? '' : `|${role}`}`;
   if (subject.anchors.roles.has(key)) return false;
   const names = [...new Set([value, ...companyKeys(value).filter((k) => k.length >= 3)])].map(escapeRe).join('|');
   // "Acme CEO", "Acme's chief executive", but not a predecessor, successor or a shared role ("former Acme CEO",
-  // "new Acme CEO", "Acme co-CEO").
-  const re = new RegExp(`(?<![A-Za-z0-9])(${names})(?:['’]s)?\\s+(?:CEO|chief executive|C\\.E\\.O\\.)(?![A-Za-z0-9])`, 'gi');
+  // "new Acme CEO", "Acme co-CEO"). A founder: "Acme founder", "Acme's founder", but not "Acme co-founder".
+  const title = role === 'ceo' ? 'CEO|chief executive|C\\.E\\.O\\.' : 'founder';
+  const re = new RegExp(`(?<![A-Za-z0-9])(${names})(?:['’]s)?\\s+(?:${title})(?![A-Za-z0-9])`, 'gi');
   const otherHolder = /\b(?:former|ex|previous|past|then|interim|acting|incoming|outgoing|new|next|future|founding|co)[\s-]+(?:\S+\s+)?$/i;
   // `isOther(after)` says whether the words after the title name someone else ("Acme CEO John Smith").
   const test = (text, isOther = () => false) => [...String(text || '').matchAll(re)].some((m) => {
@@ -262,7 +283,40 @@ export function addRoleAnchor(subject, { org, role = 'ceo', from, to = '', origi
     if (otherHolder.test(text.slice(Math.max(0, m.index - 30), m.index))) return false;
     return !isOther(text.slice(m.index + m[0].length));
   });
-  subject.anchors.roles.set(key, { value, org: value, role: 'ceo', from: start, to: end, origin, test });
+  subject.anchors.roles.set(key, { value, org: value, role, from: start, to: end, origin, test });
+  return true;
+}
+
+// The words a later report uses for each kind of event, keyed by the event a record states.
+const EVENT_FAMILIES = {
+  conviction: /\b(?:convicted|conviction|found guilty|guilty verdict)\b/i,
+  sentence: /\b(?:sentenced|sentencing)\b/i,
+  pardon: /\bpardon(?:s|ed|ing)?\b/i,
+  indictment: /\b(?:indicted|indictment)\b/i,
+  charge: /\b(?:charged|charges?\s+(?:against|filed)|(?:criminal|fraud|federal|securities)\s+charges?|(?:SEC|DOJ|prosecutors?)\s+charges?)\b/i,
+};
+const EVENT_KIND = {
+  convicted: 'conviction', conviction: 'conviction', 'found guilty': 'conviction',
+  sentenced: 'sentence', sentence: 'sentence',
+  pardoned: 'pardon', pardon: 'pardon',
+  indicted: 'indictment', indictment: 'indictment',
+  charged: 'charge', charge: 'charge', complaint: 'charge', 'sec complaint': 'charge',
+};
+
+/**
+ * Record an event that a confirmed regulator, court or Wikidata record about the subject states (a conviction,
+ * sentence, pardon, indictment or charge, or an SEC complaint) with its date. A later record that names the
+ * person in full and reports that kind of event is then 'likely' about them, never 'confirmed'.
+ * Returns true when the anchor is new.
+ */
+export function addEventAnchor(subject, { event, date, origin = 'found' } = {}) {
+  const kind = EVENT_KIND[String(event || '').trim().toLowerCase()];
+  const day = isoDay(date);
+  if (!kind || !day) return false;
+  if (!subject.anchors.events) subject.anchors.events = new Map();
+  const key = `${kind}|${day}`;
+  if (subject.anchors.events.has(key)) return false;
+  subject.anchors.events.set(key, { value: kind, event: kind, date: day, origin, test: (text) => EVENT_FAMILIES[kind].test(String(text || '')) });
   return true;
 }
 
@@ -284,7 +338,9 @@ function withinTenure(date, from, to) {
 export function exportAnchors(subject) {
   const out = {};
   for (const [kind, map] of Object.entries(subject.anchors)) {
-    out[kind] = [...map.values()].map(({ value, origin, role, from, to }) => (kind === 'roles' ? { value, org: value, role, from, to, origin } : { value, origin }));
+    out[kind] = [...map.values()].map(({ value, origin, role, from, to, as, date }) => (kind === 'roles' ? { value, org: value, role, from, to, origin }
+      : kind === 'events' ? { value, event: value, date, origin }
+        : kind === 'related' ? { value, as, origin } : { value, origin }));
   }
   return out;
 }
@@ -295,6 +351,8 @@ export function restoreSubject({ name, company, anchors = {} }) {
   for (const [kind, list] of Object.entries(anchors)) {
     for (const a of list || []) {
       if (kind === 'roles') addRoleAnchor(subject, { org: a.org || a.value, role: a.role, from: a.from, to: a.to, origin: a.origin });
+      else if (kind === 'events') addEventAnchor(subject, { event: a.event || a.value, date: a.date, origin: a.origin });
+      else if (kind === 'related') addAnchor(subject, a.as === 'people' ? 'people' : 'companies', a.value, a.origin);
       else addAnchor(subject, kind, a.value, a.origin);
     }
   }
@@ -307,7 +365,8 @@ export function restoreSubject({ name, company, anchors = {} }) {
  */
 export function matchSubject(subject, text, { date } = {}) {
   const str = String(text || '');
-  if (!subject.hasName(str)) return roleMatch(subject, str, date) || { level: 'none', reasons: [] };
+  // The person's full name is required: a role alone never ties a record to them (lead rule)
+  if (!subject.hasName(str)) return { level: 'none', reasons: [] };
   const reasons = [];
   let company = false;
   for (const a of subject.anchors.companies.values()) if (a.test(str)) { company = true; reasons.push(`names ${a.value}`); }
@@ -318,21 +377,27 @@ export function matchSubject(subject, text, { date } = {}) {
   for (const p of subject.hasName.positions(str)) { masked += `${str.slice(from, p.start)} \u2022 `; from = p.end; }
   masked += str.slice(from);
   let other = 0;
-  for (const kind of ['schools', 'people', 'handles', 'domains']) {
+  for (const kind of ['schools', 'people', 'handles', 'domains', 'related']) {
     const where = kind === 'handles' || kind === 'domains' ? masked : str;
-    for (const a of subject.anchors[kind].values()) if (a.test(where)) { other += 1; reasons.push(`names ${a.value}`); }
+    for (const a of (subject.anchors[kind] || new Map()).values()) if (a.test(where)) { other += 1; reasons.push(`names ${a.value}`); }
+  }
+  // An event a confirmed record states, reported on or after its date.
+  for (const a of (subject.anchors.events || new Map()).values()) {
+    if (withinTenure(date, a.date, '') && a.test(str)) { other += 1; reasons.push(`names ${a.event} reported in ${a.origin}`); }
   }
   if (company) return { level: 'confirmed', reasons: reasons.slice(0, 4) };
   if (other > 0) return { level: 'likely', reasons: reasons.slice(0, 4) };
-  return roleMatch(subject, str, date) || { level: 'possible', reasons: ['matched by name only'] };
+  return roleMatch(subject, str, date, true) || { level: 'possible', reasons: ['matched by name only'] };
 }
 
 /**
  * A record dated inside one of the subject's CEO tenures that names the company's CEO ("Acme CEO gives back
- * $5.9M") is about them, with or without their name. It is only ever 'likely': the tenure comes from another
- * source, and the text may still mean someone else.
+ * $5.9M") is about them, with or without their name. A record dated on or after the founding of a company
+ * whose only founder is the subject, that names its founder, is about them only when it also names them in
+ * full (`named`). It is only ever 'likely': the role comes from another source, and the text may still mean
+ * someone else.
  */
-function roleMatch(subject, str, date) {
+function roleMatch(subject, str, date, named = false) {
   if (!date || !subject.anchors.roles) return null;
   // Two capitalised words after the title that are not the subject's name are someone else's name.
   const isOther = (after) => {
@@ -340,8 +405,9 @@ function roleMatch(subject, str, date) {
     return Boolean(m && !subject.hasName(m[1]));
   };
   for (const a of subject.anchors.roles.values()) {
+    if (a.role === 'founder' && !named) continue;
     if (withinTenure(date, a.from, a.to) && a.test(str, isOther)) {
-      return { level: 'likely', reasons: [`names ${a.value}'s CEO while the person held the role`] };
+      return { level: 'likely', reasons: [a.role === 'founder' ? `names ${a.value}'s founder, a role only the person held` : `names ${a.value}'s CEO while the person held the role`] };
     }
   }
   return null;

@@ -39,10 +39,10 @@ describe('CEO tenure anchors', () => {
     return s;
   };
 
-  test('names the company CEO during the tenure: likely, without the name', () => {
+  test('names the company CEO during the tenure, without the name: not tied (the full name is required)', () => {
     const g = matchSubject(subject(), 'Orbitly CEO gives back $5.9M from trademark deal', { date: '2019-07-02' });
-    expect(g.level).toBe('likely');
-    expect(g.reasons[0]).toMatch(/Orbitly's CEO while the person held the role/);
+    expect(g.level).toBe('none'); // the full name is required: a role alone never ties a record (lead rule)
+    expect(g.reasons).toEqual([]);
     expect(matchSubject(subject(), 'Jane Roe interview: Orbitly’s chief executive on growth', { date: '2015-05' }).level).toBe('likely');
   });
 
@@ -64,13 +64,13 @@ describe('CEO tenure anchors', () => {
     expect(matchSubject(s, 'Orbitly CEO John Smith sells shares', at).level).toBe('none');
   });
 
-  test('only the CEO role is accepted, and role anchors survive export and restore', () => {
+  test('only the CEO and sole-founder roles are accepted, and role anchors survive export and restore', () => {
     const s = createSubject({ name: 'Jane Roe' });
-    expect(addRoleAnchor(s, { org: 'Orbitly', role: 'founder', from: '2012' })).toBe(false);
+    expect(addRoleAnchor(s, { org: 'Orbitly', role: 'cto', from: '2012' })).toBe(false);
     expect(addRoleAnchor(s, { org: 'Orbitly', role: 'ceo', from: '2012-03-01', to: '2019-09-24' })).toBe(true);
     const saved = exportAnchors(s);
     expect(saved.roles[0]).toMatchObject({ org: 'Orbitly', role: 'ceo', from: '2012-03-01', to: '2019-09-24' });
     const back = restoreSubject({ name: 'Jane Roe', anchors: saved });
-    expect(matchSubject(back, 'Orbitly CEO gives back $5.9M', { date: '2018-02-01' }).level).toBe('likely');
+    expect(matchSubject(back, 'Orbitly CEO gives back $5.9M', { date: '2018-02-01' }).level).toBe('none');
   });
 });

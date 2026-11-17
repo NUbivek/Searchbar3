@@ -509,7 +509,7 @@ function foundedCompany(subject, company, tie) {
   return anchor ? anchor.origin : '';
 }
 
-function iaFinding(doc, ctx, who, { company = '', tie = null } = {}) {
+function iaFinding(doc, ctx, who, { company = '', tie = null, charges = [] } = {}) {
   const caseName = clean(arr(doc.title)[0]);
   const code = clean(arr(doc.court)[0]) || (String(doc.identifier).match(/^gov\.uscourts\.([a-z0-9]+)\./) || [])[1] || '';
   const court = federalCourtName(code);
@@ -523,17 +523,24 @@ function iaFinding(doc, ctx, who, { company = '', tie = null } = {}) {
   // The company the person founded or runs on one side and exactly their surname on the other: likely them, never confirmed.
   const origin = !partyHit && surnameSide && title.sides.length === 2 && title.sides.includes(companyParty) && companyParty !== surnameSide
     ? foundedCompany(ctx.subject, company, tie) : '';
+  // Their own criminal case, filed where and when a confirmed record says they were charged: likely, never confirmed.
+  const charged = partyHit ? chargeTie(doc, code, caseName, who, charges) : null;
+  const raise = charged && matchSubject(ctx.subject, matchText).level !== 'confirmed';
+  const caseNumber = raise ? charged.caseNumber || null : null;
   const finding = makeFinding(ctx.subject, {
     source: IA_ID,
     sourceLabel: IA_LABEL,
     category: 'litigation',
-    title: `${caseName} (${court}, federal court docket)`,
+    title: `${caseName} (${court}, federal court docket${caseNumber ? ` ${caseNumber}` : ''})`,
     quote: caseName,
     url: iaUrl(doc),
     date: null, // the archive records when the copy was made, not when the case was filed
     severity: isCriminalCase(caseName) && (partyHit || company) ? 'high' : 'medium',
-    data: { caseNumber: null, court, archiveId: String(doc.identifier) },
-    ...(partyHit ? { matchText } : origin ? {
+    data: { caseNumber, court, archiveId: String(doc.identifier) },
+    ...(raise ? {
+      match: 'likely',
+      matchReasons: [`filed in the ${court} within ${charged.days} day${charged.days === 1 ? '' : 's'} of the charge in "${charged.record}"`],
+    } : partyHit ? { matchText } : origin ? {
       match: 'likely',
       matchReasons: [`the case is between ${companyParty} and ${surnameSide}; ${who.name} founded or runs ${company} (${origin === 'given' ? 'the company given' : 'tied to them on a confirmed record'})`],
     } : {
@@ -545,11 +552,28 @@ function iaFinding(doc, ctx, who, { company = '', tie = null } = {}) {
 }
 
 const CHARGE_SOURCES = new Set(['doj-press-releases', 'sec-filings']);
-const YEAR_MS = 366 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const YEAR_MS = 366 * DAY_MS;
+// A docket first copied to the archive this many days after the charges were announced can be the charged case.
+const CHARGE_DOCKET_DAYS = 7;
+
+/**
+ * The one federal case number a record gives ("21-cr-478", "1:21-cr-00478",
+ * "21 Cr. 478"), as "21-cr-478"; '' when it gives none or several (a
+ * release about several defendants), so a number is never given to the wrong case.
+ */
+export function caseNumberIn(text) {
+  const found = new Set();
+  const t = String(text || '');
+  for (const m of t.matchAll(/\b(\d{1,2})[-:](cr|cv)[-:](\d{3,5})\b/gi)) found.add(`${m[1]}-${m[2].toLowerCase()}-${Number(m[3])}`);
+  for (const m of t.matchAll(/\b(\d{2})\s+(Cr|Civ)\.\s+(\d{1,5})\b/g)) found.add(`${m[1]}-${m[2] === 'Cr' ? 'cr' : 'cv'}-${Number(m[3])}`);
+  return found.size === 1 ? [...found][0] : '';
+}
 
 /**
  * Where and when the subject was charged, from confirmed Justice Department
- * or SEC records already in this check: [{ court, dates, record }], at most two courts.
+ * or SEC records already in this check: [{ court, dates, record, charges }], at most two courts.
+ * `charges` holds each record's date, title and case number.
  */
 function chargeDistricts(ctx) {
   let list = [];
@@ -557,13 +581,39 @@ function chargeDistricts(ctx) {
   const byCourt = new Map();
   for (const f of Array.isArray(list) ? list : []) {
     if (!f || f.match !== 'confirmed' || !CHARGE_SOURCES.has(f.source) || !isoDay(f.date)) continue;
+    const date = Date.parse(isoDay(f.date));
+    const caseNumber = caseNumberIn(`${f.title} ${f.quote || ''} ${f.data?.caseNumber || ''}`);
     for (const court of districtCodes(`${f.title} ${f.quote || ''} ${f.data?.office || ''}`)) {
-      const entry = byCourt.get(court) || { court, dates: [], record: f.title };
-      entry.dates.push(Date.parse(isoDay(f.date)));
+      const entry = byCourt.get(court) || { court, dates: [], record: f.title, charges: [] };
+      entry.dates.push(date);
+      entry.charges.push({ date, record: f.title, caseNumber });
       byCourt.set(court, entry);
     }
   }
   return [...byCourt.values()].slice(0, 2);
+}
+
+/**
+ * A criminal docket the subject is a party to by their exact full name
+ * ("United States v. Trevor Milton"), in the district of a confirmed charge
+ * record and first copied to the archive within a week after it: likely the
+ * charged case. Never confirmed: the archive gives the title, not the parties.
+ */
+function chargeTie(doc, code, caseName, who, charges) {
+  if (!charges?.length || !who.name) return null;
+  const { sides } = caseParties(caseName);
+  if (sides.length !== 2 || !isCriminalCase(caseName) || !/^(?:united states(?: of america)?|usa)$/i.test(sides[0])) return null;
+  if (plainKey(sides[1]) !== plainKey(who.name)) return null;
+  const copied = Date.parse(String(arr(doc.publicdate)[0] || ''));
+  if (Number.isNaN(copied)) return null;
+  for (const { court, charges: list } of charges) {
+    if (court !== code) continue;
+    for (const c of list || []) {
+      const days = Math.floor((copied - c.date) / DAY_MS);
+      if (days >= 0 && days <= CHARGE_DOCKET_DAYS) return { court, days, record: c.record, caseNumber: c.caseNumber };
+    }
+  }
+  return null;
 }
 
 /**
@@ -635,7 +685,8 @@ export const courtRecordsOpenConnector = {
       return { findings: read.slice(0, 8).map((r) => r.finding), threads: [], notes };
     }
     const { docs } = await iaTitles([who.name], ctx, 50);
-    const read = docs.map((d) => iaFinding(d, ctx, who));
+    const charges = chargeDistricts(ctx);
+    const read = docs.map((d) => iaFinding(d, ctx, who, { charges }));
     if (read.some((r) => r.skip === 'personal-bankruptcy')) notes.push(`Personal bankruptcy cases under the name ${who.name} are reported only when the record also names a company tied to them; none found here did.`);
     notes.push('Only case titles were searched (a public copy of federal dockets); most cases are titled by surname, so a case can exist without appearing here.');
     const named = read.map((r) => r.finding).filter(Boolean).slice(0, 8);
@@ -677,12 +728,14 @@ function readRelease(r) {
   const teaser = plain(r.teaser);
   const body = plain(r.body);
   const seconds = Number(r.date);
+  const caseNumber = caseNumberIn(`${title} ${teaser} ${body}`);
   return {
     title, teaser, body,
     url: String(r.url),
     date: Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000).toISOString().slice(0, 10) : isoDay(r.date),
     data: {
       ...(clean(r.number) ? { releaseNumber: clean(r.number) } : {}),
+      ...(caseNumber ? { caseNumber } : {}),
       ...(arr(r.component).length ? { office: arr(r.component).map((c) => clean(c?.name)).filter(Boolean).join('; ') } : {}),
       ...(arr(r.topic).length ? { topics: arr(r.topic).map((t) => clean(t?.name)).filter(Boolean) } : {}),
     },

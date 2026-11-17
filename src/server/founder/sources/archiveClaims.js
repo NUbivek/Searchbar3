@@ -24,6 +24,21 @@ const clean = (s) => String(s ?? '').replace(/[ ​‎‏]/g, ' ').replace(/\s+
 const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const stripAccents = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
 
+/** "… see more", "voir plus": the page's own button; what follows it is page furniture, not the person's words. */
+const MORE_BUTTON = /(?<![\p{L}\p{N}])(?:see more|voir plus|ver más|mehr anzeigen)(?![\p{L}\p{N}])/iu;
+/** Sentences from a sign-in form that a signed-out copy of a profile carries beside the bio. */
+const SIGN_IN_TEXT = /Welcome back|Email or phone|Forgot password|Te damos la bienvenida|Contraseña|User Agreement|Condiciones de uso/i;
+/** A bio without the page's buttons and sign-in form. */
+function stripPageChrome(text) {
+  const t = clean(text);
+  const cut = t.search(MORE_BUTTON);
+  return (cut >= 0 ? t.slice(0, cut) : t)
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !SIGN_IN_TEXT.test(sentence))
+    .join(' ')
+    .trim();
+}
+
 /** Free text that is safe to quote: no contact details, no sentences about protected matters or children. */
 export function safeText(text, max = 900) {
   const kept = clean(text)
@@ -99,6 +114,8 @@ const list = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 const ldDates = (m) => {
   const start = clean(m?.startDate);
   const end = clean(m?.endDate);
+  // A past role whose start and end are the same month ("2023-05 - 2023-05") is a placeholder the page filled in, not a claim.
+  if (start && start === end) return '';
   return start || end ? `${start || '?'} - ${end || 'Present'}` : '';
 };
 
@@ -554,7 +571,7 @@ export function extractClaims(html, url = '', { person = null } = {}) {
   if (reader && moved.length) links = [...new Set([...links, ...moved.filter((u) => u.length < 300)])].slice(0, 12);
   const education = claims.education.map((e) => ({ school: short(e.school, 160), degree: short(e.degree, 200), dates: short(e.dates, 60) })).filter((e) => e.school && !genericSchool(e.school) && !isAddress(e.school));
   const headline = isSensitive(claims.headline) || mentionsMinor(claims.headline) ? '' : short(claims.headline, 300);
-  const bioText = safeText(unmask(claims.bioText), 1200);
+  const bioText = safeText(stripPageChrome(unmask(claims.bioText)), 1200);
   return {
     name: short(claims.name, 120),
     headline,

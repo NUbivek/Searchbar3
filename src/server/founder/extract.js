@@ -188,8 +188,50 @@ export function associatesFromText(subject, text) {
     for (const m of sentence.matchAll(new RegExp(`(${NAME})\\s+succeeded\\s+(?:him|her|them)\\b`, 'g'))) add(m[1], 'succeeded the person in a role');
     for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?defendants?|co-?conspirators?|business partners?|longtime partner|former partner)\\s*,?\\s+(${NAME})`, 'g'))) add(m[1], 'named as a co-defendant or business partner');
     for (const m of sentence.matchAll(new RegExp(`\\b(?:v\\.|vs\\.?|versus)\\s+(?:[A-Z][A-Za-z.&' -]{0,40}?,\\s+)?(${NAME})\\s+and\\s+(${NAME})`, 'g'))) { add(m[1], 'co-party in a case'); add(m[2], 'co-party in a case'); }
+    if (readsFrench(sentence)) frenchAssociates(subject, sentence, add);
   }
   return [...out.values()];
+}
+
+// French function words that are not also English words or name particles.
+const FRENCH_WORDS = /(?<![\wÀ-ÿ])(?:avec|les|des|du|une|est|dans|pour|qui|ses|aux|sont|été|ont|elle|il|chez|ancien(?:ne)?|société|fondé(?:e|s|es)?|aussi|depuis)(?![\wÀ-ÿ])/gi;
+/** Is this sentence written in French? French letters, or two French function words. */
+const readsFrench = (sentence) => /[çèêëàâùûîïôœ]/i.test(sentence) || new Set((sentence.match(FRENCH_WORDS) || []).map((w) => w.toLowerCase())).size >= 2;
+const ROLE_FR = "actionnaire|conseill(?:er|ère)(?:\\s+en\\s+[a-zé]+(?:\\s+[a-zé]+){0,2})?|administrat(?:eur|rice)|membre du conseil d['’]administration|investisseur|co-?fondat(?:eur|rice)";
+const ROLE_FR_LABEL = (role) => /actionnaire|investisseur/i.test(role) ? 'named as a shareholder or investor beside the person'
+  : /fondat/i.test(role) ? 'named as a co-founder'
+  : /administrat|conseil d/i.test(role) ? 'named as a board member beside the person'
+  : 'named as an adviser or official beside the person';
+
+/**
+ * The French forms of the co-founder, "founded with" and "<Name>, adviser"
+ * patterns, for a sentence about the subject written in French. A role tied
+ * to a company ("actionnaire de Beta") counts only when that company is one
+ * of the subject's: a shareholder of someone else's firm is not an associate.
+ */
+function frenchAssociates(subject, sentence, add) {
+  const ofSubjectsCompany = (rest) => {
+    const m = String(rest).match(/^\s*(?:de\s+la\s+|de\s+l['’]|de\s+|d['’]|du\s+|chez\s+)([A-ZÀ-Þ][\wÀ-ÿ&'’.-]*(?:\s+[A-ZÀ-Þ0-9][\wÀ-ÿ&'’.-]*){0,3})/);
+    if (!m) return true; // no company named: the role is read beside the person, as in English
+    return [...subject.anchors.companies.values()].some((a) => a.test(m[1]));
+  };
+  // "ses cofondateurs Guillaume Lample et Timothée Lacroix"
+  for (const m of sentence.matchAll(new RegExp(`\\bco-?fondat(?:eur|rice)s?\\s+(${NAME_ROLE})(?:\\s+et\\s+(${NAME_ROLE}))?`, 'g'))) {
+    add(m[1], 'named as a co-founder');
+    if (m[2]) add(m[2], 'named as a co-founder');
+  }
+  // "a cofondé Acme en 2023 avec Guillaume Lample et Timothée Lacroix"
+  for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?fond[ée]|fond[ée]|cr[ée]{2}|lanc[ée])e?s?\\s+[^.]{0,60}?\\s+(?:avec|aux\\s+côtés\\s+de|en\\s+compagnie\\s+de)\\s+(?:l['’]ancien(?:ne)?\\s+(?:[a-zé'’-]+\\s+){0,3}?)?(${NAME_ROLE})(?:\\s+et\\s+(${NAME_ROLE}))?`, 'g'))) {
+    add(m[1], 'founded a company together');
+    if (m[2]) add(m[2], 'founded a company together');
+  }
+  // "Cédric O, l'ancien secrétaire d'État, actionnaire et conseiller de Acme"
+  for (const m of sentence.matchAll(new RegExp(`(${NAME_ROLE})\\s*,\\s+(?:l['’]|le\\s+|la\\s+|un\\s+|une\\s+)?(?:ancien(?:ne)?\\s+[^,]{0,40},?\\s+)?(?:(?:et|devenu|devenue)\\s+)?(${ROLE_FR})\\b`, 'g'))) {
+    const rest = sentence.slice(m.index + m[0].length).replace(new RegExp(`^(?:\\s+et\\s+(?:${ROLE_FR}))*`), '');
+    if (ofSubjectsCompany(rest)) add(m[1], ROLE_FR_LABEL(m[2]));
+  }
+  // "le conseiller Cédric O" / "l'ancien ministre Cédric O"
+  for (const m of sentence.matchAll(new RegExp(`\\b(?:conseill(?:er|ère)|ministre|actionnaire)s?\\s*,?\\s+(${NAME_ROLE})`, 'g'))) add(m[1], 'named as an adviser or official beside the person');
 }
 
 // A company name: capitalised words ("St. George Security and Alarm") or a
@@ -213,12 +255,26 @@ export function companiesFromText(subject, text) {
     if (name.length < 2 || subject.hasName(name) || /^(?:The|A|An|In|On|At)$/.test(name)) return;
     if (!out.has(name.toLowerCase())) out.set(name.toLowerCase(), { name, why });
   };
+  // A capitalised name read after "founded" or beside "a startup," may be the
+  // company the person is known for, a publisher or a date: only a name that
+  // is none of those is an earlier venture.
+  const given = [...subject.anchors.companies.values()].filter((a) => a.origin === 'given');
+  const addVenture = (raw, why) => {
+    const name = String(raw || '').replace(/[,.;:]+$/, '').trim();
+    if (!/^(?:[A-ZÀ-Þ0-9]|[a-z][A-Z])/.test(name) || PUBLISHERS.test(name) || NOT_VENTURES.test(name)) return;
+    if (given.some((a) => a.test(name))) return;
+    add(name, why);
+  };
   for (const sentence of sentencesAbout(subject, text)) {
-    for (const m of sentence.matchAll(new RegExp(`\\b(?:company|business|firm|startup|start-up|venture)\\s+(?:called|named)\\s+(${CO_NAME})`, 'g'))) add(m[1], 'company named with the person');
+    for (const m of sentence.matchAll(new RegExp(`\\b(?:company|companies|business|businesses|firm|startups?|start-ups?|venture)\\s+(?:called|named)\\s+(${CO_NAME})`, 'g'))) add(m[1], 'company named with the person');
     for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?founded|founded|started|launched|created)\\s+(${CAMEL})`, 'g'))) add(m[1], 'company the person started');
+    for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?founded|founded)\\s+(${CO_NAME})`, 'g'))) addVenture(m[1], 'company the person started');
+    for (const m of sentence.matchAll(new RegExp(`\\ban?\\s+(?:online\\s+)?(?:marketplace|company|startup|start-up),\\s+(${CO_NAME})`, 'g'))) addVenture(m[1], 'company named with the person');
   }
   return [...out.values()];
 }
+const PUBLISHERS = /^(?:The\s+)?(?:Wall Street Journal|WSJ|Business Insider|Insider|Bloomberg|Reuters|Forbes|Fortune|TechCrunch|CNBC|CNN|BBC|New York Times|NYT|Washington Post|Financial Times|FT|Verge|Wired|Axios|Associated Press|AP|Information|Guardian|Economist|Atlantic|Le Monde|Les Echos|Le Figaro|Handelsblatt|El País)\b/;
+const NOT_VENTURES = /^(?:The|A|An|In|On|At|By|His|Her|Their|It|That|This|January|February|March|April|May|June|July|August|September|October|November|December|\d)\b/;
 
 const PROFILE_HOSTS = [
   [/^(?:[a-z]{2,3}\.)?linkedin\.com$/, /^\/(?:in|pub)\/([^/?#]+)/, 'linkedin'],
@@ -275,7 +331,11 @@ export function handleFitsSubject(subject, handle) {
 export function threadsFromResult(subject, result, { trusted }) {
   const threads = [];
   const title = String(result?.title || '');
-  const snippet = String(result?.snippet || result?.content || '');
+  // The snippet and any quote the record carries: a confirmed press record's
+  // title alone rarely names the earlier ventures its body covers.
+  const quote = String(result?.quote || '');
+  const body = String(result?.snippet || result?.content || '');
+  const snippet = quote && !body.includes(quote) ? `${body}${body ? ' ' : ''}${quote}` : body;
   const text = `${title}. ${snippet}`;
   // Companies and schools: the quick brief's extractor, run on this one result.
   const evidence = extractFounderEvidence({ name: subject.hasName, company: subject.company, results: [{ title, snippet, url: result?.url || 'https://example.invalid/', source: 'web' }], keepAllSources: true });

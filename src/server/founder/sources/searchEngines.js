@@ -28,7 +28,12 @@
  * A web question that no web engine could take falls through to the news
  * feeds (a press article is still an answer to "name" lawsuit) and to
  * Wikipedia, unless it is restricted to a site. Questions about who someone
- * is (prefer: 'reference') try Wikipedia before the news feeds.
+ * is (prefer: 'reference') try Wikipedia before the news feeds. Questions
+ * about older events (prefer: 'archive', such as a lawsuit about an earlier
+ * venture) never go to the news feeds, which mostly serve recent coverage:
+ * only a general web search (DuckDuckGo, Brave, the backup service) or
+ * Wikipedia may answer, and when no general web search could be asked the
+ * lookup is reported as not run, so the gap shows in the coverage note.
  *
  * The caller can pass accept(result): results it rejects (a headline that
  * does not name the person) are dropped, and an engine left with nothing
@@ -315,10 +320,11 @@ const TEN_MINUTES = 10 * 60 * 1000;
  *   covers()    false when it cannot serve the requested date window (skipped, not tried)
  *   enabled()   false when it is switched off on this deployment
  *   lastResort  only asked when no engine before it answered
+ *   general     a general web search (any page, any year), as opposed to an encyclopedia or a news feed
  */
 export const ENGINES = [
   {
-    id: 'ddg', label: 'DuckDuckGo', kind: 'web', gapMs: 4000, budget: { max: 6, perMs: TEN_MINUTES, reserve: 2 }, sites: true,
+    id: 'ddg', label: 'DuckDuckGo', kind: 'web', general: true, gapMs: 4000, budget: { max: 6, perMs: TEN_MINUTES, reserve: 2 }, sites: true,
     async search(query, { withinDays, after, before, deadline, lang } = {}) {
       // It takes "a OR b" without parentheses, and only a host after site: (site:linkedin.com/in answers 403).
       const params = new URLSearchParams({ q: withoutParens(hostOnlySites(query)) });
@@ -330,7 +336,7 @@ export const ENGINES = [
     },
   },
   {
-    id: 'brave', label: 'Brave Search', kind: 'web', gapMs: 4000, budget: { max: 10, perMs: TEN_MINUTES, reserve: 2 }, sites: true,
+    id: 'brave', label: 'Brave Search', kind: 'web', general: true, gapMs: 4000, budget: { max: 10, perMs: TEN_MINUTES, reserve: 2 }, sites: true,
     // Off by default: search.brave.com/robots.txt disallows /search for every client. The page does answer an
     // honestly identified client, so the deployment's owner can switch it on knowingly.
     enabled: () => process.env.FOUNDER_SEARCH_BRAVE_HTML === '1',
@@ -390,6 +396,8 @@ export const ENGINES = [
 const ORDER = {
   web: ['ddg', 'brave', 'gnews', 'bingnews', 'wikipedia'],
   reference: ['ddg', 'brave', 'wikipedia', 'gnews', 'bingnews'],
+  // older events: the news feeds would only answer with recent coverage that is already known
+  archive: ['ddg', 'brave', 'wikipedia'],
   news: ['gnews', 'bingnews', 'gdelt'],
 };
 const engineById = (id) => ENGINES.find((e) => e.id === id);
@@ -398,7 +406,7 @@ const isEnabled = (e) => (typeof e.enabled === 'function' ? Boolean(e.enabled())
 /** The engines a search would ask, in order (before health is looked at). */
 export function engineOrder({ news = false, prefer = null, query = '', withinDays, after, before } = {}) {
   const sites = siteFilters(query);
-  return ORDER[news ? 'news' : prefer === 'reference' ? 'reference' : 'web'].map(engineById).filter((e) => {
+  return ORDER[news ? 'news' : prefer === 'reference' || prefer === 'archive' ? prefer : 'web'].map(engineById).filter((e) => {
     if (!e || !isEnabled(e)) return false;
     if (sites.length && !(e.sites === true || (e.sites === 'news' && news))) return false;
     return !e.covers || e.covers({ withinDays, after, before });
@@ -540,12 +548,15 @@ async function takeTurn(engine, { deadline, maxWaitMs, siteSearch = false }) {
   return null;
 }
 
-/** The earliest time an engine of the kind asked for (web falls through to news, so both count) can take a question. */
-function nextFreeAt(news) {
+/**
+ * The earliest time an engine of the kind asked for (web falls through to news, so both count) can take a question;
+ * `only` narrows the engines that count (an archive question waits for a general web search).
+ */
+function nextFreeAt(news, only = null) {
   const now = Date.now();
   const times = [];
   for (const engine of ENGINES) {
-    if (!isEnabled(engine) || (news && engine.kind !== 'news')) continue;
+    if (!isEnabled(engine) || (news && engine.kind !== 'news') || (only && !only(engine))) continue;
     const h = stateOf(engine.id);
     let at = Math.max(now, h.cooldownUntil || 0, h.nextFreeAt || 0);
     if (engine.budget) {
@@ -590,6 +601,7 @@ function finish(raw, { num, sites, after, before, withinDays, accept }) {
   return out;
 }
 
+const ARCHIVE_NOT_RUN = 'needs a general web search; news feed covers recent items only';
 const OUTCOME_WORDS = { paused: 'paused after it asked us to slow down', resting: 'resting (its allowance for now is used)', busy: 'busy', blocked: 'asked us to slow down', failed: 'did not answer', nothing: 'found nothing' };
 
 /**
@@ -597,8 +609,9 @@ const OUTCOME_WORDS = { paused: 'paused after it asked us to slow down', resting
  *
  * @param {string} query quoted phrases, OR groups in parentheses, site: restrictions
  * @param {{ news?: boolean, num?: number, withinDays?: number, after?: string, before?: string, deadline?: number,
- *           allowMetered?: boolean, lang?: 'fr'|'de'|'es', prefer?: 'reference', accept?: (result) => boolean }} options
+ *           allowMetered?: boolean, lang?: 'fr'|'de'|'es', prefer?: 'reference'|'archive', accept?: (result) => boolean }} options
  *   after/before are ISO days. accept: keep only the results it returns true for.
+ *   prefer 'archive': no news feeds; rejects (not run) when no general web search answered and Wikipedia found nothing.
  * @returns {Promise<{ results: Array<{ title, snippet, url, date, host?, publisher? }>, engine: string|null,
  *                     tried: Array<{ id: string, outcome: string, count?: number, error?: string }> }>}
  *   `host` is the publisher's host when `url` is a forwarding link (Google News).
@@ -614,6 +627,7 @@ export async function keylessSearch(query, { news = false, num = 10, withinDays,
 
   let asked = 0;
   let answered = 0;
+  let generalAnswered = 0; // DuckDuckGo, Brave or the backup service: a search of the whole web, any year
   for (const engine of candidates) {
     if (asked >= MAX_ENGINES_PER_CALL) break;
     if (engine.lastResort && answered > 0) continue; // the others answered: nothing to gain from the slow one
@@ -624,6 +638,7 @@ export async function keylessSearch(query, { news = false, num = 10, withinDays,
       const results = finish(await engine.search(q, { num, withinDays, after, before, deadline, lang }), { num, sites, after, before, withinDays, accept });
       markOk(engine, results.length);
       answered += 1;
+      if (engine.general) generalAnswered += 1;
       tried.push({ id: engine.id, outcome: results.length ? 'results' : 'nothing', count: results.length });
       if (results.length) return { results, engine: engine.id, tried };
     } catch (error) {
@@ -644,6 +659,7 @@ export async function keylessSearch(query, { news = false, num = 10, withinDays,
       const items = await searchWeb(q, { news, withinDays: withinDays || 0, num, fallback: false });
       const results = finish((items || []).map((it) => ({ title: tidy(it.title), snippet: tidy(it.snippet || it.content), url: it.url, date: it.date || null })), { num, sites, after, before, withinDays, accept });
       answered += 1;
+      generalAnswered += 1;
       tried.push({ id: 'metered', outcome: results.length ? 'results' : 'nothing', count: results.length });
       if (results.length) return { results, engine: 'metered', tried };
     } catch (error) {
@@ -651,9 +667,24 @@ export async function keylessSearch(query, { news = false, num = 10, withinDays,
     }
   }
 
+  const why = () => tried.map((t) => `${t.id === 'metered' ? 'the backup search service' : engineById(t.id)?.label || t.id}: ${OUTCOME_WORDS[t.outcome] || t.outcome}`).join('; ');
+  // An older event: Wikipedia finding nothing is no answer, and the news feeds were not asked. Not run, and said so.
+  if (prefer === 'archive' && generalAnswered === 0) {
+    const reasons = why();
+    const error = new Error(`Not run: ${ARCHIVE_NOT_RUN}${reasons ? ` (${reasons})` : ''}`);
+    error.notRun = ARCHIVE_NOT_RUN;
+    // The general web searches were only resting or busy: the caller can ask again when one is free.
+    const general = tried.filter((t) => t.id === 'metered' || engineById(t.id)?.general);
+    if (general.length && general.every((t) => t.outcome === 'resting' || t.outcome === 'paused' || t.outcome === 'busy')) {
+      error.code = 'SEARCH_RESTING';
+      error.retryAt = nextFreeAt(false, (e) => e.general);
+    }
+    throw error;
+  }
+
   if (answered === 0) {
-    const why = tried.map((t) => `${t.id === 'metered' ? 'the backup search service' : engineById(t.id)?.label || t.id}: ${OUTCOME_WORDS[t.outcome] || t.outcome}`).join('; ');
-    const error = new Error(`No search engine answered${why ? ` (${why})` : ''}`);
+    const reasons = why();
+    const error = new Error(`No search engine answered${reasons ? ` (${reasons})` : ''}`);
     // Every engine that was not asked was resting or busy, none actually failed: the caller can wait and ask
     // again when the first one is free, instead of counting this as a failed lookup.
     const waiting = tried.length > 0 && tried.every((t) => t.outcome === 'resting' || t.outcome === 'paused' || t.outcome === 'busy');

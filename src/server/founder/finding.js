@@ -124,8 +124,11 @@ export function makeFinding(subject, f) {
   // Title and quote on separate lines, so each is read as its own sentence.
   const text = f.matchText || `${f.title}\n${f.quote || ''}`;
   const gradeText = match ? null : clipLines(redactPII(text), 1500);
+  // The record's own date goes to the grade, so a role held at that time (a CEO tenure) can count.
+  // A re-grade reads the same date back from the finding's `date`.
+  const date = isoDate(f.date);
   if (!match) {
-    const graded = matchSubject(subject, text);
+    const graded = matchSubject(subject, text, { date });
     if (graded.level === 'none') return null;
     match = graded.level;
     reasons = graded.reasons;
@@ -138,7 +141,7 @@ export function makeFinding(subject, f) {
     title: clip(f.title, 220),
     quote: clip(f.quote || '', 700),
     url: String(f.url),
-    date: isoDate(f.date),
+    date,
     match,
     matchReasons: reasons,
     severity: SEVERITIES.includes(f.severity) ? f.severity : 'info',
@@ -150,7 +153,7 @@ export function makeFinding(subject, f) {
 }
 
 const HIGH = /\b(indict(?:s|ed|ments?)?|convict(?:s|ed|ions?)?|plead(?:ed|s)? guilty|pled guilty|found guilty|guilty verdict|guilty of|jailed|sentenced|imprison\w*|felony|criminal charges?|charged with|securities fraud|wire fraud|bank fraud|fraud charges|ponzi|embezzl\w*|money launder\w*|bribe\w*|racketeer\w*|insider trading|sanctioned|sanctions list|debarred|barred from|disqualified|banned from|arrest(?:ed)?|extradit\w*|wanted by|cease[- ]and[- ]desist)\b/i;
-const MEDIUM = /\b(lawsuits?|sued|sues|suing|class[- ]action|complaint filed|settle(?:d|s|ment)|investigat(?:ion|ed|ing)|probe|subpoena\w*|fined|penalt(?:y|ies)|bankruptc(?:y|ies)|insolven\w*|liquidat\w*|receivership|fraud|misconduct|misappropriat\w*|harass\w*|discriminat\w*|retaliat\w*|whistleblower|allegations?|alleged(?:ly)?|fired(?! up)|ousted|forced out|terminated for cause|(?:steps?|stepped|stepping) down (?:under|amid) (?:\w+ )?pressure|breach of (?:contract|fiduciary)|default judgment|judgments? against|damages awards?|ordered to pay|restitution|arbitrat\w*|claw(?:s|ed|ing)?[- ]?backs?|restraining order|data breach|ransomware)\b/i;
+const MEDIUM = /\b(landlord to|related[- ]party (?:transactions?|deals?)|self[- ]dealing|conflicts? of interest|bankrupt|chapter 11|lawsuits?|sued|sues|suing|class[- ]action|complaint filed|settle(?:d|s|ment)|investigat(?:ion|ed|ing)|probe|subpoena\w*|fined|penalt(?:y|ies)|bankruptc(?:y|ies)|insolven\w*|liquidat\w*|receivership|fraud|misconduct|misappropriat\w*|harass\w*|discriminat\w*|retaliat\w*|whistleblower|allegations?|alleged(?:ly)?|fired(?! up)|ousted|forced out|terminated for cause|(?:steps?|stepped|stepping) down (?:under|amid) (?:\w+ )?pressure|breach of (?:contract|fiduciary)|default judgment|judgments? against|damages awards?|ordered to pay|restitution|arbitrat\w*|claw(?:s|ed|ing)?[- ]?backs?|restraining order|data breach|ransomware)\b/i;
 const LOW = /\b(resign(?:ed|s|ation)|stepped down|steps down|departed|controvers\w*|dispute[ds]?|layoffs?|shut(?:s|ting)? down|shutdown|wound down|dissolved|struck off|criticis\w*|criticiz\w*|backlash|restat(?:ed|ement))\b/i;
 
 // A probe or inquiry that a regulator declined, closed, dropped or cleared ("CMA decides not to
@@ -160,8 +163,13 @@ const PROBE_WORD = String.raw`(?:probes?|investigat\w*|inquir(?:y|ies))`;
 // Prepositions are barred too, so "shares dropped 5% on an SEC probe" is not read as a dropped probe.
 const PROBE_GAP = String.raw`(?:(?!\b(?:open\w*|launch\w*|start\w*|begin\w*|began|new|another|second|separate|expand\w*|widen\w*|reopen\w*|amid|after|following|during|despite|while|as|over|because|on|in|at|by|with|of|from|for)\b(?!-))[^.;]){0,40}?`;
 const NEGATED_PROBE = new RegExp(
-  String.raw`\b(?:(?:won'?t|will not|would not|did not|declin\w* to|decid\w* not to|refus\w* to)\s+(?:investigat\w*|(?:open|launch|pursue|begin|start|proceed with)\b${PROBE_GAP}\b${PROBE_WORD})`
+  String.raw`\b(?:(?:won['’]?t|will not|would not|did not|declin\w* to|decid\w* not to|refus\w* to)\s+(?:investigat\w*|(?:open|launch|pursue|begin|start|proceed with)\b${PROBE_GAP}\b${PROBE_WORD})`
+  // "won't face a probe": only after a plain negation ("refuses to face a probe" is someone dodging one)
+  + String.raw`|(?:won['’]?t|will not|would not|did not)\s+(?:face|be subject to)\b${PROBE_GAP}\b${PROBE_WORD}`
   + String.raw`|(?:clos(?:es|ed|ing)?|drop(?:s|ped|ping)?|clear(?:s|ed|ing)?|end(?:s|ed|ing)?|conclud(?:es|ed|ing)?)\b${PROBE_GAP}\b${PROBE_WORD}`
+  // "CMA rejects probe into ...", "rules out an investigation". Not "dismisses lead investigator" (a firing)
+  // nor "rejects probe findings" (a party disputing a probe's result, which is still adverse).
+  + String.raw`|(?:reject(?:s|ed|ing)?|rul(?:es|ed|ing) out|dismiss(?:es|ed)?)\b${PROBE_GAP}\b(?:probes?|investigations?|inquir(?:y|ies))\b(?!\s+(?:findings?|allegations?|claims?|reports?|results?|conclusions?|conclud\w*|found)\b)`
   + String.raw`|clear(?:s|ed|ing)?\b[^.;]{0,60}?\b(?:after|following) (?:an? |its |the |a \w+ )?${PROBE_WORD})\b`,
   'i',
 );

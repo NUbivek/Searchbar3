@@ -119,7 +119,11 @@ function subjectTemplates(subject) {
   return out;
 }
 
-function companyTemplates(companyName, subject) {
+const companyKey = (s) => shortCompany(s).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+/** A company thread whose source places it in the person's past: "(past)", an earlier name, a Form D, a Wikipedia career passage, a closed span of years. */
+const PRIOR_VENTURE = /\(past\)|\bearlier\b|\bformer(?:ly)?\b|\bprevious(?:ly)?\b|\bform d\b|\bwikipedia\b|\b(?:19|20)\d\d\s*[-–]\s*(?:19|20)\d\d\b/i;
+
+function companyTemplates(companyName, subject, thread = {}) {
   const short = shortCompany(companyName);
   const c = phrase(short);
   const out = [
@@ -132,7 +136,17 @@ function companyTemplates(companyName, subject) {
   if (!/\s/.test(short) && subject?.name) {
     out.push({ template: 'q.company-funding', params: { query: `${c} ${phrase(subject.name)} ${any('funding', 'raises', 'investors', 'led')}` }, prior: 0.45, why: 'who invested in this company, with the person named' });
   }
-  out.push({ template: 'q.company-backers', params: { query: `${c} ${any('adviser', 'advisor', 'shareholder', 'board')}` }, prior: 0.35, why: 'advisers, shareholders and board members of this company' });
+  out.push({ template: 'q.company-backers', params: { query: `${c} ${any('adviser', 'advisor', 'shareholder', 'board')}` }, prior: 0.5, why: 'advisers, shareholders and board members of this company' });
+  out.push({ template: 'q.company-investors', params: { query: `${c} ${any('"led by"', '"lead investor"', '"Series A"', '"Series B"', '"Series C"')}` }, prior: 0.45, why: 'who led and joined the funding rounds of this company' });
+  // A French company's advisers, shareholders and conflicts of interest are often reported only in French.
+  if (languageHints(subject).includes('fr')) {
+    out.push({ template: 'q.company-backers-fr', params: { query: `${c} ${any('actionnaire', 'conseiller', '"ancien ministre"', `"conflit d'intérêts"`)}`, lang: 'fr' }, prior: 0.4, why: 'advisers, shareholders and conflicts of interest at this company, reported in French' });
+  }
+  // An earlier venture: an old lawsuit about it is found with an encyclopedia or a general web search, not a recent news feed.
+  const given = subject?.company ? companyKey(subject.company) : '';
+  if (subject?.name && thread.tie !== 'affiliate' && companyKey(companyName) !== given && PRIOR_VENTURE.test(String(thread.why || ''))) {
+    out.push({ template: 'q.company-prior-legal', params: { query: `${c} ${phrase(subject.name)} ${any('sued', 'lawsuit', 'judgment')}`, prefer: 'reference', allowMetered: true }, prior: 0.55, why: 'lawsuits about an earlier venture that name the person' });
+  }
   return out;
 }
 
@@ -157,7 +171,7 @@ export function webTemplates(thread, subject) {
   if (!subject?.name || !thread?.kind) return [];
   if (thread.kind === 'subject') return subjectTemplates(subject);
   if (!value) return [];
-  if (thread.kind === 'company') return companyTemplates(value, subject);
+  if (thread.kind === 'company') return companyTemplates(value, subject, thread);
   if (thread.kind === 'associate' || thread.kind === 'relative') return subject.hasName(value) ? [] : jointTemplates(thread.kind, value, subject);
   if (thread.kind === 'school') return [{ template: 'q.school', params: { query: `${phrase(subject.name)} ${phrase(value)}`, prefer: 'reference' }, prior: 0.5, why: 'whether this school and the person are named together' }];
   if (thread.kind === 'handle') return [{ template: 'q.handle', params: { query: `${phrase(value.replace(/^@/, ''))} ${phrase(subject.name)}` }, prior: 0.4, why: 'what is posted under this handle with their name' }];
@@ -326,12 +340,16 @@ export function wikipediaTitle(url) {
 export function wikipediaKind(subject, task, title) {
   if (WIKI_NAME_LIST.test(title)) return 'list';
   // the title must BE the name, not contain it: "Nikola Tesla" is not about Nikola the company
-  const key = (s) => shortCompany(s).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const key = companyKey;
   const bare = key(title.replace(/\s*\([^)]*\)\s*$/, ''));
   if (!bare) return 'other';
   const names = [subject.name, ...(subject.variants || []), subject.company, task?.kind === 'company' ? task.value : '',
     ...['companies', 'people'].flatMap((kind) => [...(subject.anchors?.[kind]?.values?.() || [])].map((a) => a.value))];
-  return names.some((n) => n && key(n) === bare) ? 'subject' : 'other';
+  if (names.some((n) => n && key(n) === bare)) return 'subject';
+  // "Neumann", "Trevor": the surname or first name alone is a page of namesakes
+  const tokens = String(subject.name || '').trim().split(/\s+/);
+  if (tokens.length > 1 && [tokens[0], tokens[tokens.length - 1]].some((t) => key(t) === bare)) return 'list';
+  return 'other';
 }
 
 /** One key per Wikipedia article: language and title, so the mobile site, an anchor (#History) or an encoded title still match. */
@@ -348,6 +366,35 @@ function knownWikiPages(ctx) {
   let list = [];
   try { list = typeof ctx?.findings === 'function' ? ctx.findings() || [] : []; } catch { list = []; }
   return new Set(list.filter((f) => f && f.source === WIKIPEDIA_SOURCE).map((f) => wikiKey(f.url)).filter(Boolean));
+}
+
+/** How many Wikipedia articles about something else (background mentions) one check keeps. */
+export const WIKI_OTHER_MAX = 3;
+/** The background Wikipedia records the web and news sources already kept in this check. */
+function backgroundWikiCount(ctx) {
+  let list = [];
+  try { list = typeof ctx?.findings === 'function' ? ctx.findings() || [] : []; } catch { list = []; }
+  return list.filter((f) => f && (f.source === WEB_ID || f.source === NEWS_ID) && f.data?.background).length;
+}
+
+const YEAR_IN = /(?<![\p{L}\p{N}$£€.,])((?:19[89]|20[0-9])\d)(?![\p{L}\p{N}%])/gu;
+/**
+ * Whether a result's date (a news feed's publication or re-publication date) may not be when the story
+ * happened: the address or the headline names an earlier year ("/2019/05/...", "... in 2020"), or the
+ * headline calls the person CEO of a company in the present tense after their tenure there ended.
+ */
+export function dateApprox(subject, r) {
+  const year = Number(String(r?.date || '').slice(0, 4));
+  if (!year) return false;
+  const earlier = (text) => [...String(text || '').matchAll(YEAR_IN)].some((m) => Number(m[1]) < year);
+  let path = '';
+  try { const u = new URL(String(r.url)); path = safeDecode(`${u.pathname}${u.search}`); } catch { path = ''; }
+  if (earlier(path) || earlier(r.title)) return true;
+  const day = String(r.date).slice(0, 10);
+  for (const role of subject?.anchors?.roles?.values?.() || []) {
+    if (role.to && day > role.to && typeof role.test === 'function' && subject.hasName(r.title) && role.test(String(r.title || ''))) return true;
+  }
+  return false;
 }
 
 /**
@@ -367,7 +414,8 @@ function acceptFor(subject, task) {
  * Grade each result, turn the ones that name the subject into findings, and
  * read them for threads.
  */
-function collect(subject, task, results, { source, sourceLabel, category = null, family = false, companyOnlyMax = 3, knownWiki = new Set() }) {
+function collect(subject, task, results, { source, sourceLabel, category = null, family = false, companyOnlyMax = 3, knownWiki = new Set(), backgroundKept = 0 }) {
+  let background = backgroundKept;
   const findings = [];
   const companyOnly = [];
   const threads = [];
@@ -394,6 +442,9 @@ function collect(subject, task, results, { source, sourceLabel, category = null,
       severity: severityFromText(text),
       ...(r.publisher ? { data: { publisher: r.publisher } } : {}),
     };
+    // A date that may be a re-publication: kept, marked, and not used to grade the record (a CEO tenure).
+    const approx = Boolean(base.date) && dateApprox(subject, r);
+    if (approx) base.data = { ...(base.data || {}), dateApprox: true };
     const wiki = wikipediaTitle(r.url);
     const wikiKind = wiki ? wikipediaKind(subject, task, wiki) : null;
     if (wikiKind === 'list') continue;
@@ -401,18 +452,27 @@ function collect(subject, task, results, { source, sourceLabel, category = null,
     if (wiki && knownWiki.has(wikiKey(r.url))) continue;
     // An article about something else that mentions the person: background at most, never confirmed,
     // and never a record about the company alone.
-    if (wikiKind === 'other') base.severity = 'info';
-    let finding = makeFinding(subject, base);
+    if (wikiKind === 'other') {
+      base.severity = 'info';
+      base.data = { ...(base.data || {}), background: true };
+    }
+    const grade = (b) => {
+      if (!approx) return makeFinding(subject, b);
+      const made = makeFinding(subject, { ...b, date: null });
+      return made ? { ...made, date: b.date } : made;
+    };
+    let finding = grade(base);
     if (finding && wikiKind === 'other') {
       // kept only when the text also names something tied to them (their company): a name alone in
-      // an article about a film, an honours list or a namesake is not about them
-      if (finding.match !== 'confirmed') continue;
-      finding = makeFinding(subject, { ...base, match: 'possible', matchReasons: [`Wikipedia article about ${wiki}, not about the person`] });
+      // an article about a film, an honours list or a namesake is not about them; and only a few per check
+      if (finding.match !== 'confirmed' || background >= WIKI_OTHER_MAX) continue;
+      background += 1;
+      finding = grade({ ...base, match: 'possible', matchReasons: [`Wikipedia article about ${wiki}, not about the person`] });
     }
     if (!finding) {
       // About the company the task gave us, not the person: kept when it reports trouble, and marked as such.
       if (namesCompany && !subject.hasName(text) && namesCompany(text, { title: r.title, host }) && base.severity !== 'info') {
-        const record = makeFinding(subject, { ...base, match: 'company', matchReasons: [`names ${task.value}`] });
+        const record = grade({ ...base, match: 'company', matchReasons: [`names ${task.value}`] });
         if (record) companyOnly.push(record);
       }
       continue;
@@ -464,10 +524,10 @@ export const webSearchConnector = {
     const { results, tried } = await keylessSearch(query, {
       news: Boolean(planned.news), withinDays: planned.withinDays, num: 10, deadline: ctx.deadline,
       // the metered services are kept for the lookups that matter most
-      allowMetered: priorOf(task, subject, webTemplates) >= METERED_PRIOR,
+      allowMetered: priorOf(task, subject, webTemplates) >= METERED_PRIOR || Boolean(planned.allowMetered),
       lang: planned.lang, prefer: planned.prefer, accept: acceptFor(subject, task),
     });
-    const { findings, threads } = collect(subject, task, results, { source: WEB_ID, sourceLabel: WEB_LABEL, family: Boolean(planned.family), companyOnlyMax: COMPANY_ONLY_MAX.web, knownWiki: knownWikiPages(ctx) });
+    const { findings, threads } = collect(subject, task, results, { source: WEB_ID, sourceLabel: WEB_LABEL, family: Boolean(planned.family), companyOnlyMax: COMPANY_ONLY_MAX.web, knownWiki: knownWikiPages(ctx), backgroundKept: backgroundWikiCount(ctx) });
     return { findings, threads, notes: pauseNotes(tried) };
   },
 };
@@ -546,7 +606,7 @@ export const newsArchiveConnector = {
     if (!query) return { findings: [], threads: [], notes: [] };
     const { after, before } = windowDates(planned.window);
     const { results, tried } = await keylessSearch(query, { news: true, after, before, num: 15, deadline: ctx.deadline, accept: acceptFor(subject, task) });
-    const { findings, threads } = collect(subject, task, results, { source: NEWS_ID, sourceLabel: NEWS_LABEL, category: 'press', companyOnlyMax: COMPANY_ONLY_MAX.news, knownWiki: knownWikiPages(ctx) });
+    const { findings, threads } = collect(subject, task, results, { source: NEWS_ID, sourceLabel: NEWS_LABEL, category: 'press', companyOnlyMax: COMPANY_ONLY_MAX.news, knownWiki: knownWikiPages(ctx), backgroundKept: backgroundWikiCount(ctx) });
     return { findings, threads, notes: pauseNotes(tried) };
   },
 };

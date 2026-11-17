@@ -402,6 +402,8 @@ function linkNamesSubject(subject, link) {
 function storyFinding(subject, story, company = '') {
   const discussion = `https://news.ycombinator.com/item?id=${story.id}`;
   const named = subject.hasName(`${story.title} ${story.text}`);
+  const linkNamed = !named && linkNamesSubject(subject, story.link);
+  const matchText = `${linkNamed ? `${subject.name}. ` : ''}${story.title}. ${story.text} ${story.link}`;
   return makeFinding(subject, {
     source: 'hacker-news', sourceLabel: HN_LABEL, category: 'press',
     title: `Hacker News (${count(story.points)} points, ${count(story.comments)} comments): ${story.title}`,
@@ -409,11 +411,56 @@ function storyFinding(subject, story, company = '') {
     url: story.link || discussion,
     date: story.date,
     severity: severityFromText(story.title),
-    ...(company
-      ? { match: 'company', matchReasons: [`about ${company}, a company of the subject`] }
-      : { matchText: `${!named && linkNamesSubject(subject, story.link) ? `${subject.name}. ` : ''}${story.title}. ${story.text} ${story.link}` }),
+    ...(company ? companyStoryGrade(subject, story, company, matchText, named || linkNamed) : { matchText }),
     data: { points: story.points, comments: story.comments, discussionUrl: discussion },
   });
+}
+
+/**
+ * A story about a company of the subject is a company record, unless it also
+ * carries the person's full name (in its text or its article's address) and
+ * grades as about them: it is then theirs, but 'likely' at most, since it was
+ * found through the company.
+ */
+function companyStoryGrade(subject, story, company, matchText, fullName) {
+  const graded = fullName ? matchSubject(subject, matchText, { date: story.date }) : { level: 'none', reasons: [] };
+  if (graded.level === 'likely' || graded.level === 'confirmed') {
+    const reasons = linkNamesSubject(subject, story.link) && !subject.hasName(`${story.title} ${story.text}`) ? ["the article's address names the person", ...graded.reasons] : graded.reasons;
+    return { match: 'likely', matchReasons: reasons.slice(0, 4) };
+  }
+  return { match: 'company', matchReasons: [`about ${company}, a company of the subject`] };
+}
+
+/** The year the subject's tie to a company began, from a stated CEO tenure, or 0 when no source states it. */
+function tieStartYear(subject, company) {
+  const key = companyKeys(company)[0] || company.toLowerCase();
+  const years = [...(subject.anchors.roles?.values() || [])]
+    .filter((r) => (companyKeys(r.org || r.value)[0] || String(r.value).toLowerCase()) === key)
+    .map((r) => Number(String(r.from).slice(0, 4)))
+    .filter((y) => y > 0);
+  return years.length ? Math.min(...years) : 0;
+}
+
+// What one organisation does with a product of its own ("Facebook launches Flow").
+const PRODUCT_VERB = /^(?:launch(?:es|ed)?|releas(?:es|ed)|introduc(?:es|ed)|unveil(?:s|ed)?|open[- ]?sourc(?:es|ed)|ships?|shipped|debuts?|debuted|announc(?:es|ed))$/i;
+const NOT_AN_ORG = new Set(['it', 'he', 'she', 'they', 'we', 'you', 'i', 'this', 'that', 'who', 'which', 'now', 'today', 'finally', 'also', 'and', 'or']);
+
+/**
+ * Whether a one-word company name is used for another organisation's product
+ * in a story ("Facebook Launches Flow, a type checker"): a different
+ * capitalised name directly before a product verb and the word. Names of the
+ * subject and of their known companies and people do not count.
+ */
+function anotherOrgsProduct(subject, plain, text) {
+  if (/\s/.test(plain)) return false;
+  const re = new RegExp(`(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9.&]*)\\s+([A-Za-z-]+)\\s+(?:(?:its|a|the|new)\\s+)?${plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9])`, 'gi');
+  const own = new Set([
+    ...nameTokens(subject.name),
+    ...[...subject.anchors.companies.values(), ...subject.anchors.people.values()].flatMap((a) => nameTokens(a.value)),
+    plain.toLowerCase(),
+  ]);
+  return [...text.matchAll(re)].some((m) => /^[A-Z]/.test(m[1]) && PRODUCT_VERB.test(m[2])
+    && !NOT_AN_ORG.has(m[1].toLowerCase()) && !own.has(nameTokens(m[1])[0]));
 }
 
 function storyThreads(subject, pairs) {
@@ -467,6 +514,7 @@ async function hnAboutCompany(subject, company, ctx) {
   const hostKey = (companyKeys(company)[0] || '').replace(/\s+/g, '');
   const lastName = nameTokens(subject.name).pop() || '';
   const lastNameRe = lastName.length >= 4 ? new RegExp(`(?<![A-Za-z])${lastName}(?![A-Za-z])`, 'i') : null;
+  const tieFrom = tieStartYear(subject, company);
   const pairs = [];
   for (const story of stories) {
     const text = `${story.title}. ${story.text}`;
@@ -486,7 +534,15 @@ async function hnAboutCompany(subject, company, ctx) {
     const placed = ownAddress || (lastNameRe && lastNameRe.test(text)) || BUSINESS.test(story.title) || severityFromText(story.title) !== 'info';
     if (!placed || story.points < 3) continue;
     const finding = storyFinding(subject, story, company);
-    if (finding) pairs.push({ story, finding });
+    if (!finding) continue;
+    if (finding.match === 'company') {
+      // Before the person's tie to the company began, the story is about the company without them;
+      // and a one-word name used for another organisation's product is not the company.
+      const year = Number(String(story.date || '').slice(0, 4));
+      if (tieFrom && year && year < tieFrom) continue;
+      if (anotherOrgsProduct(subject, plain, text)) continue;
+    }
+    pairs.push({ story, finding });
   }
   const kept = bestPerArticle(pairs)
     .sort(byWeight)

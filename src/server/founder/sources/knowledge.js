@@ -42,9 +42,10 @@
  */
 import { getJson, getText, mapLimit } from '../http';
 import { makeFinding, makeThread, severityFromText } from '../finding';
-import { nameTokens, matchSubject, companyKeyStrict } from '../identity';
+import { nameTokens, matchSubject, companyKeyStrict, addAnchor, addRoleAnchor, addEventAnchor } from '../identity';
 import { threadsFromResult, relativesFromText, associatesFromText, plausiblePersonName, mentions } from '../extract';
 import { isSensitive, mentionsMinor } from '../guardrails';
+import { languageHints } from './web';
 
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -168,7 +169,7 @@ const candidateQuery = (qids) => `SELECT ?c ?cLabel ?cDesc (MAX(?sl) AS ?sitelin
  * dates. The optimizer hint matters: without it the endpoint plans the
  * inverse links (organisation -> founded by -> person) badly and times out.
  */
-const profileQuery = (qid) => `SELECT ?kind ?st ?val ?valLabel ?jurLabel ?degreeLabel ?majorLabel ?ofLabel ?roleLabel ?start ?end ?pit WHERE { hint:Query hint:optimizer "None" . VALUES ?person { wd:${qid} } { VALUES (?p ?ps ?kind) { (p:P108 ps:P108 'employer') (p:P69 ps:P69 'educated at') (p:P39 ps:P39 'position held') (p:P106 ps:P106 'occupation') (p:P1830 ps:P1830 'owner of') (p:P1399 ps:P1399 'convicted of') (p:P856 ps:P856 'official website') (p:P2002 ps:P2002 'X username') (p:P2037 ps:P2037 'GitHub username') (p:P6634 ps:P6634 'LinkedIn personal profile ID') (p:P2087 ps:P2087 'Crunchbase person ID') } ?person ?p ?st . ?st ?ps ?val . OPTIONAL { ?st pq:P512 ?degree . ?degree rdfs:label ?degreeLabel . FILTER(LANG(?degreeLabel)='en') } OPTIONAL { ?st pq:P812 ?major . ?major rdfs:label ?majorLabel . FILTER(LANG(?majorLabel)='en') } OPTIONAL { ?st pq:P642 ?of . ?of rdfs:label ?ofLabel . FILTER(LANG(?ofLabel)='en') } OPTIONAL { ?st pq:P39 ?role . ?role rdfs:label ?roleLabel . FILTER(LANG(?roleLabel)='en') } OPTIONAL { ?val wdt:P1001 ?jur . ?jur rdfs:label ?jurLabel . FILTER(LANG(?jurLabel)='en') } } UNION { VALUES (?ip ?ips ?kind) { (p:P112 ps:P112 'founded by') (p:P127 ps:P127 'owned by') (p:P169 ps:P169 'chief executive officer') (p:P488 ps:P488 'chairperson') (p:P3320 ps:P3320 'board member') (p:P1037 ps:P1037 'director / manager') } ?st ?ips ?person . ?val ?ip ?st . } ?st wikibase:rank ?rank . FILTER(?rank != wikibase:DeprecatedRank) OPTIONAL { ?st pq:P580 ?start } OPTIONAL { ?st pq:P582 ?end } OPTIONAL { ?st pq:P585 ?pit } ${en('?val', '?valLabel')} } LIMIT 400`;
+const profileQuery = (qid) => `SELECT ?kind ?st ?val ?valLabel ?jurLabel ?degreeLabel ?majorLabel ?ofLabel ?roleLabel ?start ?end ?pit ?inception ?otherFounder WHERE { hint:Query hint:optimizer "None" . VALUES ?person { wd:${qid} } { VALUES (?p ?ps ?kind) { (p:P108 ps:P108 'employer') (p:P69 ps:P69 'educated at') (p:P39 ps:P39 'position held') (p:P106 ps:P106 'occupation') (p:P1830 ps:P1830 'owner of') (p:P1399 ps:P1399 'convicted of') (p:P856 ps:P856 'official website') (p:P2002 ps:P2002 'X username') (p:P2037 ps:P2037 'GitHub username') (p:P6634 ps:P6634 'LinkedIn personal profile ID') (p:P2087 ps:P2087 'Crunchbase person ID') } ?person ?p ?st . ?st ?ps ?val . OPTIONAL { ?st pq:P512 ?degree . ?degree rdfs:label ?degreeLabel . FILTER(LANG(?degreeLabel)='en') } OPTIONAL { ?st pq:P812 ?major . ?major rdfs:label ?majorLabel . FILTER(LANG(?majorLabel)='en') } OPTIONAL { ?st pq:P642 ?of . ?of rdfs:label ?ofLabel . FILTER(LANG(?ofLabel)='en') } OPTIONAL { ?st pq:P39 ?role . ?role rdfs:label ?roleLabel . FILTER(LANG(?roleLabel)='en') } OPTIONAL { ?val wdt:P1001 ?jur . ?jur rdfs:label ?jurLabel . FILTER(LANG(?jurLabel)='en') } } UNION { VALUES (?ip ?ips ?kind) { (p:P112 ps:P112 'founded by') (p:P127 ps:P127 'owned by') (p:P169 ps:P169 'chief executive officer') (p:P488 ps:P488 'chairperson') (p:P3320 ps:P3320 'board member') (p:P1037 ps:P1037 'director / manager') } ?st ?ips ?person . ?val ?ip ?st . OPTIONAL { ?val wdt:P112 ?otherFounder } } ?st wikibase:rank ?rank . FILTER(?rank != wikibase:DeprecatedRank) OPTIONAL { ?st pq:P580 ?start } OPTIONAL { ?st pq:P582 ?end } OPTIONAL { ?st pq:P585 ?pit } OPTIONAL { ?val wdt:P571 ?inception } ${en('?val', '?valLabel')} } LIMIT 400`;
 
 /**
  * Relatives as the graph states them, from the person's page and from the
@@ -330,6 +331,31 @@ function mergeOffices(rows, labelKey = 'valLabel', idKey = 'val') {
   });
 }
 
+const CEO_WORDS = /\b(?:chief executive|CEO)\b/i;
+/** The later of two partial ISO dates ("2008-05", "2010" -> "2010"): a tenure cannot start before the company existed. */
+const laterOf = (a, b) => (!a ? b : !b ? a : a.slice(0, 4) < b.slice(0, 4) ? b : a);
+
+/**
+ * The subject's tenures at one organisation, for addRoleAnchor: chief executive (the inverse "chief executive
+ * officer" link, or an employer statement whose position is chief executive) with its start and end, and
+ * founder only when the graph names the subject as the organisation's one and only founder. A tenure needs a
+ * start: a founder's is the organisation's founding date.
+ */
+export function tenuresOf(o, rows, personQid, founded = '') {
+  const out = [];
+  const org = o.name;
+  for (const r of o.rows) {
+    const ceo = r.kind === 'chief executive officer' || (r.kind === 'employer' && CEO_WORDS.test(r.roleLabel || ''));
+    if (ceo && r.start) out.push({ org, role: 'ceo', from: laterOf(shortDate(r.start), founded), to: shortDate(r.end) });
+    if (r.kind === 'founded by') {
+      const others = rows.some((x) => x.val === r.val && x.otherFounder && qidOf(x.otherFounder) !== personQid);
+      const from = shortDate(r.start) || founded;
+      if (!others && from) out.push({ org, role: 'founder', from, to: '' });
+    }
+  }
+  return out;
+}
+
 function profileResult(ctx, entity, rows) {
   const { subject } = ctx;
   const findings = [];
@@ -384,16 +410,26 @@ function profileResult(ctx, entity, rows) {
   }
   const rank = (o) => Math.min(...o.rows.map((r) => ORG_KINDS.indexOf(r.kind)));
   const ordered = [...orgs.values()].sort((a, b) => rank(a) - rank(b) || latest(b.rows.map((r) => r.start)).localeCompare(latest(a.rows.map((r) => r.start))));
+  // Tenures are recorded only from an entry tied to the subject by more than a name.
+  const confirmed = Boolean(identity) && identity.match === 'confirmed' && entity.by === 'context';
   for (const o of ordered.slice(0, 14)) {
     o.rows.sort((a, b) => ORG_KINDS.indexOf(a.kind) - ORG_KINDS.indexOf(b.kind));
     const phrases = unique(o.rows.map((r) => `${r.roleLabel && r.kind === 'employer' ? clean(r.roleLabel) : ROLE_PHRASE[r.kind]}${inBrackets(span(r.start, r.end, r.pit))}`));
-    push({
+    const founded = shortDate(earliest(rows.filter((r) => r.val === o.rows[0].val).map((r) => r.inception)));
+    const first = shortDate(earliest(o.rows.map((r) => r.start)));
+    // A role said to start before the company existed is a slip in the graph: shown as such, never as an event on the timeline
+    const conflict = founded && first && first.slice(0, 4) < founded.slice(0, 4) ? `start date ${first} is earlier than the founding of ${o.name} (${founded})` : '';
+    const made = push({
       category: 'career',
       title: `${person} at ${o.name}: ${phrases.join('; ')}`,
       quote: o.rows.map((r) => statementText(r, person)).join('. '),
       url: statementUrl(o.rows[0].st, entity.qid),
-      date: findingDate(earliest(o.rows.map((r) => r.start)) || earliest(o.rows.map((r) => r.end || r.pit))),
+      date: conflict ? null : findingDate(earliest(o.rows.map((r) => r.start)) || earliest(o.rows.map((r) => r.end || r.pit))),
+      ...(conflict ? { data: { dateConflict: conflict, founded } } : {}),
     });
+    if (made && confirmed && made.match !== 'possible') {
+      for (const t of tenuresOf(o, rows, entity.qid, founded)) addRoleAnchor(subject, { ...t, origin: made.id });
+    }
     // a university or ministry someone merely worked at is not a company to look into; one they founded or led is
     const onlyEmployed = o.rows.every((r) => r.kind === 'employer');
     if (!(onlyEmployed && NOT_A_COMPANY.test(o.name)) && threads.filter((t) => t?.kind === 'company').length < 10) {
@@ -417,18 +453,25 @@ function profileResult(ctx, entity, rows) {
   }
   const otherPositions = offices.filter((x) => !x.political);
   if (otherPositions.length) {
-    push({
+    const made = push({
       category: 'career',
       title: `${person}: position held, ${otherPositions.slice(0, 5).map((o) => `${o.office}${o.of ? ` of ${o.of}` : ''}${inBrackets(o.when)}`).join('; ')}`,
       quote: otherPositions.flatMap((o) => o.rows).slice(0, 6).map((r) => statementText(r, person)).join('. '),
       url: statementUrl(otherPositions[0].rows[0].st, entity.qid),
       date: findingDate(otherPositions[0].start || otherPositions[0].end),
     });
+    // "position held: chief executive officer (of WeWork)": a tenure, one per statement
+    if (made && confirmed && made.match !== 'possible') {
+      for (const r of of('position held').filter((x) => CEO_WORDS.test(x.valLabel) && clean(x.ofLabel) && x.start)) {
+        addRoleAnchor(subject, { org: clean(r.ofLabel), role: 'ceo', from: shortDate(r.start), to: shortDate(r.end), origin: made.id });
+      }
+    }
   }
 
-  // A conviction the graph records
+  // A conviction the graph records. On an entry tied to the subject, its date marks when later reports of the
+  // conviction can be about the subject ('likely' at most, with the full name).
   for (const r of of('convicted of').slice(0, 4)) {
-    push({
+    const made = push({
       category: 'litigation',
       severity: 'high',
       title: `${person}: convicted of ${clean(r.valLabel)}${inBrackets(shortDate(r.pit) || span(r.start, r.end))}`,
@@ -436,6 +479,10 @@ function profileResult(ctx, entity, rows) {
       url: statementUrl(r.st, entity.qid),
       date: findingDate(r.pit || r.start || r.end),
     });
+    const when = shortDate(r.pit || r.start || r.end);
+    if (made && confirmed && made.match !== 'possible' && when) {
+      addEventAnchor(subject, { event: 'convicted', date: when, origin: made.id });
+    }
   }
 
   // Pages and handles the graph links to the person
@@ -703,10 +750,15 @@ const WP_INITIAL = /\b([A-Z])\.(?=\s+[A-Z])/g;
 const sentencesIn = (text) => clean(text).replace(WP_ABBREVIATION, '$1\u0001').replace(WP_INITIAL, '$1\u0001').split(/(?<=[.!?]["”]?)\s+(?=[A-Z"“])/).map((s) => s.replace(/\u0001/g, '.').trim()).filter((s) => s.length > 20 && s.length < 700);
 /** May this sentence be quoted? Not when it is about private life, a child, or a protected matter. */
 const quotable = (s) => !WP_PRIVATE_SENTENCE.test(s) && !isSensitive(s) && !mentionsMinor(s);
-/** The latest year a quotation names that is not in the future ("pleaded guilty in 2022" -> "2022"), or null. */
-function yearOf(text) {
-  const years = (String(text || '').match(/\b(?:19|20)\d{2}\b/g) || []).map(Number).filter((y) => y <= thisYear());
-  return years.length ? String(Math.max(...years)) : null;
+/**
+ * The year a passage is about: the first year its first sentence names (the sentence that is its title), so
+ * "resigned in 2020 ... indicted in 2021 ... sentenced in 2023" is dated 2020, not by the latest year quoted.
+ * A first sentence with no year leaves the date to a passage that names exactly one year; otherwise none.
+ */
+export function passageYear(text) {
+  const first = sentencesIn(text)[0] || String(text || '');
+  const year = (first.match(/\b(?:19|20)\d{2}\b/g) || []).find((y) => Number(y) <= thisYear());
+  return year || singleYearOf(text);
 }
 /** The year a quotation names when it names exactly one ("joined in 2020" -> "2020"); several years or none -> null. */
 function singleYearOf(text) {
@@ -792,6 +844,48 @@ function distinctUrl(used, url, quote) {
   return url;
 }
 
+/*
+ * Counterparties: the investors, acquirers, buyers and parties to a deal or a settlement that the confirmed
+ * subject's own article names in its lead and career sections. They become 'encyclopedia' anchors, which may
+ * raise a record that also gives the person's full name to 'likely', never further (identity.js decides).
+ */
+const DEAL_ORG = "[A-Z][\\w&'’.-]*(?:\\s+(?:&\\s+)?[A-Z][\\w&'’.-]*){0,3}";
+const DEAL_BEFORE = new RegExp(`\\b(?:invest(?:ment|ments|ed)?\\s+(?:from|by)|backed\\s+by|led\\s+by|acquired\\s+by|bought\\s+by|takeover\\s+by|sold\\s+(?:[\\w$.,%-]+\\s+){0,4}?to|(?:stake|shares?)\\s+(?:in|to|from)|settle(?:ment|d)?\\s+with|(?:deal|agreement|partnership|merger|dispute)\\s+with|(?:funding|financing|bailout|rescue)\\s+(?:from|by)|(?:investors?|backers?)\\s+(?:including|such as|like)|sued\\s+by|lawsuit\\s+(?:against|by|from))\\s+(?:the\\s+)?(${DEAL_ORG})(?:\\s*(?:,|,?\\s+and)\\s+(${DEAL_ORG}))?`, 'g');
+const DEAL_AFTER = new RegExp(`(${DEAL_ORG})\\s+(?:invested|led\\s+(?:a|the|an)\\s+[\\w$.,\\s-]{0,30}?(?:round|investment)|acquired|agreed\\s+to\\s+(?:invest|buy|acquire)|bought\\s+(?:a|the)\\s+(?:stake|majority))\\b`, 'g');
+/** Public authorities and courts are not counterparties: they appear in every namesake's legal news. */
+const NOT_COUNTERPARTY = /^(?:The|A|An|In|On|At|By|He|She|It|They|His|Her|Its|Their|This|That|These|Those|After|Before|During|When|While|Although|However|January|February|March|April|May|June|July|August|September|October|November|December|Series|Round|Seed)$|\b(?:SEC|Securities|Exchange Commission|Department|Justice|DOJ|FTC|CFTC|FBI|IRS|Attorney|Court|Judge|Jury|Government|State|States|Federal|Congress|Senate|Ministry|Police|Prosecutors?|Regulators?|Commission|Authority|Agency|Bureau)\b/;
+export function counterpartiesFromText(subject, text) {
+  const out = new Map();
+  const add = (raw, after = '') => {
+    // "from Brooklyn real estate developer Joel Roe": the capitalised word describes someone named after it
+    if (/^\s+(?:[a-z][\w-]*\s+){1,4}[A-Z]/.test(after)) return;
+    const name = clean(String(raw || '').replace(/[.,'’]+$/, '').replace(/['’]s$/, ''));
+    if (name.length < 3 || NOT_COUNTERPARTY.test(name) || NOT_A_COMPANY.test(name) || subject.hasName(name)) return;
+    // "Neumann" alone is the subject's own surname: it would be found in every record that names them
+    const own = new Set(nameTokens(subject.name));
+    if (nameTokens(name).every((t) => own.has(t))) return;
+    if ([...subject.anchors.companies.values()].some((a) => a.test(name))) return;
+    if (!out.has(name.toLowerCase())) out.set(name.toLowerCase(), name);
+  };
+  for (const sentence of sentencesIn(text)) {
+    for (const m of sentence.matchAll(DEAL_BEFORE)) {
+      const tail = sentence.slice(m.index + m[0].length);
+      if (m[2]) { add(m[1]); add(m[2], tail); } else add(m[1], tail);
+    }
+    for (const m of sentence.matchAll(DEAL_AFTER)) add(m[1]);
+  }
+  return [...out.values()];
+}
+/**
+ * Record counterparties with an 'encyclopedia' origin: identity.js keeps them apart from the subject's own
+ * companies and people, and lets them raise a record that names the person in full to 'likely' only.
+ */
+function addEncyclopediaAnchors(subject, names, findingId) {
+  for (const name of names.slice(0, 10)) {
+    addAnchor(subject, plausiblePersonName(name, subject) === name ? 'people' : 'companies', name, `encyclopedia:${findingId}`);
+  }
+}
+
 /** A role at a company that a company article gives a person beside its founders. */
 const CO_ROLE = '(?:co-founding\\s+)?advis[eo]r|shareholder|investor|board\\s+member|member\\s+of\\s+the\\s+board';
 const CO_ROLE_SENTENCE = /\b(?:(?:co-founding\s+)?advis[eo]rs?|shareholders?|investors?|board\s+members?|member\s+of\s+the\s+board|former\s+(?:[\w\u00C0-\u00FF-]+\s+){0,2}?minister)\b/i;
@@ -829,13 +923,43 @@ function companyRolesFromText(subject, text) {
 /** A company the person founded or runs (or the one given); an affiliate (a stake, an investment) is not read. */
 const primaryCompany = (x) => x?.kind === 'company' && (!x.tie || x.tie === 'primary');
 
+/** The company's article on one Wikipedia, when its title is the company's name; null when there is none. */
+async function companyArticle(lang, company, key, ctx) {
+  const titles = unique([company, lang === 'en' ? `${company} (company)` : `${company} (entreprise)`]).join('|');
+  const api = `https://${lang}.wikipedia.org/w/api.php?action=query&prop=extracts%7Cpageprops%7Cinfo&explaintext=1&exsectionformat=wiki&redirects=1&inprop=url&titles=${encodeURIComponent(titles)}&format=json&formatversion=2`;
+  const json = await getJson(api, { deadline: ctx.deadline });
+  if (!json?.query || !Array.isArray(json.query.pages)) throw new Error('Wikipedia returned an answer that could not be read');
+  return json.query.pages.find((p) => p && !p.missing && p.extract && !(p.pageprops && 'disambiguation' in p.pageprops)
+    && companyKeyStrict(clean(p.title).replace(/\s*\([^)]*\)\s*$/, '')) === key) || null;
+}
+
+/** French: a role at the company given after the person's name ("Cédric O, ancien ministre, actionnaire et conseiller de Mistral AI"). */
+const CO_ROLE_FR = "actionnaire|conseill(?:er|ère)(?:\\s+en\\s+[\\wé ]+)?|administrat(?:eur|rice)|membre du conseil d['’]administration|investisseu(?:r|se)|cofondat(?:eur|rice)|co-fondat(?:eur|rice)";
+const FR_PRIVATE_SECTION = /\b(vie (?:privée|personnelle)|famille|santé|décès|religion)\b/i;
+const FR_ROLES = [[/actionnaire/i, 'shareholder'], [/conseill/i, 'adviser'], [/administrat|membre du conseil/i, 'board member'], [/investisseu/i, 'investor'], [/co-?fondat/i, 'co-founder']];
+/** People a French company article names with a role at the company, with the role in English. */
+export function companyRolesFromFrench(subject, text, company) {
+  const re = new RegExp(`(${CO_PERSON})\\s*,\\s+(?:l['’]|le |la |un |une )?(?:ancien(?:ne)?\\s+[^,]{0,40},?\\s+)?((?:${CO_ROLE_FR})(?![\\w\u00C0-\u00FF])[^.]{0,60}?)(?:\\bde\\s+|\\bd['’])${escapeRe(company)}(?![\\w\u00C0-\u00FF])`, 'g');
+  const out = new Map();
+  for (const m of String(text).matchAll(re)) {
+    const name = plausiblePersonName(m[1], subject);
+    if (!name || out.has(name.toLowerCase())) continue;
+    const roles = FR_ROLES.filter(([test]) => test.test(m[2])).map(([, label]) => label);
+    if (roles.length) out.set(name.toLowerCase(), { name, role: capitalise(roles.join(' and ')) });
+  }
+  return [...out.values()];
+}
+
 /**
  * The company's own article: who founded it with the person, advisers and
  * shareholders it names, and relatives it gives a role there. Only an
  * article whose title is the company's name and that names the person in
  * full is read (a company that merely shares the name never does), and only
  * sentences that name the person, or follow straight on from one, are read
- * for people. Threads only: nothing from it is quoted as a record.
+ * for people. Threads only: nothing from it is quoted as a record. When the
+ * person's names or companies point to French, the French article is also
+ * read, for the roles at the company it states (shareholders, advisers,
+ * board members), which the English article may leave out.
  */
 async function wpCompany(task, ctx) {
   const empty = { findings: [], threads: [], notes: [] };
@@ -844,33 +968,48 @@ async function wpCompany(task, ctx) {
   const company = clean(task.value);
   const key = companyKeyStrict(company);
   if (key.length < 3) return empty;
-  const titles = unique([company, `${company} (company)`]).join('|');
-  const api = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts%7Cpageprops%7Cinfo&explaintext=1&exsectionformat=wiki&redirects=1&inprop=url&titles=${encodeURIComponent(titles)}&format=json&formatversion=2`;
-  const json = await getJson(api, { deadline: ctx.deadline });
-  if (!json?.query || !Array.isArray(json.query.pages)) throw new Error('Wikipedia returned an answer that could not be read');
-  const doc = json.query.pages.find((p) => p && !p.missing && p.extract && !(p.pageprops && 'disambiguation' in p.pageprops)
-    && companyKeyStrict(clean(p.title).replace(/\s*\([^)]*\)\s*$/, '')) === key);
-  if (!doc) return empty;
-  const sections = articleSections(String(doc.extract)).filter((s) => !WP_SKIP_SECTION.test(s.heading) && !WP_SKIP_SECTION.test(s.top)
-    && !WP_PRIVATE_SECTION.test(s.heading) && !WP_PRIVATE_SECTION.test(s.top));
-  // Bare surnames are not expanded here: in a company article "Roe" may be a relative or another founder.
-  const text = withPronouns(subject, sections.flatMap((s) => s.paragraphs).join(' ').slice(0, 20000));
-  const about = sentencesIn(text).filter((x) => subject.hasName(x));
-  if (!about.length) return empty;
-  const title = clean(doc.title);
-  const trusted = matchSubject(subject, clean(`${subject.name}. ${company}. ${title}. ${about.join(' ')}`).slice(0, 3900)).level !== 'possible';
+  const french = languageHints(subject).includes('fr');
+  const [doc, frDoc] = await Promise.all([
+    companyArticle('en', company, key, ctx),
+    // the other language is a supplement: its failure is no failure of the lookup
+    french ? companyArticle('fr', company, key, ctx).catch(() => null) : null,
+  ]);
   const threads = [];
-  for (const a of associatesFromText(subject, text).slice(0, 8)) threads.push(makeThread('associate', a.name, `${a.why} (Wikipedia article on ${title})`, { trusted }));
-  const relatives = relativesFromText(subject, text).slice(0, 4);
-  for (const r of relatives) {
-    threads.push(makeThread('relative', r.name, `${r.relation}; ${r.role} (Wikipedia article on ${title})`, { trusted, relation: r.relation, role: r.role }));
+  if (doc) {
+    const sections = articleSections(String(doc.extract)).filter((s) => !WP_SKIP_SECTION.test(s.heading) && !WP_SKIP_SECTION.test(s.top)
+      && !WP_PRIVATE_SECTION.test(s.heading) && !WP_PRIVATE_SECTION.test(s.top));
+    // Bare surnames are not expanded here: in a company article "Roe" may be a relative or another founder.
+    const text = withPronouns(subject, sections.flatMap((s) => s.paragraphs).join(' ').slice(0, 20000));
+    const about = sentencesIn(text).filter((x) => subject.hasName(x));
+    if (about.length) {
+      const title = clean(doc.title);
+      const trusted = matchSubject(subject, clean(`${subject.name}. ${company}. ${title}. ${about.join(' ')}`).slice(0, 3900)).level !== 'possible';
+      for (const a of associatesFromText(subject, text).slice(0, 8)) threads.push(makeThread('associate', a.name, `${a.why} (Wikipedia article on ${title})`, { trusted }));
+      const relatives = relativesFromText(subject, text).slice(0, 4);
+      for (const r of relatives) {
+        threads.push(makeThread('relative', r.name, `${r.relation}; ${r.role} (Wikipedia article on ${title})`, { trusted, relation: r.relation, role: r.role }));
+      }
+      // Advisers, shareholders, investors and board members the article gives a
+      // role at the company, even in sentences that do not name the person. They
+      // are associates of the company (the article names them), never relatives.
+      const family = new Set(relatives.map((r) => r.name.toLowerCase()));
+      for (const a of companyRolesFromText(subject, text).slice(0, 6)) {
+        if (!family.has(a.name.toLowerCase())) threads.push(makeThread('associate', a.name, `${a.role} of ${title} (Wikipedia article on ${title})`, { trusted, role: a.role }));
+      }
+    }
   }
-  // Advisers, shareholders, investors and board members the article gives a
-  // role at the company, even in sentences that do not name the person. They
-  // are associates of the company (the article names them), never relatives.
-  const family = new Set(relatives.map((r) => r.name.toLowerCase()));
-  for (const a of companyRolesFromText(subject, text).slice(0, 6)) {
-    if (!family.has(a.name.toLowerCase())) threads.push(makeThread('associate', a.name, `${a.role} of ${title} (Wikipedia article on ${title})`, { trusted, role: a.role }));
+  if (frDoc) {
+    const sections = articleSections(String(frDoc.extract)).filter((s) => !FR_PRIVATE_SECTION.test(s.heading) && !FR_PRIVATE_SECTION.test(s.top)
+      && !WP_PRIVATE_SECTION.test(s.heading) && !WP_PRIVATE_SECTION.test(s.top));
+    const text = sections.flatMap((s) => s.paragraphs).join(' ').slice(0, 20000);
+    const about = sentencesIn(text).filter((x) => subject.hasName(x));
+    if (about.length) {
+      const title = clean(frDoc.title);
+      const trusted = matchSubject(subject, clean(`${subject.name}. ${company}. ${title}. ${about.join(' ')}`).slice(0, 3900)).level !== 'possible';
+      for (const a of companyRolesFromFrench(subject, text, title.replace(/\s*\([^)]*\)\s*$/, '')).slice(0, 6)) {
+        threads.push(makeThread('associate', a.name, `${a.role} of ${company} (French Wikipedia article on ${title})`, { trusted, role: a.role }));
+      }
+    }
   }
   const seen = new Set();
   return { ...empty, threads: threads.filter((t) => t && !seen.has(`${t.kind}|${t.value.toLowerCase()}`) && seen.add(`${t.kind}|${t.value.toLowerCase()}`)) };
@@ -961,7 +1100,7 @@ export const wikipediaConnector = {
         quote: m.quote,
         url: distinctUrl(usedUrls, sectionUrl(articleUrl, m.s.heading), m.quote),
         severity: m.severity,
-        date: yearOf(m.quote),
+        date: passageYear(m.quote),
         data: { section: m.s.heading || null },
       }));
       for (const x of m.said) quoted.add(x);
@@ -1025,6 +1164,13 @@ export const wikipediaConnector = {
     const cap = { company: 10, school: 5, associate: 8, relative: 6 };
     const count = {};
     const kept = threads.filter((t) => { count[t.kind] = (count[t.kind] || 0) + 1; return count[t.kind] <= (cap[t.kind] ?? 4); });
+
+    // 5. Counterparties named in the lead and career sections of an article tied to the subject by a known company
+    const identityRecord = findings.find((f) => f && f.category === 'identity');
+    if (identityRecord && matchSubject(subject, context).level === 'confirmed') {
+      const where = sections.filter((s) => (!s.heading || WP_CAREER_SECTION.test(s.top)) && !WP_PRIVATE_SECTION.test(s.heading) && !WP_PRIVATE_SECTION.test(s.top));
+      addEncyclopediaAnchors(subject, counterpartiesFromText(subject, where.flatMap((s) => s.paragraphs).join(' ').slice(0, 20000)), identityRecord.id);
+    }
 
     return { findings: findings.filter(Boolean), threads: kept, notes: [] };
   },
@@ -1213,6 +1359,12 @@ function lsResult(ctx, entity, rels, family) {
     } else if (r.other.kind !== 'person' && r.category !== LS_MEMBERSHIP && threads.filter((t) => t?.kind === 'company').length < 10) {
       threads.push(makeThread('company', org, `${what}${inBrackets(when)} (LittleSis)`, { trusted }));
     }
+  }
+
+  // Organisations the person is a member of, on an entry tied to the subject: 'encyclopedia' anchors ('likely' at most)
+  if (trusted && identity.match === 'confirmed') {
+    const memberships = unique(rels.filter((x) => x.category === LS_MEMBERSHIP && x.other.kind !== 'person').map((x) => x.other.name));
+    for (const org of memberships.slice(0, 8)) addAnchor(subject, 'companies', org, `encyclopedia:${identity.id}`);
   }
 
   // Business partners named by the database: associates, never checked on their own

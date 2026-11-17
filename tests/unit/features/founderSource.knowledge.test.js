@@ -231,7 +231,7 @@ describe('wikipediaConnector', () => {
     expect(legal[0].severity).toBe('high');
     expect(legal[0].quote).toBe('In 2021, the Securities and Exchange Commission charged Roe with securities fraud over statements made to investors.');
     expect(legal[0].date).toBe('2021'); // the year the paragraph gives, not the article's last edit
-    expect(legal[1].date).toBe('2023');
+    expect(legal[1].date).toBe('2022'); // the year the passage opens with (the lawsuit), not the latest year it names
     expect(legal[1].severity).toBe('medium');
     expect(ARTICLE).toContain(legal[1].quote);
     expect(legal[0].url).toBe('https://en.wikipedia.org/wiki/Jane_Roe%23Legal_issues');

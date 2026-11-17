@@ -57,6 +57,7 @@ import { makeFinding, makeThread } from '../finding';
 import { nameTokens, matchSubject } from '../identity';
 import { cached } from '../cache';
 import { profileFromUrl } from '../extract';
+import { languageHints } from './web';
 
 const switchedOff = (id) => String(process.env.FOUNDER_SOURCES_OFF || '').split(',').map((s) => s.trim()).filter(Boolean).includes(id);
 const OFF_REASON = 'This register is not enabled on this deployment.';
@@ -882,6 +883,64 @@ async function frByCompany(task, ctx) {
   return { findings, threads, notes };
 }
 
+/**
+ * Which countries the check already ties the person or company to, read only from tied records: a
+ * reference entry's one-line description ("French entrepreneur", "American businessman"), a tied
+ * LEI record's jurisdiction, a tied record from this country's own register, and the language hints.
+ * Used only to skip a national register, never to grade a record.
+ */
+const DEMONYMS = {
+  FR: /\b(?:French|France)\b/i,
+  US: /\b(?:American|United States)\b/i,
+  GB: /\b(?:British|English|Scottish|Welsh|United Kingdom)\b/i,
+  DE: /\b(?:German|Germany)\b/i,
+  IL: /\b(?:Israeli|Israel)\b/i,
+  CA: /\b(?:Canadian|Canada)\b/i,
+  IN: /\b(?:Indian|India)\b/i,
+  CN: /\b(?:Chinese|China)\b/i,
+  ES: /\b(?:Spanish|Spain)\b/i,
+  IT: /\b(?:Italian|Italy)\b/i,
+  NL: /\b(?:Dutch|Netherlands)\b/i,
+  CH: /\b(?:Swiss|Switzerland)\b/i,
+  AU: /\b(?:Australian|Australia)\b/i,
+  IE: /\b(?:Irish|Ireland)\b/i,
+  SE: /\b(?:Swedish|Sweden)\b/i,
+  JP: /\b(?:Japanese|Japan)\b/i,
+  BR: /\b(?:Brazilian|Brazil)\b/i,
+};
+const COUNTRY_REGISTERS = { FR: { source: 'fr-companies', lang: 'fr', legalForm: /\b(?:SAS|SASU|SARL|EURL|SCI|S\.A\.S\.?|S\.A\.R\.L\.?)$/i, word: /\b(?:French|France)\b/i } };
+
+export function linkedCountries(task, ctx) {
+  const out = new Set();
+  const reg = Object.entries(COUNTRY_REGISTERS);
+  for (const [code, r] of reg) {
+    if (languageHints(ctx.subject).includes(r.lang)) out.add(code);
+    if (task.kind === 'company' && (r.legalForm.test(clean(task.value)) || r.word.test(String(task.why || '')))) out.add(code);
+  }
+  let findings = [];
+  try { findings = typeof ctx.findings === 'function' ? ctx.findings() || [] : []; } catch { findings = []; }
+  for (const f of findings) {
+    if (!f || f.match === 'possible') continue;
+    for (const [code, r] of reg) if (f.source === r.source) out.add(code);
+    if (f.source === 'lei-register' && f.data?.jurisdiction) out.add(String(f.data.jurisdiction).split('-')[0].toUpperCase());
+    if (f.category === 'identity' && (f.source === 'wikidata' || f.source === 'wikipedia')) {
+      const described = String(f.title || '').replace(/\s*\((?:Wikipedia article|Wikidata entry)\)\s*$/, '').split(':').slice(1).join(':');
+      for (const [code, re] of Object.entries(DEMONYMS)) if (re.test(described)) out.add(code);
+    }
+  }
+  return out;
+}
+
+/**
+ * A national register is skipped only when tied records place the person and company in other
+ * countries and nothing ties them to this one. With no country known yet, it still runs, so a
+ * person whose tie to the country is not yet on record is not missed.
+ */
+export function registerOutOfScope(code, task, ctx) {
+  const countries = linkedCountries(task, ctx);
+  return countries.size > 0 && !countries.has(code);
+}
+
 export const frCompaniesConnector = {
   id: 'fr-companies',
   label: FR_LABEL,
@@ -891,6 +950,9 @@ export const frCompaniesConnector = {
   enabled: () => !switchedOff('fr-companies'),
   unavailableReason: OFF_REASON,
   async run(task, ctx) {
+    if ((task.kind === 'company' || task.kind === 'subject') && registerOutOfScope('FR', task, ctx)) {
+      return { findings: [], threads: [], notes: [`The French company register was not searched${task.kind === 'company' ? ` for ${task.value}` : ''}: the records found so far place the person and company outside France.`] };
+    }
     if (task.kind === 'company') return frByCompany(task, ctx);
     if (task.kind === 'subject') return frByPerson(ctx);
     return { findings: [], threads: [], notes: [] };
@@ -1003,9 +1065,12 @@ export const usStateRegistriesConnector = {
     const notes = [];
     const lookalikes = [];
     const perState = [];
+    const partial = []; // states that did not answer in time: the search is partial, not "nothing found"
     for (const { state, rows, error } of answers) {
       if (error) {
-        notes.push(/^Timed out/.test(String(error?.message || '')) || /^Out of time/.test(String(error?.message || ''))
+        const late = /^Timed out/.test(String(error?.message || '')) || /^Out of time/.test(String(error?.message || ''));
+        if (late) partial.push(state.name);
+        notes.push(late
           ? `The ${state.name} business register did not answer in time.`
           : `The ${state.name} business register could not be read (${String(error?.message || error)}).`);
         continue;
@@ -1057,7 +1122,7 @@ export const usStateRegistriesConnector = {
       }
     }
     if (lookalikes.length) notes.push(`State registers also list companies whose names begin with "${wanted}" (${lookalikes.join('; ')}). Only exact legal names are reported, because a similar name may be an affiliate or an unrelated business.`);
-    return { findings, threads: [], notes };
+    return partial.length ? { findings, threads: [], notes, partial } : { findings, threads: [], notes };
   },
 };
 

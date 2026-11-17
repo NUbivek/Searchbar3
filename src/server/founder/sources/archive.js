@@ -44,7 +44,7 @@
  * Privacy: location lines are never read, contact details are removed, and
  * resumes are reduced to headline, roles and education (archiveClaims.js).
  */
-import { getJson, request, mapLimit, htmlToText, HttpError } from '../http';
+import { request, mapLimit, htmlToText, HttpError } from '../http';
 import { makeFinding, makeThread } from '../finding';
 import { matchSubject, nameTokens } from '../identity';
 import { profileFromUrl } from '../extract';
@@ -213,6 +213,28 @@ function remember(key, info) {
   pageCache.set(key, { at: Date.now(), info });
 }
 
+/**
+ * The archive's own page for clients it takes for abusive bots. It can come back with a normal status in
+ * place of a listing or a saved copy: it is a refusal, not a timeout and not the page that was asked for.
+ */
+const BOT_WALL = /suspected abusive (?:bot )?traffic|abusive bot traffic/i;
+function botWall(text, url) {
+  if (!BOT_WALL.test(String(text || '').slice(0, 4000))) return null;
+  const error = new HttpError('The web archive turned automated requests away (it suspected bot traffic)', { url });
+  error.botWall = true;
+  return error;
+}
+
+/** A listing from the archive, parsed; its bot wall is reported as such. */
+async function archiveJson(url, options) {
+  const res = await request(url, { accept: 'application/json', ...options });
+  try {
+    return JSON.parse(res.text);
+  } catch {
+    throw botWall(res.text, url) || new HttpError('Response was not JSON', { url });
+  }
+}
+
 function tableRows(json, what) {
   if (!Array.isArray(json)) throw new HttpError(`The web archive returned an unexpected ${what}`);
   if (json.length < 2) return [];
@@ -224,7 +246,7 @@ function tableRows(json, what) {
 /** The saved copies of one address that were served normally, one row per month, oldest first. */
 async function listCaptures(page, ctx) {
   const url = `${WB}/cdx/search/cdx?url=${encodeURIComponent(page)}&output=json&fl=timestamp,endtimestamp,original,digest,length,groupcount&filter=statuscode:200&filter=mimetype:text/html&collapse=timestamp:6&limit=400`;
-  const json = await getJson(url, { deadline: ctx.deadline, timeoutMs: LIST_TIMEOUT_MS });
+  const json = await archiveJson(url, { deadline: ctx.deadline, timeoutMs: LIST_TIMEOUT_MS });
   return tableRows(json, 'list of copies')
     .filter((r) => /^\d{14}$/.test(String(r.timestamp)) && r.original)
     .map((r) => ({ ts: String(r.timestamp), end: /^\d{14}$/.test(String(r.endtimestamp)) ? String(r.endtimestamp) : String(r.timestamp), original: String(r.original), digest: String(r.digest || ''), length: Number(r.length) || 0, count: Math.max(1, Number(r.groupcount) || 1) }))
@@ -235,7 +257,7 @@ async function listCaptures(page, ctx) {
 async function listUnder(prefix, ctx, { domain = false, filters = [], limit = 80, timeoutMs = WIDE_LIST_TIMEOUT_MS } = {}) {
   const extra = filters.map((f) => `&filter=${encodeURIComponent(f)}`).join('');
   const url = `${WB}/web/timemap/json?url=${encodeURIComponent(prefix)}&matchType=${domain ? 'domain' : 'prefix'}&collapse=urlkey&output=json&fl=original,mimetype,timestamp,endtimestamp,groupcount,uniqcount&filter=statuscode:200&filter=mimetype:text/html${extra}&limit=${limit}`;
-  const json = await getJson(url, { deadline: ctx.deadline, timeoutMs, retries: 0 });
+  const json = await archiveJson(url, { deadline: ctx.deadline, timeoutMs, retries: 0 });
   return tableRows(json, 'list of addresses')
     .filter((r) => /^\d{14}$/.test(String(r.timestamp)) && r.original)
     .map((r) => ({ ts: String(r.timestamp), end: /^\d{14}$/.test(String(r.endtimestamp)) ? String(r.endtimestamp) : String(r.timestamp), original: String(r.original), digest: '', length: 0, count: Math.max(1, Number(r.groupcount) || 1) }));
@@ -245,6 +267,8 @@ async function listUnder(prefix, ctx, { domain = false, filters = [], limit = 80
 async function fetchSnapshot(ts, original, ctx) {
   const res = await request(rawUrl(ts, original), { deadline: ctx.deadline, timeoutMs: SNAPSHOT_TIMEOUT_MS });
   const html = String(res.text || '');
+  const wall = botWall(html, res.url);
+  if (wall) throw wall;
   if (/<title>\s*Internet Archive: Temporarily Offline/i.test(html.slice(0, 800))) throw new HttpError('The web archive is temporarily offline', { url: res.url, retryable: true });
   const actual = (String(res.url || '').match(/\/web\/(\d{14})/) || [])[1] || ts;
   return { ts: actual, original, html };
@@ -900,7 +924,7 @@ async function guessTeamPages(domain, ctx, budget) {
     if (budget.left < 3 || timeLeft(ctx) < 5000) break;
     budget.left -= 1;
     let rows;
-    try { rows = await listCaptures(`${domain}/${path}`, ctx); } catch { continue; }
+    try { rows = await listCaptures(`${domain}/${path}`, ctx); } catch (error) { if (error && error.botWall) throw error; continue; }
     answered += 1;
     if (!rows.length) continue;
     const last = rows[rows.length - 1];

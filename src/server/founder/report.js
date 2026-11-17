@@ -13,7 +13,7 @@
  */
 import { CATEGORIES } from './finding';
 import { matchRank, restoreSubject, personKey } from './identity';
-import { companyKeys } from '../founderCheck';
+import { companyKeys, nameMatcher } from '../founderCheck';
 import { USE_NOTICE } from './guardrails';
 import { chatComplete, PROVIDERS, providerEnabled } from '../llm/providers';
 import { validateAnswer } from '../search/answer';
@@ -71,6 +71,84 @@ function companyCountries(findings) {
 const PARTLY_ANSWERED = 0.2; // share of failed lookups from which a source's answer is called partial
 const TIMELINE_MAX = 60;
 
+// Watchlist, court and enforcement screens: one that answered every lookup and found nothing is a clean
+// result worth stating ("Screens with no match"), not only a silence. Ids as the sources register them.
+const SCREENS = {
+  'sanctions-lists': 'sanctions (US, UN, EU, UK, Canada)',
+  'us-exclusions': 'US exclusion lists',
+  'wanted-lists': 'FBI/EU wanted lists',
+  'finra-brokercheck': 'FINRA BrokerCheck',
+  'court-records-open': 'open court records',
+  'uk-case-law': 'UK case law',
+  'doj-press-releases': 'DOJ releases',
+  'us-enforcement-actions': 'US enforcement actions',
+  'uk-gazette': 'UK Gazette notices',
+  'fr-bodacc': 'French insolvency notices (BODACC)',
+  bodacc: 'French insolvency notices (BODACC)',
+  'offshore-leaks': 'ICIJ Offshore Leaks',
+  icij: 'ICIJ Offshore Leaks',
+};
+/** The screens that answered every lookup and returned no record. */
+export function cleanScreens(coverage) {
+  const labels = (coverage?.searched || [])
+    .filter((s) => SCREENS[s.id] && !(s.records > 0) && !(s.failed > 0))
+    .map((s) => SCREENS[s.id]);
+  return [...new Set(labels)];
+}
+
+// The role a record states a named person took: "Jane Roe became CEO", "Jane Roe, named chief financial
+// officer", "CFO Jane Roe". A former role ("former CEO Jane Roe") is not their role.
+const ROLE_TITLE = '(?:(?:interim|acting|new|co-)\\s*)?(?:CEO|CFO|COO|CTO|chief [a-z]+ officer|president|chair(?:man|woman|person)?|general counsel|managing director|director)';
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function statedRole(name, text) {
+  const who = name.trim().split(/\s+/).map(escapeRe).join('\\s+');
+  const after = new RegExp(`(?<![A-Za-z])${who},?\\s+(?:(?:is|was|has been|will be)\\s+)?(?:to assume|named|becomes|became|will become|appointed|promoted to)\\s+(?:as\\s+)?(?:the\\s+|its\\s+)?(${ROLE_TITLE})\\b`, 'i');
+  const before = new RegExp(`(?<!\\b(?:former|ex-|then)\\s*(?:[a-z-]+\\s+)?)\\b(${ROLE_TITLE})\\s+${who}(?![A-Za-z])`, 'i');
+  const m = after.exec(text) || before.exec(text);
+  return m ? m[1].replace(/\s+/g, ' ') : null;
+}
+
+// A Wikipedia article about something else that only mentions the person (web search marks it 'other'):
+// background, not press, and at most WIKI_OTHER_MAX of them in a check.
+const WIKI_OTHER_MAX = 3;
+const isWikiOther = (f) => f.data?.wikiKind === 'other'
+  || (f.match !== 'confirmed' && (f.matchReasons || []).some((r) => /^Wikipedia article about .+, not about the person$/.test(String(r))));
+/** Keeps the strongest few articles about something else, in the order given (strongest first). */
+function capWikiOther(findings) {
+  let kept = 0;
+  return findings.filter((f) => !isWikiOther(f) || (kept += 1) <= WIKI_OTHER_MAX);
+}
+
+/**
+ * A role statement that starts before the company was founded (a graph says CEO from 2008 of a company
+ * founded in 2010) is an inconsistency between sources, not an event: listed as such, off the timeline.
+ * Reads data.roleStart and data.orgFounded ('YYYY', 'YYYY-MM' or 'YYYY-MM-DD').
+ */
+function roleBeforeFounding(f) {
+  const start = String(f.data?.roleStart || '');
+  const founded = String(f.data?.orgFounded || '');
+  if (!/^\d{4}/.test(start) || !/^\d{4}/.test(founded)) return false;
+  const n = Math.min(start.length, founded.length);
+  return start.slice(0, n) < founded.slice(0, n);
+}
+
+// How serious the kind of event a red flag reports is, for ordering red flags: a criminal matter first, then
+// a regulator's action, a lawsuit or settlement, related-party dealings, a forced departure, everything else.
+const FLAG_WEIGHTS = [
+  [5, /\bindict\w*|\bconvict\w*|\bsentenc\w+|\bfound guilty\b|\bplead(?:s|ed)? guilty\b|\bpled guilty\b|\bguilty verdict\b|\bprison\b|\bpardon\w*/i],
+  [4, /\bSEC\b|\bSecurities and Exchange Commission\b|\bDOJ\b|\bDepartment of Justice\b|\bcharged\b|\bcharges\b|\bFINRA\b|\bFTC\b|\bregulators?\b|\benforcement action\b/i],
+  [3, /\blawsuits?\b|\bsue[ds]?\b|\bsuing\b|\bclass[- ]action\b|\bsettle\w*|\bagreed to pay\b/i],
+  [2, /\brelated[- ]part(?:y|ies)\b|\bself[- ]dealing\b|\bconflicts? of interest\b|\blandlord to\b/i],
+  [1, /\bousted\b|\bfired\b|\bresign\w*|\bstep(?:s|ped)? down\b|\bforced out\b|\bunder pressure\b/i],
+];
+const weightOf = (text) => (FLAG_WEIGHTS.find(([, re]) => re.test(String(text || ''))) || [0])[0];
+/** A red flag's event weight: from its headlines (the lead's and its tied reports'), else the lead's quotation. */
+function flagWeight(flag) {
+  const titles = [flag.title, ...(flag.more || []).filter((m) => m.match !== 'possible').map((m) => m.title)];
+  const fromTitles = Math.max(0, ...titles.map(weightOf));
+  return fromTitles || (flag.category === 'regulatory' ? 4 : weightOf(flag.quote));
+}
+
 /** Which gaps no free source covered on this run: the fixed list, adjusted to what actually answered. */
 function notCoveredFor(state, allSources, answered, silent) {
   const courts = allSources.find((s) => s.id === COURT_DOCKETS);
@@ -104,6 +182,8 @@ function whoOf(f) {
   return 'person';
 }
 const when = (f) => (f.date ? Date.parse(f.date.length === 4 ? `${f.date}-01-01` : f.date) || 0 : 0);
+// For ranking by recency: a date its source marked approximate does not count.
+const recency = (f) => (f.data?.dateApprox ? 0 : when(f));
 
 /**
  * Agreement adds a little weight: up to 2 for other sites carrying the same case number, but only up to 1
@@ -305,10 +385,10 @@ export function buildReport(state) {
     if (!groups.has(key)) groups.set(key, new Set());
     groups.get(key).add((() => { try { return new URL(f.url).hostname.replace(/^www\./, ''); } catch { return f.source; } })());
   }
-  const ranked = findings
+  const ranked = capWikiOther(findings
     .map((f) => ({ ...f, corroboration: groups.get(corroborationKey(f))?.size || 1 }))
     .map((f) => ({ ...f, score: score(f, f.corroboration, corroborationKey(f)) }))
-    .sort((a, b) => b.score - a.score || when(b) - when(a));
+    .sort((a, b) => b.score - a.score || recency(b) - recency(a)));
 
   // Number the records once; the brief, the sections and the UI all cite the same numbers.
   const sources = ranked.map((f, i) => ({ n: i + 1, id: f.id, title: f.title, url: f.url, sourceLabel: f.sourceLabel, category: f.category, date: f.date, match: f.match }));
@@ -391,14 +471,31 @@ export function buildReport(state) {
     const lead = tied.reduce((best, f) => (sourceAuthority(f) > sourceAuthority(best) ? f : best), tied[0]);
     const entry = { ...lead, more: list.filter((f) => f !== lead).map(short) };
     // A company's insolvency reported after the person left it is context about the company, not a mark against them.
-    const left = tied !== list && tied.every((f) => afterTenure(f)) && afterTenure(lead);
+    // Even when the record names the person: the insolvency of a company they had already left is all it reports.
+    // A matter matched by name only stays with the possible namesakes.
+    const left = (person.length > 0 || company.length > 0) && tied.every((f) => afterTenure(f)) && afterTenure(lead);
     if (left) {
       companyMatters.push({ ...entry, severity: 'low', title: `${lead.title} (after the person left ${left.org}${left.to ? ` in ${left.to}` : ''})`, afterTenure: left });
       continue;
     }
     (person.length ? redFlags : company.length ? companyMatters : possibleNamesake).push(entry);
   }
-  redFlags.sort((a, b) => a.n - b.n);
+  // A minor report of the person stepping down within 30 days of the end of a role the anchors give joins
+  // the serious report of that departure (it never makes a red flag by itself).
+  const MONTH_MS = 30 * 24 * 3600 * 1000;
+  const at = (d) => (d && d.length >= 7 ? Date.parse(d.length === 7 ? `${d}-01` : d.slice(0, 10)) : NaN);
+  const nearEnd = (d) => tenures.some((r) => Number.isFinite(at(r.to)) && Math.abs(at(d) - at(r.to)) <= MONTH_MS);
+  const departure = EVENTS.find(([t]) => t === 'departure')[1];
+  const inFlags = new Set(redFlags.flatMap((r) => [r.n, ...r.more.map((m) => m.n)]));
+  for (const f of cited) {
+    if (inFlags.has(f.n) || (f.severity !== 'low' && f.severity !== 'info') || (f.match !== 'confirmed' && f.match !== 'likely')) continue;
+    if (!departure.test(f.title || '') || !Number.isFinite(at(f.date)) || !nearEnd(f.date)) continue;
+    const flag = redFlags.find((r) => eventOf(r) === 'departure' && whoOf(r) === whoOf(f) && Number.isFinite(at(r.date))
+      && nearEnd(r.date) && Math.abs(at(r.date) - at(f.date)) <= 2 * MONTH_MS);
+    if (flag) { flag.more.push(short(f)); inFlags.add(f.n); }
+  }
+  // Most serious kind of event first, then the authority of the source that reports it, then rank.
+  redFlags.sort((a, b) => flagWeight(b) - flagWeight(a) || sourceAuthority(b) - sourceAuthority(a) || a.n - b.n);
   companyMatters.sort((a, b) => a.n - b.n);
   possibleNamesake.sort((a, b) => a.n - b.n);
   // A name-only news report whose headline reports a red flag's event within three days of it may be the same
@@ -415,14 +512,22 @@ export function buildReport(state) {
     if (flag) p.sameStoryAs = flag.n;
   }
 
-  const sections = SECTION_ORDER
-    .map((key) => ({ key, title: CATEGORIES[key], items: cited.filter((f) => f.category === key) }))
-    .filter((s) => s.items.length > 0);
+  const sections = [
+    ...SECTION_ORDER.map((key) => ({ key, title: CATEGORIES[key], items: cited.filter((f) => f.category === key && !(key === 'press' && isWikiOther(f))) })),
+    // Encyclopaedia articles about something else that mention the person: background, not press.
+    { key: 'background', title: 'Background', items: cited.filter((f) => f.category === 'press' && isWikiOther(f)) },
+  ].filter((s) => s.items.length > 0);
 
   // The timeline: each red flag once (its lead record), then the dated records of the person's career,
   // strongest first, up to TIMELINE_MAX. Never a record matched by name only, one its source marked as
   // not for the timeline (a company that only shares the name), or a further report of a red flag's matter.
-  const offTimeline = (f) => !f.date || f.match === 'possible' || f.excludeFromTimeline || f.data?.excludeFromTimeline;
+  // Nor a record whose date its source marked approximate, or a role said to start before its company was founded.
+  const offTimeline = (f) => !f.date || f.match === 'possible' || f.excludeFromTimeline || f.data?.excludeFromTimeline
+    || f.data?.dateApprox || roleBeforeFounding(f);
+  const inconsistencies = cited.filter(roleBeforeFounding).map((f) => ({
+    n: f.n, title: f.title,
+    note: `The role is given as starting ${f.data.roleStart}, before the company was founded (${f.data.orgFounded}).`,
+  }));
   const coverageOfFlag = new Set(redFlags.flatMap((r) => r.more.map((m) => m.n)));
   const leads = redFlags.filter((f) => !offTimeline(f));
   const rest = cited.filter((f) => !offTimeline(f) && !coverageOfFlag.has(f.n) && !leads.some((l) => l.n === f.n)
@@ -445,9 +550,30 @@ export function buildReport(state) {
     const key = personKey(t.value);
     if ((t.kind === 'relative' || t.kind === 'associate') && t.trusted && !related.has(key)) related.set(key, { name: t.value, kind: t.kind, relation: t.relation || null, role: t.role || null, why: t.why || '', records: [], ...(screened.has(key) ? { screened: true } : {}) });
   }
+  // A record belongs to a related party when it is about them (data.person), lists them among the people it
+  // names (relatives, related persons of a filing, persons a lookup tagged), or is tied to the subject and
+  // names the party in full in its headline or quotation. A surname alone never attaches a record.
+  const nameOf = (p) => String((p && typeof p === 'object' ? p.name : p) || '').trim();
+  const fullName = (name) => name.split(/\s+/).filter(Boolean).length >= 2;
+  const matchers = new Map([...related].filter(([, p]) => fullName(p.name)).map(([key, p]) => [key, nameMatcher([p.name])]));
   for (const f of cited) {
-    const person = f.data?.person;
-    if (person && related.has(personKey(person))) related.get(personKey(person)).records.push({ n: f.n, title: f.title, severity: f.severity, category: f.category });
+    const listed = [f.data?.person, ...['relatives', 'relatedPersons', 'persons'].flatMap((k) => (Array.isArray(f.data?.[k]) ? f.data[k] : []))]
+      .map(nameOf).filter(Boolean).map(personKey);
+    const text = `${f.title || ''}\n${f.quote || ''}`;
+    for (const [key, party] of related) {
+      const tied = listed.includes(key)
+        || ((f.match === 'confirmed' || f.match === 'likely') && matchers.has(key) && matchers.get(key)(text));
+      if (tied && !party.records.some((r) => r.n === f.n)) party.records.push({ n: f.n, title: f.title, severity: f.severity, category: f.category });
+    }
+  }
+  // A party with no role: the roles a filing lists for them, else the role a record tied to them states.
+  for (const [key, party] of related) {
+    if (party.role) continue;
+    const mine = cited.filter((f) => party.records.some((r) => r.n === f.n));
+    const listedRoles = mine.flatMap((f) => (Array.isArray(f.data?.relatedPersons) ? f.data.relatedPersons : []))
+      .find((p) => p && typeof p === 'object' && personKey(nameOf(p)) === key && Array.isArray(p.roles) && p.roles.length)?.roles;
+    const role = listedRoles ? listedRoles.join(', ') : fullName(party.name) ? mine.map((f) => statedRole(party.name, `${f.title || ''}. ${f.quote || ''}`)).find(Boolean) : null;
+    if (role) party.role = role;
   }
 
   const allSources = Object.entries(state.sources || {}).map(([id, s]) => ({ id, ...s }));
@@ -486,6 +612,7 @@ export function buildReport(state) {
     sections,
     timeline,
     claimChanges,
+    inconsistencies,
     relatedParties: [...related.values()].sort((a, b) => b.records.length - a.records.length),
     threads: Object.values(state.threads || {}).filter((t) => t.trusted).map(({ kind, value, why, relation }) => ({ kind, value, why, relation: relation || null })),
     coverage,
@@ -543,10 +670,13 @@ export function quotedDeepBrief(report, reason) {
     ...report.coverage.notSearched.map((s) => (s.off ? `• ${s.label}: not enabled on this deployment.` : `• ${s.label} did not answer: ${s.reason}`)),
     ...(report.coverage.partlyAnswered || []).map((s) => `• ${s.label} answered only in part: ${s.reason}.`),
     ...report.coverage.notCovered.map((s) => `• Not covered: ${s}.`),
+    ...(report.inconsistencies || []).map((x) => `• Inconsistent record: ${x.title}. ${x.note} [Source ${x.n}]`),
   ];
+  const clean = cleanScreens(report.coverage);
   return [
     '## BOTTOM LINE', bottom,
     '', '## RED FLAGS', report.redFlags.length ? report.redFlags.slice(0, 14).map(line).join('\n') : 'None found in the records searched.',
+    ...(clean.length ? [`Screens with no match: ${clean.join(', ')}.`] : []),
     ...(report.companyMatters?.length ? ['', 'About their companies:', report.companyMatters.slice(0, 8).map(line).join('\n')] : []),
     '', '## WHAT CHECKS OUT', checks.length ? checks.map(line).join('\n') : 'No independent record confirming a claim was found.',
     '', '## CLAIMS THAT CHANGED OVER TIME', report.claimChanges.length ? report.claimChanges.slice(0, 10).map(line).join('\n') : 'None found.',
@@ -592,7 +722,7 @@ export async function writeDeepBrief(report, { deadline = null, maxRecords = 70,
   const partly = report.coverage.partlyAnswered || [];
   const notEnabled = report.coverage.notSearched.filter((s) => s.off).map((s) => s.label);
   const failed = report.coverage.notSearched.filter((s) => !s.off).map((s) => s.label);
-  const coverage = `Sources that answered: ${report.coverage.searched.map((s) => s.label).join(', ') || 'none'}.\n${partly.length ? `Sources that answered only in part: ${partly.map((s) => `${s.label} (${s.reason})`).join('; ')}.\n` : ''}Sources that did not answer: ${failed.join(', ') || 'none'}.\nSources not enabled on this deployment: ${notEnabled.join(', ') || 'none'}.\nNot covered by any free source: ${report.coverage.notCovered.join('; ')}.`;
+  const coverage = `Sources that answered: ${report.coverage.searched.map((s) => s.label).join(', ') || 'none'}.\n${partly.length ? `Sources that answered only in part: ${partly.map((s) => `${s.label} (${s.reason})`).join('; ')}.\n` : ''}Sources that did not answer: ${failed.join(', ') || 'none'}.\nSources not enabled on this deployment: ${notEnabled.join(', ') || 'none'}.\nNot covered by any free source: ${report.coverage.notCovered.join('; ')}.${cleanScreens(report.coverage).length ? `\nScreens with no match:${cleanScreens(report.coverage).join(', ')}.` : ''}`;
   const user = `Today's date: ${new Date().toISOString().slice(0, 10)}\nPerson: ${report.name}${report.company ? `\nCompany: ${report.company}` : ''}${identity}\n\n${coverage}\n\nRecords (${picked.length} of ${report.totals.records}, strongest first within each kind):\n${recordsBlock(picked)}`;
   const maxN = report.sources.length;
   // A citation is only valid if that record was actually shown to the model. Unshown ones are removed

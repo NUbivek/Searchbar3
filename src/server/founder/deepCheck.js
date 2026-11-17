@@ -110,8 +110,39 @@ function sameOrganisation(state, thread) {
 }
 // A free-form search (proposed by the second reader) is told apart by its wording
 // The same page reported twice is one record; a register page that lists several records is several.
-const headline = (title) => norm(title).replace(/\s+[-|–—]\s+[^-|–—]{2,40}$/, '').slice(0, 70);
-const pageKey = (f) => `${f.category}|${urlKey(f.url)}|${headline(f.title)}`;
+// A forum's copy of a story ("Hacker News (120 points, 40 comments): <headline>") is the story.
+const headline = (title) => norm(title).replace(/^hacker news \(\d+ points?[^)]*\):\s*/, '').replace(/\s+[-|–—]\s+[^-|–—]{2,40}$/, '').slice(0, 70);
+// The address of a Wikipedia article, whatever the language edition's mobile host or the section anchor
+const wikiArticle = (u) => {
+  const m = /^https?:\/\/([a-z-]+)\.(?:m\.)?wikipedia\.org\/wiki\/([^?#]+)/i.exec(String(u || ''));
+  if (!m) return null;
+  let title = m[2];
+  try { title = decodeURIComponent(title); } catch { /* keep as given */ }
+  return `${m[1].toLowerCase()}.wikipedia.org/wiki/${title.replace(/ /g, '_').toLowerCase()}`;
+};
+const WP_SOURCE = 'wikipedia';
+// A Wayback summary of one page ("archived 40 times between ...") is one record whatever its counts say
+const isArchiveSummary = (f) => f.category === 'archive' && /web\.archive\.org\/web\/\*\//i.test(String(f.url || ''));
+/**
+ * The page a record is: address and headline, whichever section a source filed it under. Archive snapshots
+ * are kept apart by category and title (several records per replay).
+ */
+const pageKey = (f) => {
+  if (isArchiveSummary(f)) return `archive|${urlKey(f.url)}`;
+  if (f.category === 'archive') return `${f.category}|${urlKey(f.url)}|${headline(f.title)}`;
+  return `${urlKey(f.url)}|${headline(f.title)}`;
+};
+// Another source's copy of a Wikipedia article the Wikipedia source holds is the article (the copy quotes
+// whatever the search engine cut, reference lists included): it is dropped, or replaced when the article
+// comes second. The Wikipedia source's own records (one per section) are kept as they are.
+const wikiAlias = (f) => {
+  const article = f.source === WP_SOURCE && wikiArticle(f.url);
+  return article ? `wiki|${article}` : null;
+};
+const wikiCopyOf = (f) => {
+  const article = f.source !== WP_SOURCE && wikiArticle(f.url);
+  return article ? `wiki|${article}` : null;
+};
 // A lookup made while a company was only an affiliate is made again in full once it is promoted to primary.
 const taskKey = (t) => `${t.connector}|${t.kind}|${t.kind === 'company' ? (companyKeys(t.value)[0] || norm(t.value)) : norm(t.value)}|${t.template || ''}${t.template === GAP_TEMPLATE ? `|${norm(t.params?.query)}` : ''}${t.tie === 'affiliate' ? '|affiliate' : ''}`;
 // Two quotes are the same passage when their words agree; short quotes ("Director") say too little to merge on.
@@ -120,7 +151,8 @@ function quoteKey(f) {
   if (!f?.quote || f.category === 'archive') return null;
   const words = String(f.quote).toLowerCase().replace(/[^a-z0-9À-ɏ]+/g, ' ').trim();
   if (words.length < 60) return null;
-  return `${f.source}|${f.category}|${words}`;
+  // one source family: sec-filings and sec-company are both "sec"
+  return `${String(f.source || '').split('-')[0]}|${f.category}|${words}`;
 }
 // The same record read again with a stronger tie (a page reached from a linked profile rather than a guessed
 // address) lifts the copy already kept: whichever source finished first must not decide the grade. A grade
@@ -135,16 +167,27 @@ function upgradeKept(kept, f) {
   if (f.data?.linkedFrom) kept.data = { ...(kept.data || {}), linkedFrom: f.data.linkedFrom };
   return true;
 }
+// A record found again by a lookup about an associate or relative names that person too (a joint query): the
+// kept copy lists them, so the report can file it under them as well.
+function tagPerson(kept, task) {
+  if (!kept || (task.kind !== 'associate' && task.kind !== 'relative')) return;
+  const persons = Array.isArray(kept.data?.persons) ? kept.data.persons : [];
+  if (persons.some((p) => personKey(p) === personKey(task.value)) || persons.length >= 12) return;
+  kept.data = { ...(kept.data || {}), persons: [...persons, task.value] };
+}
 const learnKey = (t) => `${t.connector}${t.template ? `:${t.template}` : ''}`;
 // Two records are the same page when host, path, query and fragment agree. The query and fragment matter:
 // a forum thread is "item?id=N", a register row is a query, and one long page can hold several records at
 // different anchors. Only tracking parameters are ignored.
-const TRACKING = /^(utm_\w+|ref|ref_src|fbclid|gclid|mc_cid|mc_eid|igshid|share|source|cmpid|ocid)$/i;
+const TRACKING = /^(utm_\w+|ref|ref_src|fbclid|gclid|mc_cid|mc_eid|igshid|share|source|cmpid|ocid|taid)$/i;
+// A profile host's country or mobile edition is the same profile (fr.linkedin.com/in/x is linkedin.com/in/x)
+const PROFILE_EDITION = /^(?:[a-z]{2}|www|m)\.(linkedin\.com|facebook\.com)$/;
 function urlKey(u) {
   try {
     const url = new URL(String(u || ''));
     const query = [...url.searchParams.entries()].filter(([k]) => !TRACKING.test(k)).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join('&');
-    return `${url.hostname.replace(/^www\./, '')}${url.pathname.replace(/\/$/, '')}${query ? `?${query}` : ''}${url.hash || ''}`.toLowerCase();
+    const host = url.hostname.toLowerCase().replace(/^www\./, '').replace(PROFILE_EDITION, '$1');
+    return `${host}${url.pathname.replace(/\/$/, '')}${query ? `?${query}` : ''}${url.hash || ''}`.toLowerCase();
   } catch {
     return String(u || '').toLowerCase();
   }
@@ -163,6 +206,22 @@ export function plainFailure(message) {
   return 'could not be reached';
 }
 // The host is resting, or this lookup's turn at a paced host could not come before the deadline: not a failure.
+/**
+ * The kind of failure, for diagnosis: an HTTP status, a timeout, a DNS or TLS failure, a connection failure,
+ * or a host that turned automated requests away. Never the message itself (it can echo the remote page).
+ */
+export function failureClass(error) {
+  const m = String(error?.message || error || '');
+  const status = Number(error?.status || error?.statusCode) || Number((/\b(?:HTTP|status)[\s:]*([1-5]\d\d)\b/i.exec(m) || [])[1]) || 0;
+  if (/captcha|abusive|bot traffic|automated (?:requests|queries)|access denied|blocked|forbidden/i.test(m) || status === 403) return status ? `blocked by host (HTTP ${status})` : 'blocked by host';
+  if (/timed out|timeout|ETIMEDOUT|out of time|aborted/i.test(m)) return 'timeout';
+  if (status) return `HTTP ${status}`;
+  if (/ENOTFOUND|EAI_AGAIN|getaddrinfo|\bDNS\b/i.test(m)) return 'DNS';
+  if (/certificate|\bTLS\b|\bSSL\b|CERT_|self[- ]signed/i.test(m)) return 'TLS';
+  if (/ECONNREFUSED|ECONNRESET|EPIPE|socket hang up|fetch failed|network/i.test(m)) return 'connection';
+  if (/not json|larger than|unexpected token/i.test(m)) return 'unreadable answer';
+  return 'other';
+}
 const HOST_RESTING = /Out of time before the request could start|is being left alone/i;
 const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
 
@@ -390,12 +449,15 @@ function resolveIdentity(state, subject, connectors) {
  * proof: a record that names it, and no company that was given or found on a record tied to the person,
  * is at most "likely". An inferred identity must never confirm records, least of all its own evidence.
  */
-function gradeOf(subject, text) {
-  const graded = matchSubject(subject, text);
+function gradeOf(subject, text, date = null) {
+  const graded = matchSubject(subject, text, { date });
   if (graded.level !== 'confirmed') return graded;
   for (const a of subject.anchors.companies.values()) if (a.origin !== 'inferred' && a.test(text)) return graded;
   return { level: 'likely', reasons: graded.reasons };
 }
+
+/** The date a record is graded at (a role held at the time): the one it was first graded at, else its own. */
+const gradeDateOf = (f) => f.gradeDate || f.date || null;
 
 /** Records graded "possible" or "likely" are re-read whenever more is known about the subject. */
 function regrade(state, subject) {
@@ -403,7 +465,7 @@ function regrade(state, subject) {
   for (const f of state.findings) {
     if (f.match === 'confirmed' || f.match === 'company' || f.matchFixed) continue;
     // the text the record was first graded on (which may hold structured context the title lacks)
-    const graded = gradeOf(subject, f.gradeText || `${f.title}\n${f.quote || ''}`);
+    const graded = gradeOf(subject, f.gradeText || `${f.title}\n${f.quote || ''}`, gradeDateOf(f));
     if (matchRank(graded.level) > matchRank(f.match)) { f.match = graded.level; f.matchReasons = graded.reasons; upgraded += 1; }
   }
   return upgraded;
@@ -421,7 +483,7 @@ function summarize(state) {
   return {
     phase: state.phase, step: state.step, tasksRun: state.tasksRun, queued: state.queue.length,
     findings: state.findings.length, byCategory, byMatch, threads,
-    sources: Object.entries(state.sources).map(([id, s]) => ({ id, label: s.label, runs: s.runs, findings: s.findings, errors: s.errors, lastError: s.lastError || null })),
+    sources: Object.entries(state.sources).map(([id, s]) => ({ id, label: s.label, runs: s.runs, findings: s.findings, errors: s.errors, lastError: s.lastError || null, ...(s.lastErrorClass ? { lastErrorClass: s.lastErrorClass } : {}), ...(s.partial?.length ? { partial: s.partial.slice() } : {}) })),
     identity: state.identity, log: state.log.slice(-14), dropped: state.dropped,
   };
 }
@@ -508,6 +570,7 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   // the kept copy of each record, by id and by page, so a stronger read of it can lift its grade
   const keptBy = new Map();
   for (const f of state.findings) { if (!keptBy.has(`id:${f.id}`)) keptBy.set(`id:${f.id}`, f); if (!keptBy.has(`page:${pageKey(f)}`)) keptBy.set(`page:${pageKey(f)}`, f); }
+  for (const f of state.findings) { const alias = wikiAlias(f); if (alias && !keptBy.has(`wiki:${alias}`)) keptBy.set(`wiki:${alias}`, f); }
   const perSource = {};
   for (const f of state.findings) perSource[f.source] = (perSource[f.source] || 0) + 1;
 
@@ -562,8 +625,10 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
       const taskDeadline = Math.min(deadline, started + (c.timeoutMs || limits.taskTimeoutMs));
       const stat = state.sources[c.id] || (state.sources[c.id] = { label: c.label, runs: 0, findings: 0, errors: 0, ms: 0 });
       let result = null;
+      let raw = null;
       try {
-        result = connectorResult(await withTimeout(Promise.resolve().then(() => c.run(task, { ...ctxBase, deadline: taskDeadline })), taskDeadline - started + 400));
+        raw = await withTimeout(Promise.resolve().then(() => c.run(task, { ...ctxBase, deadline: taskDeadline })), taskDeadline - started + 400);
+        result = connectorResult(raw);
       } catch (error) {
         const message = String(error?.message || error);
         // The step ran out of time before this lookup got its turn (it was queued behind others for the
@@ -603,7 +668,10 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
         }
         stat.errors += 1;
         stat.lastError = plainFailure(message);
-        if (process.env.NODE_ENV !== 'test') console.warn(`[deep-check] ${c.id} failed: ${message.slice(0, 300)}`);
+        stat.lastErrorClass = failureClass(error);
+        const classes = stat.errorClasses || (stat.errorClasses = {});
+        classes[stat.lastErrorClass] = (classes[stat.lastErrorClass] || 0) + 1;
+        if (process.env.NODE_ENV !== 'test') console.warn(`[deep-check] ${c.id} failed (${stat.lastErrorClass}): ${message.slice(0, 300)}`);
       }
       inFlight.set(task.connector, (inFlight.get(task.connector) || 1) - 1);
       const ms = Date.now() - started;
@@ -612,20 +680,30 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
       reliability.push({ key: c.id, win: Boolean(result), ms });
       // A failed lookup says something about the source (reliability), not about the query pattern.
       if (!result) continue;
+      // Parts of a source that did not answer (state registers that timed out): listed, so the report does
+      // not call them searched.
+      if (Array.isArray(raw?.partial)) {
+        const partial = stat.partial || [];
+        for (const p of raw.partial) { const v = String(p || '').trim().slice(0, 80); if (v && !partial.includes(v) && partial.length < 60) partial.push(v); }
+        if (partial.length) stat.partial = partial;
+      }
       // A record graded on a company the check only inferred is at most "likely".
       for (const f of result.findings) {
         if (f.match !== 'confirmed' || f.matchFixed) continue;
-        const graded = gradeOf(subject, f.gradeText || `${f.title}\n${f.quote || ''}`);
+        const graded = gradeOf(subject, f.gradeText || `${f.title}\n${f.quote || ''}`, gradeDateOf(f));
         if (graded.level !== 'confirmed') { f.match = graded.level; f.matchReasons = graded.reasons; }
       }
       let strong = 0;
       let weak = 0;
       for (const f of result.findings) {
         const dupKey = pageKey(f);
-        if (seenIds.has(f.id) || (seenUrls.has(dupKey) && f.category !== 'archive')) {
+        const copyOf = wikiCopyOf(f);
+        if (seenIds.has(f.id) || (seenUrls.has(dupKey) && (f.category !== 'archive' || isArchiveSummary(f))) || (copyOf && keptBy.has(`wiki:${copyOf}`))) {
           // another source (or pattern) found the same record: partial credit, not none
           const kept = (seenIds.has(f.id) && keptBy.get(`id:${f.id}`)) || keptBy.get(`page:${dupKey}`);
-          upgradeKept(kept, f);
+          // A copy of an article the Wikipedia source holds is dropped; it never re-grades the article's records.
+          if (kept) upgradeKept(kept, f);
+          tagPerson(kept || (copyOf && keptBy.get(`wiki:${copyOf}`)), task);
           if (f.match === 'possible') weak += 0.5; else strong += 0.5;
           continue;
         }
@@ -633,6 +711,7 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
         const qk = quoteKey(f);
         const twin = qk ? byQuote.get(qk) : null;
         if (twin && urlKey(twin.url) !== urlKey(f.url) && (matchRank(f.match) <= matchRank(twin.match) || upgradeKept(twin, f))) {
+          tagPerson(twin, task);
           const alsoIn = twin.data?.alsoIn || [];
           if (f.url && !alsoIn.includes(f.url) && alsoIn.length < 8) twin.data = { ...(twin.data || {}), alsoIn: [...alsoIn, f.url] };
           seenIds.add(f.id);
@@ -647,6 +726,16 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
         // A record found while looking at an associate or relative is filed under that person in the report
         const about = task.kind === 'associate' || task.kind === 'relative' ? { data: { ...(f.data || {}), person: f.data?.person || task.value } } : {};
         const kept = { ...f, ...about, step: state.step, via: task.kind === 'subject' ? null : `${task.kind}: ${task.value}` };
+        // The Wikipedia source's article replaces a copy of it another source kept earlier
+        const alias = wikiAlias(kept);
+        if (alias && !keptBy.has(`wiki:${alias}`)) {
+          for (const copy of state.findings.filter((x) => wikiCopyOf(x) === alias)) {
+            state.findings.splice(state.findings.indexOf(copy), 1);
+            perSource[copy.source] = Math.max(0, (perSource[copy.source] || 1) - 1);
+            if (state.sources[copy.source]?.findings) state.sources[copy.source].findings -= 1;
+          }
+          keptBy.set(`wiki:${alias}`, kept);
+        }
         state.findings.push(kept);
         if (qk && !byQuote.has(qk)) byQuote.set(qk, kept);
         if (!keptBy.has(`id:${f.id}`)) keptBy.set(`id:${f.id}`, kept);
