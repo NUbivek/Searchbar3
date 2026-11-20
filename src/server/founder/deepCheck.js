@@ -602,6 +602,8 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
     subject,
     known: () => exportAnchors(subject),
     findings: () => state.findings.slice(),
+    // the lookups already run, as `source|kind|value|pattern` (so a source can keep to a per-check limit)
+    done: () => (state.done || []).slice(),
     knownUrls: () => Object.values(state.threads).filter((t) => t.kind === 'url' && t.trusted).map((t) => t.value),
   };
 

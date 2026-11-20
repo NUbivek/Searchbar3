@@ -228,6 +228,79 @@ export function relatedNote(parties, name) {
   return `${lead} Screened against watchlists and searched together with ${name}: ${screened} of ${parties.length}.`;
 }
 
+const SCREEN_CHIP = {
+  clear: ['chip chip-good', () => 'No match'],
+  records: ['chip chip-warn', (s) => `${s.records} record${s.records === 1 ? '' : 's'}`],
+  'name-only': ['chip', (s) => `${s.nameOnly} name match${s.nameOnly === 1 ? '' : 'es'} to rule out`],
+  partial: ['chip chip-warn', () => 'No match, answered in part'],
+  failed: ['chip chip-warn', () => 'Did not answer'],
+  'not-run': ['chip', () => 'Not reached in this run'],
+  off: ['chip', () => 'Not enabled on this deployment'],
+};
+const PLATFORM_LABEL = { linkedin: 'LinkedIn', x: 'X', github: 'GitHub', crunchbase: 'Crunchbase', wikipedia: 'Wikipedia', substack: 'Substack', wellfound: 'Wellfound', indeed: 'Indeed' };
+
+function Cites({ ns }) {
+  return (ns || []).map((n) => <a key={n} href={`#deep-source-${n}`} className="cite ml-1">[{n}]</a>);
+}
+
+/** Who they are, from the records tied to them: role, education, earlier roles, background, public profiles. */
+function Profile({ profile }) {
+  const row = (label, children) => (
+    <div className="grid gap-1 py-2.5 first:pt-0 last:pb-0 sm:grid-cols-[9rem_1fr]">
+      <dt className="eyebrow pt-0.5">{label}</dt>
+      <dd className="text-sm text-slate-700">{children}</dd>
+    </div>
+  );
+  return (
+    <Block title="Profile" open note={<p className="muted mb-3 text-xs">Read from public pages tied to this person. Each line links to the record it came from.</p>}>
+      <dl className="divide-y divide-line">
+        {profile.headline && row('Current role', <><span className="font-medium text-ink">{profile.headline}</span><Cites ns={profile.headlineCites} /></>)}
+        {profile.education.length > 0 && row('Education', (
+          <ul className="space-y-1">{profile.education.map((e) => <li key={e.school}>{e.school}<Cites ns={e.cites} /></li>)}</ul>
+        ))}
+        {profile.earlier.length > 0 && row('Earlier roles', (
+          <ul className="space-y-1">{profile.earlier.map((e) => <li key={e.org}><span className="text-ink">{e.org}</span>{e.role ? <span className="text-muted"> · {e.role}</span> : null}<Cites ns={e.cites} /></li>)}</ul>
+        ))}
+        {profile.about.length > 0 && row('Background', (
+          <ul className="space-y-2">{profile.about.map((a) => <li key={a.text}>“{a.text}”<Cites ns={a.cites} /></li>)}</ul>
+        ))}
+        {profile.links.length > 0 && row('Public profiles', (
+          <span className="flex flex-wrap gap-1.5">
+            {profile.links.map((l) => <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="chip">{PLATFORM_LABEL[l.platform] || l.platform}</a>)}
+          </span>
+        ))}
+      </dl>
+    </Block>
+  );
+}
+
+/** Every public-record screen that ran, with its result, so a clean screen is seen and a silent one is not mistaken for clean. */
+function Screens({ screens }) {
+  const total = screens.reduce((n, g) => n + g.items.length, 0);
+  return (
+    <Block title="Public-record screens" count={total} open note={<p className="muted mb-3 text-xs">Government, court, watchlist and breach sources asked in this check. “No match” means the source answered and holds no record under this name or company; it is not proof of a clean record.</p>}>
+      <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+        {screens.map((g) => (
+          <div key={g.group}>
+            <p className="eyebrow mb-1.5">{g.group}</p>
+            <ul className="space-y-1.5 text-sm">
+              {g.items.map((s) => {
+                const [tone, text] = SCREEN_CHIP[s.status] || SCREEN_CHIP.clear;
+                return (
+                  <li key={s.id} className="flex items-baseline justify-between gap-3">
+                    <span className="text-ink">{s.label}</span>
+                    <span className="shrink-0"><span className={tone}>{text(s)}</span>{(s.status === 'records' || s.status === 'name-only') && <Cites ns={s.cites} />}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </Block>
+  );
+}
+
 function Report({ report, onRerun, headingRef = null }) {
   const { totals, coverage, briefInfo } = report;
   const confidence = briefInfo?.confidence;
@@ -258,6 +331,7 @@ function Report({ report, onRerun, headingRef = null }) {
     setReveal(null);
   }, [reveal]);
   const revealN = reveal?.n ?? null;
+  const nameOnly = report.sections.flatMap((s) => s.items.filter((f) => f.match === 'possible'));
 
   return (
     <>
@@ -295,6 +369,8 @@ function Report({ report, onRerun, headingRef = null }) {
         )}
       </section>
 
+      {report.profile && <Profile profile={report.profile} />}
+
       <Block title="Red flags" count={report.redFlags.length} tone={report.redFlags.length ? 'chip chip-bad' : coverage.searched.length ? 'chip chip-good' : 'chip chip-warn'} open>
         {report.redFlags.length === 0
           ? (
@@ -306,6 +382,8 @@ function Report({ report, onRerun, headingRef = null }) {
           )
           : <Records items={report.redFlags} withId={false} />}
       </Block>
+
+      {report.screens?.length > 0 && <Screens screens={report.screens} />}
 
       {report.companyMatters?.length > 0 && (
         <Block
@@ -372,11 +450,23 @@ function Report({ report, onRerun, headingRef = null }) {
         </Block>
       )}
 
-      {report.sections.map((s) => (
+      {/* Records tied to the person or their company, by kind. Name-only matches are kept apart, below. */}
+      {report.sections.map((s) => ({ ...s, items: s.items.filter((f) => f.match !== 'possible') })).filter((s) => s.items.length > 0).map((s) => (
         <Block key={s.key} title={s.title} count={s.items.length}>
           <Records items={s.items} first={15} reveal={revealN} />
         </Block>
       ))}
+
+      {nameOnly.length > 0 && (
+        <Block
+          title="Name matches only"
+          count={nameOnly.length}
+          tone="chip chip-warn"
+          note={<p className="muted mb-3 text-xs">Records that share the person’s name{report.company ? ' or the company’s name' : ''} and nothing else. They are not treated as being about this person; they are listed so you can rule them out.</p>}
+        >
+          <Records items={nameOnly} first={10} reveal={revealN} />
+        </Block>
+      )}
 
       <Block title="What was searched" count={coverage.searched.length}>
         <ul className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">

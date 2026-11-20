@@ -103,7 +103,8 @@ function subjectTemplates(subject) {
   add('later-ventures', `${name} ${any('raises', 'funding', '"backed by"', 'launches', '"new company"')}`, 0.55, 'companies they started later and who invested in them');
   add('employment', `${name} ${any('fired', 'ousted', 'resigned', 'harassment', 'misconduct')}`, 0.55, 'how they left earlier roles');
   add('regulatory', `${name} ${any('SEC', 'FTC', 'regulator', 'fine', 'settlement')}`, 0.55, 'regulators, fines and settlements');
-  add('education', `${name} ${any('graduated', 'alumni', 'degree', 'university')}`, 0.5, 'where they studied', reference);
+  add('education', `${name}${co ? ` ${co}` : ''} ${any('graduated', 'alumni', 'degree', 'university', 'studied')}`, co ? 0.7 : 0.5, 'where they studied', reference);
+  add('background', `${name}${co ? ` ${co}` : ''} ${any('previously', 'formerly', '"prior to"', '"before founding"', '"worked at"')}`, 0.7, 'where they worked before', reference);
   add('insolvency', `${name} ${any('bankruptcy', 'insolvency', 'liquidation', '"shut down"')}`, 0.5, 'bankruptcies and companies that were wound up');
   add('resume', `${name} ${any('resume', 'CV', '"curriculum vitae"')}`, 0.45, 'a published resume or CV');
   add('interviews', `${name} ${any('interview', 'podcast', 'keynote')}`, 0.45, 'interviews and talks, in their own words');
@@ -233,6 +234,9 @@ function pageThreads(subject, result, finding) {
       add('personal site');
       out.push(makeThread('domain', host, 'personal site', { trusted }));
     } else if (!result.host && !result.publisher && BIO_PATH.test(path) && path.split('/').filter(Boolean).length <= 4) add('team or bio page');
+    // A page whose own headline names the person (a profile, an interview, a founder story) is about them:
+    // worth opening for what it says of their career and education. Never the front page of a site.
+    else if (finding.match === 'confirmed' && subject.hasName(result.title) && path.split('/').filter(Boolean).length >= 1 && !/news\.google\.com$/.test(host)) add('page about them');
   }
   return out.filter(Boolean);
 }

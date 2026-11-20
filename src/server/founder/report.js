@@ -12,6 +12,7 @@
  * themselves. Nothing in the report is asserted without a source.
  */
 import { CATEGORIES } from './finding';
+import { buildProfile } from './profile';
 import { matchRank, restoreSubject, personKey } from './identity';
 import { companyKeys, nameMatcher } from '../founderCheck';
 import { USE_NOTICE } from './guardrails';
@@ -88,6 +89,43 @@ const SCREENS = {
   'offshore-leaks': 'ICIJ Offshore Leaks',
   icij: 'ICIJ Offshore Leaks',
 };
+// The checklist of public-record screens the report shows, so a clean screen is seen to have run.
+const SCREEN_GROUPS = [
+  ['Sanctions and watchlists', ['sanctions-lists', 'us-exclusions', 'wanted-lists', 'offshore-leaks']],
+  ['Courts and prosecutors', ['court-dockets', 'court-records-open', 'doj-press-releases', 'uk-case-law']],
+  ['Regulators and filings', ['us-enforcement-actions', 'finra-brokercheck', 'sec-filings', 'sec-company', 'uk-gazette', 'fr-bodacc']],
+  ['Dark-web leak sites and data breaches (company level)', ['leak-sites', 'breach-catalogue', 'breach-registers']],
+  ['Company registers', ['us-state-registries', 'uk-companies-house', 'fr-companies', 'lei-register', 'yc-directory', 'nonprofit-filings']],
+  ['Patents and trademarks', ['patents', 'trademarks']],
+];
+// Records from these are tied to the company by more than its name (the page names the person, or was found through them).
+const NAME_PLUS_SOURCES = new Set(['web-search', 'news-archive', 'web-archive', 'page-reader', 'wikipedia', 'wikidata', 'domain-history']);
+const REGISTER_SOURCES = new Set(['us-state-registries', 'uk-companies-house', 'fr-companies', 'yc-directory', 'lei-register']);
+/** From this many same-name entries in registers on, a company name is shared by several companies. */
+const SHARED_NAME_FROM = 3;
+
+/** One row per screen: what it was asked, and what came back. */
+function screensOf(allSources, cited) {
+  const byId = new Map(allSources.map((s) => [s.id, s]));
+  return SCREEN_GROUPS.map(([group, ids]) => ({
+    group,
+    items: ids.map((id) => byId.get(id)).filter(Boolean).map((s) => {
+      const mine = cited.filter((f) => f.source === s.id);
+      const tied = mine.filter((f) => f.match !== 'possible');
+      const status = s.off ? 'off'
+        : !(s.runs > 0) ? 'not-run'
+        : s.errors >= s.runs ? 'failed'
+        : tied.length ? 'records'
+        : mine.length ? 'name-only'
+        // it reported a record that is listed under another source's copy of the same page
+        : s.findings > 0 ? 'records'
+        : s.errors > 0 || s.waitedOut > 0 || s.partial?.length ? 'partial'
+        : 'clear';
+      return { id: s.id, label: s.label, status, lookups: s.runs || 0, records: tied.length || (mine.length ? 0 : s.findings || 0), nameOnly: mine.length - tied.length, cites: (tied.length ? tied : mine).slice(0, 6).map((f) => f.n) };
+    }),
+  })).filter((g) => g.items.length > 0);
+}
+
 /** The screens that answered every lookup and returned no record. */
 export function cleanScreens(coverage) {
   const labels = (coverage?.searched || [])
@@ -376,7 +414,43 @@ function matterKey(f, windows = new Map()) {
  * Pure: no network, no model.
  */
 export function buildReport(state) {
-  const findings = (state.findings || []).map(eventDated).map(businessHistory);
+  const subject = restoreSubject({ name: state.name, company: state.company, anchors: state.anchors });
+  const trustedThreads = Object.values(state.threads || {}).filter((t) => t.trusted);
+  // What the tied records say of their career: read first, because it also settles two kinds of doubtful record.
+  const profile = buildProfile(subject, state.findings || [], trustedThreads);
+
+  // 1. A record matched by name only that also names an employer their own bio gives (a broker registration
+  //    at the bank they worked at) is likely theirs. Never more than likely, and only with the full name.
+  const SERIOUS = new Set(['high', 'medium']);
+  const employers = profile.earlier.filter((e) => e.org.length >= 5).map((e) => ({ org: e.org, n: e.ids.length, re: new RegExp(`(?<![A-Za-z0-9])${e.org.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9])`, 'i') }));
+  const byEmployer = (f) => {
+    if (f.match !== 'possible' || !employers.length) return f;
+    const text = `${f.title || ''}\n${f.quote || ''}`;
+    if (!subject.hasName(text)) return f;
+    // a serious record needs the employer in two of their records before it is raised: one sentence is too thin for a red flag
+    const hit = employers.find((e) => e.re.test(text) && (!SERIOUS.has(f.severity) || e.n >= 2));
+    return hit ? { ...f, match: 'likely', matchReasons: [...(f.matchReasons || []), `names ${hit.org}, where their own bio says they worked`] } : f;
+  };
+  // 2. A company name several registered companies share ("Merge") ties nothing by itself: a record about "a
+  //    company called Merge" that names neither the person, their site nor a known colleague may be another Merge.
+  const text0 = (f) => `${f.title || ''}\n${f.quote || ''}\n${f.url || ''}`;
+  //    Counted as different companies, not entries: one company registered in three states is one company.
+  const registered = (state.findings || []).filter((f) => REGISTER_SOURCES.has(f.source) && !subject.hasName(text0(f)));
+  const legalName = (f) => String(f.quote || f.title || '').split(/\s+[—–-]\s+|:/)[0].toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const formed = (f) => (String(f.quote || '').match(/\b(?:formed|registered|founded|incorporated)[^—–]{0,24}?((?:19|20)\d\d)/i) || [])[1] || '';
+  const sameNameEntries = new Set(registered.map((f) => `${legalName(f)}|${formed(f)}`));
+  const sharedName = Boolean(state.company) && sameNameEntries.size >= SHARED_NAME_FROM && new Set(registered.map(legalName)).size >= 2;
+  const ownHosts = trustedThreads.filter((t) => t.kind === 'domain' || (t.kind === 'url' && /team or bio page|personal site/.test(t.why || '')))
+    .map((t) => { try { return new URL(/^https?:/.test(t.value) ? t.value : `https://${t.value}`).hostname.replace(/^www\./, '').toLowerCase(); } catch { return ''; } })
+    .filter((h) => h && !/(?:forbes|linkedin|crunchbase|substack|medium|techcrunch|bloomberg)\.com$/.test(h));
+  const colleagues = trustedThreads.filter((t) => t.kind === 'associate' && String(t.value).trim().split(/\s+/).length >= 2).map((t) => String(t.value).toLowerCase());
+  const byCompanyNameOnly = (f) => {
+    if (!sharedName || f.match !== 'company' || NAME_PLUS_SOURCES.has(f.source)) return f;
+    const text = text0(f).toLowerCase();
+    if (subject.hasName(text) || ownHosts.some((h) => text.includes(h)) || colleagues.some((c) => text.includes(c))) return f;
+    return { ...f, match: 'possible', matchReasons: [`shares the company name only; several companies are called ${state.company}`], data: { ...(f.data || {}), companyNamesake: true } };
+  };
+  const findings = (state.findings || []).map(byEmployer).map(byCompanyNameOnly).map(eventDated).map(businessHistory);
   const groups = new Map();
   for (const f of findings) {
     const key = corroborationKey(f);
@@ -401,7 +475,6 @@ export function buildReport(state) {
   // A page from the open web that only mentions the person in passing (its own headline is about something
   // else: "2021 in the United States", another person's biography) is not a red flag about them, however
   // alarming the sentence that mentions them. It stays in the press section.
-  const subject = restoreSubject({ name: state.name, company: state.company, anchors: state.anchors });
   const aboutThem = (f) => {
     if (f.category !== 'press' && f.category !== 'identity') return true;
     if (f.match === 'company' || f.data?.person) return true;
@@ -600,11 +673,22 @@ export function buildReport(state) {
   };
 
   const count = (m) => cited.filter((f) => f.match === m).length;
+  const cite = (ids) => [...new Set((ids || []).map((id) => numberOf.get(id)).filter(Boolean))];
+  const hasProfile = profile.headline || profile.education.length || profile.earlier.length || profile.about.length || profile.links.length;
   return {
     name: state.name,
     company: state.company || null,
     identity: state.identity,
     generatedAt: new Date().toISOString(),
+    profile: hasProfile ? {
+      headline: profile.headline, headlineCites: cite(profile.headlineIds), company: profile.company,
+      education: profile.education.map((e) => ({ school: e.school, cites: cite(e.ids) })),
+      earlier: profile.earlier.map((e) => ({ org: e.org, role: e.role || null, cites: cite(e.ids) })),
+      about: profile.about.map((a) => ({ text: a.text, cites: cite([a.id]) })),
+      links: profile.links,
+    } : null,
+    screens: screensOf(allSources, cited),
+    sharedCompanyName: sharedName,
     totals: { records: cited.length, confirmed: count('confirmed'), likely: count('likely'), possible: count('possible'), company: count('company'), redFlags: redFlags.length, companyMatters: companyMatters.length, possibleNamesake: possibleNamesake.length, seriousRecords: serious.length },
     redFlags,
     companyMatters,
@@ -654,7 +738,7 @@ Format (Markdown, exactly these sections, in order):
 Then one final line: CONFIDENCE: High|Medium|Low - <reason>`;
 
 function recordsBlock(records) {
-  return records.map((f) => `[Source ${f.n}] (${f.match}; ${CATEGORIES[f.category]}; ${f.sourceLabel}${f.date ? `; ${f.date}` : ''}${f.severity !== 'info' ? `; severity ${f.severity}` : ''}${f.more?.length ? `; ${f.more.length} more record${f.more.length === 1 ? '' : 's'} report the same matter` : ''})\n${f.title}${f.quote ? `\n"${f.quote}"` : ''}`).join('\n\n');
+  return records.map((f) => `[Source ${f.n}] (${f.match}; ${CATEGORIES[f.category]}; ${f.sourceLabel}${f.data?.kind === 'bio' ? '; a bio or interview page, not an independent record' : ''}${f.date ? `; ${f.date}` : ''}${f.severity !== 'info' ? `; severity ${f.severity}` : ''}${f.more?.length ? `; ${f.more.length} more record${f.more.length === 1 ? '' : 's'} report the same matter` : ''})\n${f.title}${f.quote ? `\n"${f.quote}"` : ''}`).join('\n\n');
 }
 
 /** A brief assembled from the records themselves (no model). */
@@ -663,7 +747,8 @@ export function quotedDeepBrief(report, reason) {
   const of = (key) => (report.sections.find((s) => s.key === key)?.items || []).filter((f) => f.match !== 'possible');
   const t = report.totals;
   const bottom = `${t.records} records were collected about ${report.name}${report.company ? ` (${report.company})` : ''}: ${t.confirmed + t.likely} tied to this person, ${t.company} about their company, ${t.possible} matched by name only. ${t.redFlags ? `${t.redFlags} serious matter(s) are tied to this person.` : 'No serious record is tied to this person in the sources searched.'}${t.companyMatters ? ` ${t.companyMatters} more concern a company they founded or run.` : ''}`;
-  const checks = [...of('education'), ...of('career'), ...of('corporate'), ...of('ip')].slice(0, 10);
+  // what a bio or interview page says is the person's own account, not a record that confirms it
+  const checks = [...of('education'), ...of('career'), ...of('corporate'), ...of('ip')].filter((f) => f.data?.kind !== 'bio').slice(0, 10);
   const possibleChanges = (report.sections.find((s) => s.key === 'archive')?.items || []).filter((f) => f.match === 'possible' && f.data?.kind === 'change');
   const gaps = [
     ...[...report.possibleNamesake.slice(0, 8), ...possibleChanges.slice(0, 5)].map((f) => `• Rule out a namesake: ${f.title} [Source ${f.n}]${f.sameStoryAs ? ` (reports the same kind of event within days of [Source ${f.sameStoryAs}]; it may be the same story)` : ''}`),

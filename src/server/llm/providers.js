@@ -42,6 +42,8 @@ import { query, persistenceMode } from '../db';
 const LIST_CACHE_MS = 6 * 3600 * 1000;
 const FALLBACK_RESERVE_MS = 12000;
 const MIN_ATTEMPT_MS = 5000;
+/** The longest one model may take when others are still waiting behind it. */
+const FIRST_ATTEMPT_MS = { analysis: 26000, other: 16000 };
 const MAX_ATTEMPTS = 6;
 /** Groq's free plan allows 8,000 tokens a minute; a paid plan reports far more. */
 const GROQ_FREE_TPM = 8000;
@@ -537,8 +539,12 @@ export async function chatComplete(messages, { preferred = 'auto', task = 'chat'
     let attemptMs = timeoutMs;
     if (deadline) {
       const remaining = deadline - Date.now();
-      const isLast = i === attempts.length - 1;
-      attemptMs = Math.min(timeoutMs, isLast ? remaining : remaining - FALLBACK_RESERVE_MS);
+      // last = nothing after it can still run (later models may be resting)
+      const isLast = attempts.slice(i + 1).every((x) => resting(x.p, x.id));
+      // No single model gets nearly all the time: a slow first model used to leave the fallbacks a few
+      // seconds, so the answer fell back to a quoted digest. Each attempt but the last is capped.
+      const cap = kind === 'analysis' ? FIRST_ATTEMPT_MS.analysis : FIRST_ATTEMPT_MS.other;
+      attemptMs = Math.min(timeoutMs, isLast ? remaining : Math.min(cap, remaining - FALLBACK_RESERVE_MS));
       if (!isLast && attemptMs < MIN_ATTEMPT_MS) attemptMs = Math.min(timeoutMs, remaining); // no room to reserve
       if (attemptMs < MIN_ATTEMPT_MS) {
         errors.push(`${p.id}:${c.id} not tried (out of time)`);

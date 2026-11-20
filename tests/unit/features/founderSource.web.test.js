@@ -120,7 +120,7 @@ describe('web-search: query patterns', () => {
     const subject = holmes();
     const templates = webSearchConnector.plan({ kind: 'subject', value: subject.name }, subject);
     expect(templates.map((t) => t.template)).toEqual([
-      'q.profile', 'q.linkedin', 'q.lawsuit', 'q.fraud', 'q.prior-ventures', 'q.later-ventures', 'q.employment', 'q.regulatory', 'q.education',
+      'q.profile', 'q.linkedin', 'q.lawsuit', 'q.fraud', 'q.prior-ventures', 'q.later-ventures', 'q.employment', 'q.regulatory', 'q.education', 'q.background',
       'q.insolvency', 'q.resume', 'q.interviews', 'q.family', 'q.forums', 'q.family-business', 'q.related-party',
     ]);
     expect(new Set(templates.map((t) => t.template)).size).toBe(templates.length);
@@ -143,7 +143,8 @@ describe('web-search: query patterns', () => {
     expect(q['q.linkedin']).toBe('"Elizabeth Holmes" Theranos site:linkedin.com/in');
     expect(q['q.resume']).toBe('"Elizabeth Holmes" (resume OR CV OR "curriculum vitae")');
     expect(q['q.prior-ventures']).toBe('"Elizabeth Holmes" (founder OR "co-founder" OR CEO) -"Theranos"');
-    expect(q['q.education']).toBe('"Elizabeth Holmes" (graduated OR alumni OR degree OR university)');
+    expect(q['q.education']).toBe('"Elizabeth Holmes" Theranos (graduated OR alumni OR degree OR university OR studied)');
+    expect(q['q.background']).toBe('"Elizabeth Holmes" Theranos (previously OR formerly OR "prior to" OR "before founding" OR "worked at")');
     expect(q['q.lawsuit']).toBe('"Elizabeth Holmes" (lawsuit OR sued OR court OR complaint)');
     expect(q['q.fraud']).toBe('"Elizabeth Holmes" (fraud OR scam OR investigation OR indicted OR charged)');
     expect(q['q.employment']).toBe('"Elizabeth Holmes" (fired OR ousted OR resigned OR harassment OR misconduct)');
@@ -262,7 +263,7 @@ describe('web-search: the search a lookup makes', () => {
       expect(allowed[t.template]).toBe(t.prior >= METERED_PRIOR);
     }
     expect(METERED_PRIOR).toBe(0.7);
-    expect(Object.keys(allowed).filter((k) => allowed[k])).toEqual(['q.profile', 'q.linkedin', 'q.lawsuit', 'q.fraud']);
+    expect(Object.keys(allowed).filter((k) => allowed[k])).toEqual(['q.profile', 'q.linkedin', 'q.lawsuit', 'q.fraud', 'q.education', 'q.background']);
 
     // a company, an associate, and a free-form search proposed by the second reader: never metered
     for (const t of [

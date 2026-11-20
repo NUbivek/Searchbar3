@@ -24,6 +24,7 @@ import { searchWeb, webSearchConfigured } from './search/retrieve';
 import { chatComplete, PROVIDERS, providerEnabled } from './llm/providers';
 import { validateAnswer } from './search/answer';
 import { tierInfo } from '../utils/sourceTiers';
+import { isBlockedUrl } from './founder/guardrails';
 import { cleanText, formatDate, sourceLabel, sourceType, sentencesOf } from '../utils/evidence';
 
 const USER_AGENT = 'Searchbar3-Research/1.0';
@@ -494,10 +495,15 @@ export function extractProfiles(results, hasName) {
     let company = parts[2] || null;
     const at = role && role.match(/^(.*?)\s+(?:@|at)\s+(.+)$/);
     if (at) { role = at[1]; company = company || at[2]; }
+    // "Jane Doe - Acme | LinkedIn": the second part is the company, not a role
+    const ROLE_WORD = /founder|ceo|cto|coo|cfo|chief|president|partner|director|head|lead|manager|engineer|officer|investor|chair|vp\b|vice|principal|analyst|scientist|developer|designer|consultant|advisor|adviser|professor|student/i;
+    if (role && !company && !ROLE_WORD.test(role)) { company = role; role = null; }
     // Crunchbase: "Jane Doe is the Co-Founder & CEO at Acme Robotics."
     const isThe = snippet.match(/\bis\s+(?:the\s+|an?\s+)?([A-Z][^.]{2,60}?)\s+(?:at|of)\s+([A-Z][A-Za-z0-9&.'\- ]{1,60}?)(?:[.,;]|\s+(?:and|where|which)\b|$)/);
-    if (!role && isThe) role = isThe[1].trim();
-    if (!company && isThe) company = isThe[2].trim();
+    // only when the sentence is about the person ("Acme is the engine for agents" is about the company)
+    const aboutThem = isThe && hasName(snippet.slice(Math.max(0, isThe.index - 60), isThe.index + 3));
+    if (!role && aboutThem) role = isThe[1].trim();
+    if (!company && aboutThem) company = isThe[2].trim();
     const experience = (snippet.match(/Experience:\s*([^·|]+)/) || [])[1];
     const educationText = (snippet.match(/Education:\s*([^·|]+)/) || [])[1];
     const location = (snippet.match(/Location:\s*([^·|]+)/) || [])[1];
@@ -726,7 +732,20 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
   // pages, source tier, recency.
   const hasCo = companyMatcher(co);
   const text = (r) => `${cleanText(r.title)} ${cleanText(r.snippet || r.content)}`;
-  const named = dedupeResults(raw).filter((r) => hasName(text(r)));
+  // A page only counts when it is about this person:
+  //  - never a people-search or contact-broker page;
+  //  - never somebody else's profile page that merely mentions them (a colleague's LinkedIn);
+  //  - when the company is known, the page must name the company too, or be a page under a
+  //    profile already tied to them by a page that does. A namesake's pages are not theirs.
+  const PROFILE_PAGE = /^https?:\/\/(?:[a-z]+\.)?(linkedin\.com\/in\/[^/?#]+|crunchbase\.com\/person\/[^/?#]+|github\.com\/[^/?#]+|(?:x|twitter)\.com\/[^/?#]+|instagram\.com\/[^/?#]+|about\.me\/[^/?#]+)/i;
+  const profileOf = (r) => { const m = String(r.url || '').match(PROFILE_PAGE); return m ? m[1].toLowerCase().replace(/^twitter\.com/, 'x.com') : null; };
+  const isRootProfile = (r) => /linkedin\.com\/in\/[^/?#]+\/?(?:[?#].*)?$|crunchbase\.com\/person\//i.test(r.url || '');
+  const candidates = dedupeResults(raw)
+    .filter((r) => hasName(text(r)) && !isBlockedUrl(r.url))
+    .filter((r) => !(isRootProfile(r) && !hasName(cleanText(r.title))));
+  const theirs = new Set(candidates.filter((r) => profileOf(r) && hasName(cleanText(r.title)) && (!hasCo || hasCo(text(r)))).map(profileOf));
+  const named = candidates.filter((r) => !hasCo || hasCo(text(r)) || (profileOf(r) && theirs.has(profileOf(r))));
+  const leftOut = dedupeResults(raw).filter((r) => hasName(text(r))).length - named.length;
   const scoreOf = (r) => {
     let sc = 0;
     if (hasCo && hasCo(text(r))) sc += 3;
@@ -750,6 +769,13 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
   }
 
   const evidence = extractFounderEvidence({ name: hasName, company: co, results: ranked, keepAllSources: true });
+  // "Why Merge", "Merge Today", "Merge Co-Founder": headline words around the company's own name are not other companies
+  if (co) {
+    const key = companyKeys(co)[0];
+    const sameAsGiven = (c) => { const k = companyKeys(c.company)[0] || ''; return key && k !== key && ` ${k} `.includes(` ${key} `); };
+    evidence.pastCompanies = evidence.pastCompanies.filter((c) => !sameAsGiven(c));
+  }
+  if (leftOut > 0 && co) warnings.push(`${leftOut} page${leftOut === 1 ? '' : 's'} that name a "${displayName}" without ${co}, or that are someone else's profile, were left out: they may be about a different person.`);
   const profiles = extractProfiles(ranked, hasName);
   if (!evidence.currentRole) {
     const p = profiles.find((x) => x.role && x.company);

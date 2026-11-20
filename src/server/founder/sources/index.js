@@ -33,6 +33,7 @@ import { academicRecordConnector, publicationsConnector } from './scholar';
 import { githubConnector, hackerNewsConnector, linkedAccountsConnector } from './profiles';
 import { archiveConnector } from './archive';
 import { webSearchConnector, newsArchiveConnector } from './web';
+import { pageReaderConnector } from './pages';
 
 // The web archive answers slowly and refuses connections after a burst: one lookup at a time.
 archiveConnector.maxParallel = 1;
@@ -47,6 +48,8 @@ const connectorsOf = (module) => Object.values(module).filter((x) => x && typeof
 export const CONNECTORS = [
   // the open web: carries most of the load and finds the pages other sources then dig into
   webSearchConnector, newsArchiveConnector,
+  // the pages about the person that the search found, read for their career and education
+  pageReaderConnector,
   // earlier versions of profiles, bios and resumes
   archiveConnector,
   // who the person is, on the public record
