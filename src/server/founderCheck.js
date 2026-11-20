@@ -28,7 +28,7 @@ import { isBlockedUrl } from './founder/guardrails';
 import { cleanText, formatDate, sourceLabel, sourceType, sentencesOf } from '../utils/evidence';
 
 const USER_AGENT = 'Searchbar3-Research/1.0';
-const QUERY_TIMEOUT_MS = 15000;
+const QUERY_TIMEOUT_MS = 12000;
 const MAX_SOURCES = 20;
 const MAX_TIMELINE = 25;
 const MAX_COMPANIES = 20;
@@ -494,7 +494,8 @@ export function extractProfiles(results, hasName) {
     let role = parts[1] || null;
     let company = parts[2] || null;
     const at = role && role.match(/^(.*?)\s+(?:@|at)\s+(.+)$/);
-    if (at) { role = at[1]; company = company || at[2]; }
+    // "Co-Founder at Acme | The engine for agents": the company is the one after "at", the rest is a tagline
+    if (at) { role = at[1]; company = at[2]; }
     // "Jane Doe - Acme | LinkedIn": the second part is the company, not a role
     const ROLE_WORD = /founder|ceo|cto|coo|cfo|chief|president|partner|director|head|lead|manager|engineer|officer|investor|chair|vp\b|vice|principal|analyst|scientist|developer|designer|consultant|advisor|adviser|professor|student/i;
     if (role && !company && !ROLE_WORD.test(role)) { company = role; role = null; }
@@ -504,12 +505,23 @@ export function extractProfiles(results, hasName) {
     const aboutThem = isThe && hasName(snippet.slice(Math.max(0, isThe.index - 60), isThe.index + 3));
     if (!role && aboutThem) role = isThe[1].trim();
     if (!company && aboutThem) company = isThe[2].trim();
-    const experience = (snippet.match(/Experience:\s*([^·|]+)/) || [])[1];
-    const educationText = (snippet.match(/Education:\s*([^·|]+)/) || [])[1];
-    const location = (snippet.match(/Location:\s*([^·|]+)/) || [])[1];
+    // each field ends at the next label, a separator or the end; "Experience: 6 years 3 months" is a duration, not a company
+    const field = (label) => (snippet.match(new RegExp(`${label}:\\s*([^·|]+?)(?=\\s+(?:Experience|Education|Location|LinkedIn|Connections?|Followers?)\\b|\\s*[·|]|$)`)) || [])[1];
+    const experienceRaw = field('Experience');
+    const experience = experienceRaw && !/^\d/.test(experienceRaw.trim()) ? experienceRaw : null;
+    const educationText = field('Education');
+    const location = field('Location');
     if (!company && experience) company = experience.trim();
     const place = location ? location.trim() : (rawParts.find((p) => /\bArea$|Greater /i.test(p)) || null);
+    // one entry per profile, however many addresses a search returns it under
+    const pageKey = url.toLowerCase().replace(/^https?:\/\/(?:www\.|[a-z]{2}\.)?/, '').replace(/[/?#].*$/, (m) => m.split(/[?#]/)[0]).replace(/\/$/, '');
+    const earlier = profiles.find((p) => p.pageKey === pageKey);
+    if (earlier) {
+      for (const [k, v] of Object.entries({ role, company: company ? company.trim() : null, education: educationText ? educationText.trim() : null, location: place })) if (!earlier[k] && v) earlier[k] = v;
+      return;
+    }
     profiles.push({
+      pageKey,
       platform: isLinkedIn ? 'LinkedIn' : 'Crunchbase',
       role: role || null,
       company: company ? company.trim() : null,
@@ -519,7 +531,7 @@ export function extractProfiles(results, hasName) {
       sourceIndex: i,
     });
   });
-  return profiles;
+  return profiles.map(({ pageKey, ...p }) => p);
 }
 
 export const BRIEF_SECTIONS = ['## SUMMARY', '## CAREER TIMELINE', '## PAST COMPANIES AND ROLES', '## EDUCATION', '## LITIGATION AND REGULATORY', '## PRESS AND PUBLIC STATEMENTS', '## RED FLAGS AND OPEN QUESTIONS'];
@@ -804,10 +816,11 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
   if (ranked.length > 0 && useLLM && PROVIDERS.some(providerEnabled)) {
     const user = `Today's date: ${new Date().toISOString().slice(0, 10)}\nPerson: ${displayName}${co ? `\nCompany (to disambiguate): ${co}` : ''}\n\nSources:\n${sourcesBlock(ranked)}`;
     // An answer that fails the citation checks sends the request to the next model rather than giving up on AI
-    const out = await chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], {
+    // Whatever a model service does, the brief is back by the deadline: past it, the quoted digest is used
+    const out = await withTimeout(chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], {
       preferred: model, maxTokens: 3000, deadline, personal: true,
       accept: (text) => validateAnswer(text, ranked.length, BRIEF_SECTIONS).ok,
-    });
+    }), deadline ? Math.max(1000, deadline - Date.now() + 1500) : 120000, 'AI brief').catch(() => null);
     if (out) {
       const checked = validateAnswer(out.text, ranked.length, BRIEF_SECTIONS);
       if (checked.ok) {

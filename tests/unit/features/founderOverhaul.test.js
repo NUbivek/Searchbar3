@@ -251,3 +251,15 @@ describe('review fixes: whose career is it', () => {
     expect(robotsAllow(rules, '/about')).toBe(true);
   });
 });
+
+test('profile lines from search results: the company after "at", fields that end at the next label, one entry per profile', () => {
+  const { extractProfiles, nameMatcher } = require('../../../src/server/founderCheck');
+  const out = extractProfiles([
+    { title: 'Jane Roe - Co-Founder at Acme | The context engine for agents', url: 'https://www.linkedin.com/in/janeroe', snippet: 'Acme is the context engine for agents.' },
+    { title: 'Jane Roe', url: 'https://linkedin.com/in/janeroe', snippet: 'Location: New York, New York, United States Experience: 6 years 3 months LinkedIn: www.linkedin.com/in/janeroe Education: Columbia University' },
+    { title: 'Jane Roe - Acme | LinkedIn', url: 'https://uk.linkedin.com/in/jane-roe-2', snippet: 'Experience: Acme · Location: London' },
+  ], nameMatcher('Jane Roe'));
+  expect(out).toHaveLength(2);
+  expect(out[0]).toEqual(expect.objectContaining({ role: 'Co-Founder', company: 'Acme', location: 'New York, New York, United States', education: 'Columbia University' }));
+  expect(out[1]).toEqual(expect.objectContaining({ role: null, company: 'Acme', location: 'London' }));
+});

@@ -55,7 +55,11 @@ export default async function handler(req, res) {
   if (company.length > 120) return res.status(400).json({ error: 'company must be 120 characters or fewer' });
   try {
     const result = await runFounderCheck({ name, company, model, deadline: startedAt + 44000 });
-    const references = await backchannelReferences(req, res, result, company);
+    // the brief is never held up by the network lookup: three seconds, then it goes out without it
+    const references = await Promise.race([
+      backchannelReferences(req, res, result, company),
+      new Promise((resolve) => setTimeout(() => resolve({ available: false, reason: 'The network lookup took too long; run the check again to see people you know.' }), 3000)),
+    ]);
     res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json({ ...result, references });
   } catch (error) {
