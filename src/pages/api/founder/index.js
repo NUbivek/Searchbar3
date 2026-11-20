@@ -54,7 +54,7 @@ export default async function handler(req, res) {
   if (name.length > 120) return res.status(400).json({ error: 'name must be 120 characters or fewer' });
   if (company.length > 120) return res.status(400).json({ error: 'company must be 120 characters or fewer' });
   try {
-    const result = await runFounderCheck({ name, company, model, deadline: startedAt + 44000 });
+    const result = await runFounderCheck({ name, company, model, deadline: startedAt + 47000 });
     // the brief is never held up by the network lookup: three seconds, then it goes out without it
     const references = await Promise.race([
       backchannelReferences(req, res, result, company),

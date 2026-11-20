@@ -543,6 +543,8 @@ Rules:
 - Never add facts that are not in the sources. If a section has no supporting source, write "Not found in the available sources."
 - Absence of litigation results is NOT evidence of a clean record; say so in LITIGATION AND REGULATORY.
 - Give dates where sources give them. A source's publication date is not the date of the event unless the source says so.
+- Be concise: about 350 words in all. An investor reads this in a minute.
+- CAREER TIMELINE holds career events only (education, roles, companies founded, funding rounds, exits), at most eight. A social post, a podcast appearance or an event they hosted is not a career event.
 
 Format (Markdown, exactly these sections, in order):
 ## SUMMARY
@@ -818,7 +820,7 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
     // An answer that fails the citation checks sends the request to the next model rather than giving up on AI
     // Whatever a model service does, the brief is back by the deadline: past it, the quoted digest is used
     const out = await withTimeout(chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], {
-      preferred: model, maxTokens: 3000, deadline, personal: true,
+      preferred: model, maxTokens: 1800, deadline, personal: true,
       accept: (text) => validateAnswer(text, ranked.length, BRIEF_SECTIONS).ok,
     }), deadline ? Math.max(1000, deadline - Date.now() + 1500) : 120000, 'AI brief').catch(() => null);
     if (out) {
