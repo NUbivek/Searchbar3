@@ -196,7 +196,7 @@ export function buildProfile(subject, findings, threads = []) {
           for (const org of list) addOrg(org, list.length === 1 ? role : null, f.id);
         }
       }
-      if (named && BIO_WORD.test(s) && s.length >= 60 && s.length <= 300 && !/\s[—–]\s/.test(s) && about.length < 40) about.push({ text: s, id: f.id, bio: fromBioPage, hasCo: Boolean(coRe && coRe.test(s)) });
+      if (named && BIO_WORD.test(s) && s.length >= 60 && s.length <= 300 && /[.!?]["”']?$/.test(s) && !/\s[—–|]\s/.test(s) && about.length < 40) about.push({ text: s, id: f.id, bio: fromBioPage, hasCo: Boolean(coRe && coRe.test(s)) });
     }
   }
 

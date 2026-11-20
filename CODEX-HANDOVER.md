@@ -21,6 +21,8 @@ Released on 2026-11-17 (all live):
 2. **Model chain: only models that cost nothing, strongest first** (`src/server/llm/providers.js`; README "AI models"). Gemini 4 Hydrogen leads. Guarantees are tested in `tests/unit/features/llmChain.test.js`. `GET /api/debug/llm-check` shows the order; `?run=chat|analysis|extract|json|brief|gaps` makes one small real call.
 3. **Deep background check** on the Founder Check page (`FOUNDER-CHECK.md`): about forty free public sources, a step-per-request loop, identity grading, privacy rules, a second reader, learning, and a report with red flags, company matters, possible namesakes, claims that changed, related parties, timeline and coverage. Sign-in required, 12 checks per hour per account.
 
+Changed on 2026-11-20 (on preview `claude/research-hub-fix`; in production only after the owner's "push to production"), after the owner reported the tab as broken: the quick brief keeps only pages about this person; the model chain switches service after a timeout; the deep check gained a page reader (`sources/pages.js`), a Profile card (`profile.js`) and a Public-record screens checklist; name-only records sit in one collapsed block. Details in `eval/founder/LOG.md` and FOUNDER-CHECK.md. Rule added by this work: profile lines (school, employer) are read only from sentences that open on the person, never from a sentence about a colleague or relative.
+
 Quality so far, from graded live checks on public figures (`eval/founder/`):
 
 | Round | Average | Notes |
