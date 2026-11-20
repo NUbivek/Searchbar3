@@ -160,7 +160,7 @@ function Records({ items, first = 12, withId = true, reveal = null }) {
   const shown = all || forced ? items : items.slice(0, first);
   return (
     <>
-      <ul className="divide-y divide-line">{shown.map((f) => <Record key={f.id} f={f} withId={withId} />)}</ul>
+      <ul className="divide-y divide-line">{shown.map((f) => <Record key={`${f.id}-${f.n}`} f={f} withId={withId} />)}</ul>
       {items.length > first && (
         <button type="button" className="btn-ghost mt-3 px-2 py-1 text-xs" onClick={() => setAll((v) => !v)} aria-expanded={all}>
           {all || forced ? 'Show fewer' : `Show all ${items.length}`}
@@ -372,7 +372,8 @@ function Report({ report, onRerun, headingRef = null }) {
     setReveal(null);
   }, [reveal]);
   const revealN = reveal?.n ?? null;
-  const nameOnly = report.sections.flatMap((s) => s.items.filter((f) => f.match === 'possible'));
+  // a record is listed once, even when two sections carry it
+  const nameOnly = [...new Map(report.sections.flatMap((s) => s.items.filter((f) => f.match === 'possible')).map((f) => [f.id || f.n, f])).values()];
 
   return (
     <>

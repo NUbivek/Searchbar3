@@ -22,6 +22,10 @@ checked in code.
 |---|---|---|
 | The open web and news | Open-web search (several search engines, tried in turn; the two metered search services only as a capped last resort), news archives by era | Profiles, press, interviews, disputes, and the pages other sources then dig into. About fifteen query patterns per person (lawsuit, fraud, employment disputes, insolvency, prior ventures, education, family and related parties, forums), each scored separately |
 | Pages about the person | Page reader (`sources/pages.js`) | Opens up to ten pages the check already tied to the person (team and bio pages, personal sites, profiles and interviews whose headline names them) and keeps the sentences about their career and education. One request per page, identified as an automated reader, only where the site's robots.txt allows. LinkedIn, X, Facebook and Instagram are never opened: their public profile lines come from search results |
+| More courts and agency orders | Delaware courts (Chancery, Superior, Supreme: opinions and orders, the last 12 years), EU courts and competition decisions, Canadian federal courts, US agency orders in the Federal Register (`sources/courtsMore.js`) | Company and shareholder disputes, competition cases, agency orders naming the person or company |
+| Bank regulators and FinCEN | Federal Reserve, OCC and NCUA enforcement actions and prohibition orders, FinCEN enforcement actions (`sources/debarment.js`) | Orders against a named person or firm; also screens associates and relatives |
+| US federal records | Federal contracts, grants and loans (USAspending), lobbying registrations and activity (never contribution reports), CFPB consumer complaints, Federal Register documents, FDA recalls, NIH grants (`sources/government.js`) | What the company sells to or receives from government, who lobbies for it, complaints and recalls |
+| Professional footprint | Semantic Scholar, Stack Overflow, npm packages, Bluesky, Mastodon, the person's own writing feeds (`sources/presence.js`) | Research output, technical work and their own words; an account found by name alone stays a name match |
 | Earlier versions of pages | Web archive (Internet Archive) | Older captures of LinkedIn, Indeed resume, AngelList, Crunchbase, about.me, GitHub, X and company team pages; what a profile said in each year; **claims that changed** between versions (a degree, an employer, a title that was altered or removed) |
 | Identity and public roles | Wikidata, Wikipedia, LittleSis, GitHub, Hacker News, linked accounts (Keybase), academic record (ORCID, Crossref, theses.fr), scholarly publications (OpenAlex), US nonprofit filings (Form 990) | Education and career as the public record has them, public office, board seats and foundations, a claimed doctorate checked against thesis registries, handles and sites the person has linked |
 | Family and related parties | Wikidata and LittleSis relatives and their roles, related-party passages in SEC filings, family wording in press, the second reader | Relatives who hold a business, political or philanthropic role, organisations they share with the founder; each is screened against watchlists and searched together with the founder |
@@ -44,14 +48,26 @@ private financials) is listed in every report.
 - **The brief**: a written summary by the strongest available AI model, every
   sentence cited to a numbered record, or a summary assembled from the
   records themselves when no model is available.
-- **Profile**: current role, education, earlier roles, a few sentences of
-  background and public profile links, read from pages tied to the person
+- **Profile**: a résumé-style card: current role, every earlier role with
+  years, education with degree and field, boards, companies founded,
+  investments, recognition, where they are based (city only) and public
+  profile links. A model reads these out of the tied records and code keeps
+  only what the cited record states word for word about the person; without
+  a model, patterns read what they can, read from pages tied to the person
   (search results, the company's own pages, bio and interview pages the page
   reader opened, archived copies). Every line links to its record.
 - **Public-record screens**: every sanctions, court, regulator, breach and
   register source that was asked, each with its result: no match, records,
   name matches to rule out, answered in part, did not answer, or not enabled.
   A clean screen is shown as having run; a silent one is never shown as clean.
+- **Your network** (signed in, with contacts imported in the Network Map tab):
+  whether the person is already a contact, people you know at their current
+  and earlier companies and among their co-founders and investors, and a
+  shortlist of who to call for a reference with what to ask. When no company
+  is typed and exactly one contact has that name, the contact's company is
+  used for the check, and the report says so. Contacts never leave the
+  account: only a company name is ever used as a search term, as if typed.
+  The Network Map tab marks contacts that already have a finished check.
 - **Red flags**: serious matters tied to the person. Twenty reports of one
   sentencing are one matter, led by the most official record, with the rest
   listed under it.
@@ -92,6 +108,8 @@ lot about one person); at most 12 checks an hour per account.
 | `src/server/founder/guardrails.js` | the privacy rules, applied to every record |
 | `src/server/founder/finding.js` | the one shape every source returns (`makeFinding`, `makeThread`) |
 | `src/server/founder/extract.js` | reads text for companies, schools, associates, relatives in public roles, handles and profile pages |
+| `src/server/founder/profileModel.js` | the model-read profile and its word-for-word check against the cited record |
+| `src/server/founder/networkLink.js`, `src/components/founder/NetworkLinks.js`, `src/pages/api/founder/history.js` | the pairing with the Network Map: the person as a contact, people around them, reference shortlist, checks already run |
 | `src/server/founder/profile.js` | reads role, education and earlier employers out of sentences that name the person in tied records |
 | `src/server/founder/gaps.js` | the second reader: a model proposes missed threads and searches; code keeps only what the cited record states |
 | `src/server/founder/report.js` | ranks and numbers the records, builds red flags, possible namesakes, claims that changed, related parties, timeline, coverage; writes the brief |
@@ -189,6 +207,14 @@ checked in full.
 | `LLM_SKIP_GEMINI_FOR_PEOPLE=true` | keeps text about the person away from Gemini (see README, "AI models") |
 
 ## Choices the owner should know about
+
+- **Development banks' debarment list (off).** `mdbDebarmentConnector` in
+  `sources/debarment.js` screens the EBRD's list of barred firms and people,
+  which carries World Bank, ADB, IDB and AfDB debarments too. It works and is
+  tested, but the publisher's terms allow "personal, non-commercial use"
+  only, so it is not in the source list. To turn it on, add it to
+  `CONNECTORS` in `sources/index.js` and to the screens in `report.js`.
+
 
 - **Google News feed.** Most open-web lookups are answered by Google's news
   search feed. The feed is published for programs to read, but the site's
