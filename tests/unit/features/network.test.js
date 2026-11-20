@@ -741,6 +741,37 @@ describe('network store (real PGlite)', () => {
     expect(out.keys).toEqual([{ name: 'Ivan', company_key: 'яндекс' }, { name: 'Ken', company_key: '株式会社トヨタ' }]);
     expect(out.found).toEqual(['Ivan']);
   });
+
+  test('findContactsByNames: a plain-letter search finds a contact saved with accents (and the reverse)', () => {
+    const out = runInNode(`
+      await store.replaceContacts('u1', 'csv', [
+        { name: 'José García', company: 'Acme' }, { name: 'Jose Garcia', company: 'Beta' },
+        { name: 'SEÁN O’NEIL', company: 'Gamma' }, { name: 'Ana Garcias', company: 'Delta' },
+      ]);
+      out.plain = (await store.findContactsByNames('u1', ['Jose Garcia'])).map((c) => c.name + ':' + c.company).sort();
+      out.accented = (await store.findContactsByNames('u1', ['José García'])).map((c) => c.name).sort();
+      out.oneil = (await store.findContactsByNames('u1', ["Sean O'Neil"])).map((c) => c.name);
+    `);
+    expect(out.plain).toEqual(['Jose Garcia:Beta', 'José García:Acme']);
+    expect(out.accented).toEqual(['Jose Garcia', 'José García']);
+    expect(out.oneil).toEqual(['SEÁN O’NEIL']);
+  });
+
+  test('findContactsByNames: many contacts sharing a short surname do not crowd out the namesakes', () => {
+    const out = runInNode(`
+      const filler = Array.from({ length: 1200 }, (_, i) => ({ name: 'Alice Li' + String(i).padStart(4, '0') + ' Williams', company: 'F' + i }));
+      const lis = Array.from({ length: 300 }, (_, i) => ({ name: 'Bo' + i + ' Li', company: 'L' + i }));
+      await store.replaceContacts('u1', 'csv', [...filler, ...lis, { name: 'Dr. Wei Li', company: 'X' }, { name: 'Wei Li', company: 'Y' }]);
+      out.found = (await store.findContactsByNames('u1', ['Wei Li'])).map((c) => c.name + ':' + c.company).sort();
+      const crowd = Array.from({ length: 1001 }, (_, i) => ({ name: 'Wei Li', company: 'C' + i, profileUrl: 'https://example.test/' + i }));
+      await store.replaceContacts('u1', 'csv', crowd);
+      out.crowd = await store.countContacts('u1');
+      try { await store.findContactsByNames('u1', ['Wei Li']); out.over = 'returned'; } catch (e) { out.over = e.message; }
+    `);
+    expect(out.found).toEqual(['Dr. Wei Li:X', 'Wei Li:Y']);
+    expect(out.crowd).toBe(1001);
+    expect(out.over).toMatch(/more than 1000/);
+  });
 });
 
 // ------------------------------------------------------------ API

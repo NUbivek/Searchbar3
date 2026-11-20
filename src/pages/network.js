@@ -102,6 +102,47 @@ function SourceBadge({ source }) {
   );
 }
 
+// ---- founder checks already run (from /api/founder/history): contacts with a finished check are marked.
+const ChecksContext = React.createContext(null);
+const checkNameKey = (name) => String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\([^)]*\)/g, ' ').split(',')[0].replace(/['’`.]/g, '').replace(/[^a-z0-9\- ]+/g, ' ').replace(/\s+/g, ' ').trim();
+/**
+ * The finished check for this contact: same full name, and the same company
+ * when the check had one. A check run without a company is only tied to a
+ * contact when no other loaded contact carries that full name (nameCounts:
+ * name key -> how many loaded contacts carry it); otherwise it may be about
+ * a namesake, and nothing is shown.
+ */
+export function findCheck(checks, name, company, nameCounts) {
+  const key = checkNameKey(name);
+  if (!key || !Array.isArray(checks)) return null;
+  const sameName = checks.filter((c) => checkNameKey(c.name) === key);
+  const co = normalizeCompanyKey(company);
+  const withCompany = sameName.find((c) => co && String(c.company || '').trim() && normalizeCompanyKey(c.company) === co);
+  if (withCompany) return withCompany;
+  const unique = nameCounts && typeof nameCounts.get === 'function' && nameCounts.get(key) === 1;
+  return unique ? (sameName.find((c) => !String(c.company || '').trim()) || null) : null;
+}
+/** name key -> how many of these contacts carry that full name. */
+export function contactNameCounts(contacts) {
+  const counts = new Map();
+  for (const c of Array.isArray(contacts) ? contacts : []) {
+    const key = checkNameKey(c?.name);
+    if (key) counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+const checkHref = (c) => `/founder?name=${encodeURIComponent(c.name)}${c.company ? `&company=${encodeURIComponent(c.company)}` : ''}`;
+function CheckMark({ name, company }) {
+  const ctx = React.useContext(ChecksContext);
+  const check = findCheck(ctx?.checks, name, company, ctx?.nameCounts);
+  if (!check) return null;
+  return (
+    <Link href={checkHref(check)} className={check.redFlags ? 'chip chip-bad' : 'chip chip-good'} title={`Founder check finished ${formatDate(check.date)}`}>
+      Checked{check.redFlags ? ` · ${check.redFlags} red flag${check.redFlags === 1 ? '' : 's'}` : ''}
+    </Link>
+  );
+}
+
 function ContactActions({ name, company }) {
   if (!company && !name) return null;
   return (
@@ -135,6 +176,7 @@ function ResultRow({ item, onShow }) {
             {c.company && <span className="chip">{c.company}</span>}
             {item.roleLabel && item.role !== 'other' && <span className="chip chip-active">{item.roleLabel}</span>}
             {c.relationship === 'firm' && <span className="chip chip-warn">Firm{c.via ? ` · via ${c.via}` : ''}</span>}
+            <CheckMark name={c.name} company={c.company} />
           </div>
           <div className="mt-0.5 truncate text-sm text-slate-600">{c.position || (c.company ? '' : 'No title or company listed')}</div>
           {item.reasons.length > 0 && <p className="mt-1 text-xs text-muted">{item.reasons.join(' · ')}</p>}
@@ -192,6 +234,14 @@ export default function NetworkPage() {
   const [panelSort, setPanelSort] = useState('senior');
   const [peopleShown, setPeopleShown] = useState(PEOPLE_PAGE);
   const [dragging, setDragging] = useState(false);
+
+  const [checks, setChecks] = useState([]); // founder checks this user has finished
+  useEffect(() => {
+    if (sessionStatus !== 'authenticated') { setChecks([]); return undefined; }
+    let live = true;
+    fetch('/api/founder/history').then((r) => (r.ok ? r.json() : { checks: [] })).then((d) => { if (live) setChecks(Array.isArray(d.checks) ? d.checks : []); }).catch(() => {});
+    return () => { live = false; };
+  }, [sessionStatus]);
 
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
@@ -567,6 +617,9 @@ export default function NetworkPage() {
   // LinkedIn's export has no location, so grouping by country is only offered once some contact has one.
   const hasLocations = useMemo(() => contacts.some((c) => countryOf(c) !== UNKNOWN_COUNTRY), [contacts]);
 
+  // A check run without a company marks a contact only when that contact's full name is unique here.
+  const checksContext = useMemo(() => ({ checks, nameCounts: contactNameCounts(contacts) }), [checks, contacts]);
+
   const answerKeys = useMemo(() => {
     if (!answer) return null;
     const keys = new Set();
@@ -837,6 +890,7 @@ export default function NetworkPage() {
             )}
             {classifyContact(selected.contact).lenses.map((l) => <span key={l} className="chip">{LENSES[l].short}</span>)}
             {selected.contact.relationship === 'firm' && <span className="chip chip-warn" title="A firm-wide CRM contact, not your own connection">Firm contact{selected.contact.via ? ` · via ${selected.contact.via}` : ''}</span>}
+            <CheckMark name={selected.contact.name} company={selected.contact.company} />
           </p>
           <dl className="mt-3 space-y-1 text-xs text-muted">
             {selected.contact.location && <div><dt className="inline font-medium text-slate-700">Location: </dt><dd className="inline">{selected.contact.location}</dd></div>}
@@ -891,6 +945,7 @@ export default function NetworkPage() {
   );
 
   return (
+    <ChecksContext.Provider value={checksContext}>
     <PageShell flows
       title="Network Map"
       wide
@@ -980,6 +1035,29 @@ export default function NetworkPage() {
               )}
             </div>
           </section>
+        )}
+
+        {/* ---------------------------------------------------- founder checks run */}
+        {signedIn && checks.length > 0 && (
+          <details className="card card-pad group">
+            <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+              <h2 className="section-title">Founder checks you have run</h2>
+              <span className="chip">{checks.length}</span>
+              <span className="ml-auto text-xs text-muted group-open:hidden">Show</span>
+              <span className="ml-auto hidden text-xs text-muted group-open:inline">Hide</span>
+            </summary>
+            <p className="muted mt-3 text-xs">Finished deep checks from the last three days. Contacts with one are marked “Checked”.</p>
+            <ul className="mt-2 divide-y divide-line">
+              {checks.map((c) => (
+                <li key={`${c.name}|${c.company}`} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+                  <Link href={checkHref(c)} className="font-medium text-ink hover:text-brand-600 hover:underline">{c.name}</Link>
+                  {c.company && <span className="chip">{c.company}</span>}
+                  {typeof c.redFlags === 'number' && <span className={c.redFlags ? 'chip chip-bad' : 'chip chip-good'}>{c.redFlags} red flag{c.redFlags === 1 ? '' : 's'}</span>}
+                  {c.date && <span className="ml-auto text-xs text-muted">{formatDate(c.date)}</span>}
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
 
         {/* ---------------------------------------------------- sources */}
@@ -1440,5 +1518,6 @@ export default function NetworkPage() {
 
       </div>
     </PageShell>
+    </ChecksContext.Provider>
   );
 }

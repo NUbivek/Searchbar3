@@ -34,6 +34,10 @@ import { githubConnector, hackerNewsConnector, linkedAccountsConnector } from '.
 import { archiveConnector } from './archive';
 import { webSearchConnector, newsArchiveConnector } from './web';
 import { pageReaderConnector } from './pages';
+import * as courtsMore from './courtsMore';
+import { usBankRegulatorsConnector, fincenActionsConnector } from './debarment';
+import { usFederalAwardsConnector, usLobbyingConnector, cfpbComplaintsConnector, federalRegisterConnector, fdaRecallsConnector, nihGrantsConnector } from './government';
+import { semanticScholarConnector, stackOverflowConnector, npmPackagesConnector, blueskyConnector, mastodonConnector, writingFeedsConnector } from './presence';
 
 // The web archive answers slowly and refuses connections after a burst: one lookup at a time.
 archiveConnector.maxParallel = 1;
@@ -55,10 +59,18 @@ export const CONNECTORS = [
   // who the person is, on the public record
   ...connectorsOf(knowledge),
   githubConnector, hackerNewsConnector, linkedAccountsConnector,
-  academicRecordConnector, publicationsConnector,
+  stackOverflowConnector, npmPackagesConnector, blueskyConnector, mastodonConnector, writingFeedsConnector,
+  academicRecordConnector, publicationsConnector, semanticScholarConnector,
   // courts, regulators, watchlists
   ...connectorsOf(courts),
+  ...connectorsOf(courtsMore),
   sanctionsListsConnector, exclusionsConnector, offshoreLeaksConnector, wantedConnector,
+  // bank regulators' orders against people and firms, and FinCEN actions. (The development banks' debarment
+  // list, mdbDebarmentConnector in debarment.js, is written but not listed: the publisher's terms allow
+  // personal, non-commercial use only, so the owner decides. See FOUNDER-CHECK.md.)
+  usBankRegulatorsConnector, fincenActionsConnector,
+  // US federal records: awards, lobbying registrations, consumer complaints, Federal Register, FDA recalls, NIH grants
+  usFederalAwardsConnector, usLobbyingConnector, cfpbComplaintsConnector, federalRegisterConnector, fdaRecallsConnector, nihGrantsConnector,
   // filings and company records
   secPersonConnector, secCompanyConnector,
   ukCompaniesConnector, frCompaniesConnector, usStateRegistriesConnector, leiConnector, ycDirectoryConnector,

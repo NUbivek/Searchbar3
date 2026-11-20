@@ -47,7 +47,8 @@ export const LIMITS = {
   // When only waiting lookups are left, the longest the check sits idle for the next one
   tailWaitMs: 90 * 1000,
   // how many threads of each kind are pulled; the rest are listed, not followed
-  pull: { company: 10, affiliate: 16, school: 6, associate: 10, relative: 8, handle: 6, domain: 6, url: 10 },
+  // url: pages the page reader opens (one request each, at most MAX_PAGES in pages.js) and profiles the web archive reads
+  pull: { company: 10, affiliate: 16, school: 6, associate: 10, relative: 8, handle: 6, domain: 6, url: 18 },
 };
 
 export const GAP_TEMPLATE = 'q.gap';
@@ -285,6 +286,16 @@ export const tieOf = (thread) => {
 const AFFILIATE_SOURCES = new Set(['sec-company', 'uk-companies-house', 'fr-companies', 'yc-directory']);
 export const JOINT_TEMPLATES = ['q.joint-role', 'q.joint-adverse'];
 
+/**
+ * A page that is read, not tracked over time: an article, show notes or an interview. Its earlier versions say
+ * nothing a profile's would, so the web archive is not asked about it (each archive lookup is several slow,
+ * paced requests).
+ */
+const READ_ONLY_PAGE = /^(?:article naming them|podcast or interview page|interview or article page about them)$/;
+const ARCHIVE_SOURCE = 'web-archive';
+/** The seed of a check: the lookups about the person that build their profile, run ahead of everything else. */
+export const isSeedTask = (t) => t.depth === 0 && t.kind === 'subject' && Boolean(t.params?.seed);
+
 /** The tasks a thread turns into: one per source (and per query pattern) that can handle its kind. */
 function planTasks(thread, depth, connectors, subject) {
   const out = [];
@@ -301,6 +312,7 @@ function planTasks(thread, depth, connectors, subject) {
   for (const c of connectors) {
     if (!c.kinds.includes(thread.kind)) continue;
     if (affiliate && !AFFILIATE_SOURCES.has(c.id)) continue;
+    if (thread.kind === 'url' && c.id === ARCHIVE_SOURCE && READ_ONLY_PAGE.test(String(thread.why || ''))) continue;
     if (typeof c.enabled === 'function' && !c.enabled()) continue;
     const variants = typeof c.plan === 'function' ? c.plan(thread, subject) : [{}];
     for (const v of variants || []) {
@@ -556,9 +568,11 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   const learned = new Map(rankByLearning([...priors].map(([key, prior]) => ({ key, prior })), stats).map((x) => [x.key, x.score]));
   // A thread several records point to (a company named again and again) goes before one seen once.
   const attested = (t) => 1 + Math.min(5, (state.threads[threadKey(t)]?.support || 1) - 1) * 0.08;
+  // The seed goes first whatever learning says: when the search engines are short of allowance, the lookups
+  // that tell who the person is must be the ones that get it.
   const order = state.queue
-    .map((t, i) => ({ t, i, score: (KIND_WEIGHT[t.kind] ?? 0.5) * (DEPTH_WEIGHT[t.depth] ?? 0.4) * (0.4 + (learned.get(learnKey(t)) ?? 0.5)) * attested(t) }))
-    .sort((x, y) => y.score - x.score || x.i - y.i)
+    .map((t, i) => ({ t, i, seed: isSeedTask(t) ? 1 : 0, score: (KIND_WEIGHT[t.kind] ?? 0.5) * (DEPTH_WEIGHT[t.depth] ?? 0.4) * (0.4 + (learned.get(learnKey(t)) ?? 0.5)) * attested(t) }))
+    .sort((x, y) => y.seed - x.seed || y.score - x.score || x.i - y.i)
     .map((x) => x.t);
 
   const room = Math.max(0, limits.maxTasks - state.tasksRun);
@@ -605,6 +619,14 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
     // the lookups already run, as `source|kind|value|pattern` (so a source can keep to a per-check limit)
     done: () => (state.done || []).slice(),
     knownUrls: () => Object.values(state.threads).filter((t) => t.kind === 'url' && t.trusted).map((t) => t.value),
+    // A per-check counter kept on the state (live within a step, saved across steps): takes n under `key`
+    // when the total stays within max, so a source can bound its requests even while its lookups run in parallel.
+    spend: (key, n = 1, max = Infinity) => {
+      const spent = state.spent || (state.spent = {});
+      if ((spent[key] || 0) + n > max) return false;
+      spent[key] = (spent[key] || 0) + n;
+      return true;
+    },
   };
 
   const worker = async () => {

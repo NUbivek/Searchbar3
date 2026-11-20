@@ -13,16 +13,16 @@ jest.mock('../../../src/server/search/retrieve', () => ({
 jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
 jest.mock('../../../src/server/founder/sources/searchEngines', () => {
   const actual = jest.requireActual('../../../src/server/founder/sources/searchEngines');
-  return { ...actual, keylessSearch: jest.fn(actual.keylessSearch) };
+  return { ...actual, keylessSearch: jest.fn(actual.keylessSearch), engineHealth: jest.fn(actual.engineHealth) };
 });
 
 import { setTransport } from '../../../src/server/founder/http';
 import { createSubject, addAnchor } from '../../../src/server/founder/identity';
 import { CATEGORIES } from '../../../src/server/founder/finding';
-import { keylessSearch, __resetEnginesForTests } from '../../../src/server/founder/sources/searchEngines';
+import { keylessSearch, engineHealth, __resetEnginesForTests } from '../../../src/server/founder/sources/searchEngines';
 import {
   webSearchConnector, newsArchiveConnector, webTemplates, newsTemplates, categoryFor, languageHints, shortCompany,
-  windowDates, NEWS_WINDOWS, METERED_PRIOR,
+  windowDates, NEWS_WINDOWS, METERED_PRIOR, SEED_TEMPLATES, SEED_RESERVE,
 } from '../../../src/server/founder/sources/web';
 
 const actualEngines = jest.requireActual('../../../src/server/founder/sources/searchEngines');
@@ -103,6 +103,8 @@ beforeEach(() => {
   __resetEnginesForTests();
   keylessSearch.mockReset();
   keylessSearch.mockImplementation(actualEngines.keylessSearch);
+  engineHealth.mockReset();
+  engineHealth.mockImplementation(actualEngines.engineHealth);
 });
 afterEach(() => setTransport());
 
@@ -252,7 +254,7 @@ describe('web-search: the search a lookup makes', () => {
     expect(typeof options.accept).toBe('function');
   });
 
-  test('the metered services are allowed only for patterns with a prior of 0.7 or more', async () => {
+  test('the metered services are allowed for the seed and for patterns with a prior of 0.7 or more', async () => {
     const subject = holmes();
     searchReturns([]);
     const allowed = {};
@@ -260,10 +262,10 @@ describe('web-search: the search a lookup makes', () => {
       keylessSearch.mockClear();
       await webSearchConnector.run(task('subject', subject.name, t.template, t.params, { prior: t.prior }), ctxFor(subject));
       allowed[t.template] = keylessSearch.mock.calls[0][1].allowMetered;
-      expect(allowed[t.template]).toBe(t.prior >= METERED_PRIOR);
+      expect(allowed[t.template]).toBe(t.prior >= METERED_PRIOR || SEED_TEMPLATES.includes(t.template));
     }
     expect(METERED_PRIOR).toBe(0.7);
-    expect(Object.keys(allowed).filter((k) => allowed[k])).toEqual(['q.profile', 'q.linkedin', 'q.lawsuit', 'q.fraud', 'q.education', 'q.background']);
+    expect(Object.keys(allowed).filter((k) => allowed[k])).toEqual(['q.profile', 'q.linkedin', 'q.lawsuit', 'q.fraud', 'q.prior-ventures', 'q.education', 'q.background', 'q.interviews']);
 
     // a company, an associate, and a free-form search proposed by the second reader: never metered
     for (const t of [
@@ -626,5 +628,81 @@ describe('news-archive', () => {
     ]);
     expect(out.findings[0].data).toEqual({ publisher: 'CNBC' });
     expect(out.findings[0].url).toMatch(/^https:\/\/news\.google\.com\/rss\/articles\//);
+  });
+});
+
+/* ------------------------------------------------------------------ the seed, and pages handed to the page reader */
+
+describe('the seed and the backup search service', () => {
+  const health = (used) => engineHealth.mockImplementation(() => ({ engines: [], metered: { configured: true, usedThisHour: used, hourlyLimit: 20 }, note: '' }));
+
+  test('late in a busy hour only the seed may still use the backup service', async () => {
+    const subject = holmes();
+    searchReturns([]);
+    health(20 - SEED_RESERVE);
+    const allowed = {};
+    for (const t of webSearchConnector.plan({ kind: 'subject', value: subject.name }, subject)) {
+      keylessSearch.mockClear();
+      await webSearchConnector.run(task('subject', subject.name, t.template, t.params, { prior: t.prior }), ctxFor(subject));
+      allowed[t.template] = keylessSearch.mock.calls[0][1].allowMetered;
+    }
+    expect(Object.keys(allowed).filter((k) => allowed[k]).sort()).toEqual([...SEED_TEMPLATES].sort());
+    // an earlier venture's lawsuit lookup too waits for a quieter hour
+    keylessSearch.mockClear();
+    await webSearchConnector.run(planned(webSearchConnector, { kind: 'company', value: 'Old Co', why: 'founder (past)' }, subject, 'q.company-prior-legal'), ctxFor(subject));
+    expect(keylessSearch.mock.calls[0][1].allowMetered).toBe(false);
+    health(2);
+    keylessSearch.mockClear();
+    await webSearchConnector.run(planned(webSearchConnector, { kind: 'subject', value: subject.name }, subject, 'q.lawsuit'), ctxFor(subject));
+    expect(keylessSearch.mock.calls[0][1].allowMetered).toBe(true);
+  });
+
+  test('a task that carries a seed flag of its own is not a seed: only our own patterns are', async () => {
+    const subject = holmes();
+    searchReturns([]);
+    health(20 - SEED_RESERVE);
+    await webSearchConnector.run(task('subject', subject.name, 'q.gap', { query: '"Elizabeth Holmes" Stanford', seed: true }, { prior: 0.5 }), ctxFor(subject));
+    expect(keylessSearch.mock.calls[0][1].allowMetered).toBe(false);
+  });
+});
+
+describe('pages handed to the page reader', () => {
+  const run = async (results, subject = roe(), template = 'q.profile') => {
+    searchReturns(results);
+    const { threads } = await webSearchConnector.run(planned(webSearchConnector, { kind: 'subject', value: subject.name }, subject, template), ctxFor(subject));
+    return threads;
+  };
+
+  test('the company\'s own site, seen on a record tied to the person, becomes a site to read', async () => {
+    const threads = await run([{ title: 'About us | Acme Robotics', snippet: 'Acme Robotics was founded by Jane Roe, its CEO.', url: 'https://www.acmerobotics.com/company/story', date: null }]);
+    expect(threads).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'domain', value: 'acmerobotics.com', why: 'company website', trusted: true })]));
+  });
+
+  test('an established publication\'s article whose snippet names them, though its headline does not', async () => {
+    const threads = await run([
+      { title: 'Acme Robotics raises $40M to automate warehouses', snippet: 'Jane Roe, co-founder and CEO of Acme Robotics, previously led robotics at Initech.', url: 'https://techcrunch.com/2024/05/01/acme-robotics-raises/', date: null },
+      { title: 'Acme Robotics raises money', snippet: 'Jane Roe, CEO of Acme Robotics, said ...', url: 'https://someblog.test/acme-robotics-raises', date: null },
+    ]);
+    const urls = threads.filter((t) => t.kind === 'url').map((t) => `${t.why}|${t.value}`);
+    expect(urls).toContain('article naming them|https://techcrunch.com/2024/05/01/acme-robotics-raises');
+    expect(urls.some((u) => u.includes('someblog.test'))).toBe(false);
+  });
+
+  test('podcast show notes and newsletter interviews that name them are read', async () => {
+    const threads = await run([
+      { title: 'Episode 74: building in robotics', snippet: 'Our guest is Jane Roe, CEO of Acme Robotics.', url: 'https://www.founderpod.test/episodes/74-building-in-robotics', date: null },
+      { title: 'Building Acme Robotics (#74)', snippet: 'A conversation with Jane Roe, co-founder of Acme Robotics.', url: 'https://notanotherceo.substack.com/p/acme-robotics-74', date: null },
+    ], roe(), 'q.interviews');
+    const why = Object.fromEntries(threads.filter((t) => t.kind === 'url').map((t) => [t.value, t.why]));
+    expect(why['https://www.founderpod.test/episodes/74-building-in-robotics']).toBe('podcast or interview page');
+    expect(why['https://notanotherceo.substack.com/p/acme-robotics-74']).toBe('interview or article page about them');
+  });
+
+  test('a record that only names them (a possible namesake) hands on no article, show notes or site', async () => {
+    const threads = await run([
+      { title: 'Robotics funding roundup', snippet: 'Jane Roe of Springfield spoke.', url: 'https://techcrunch.com/2024/05/01/roundup/', date: null },
+      { title: 'Episode 9', snippet: 'Our guest is Jane Roe.', url: 'https://pod.test/episodes/9-guest', date: null },
+    ]);
+    expect(threads.filter((t) => t.kind === 'url' || t.kind === 'domain')).toEqual([]);
   });
 });

@@ -319,3 +319,133 @@ export async function findContactsAtCompanies(userId, companyNames) {
     return [];
   }
 }
+
+// ------------------------------------------------------------ names (Founder Check)
+//
+// Founder Check decides "same full name" with founder/networkLink.js nameKeys():
+// no bracketed nickname, nothing after a comma, no leading title or trailing
+// degree, accents removed, apostrophes and dots dropped, any other character
+// outside a-z 0-9 - read as a space. The SQL below must find every row that
+// rule could accept, so the stored name is folded the same way in SQL
+// (translate) and both the first and the last word of the name must appear
+// in it as whole words. The caller still checks the full name.
+
+const HONORIFIC = new Set(['dr', 'mr', 'mrs', 'ms', 'mx', 'prof', 'sir', 'dame']);
+const CREDENTIAL = new Set(['phd', 'mba', 'md', 'cfa', 'cpa', 'esq', 'jd', 'msc', 'bsc', 'ma', 'ba', 'pe', 'pmp']);
+const COMBINING = /[\u0300-\u036f]/g;
+const DROPPED = "'’`.";
+
+// Every Latin letter whose accents fold away to one plain letter, for translate() in SQL.
+const [FOLD_FROM, FOLD_TO] = (() => {
+  let from = '';
+  let to = '';
+  const ranges = [[0xc0, 0x24f], [0x1e00, 0x1eff]];
+  for (const [a, b] of ranges) {
+    for (let cp = a; cp <= b; cp += 1) {
+      const ch = String.fromCodePoint(cp);
+      const plain = ch.normalize('NFKD').replace(COMBINING, '').toLowerCase();
+      if (/^[a-z]$/.test(plain) && plain !== ch) { from += ch; to += plain; }
+    }
+  }
+  // Characters past the end of FOLD_TO are deleted by translate().
+  return [from + DROPPED, to];
+})();
+
+/** The stored name folded in SQL like foldName() folds it in JS, with a space at each end. */
+const FOLDED_NAME_SQL = "' ' || regexp_replace(translate(lower(name), $3, $4), '[^a-z0-9-]+', ' ', 'g') || ' '";
+
+/** Lower case, accents removed, apostrophes and dots dropped, other symbols as spaces (as nameKeys reads names). */
+export function foldName(name) {
+  return String(name || '')
+    .normalize('NFKD').replace(COMBINING, '')
+    .toLowerCase()
+    .replace(/['’`.]/g, '')
+    .replace(/[^a-z0-9\- ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** The first and last word of a person's full name, folded; null for a one-word name. */
+function firstAndLast(name) {
+  const cleaned = String(name || '').replace(/\([^)]*\)/g, ' ').split(',')[0]
+    .replace(/["“”„]/g, '').replace(/[’']s\b/g, '');
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  while (tokens.length > 2 && HONORIFIC.has(tokens[0].toLowerCase().replace(/\./g, ''))) tokens.shift();
+  while (tokens.length > 2 && CREDENTIAL.has(tokens[tokens.length - 1].toLowerCase().replace(/\./g, ''))) tokens.pop();
+  if (tokens.length < 2) return null;
+  const words = foldName(tokens.join(' ')).split(' ').filter(Boolean);
+  if (words.length < 2) return null;
+  return [words[0], words[words.length - 1]];
+}
+
+/** A LIKE pattern for one whole folded word in the spaced, folded name (words hold only a-z 0-9 -). */
+const wholeWord = (w) => `% ${w} %`;
+
+/** Most rows one lookup returns. More than this and the lookup fails rather than return a partial list. */
+export const NAME_MATCH_LIMIT = 1000;
+
+/**
+ * For Founder Check: which of the user's saved contacts carry one of these
+ * names? The SQL only narrows the rows down (the folded stored name holds
+ * both the first and the last word of a name); the caller decides what
+ * counts as the same full name (see founder/networkLink.js). Email and
+ * location are never selected.
+ *
+ * findContactsByNames(userId, names: string[])
+ *   -> Promise<Array<{ name, company, position, profileUrl, connectedOn, source, relationship, via }>>
+ *
+ * Returns [] when signed out or without persistence. Throws when the
+ * lookup fails or would return more than NAME_MATCH_LIMIT rows, so a partial
+ * list is never taken for the whole one (both callers in networkLink.js
+ * catch: no seed, and "could not be read" on the report).
+ */
+export async function findContactsByNames(userId, names) {
+  if (!userId || persistenceMode() === 'none') return [];
+  const pairs = [];
+  const seen = new Set();
+  for (const name of Array.isArray(names) ? names : [names]) {
+    const pair = firstAndLast(name);
+    if (!pair) continue;
+    const key = pair.join(' ');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pairs.push(pair);
+    if (pairs.length >= 120) break;
+  }
+  if (!pairs.length) return [];
+  try {
+    await ensureTable();
+    const firsts = pairs.map(([f]) => wholeWord(f));
+    const lasts = pairs.map(([, l]) => wholeWord(l));
+    // Pair i matches when the folded name holds first word i and last word i as whole words.
+    const rows = await query(
+      `SELECT name, company, position, profile_url, connected_on, source, relationship, via
+         FROM (
+           SELECT name, company, position, profile_url, connected_on, source, relationship, via,
+                  ${FOLDED_NAME_SQL} AS folded
+             FROM network_contacts
+            WHERE user_id = $1 AND ${ACTIVE_WHERE}
+         ) c
+        WHERE EXISTS (
+          SELECT 1 FROM unnest($2::text[], $5::text[]) AS p(f, l)
+           WHERE c.folded LIKE p.f AND c.folded LIKE p.l
+        )
+        ORDER BY lower(name)
+        LIMIT ${NAME_MATCH_LIMIT + 1}`,
+      [userId, firsts, FOLD_FROM, FOLD_TO, lasts]
+    );
+    if ((rows || []).length > NAME_MATCH_LIMIT) {
+      throw new Error(`more than ${NAME_MATCH_LIMIT} contacts share these names`);
+    }
+    return (rows || []).map((r) => {
+      const c = rowFromDb(r);
+      return {
+        name: c.name, company: c.company, position: c.position, profileUrl: c.profileUrl,
+        connectedOn: c.connectedOn, source: c.source, relationship: c.relationship, via: c.via,
+      };
+    });
+  } catch (error) {
+    console.warn('findContactsByNames failed:', error.message);
+    throw error;
+  }
+}

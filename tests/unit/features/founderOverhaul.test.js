@@ -214,6 +214,17 @@ describe('review fixes: whose career is it', () => {
     expect(bioSentences(subject, text, { aboutThem: true }).map((s) => s.text)).toEqual(['Jane Roe is the co-founder of Acme.']);
   });
 
+  test('a "He" after a sentence that brings in someone else is not read as the person (review: pronoun carry)', () => {
+    // an article's text (the page reader's own records hold only sentences bioSentences already kept)
+    const p = buildProfile(subject, [rec({ title: 'Acme story', quote: 'Jane Roe founded Acme in 2018. She hired Bob Smith as her first engineer. He previously worked at Google from 2012 to 2017.' })]);
+    expect(p.earlier.map((e) => e.org)).not.toContain('Google');
+    const text = 'Jane Roe founded Acme in 2018. She hired Bob Smith as her first engineer. He previously worked at Google.';
+    expect(bioSentences(subject, text, { aboutThem: true }).map((s) => s.text)).not.toContain('He previously worked at Google.');
+    // a plain run of "She" sentences still carries, and a place name is not taken for another person
+    const q = buildProfile(subject, [rec({ title: 'Acme story', quote: 'Jane Roe founded Acme in 2018. She served in the Israeli Navy. She previously worked at Stripe.' })]);
+    expect(q.earlier.map((e) => e.org)).toEqual(['Stripe']);
+  });
+
   test('sentences that open on the person are read, with a capitalised lead-in too', () => {
     const p = buildProfile(subject, [
       rec({ source: 'page-reader', category: 'career', data: { kind: 'bio' }, quote: 'Jane Roe is the CEO of Acme. Prior to Acme, she was a product manager at Stripe. Jane and Bob graduated from Columbia University.' }),
@@ -262,4 +273,15 @@ test('profile lines from search results: the company after "at", fields that end
   expect(out).toHaveLength(2);
   expect(out[0]).toEqual(expect.objectContaining({ role: 'Co-Founder', company: 'Acme', location: 'New York, New York, United States', education: 'Columbia University' }));
   expect(out[1]).toEqual(expect.objectContaining({ role: null, company: 'Acme', location: 'London' }));
+});
+
+test('a school is theirs when they are the one who graduated, wherever the sentence starts; a headline says founder once', () => {
+  const s2 = createSubject({ name: 'Shensi Ding', company: 'Merge' });
+  const p = buildProfile(s2, [
+    rec({ source: 'page-reader', category: 'education', data: { kind: 'bio' }, quote: 'The journey began in 2015 after Shensi and Gil graduated from Columbia University.' }),
+    rec({ title: 'Shensi Ding, founder of Merge' }), rec({ title: 'Shensi Ding, Co-Founder and CEO of Merge' }), rec({ title: 'Merge CEO & Co-Founder Shensi Ding' }),
+    rec({ source: 'page-reader', category: 'career', data: { kind: 'bio' }, quote: 'The firm grew after Gil and Bob Smith graduated from Yale University.' }),
+  ]);
+  expect(p.education.map((e) => e.school)).toEqual(['Columbia University']);
+  expect(p.headline).toBe('Co-Founder and CEO, Merge');
 });

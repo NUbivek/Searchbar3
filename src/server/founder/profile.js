@@ -50,6 +50,79 @@ const CONTINUES = /^["“'(]?(?:She|He|They|Prior to|Before|Previously|Earlier|A
 const KIN = /\b(?:husband|wife|spouse|partner'?s|boyfriend|girlfriend|fianc[ée]e?|father|mother|dad|mom|parents?|son|daughter|brother|sister|sibling|uncle|aunt|cousin|grandfather|grandmother|children|kids?|childhood|grew up|born (?:in|on|to)|raised (?:in|by)|when (?:she|he|they) (?:was|were) (?:\d+|[a-z]+) years)\b/i;
 const LEAD_IN = /^["“'(]?(?:(?:Before|Prior to|After|Previously|Earlier|Formerly|In \d{4}|Today|Now)\b[^,]{0,70},\s*)?/;
 
+const THIS_YEAR = new Date().getUTCFullYear();
+const year = (y) => { const n = Number(y); return Number.isInteger(n) && n >= 1950 && n <= THIS_YEAR + 1 ? n : null; };
+/**
+ * The years printed right after a name in a sentence: "Stripe (2015–2017)", "Stripe, 2015 - present",
+ * "Stripe from 2015 to 2017". Only a span beside the name counts; a year elsewhere in the sentence is another fact.
+ * @returns {{ from: number|null, to: number|null, current: boolean }|null}
+ */
+export function spanAfter(sentence, name) {
+  const s = String(sentence || '');
+  const i = s.toLowerCase().indexOf(String(name || '').toLowerCase());
+  if (!name || i < 0) return null;
+  const after = s.slice(i + String(name).length, i + String(name).length + 40);
+  const m = after.match(/^\s*(?:[(,]\s*|\s+from\s+)(\d{4})\s*(?:[-–—]|to|until)\s*(\d{4}|present|now|today|current)\s*\)?/i);
+  if (!m) return null;
+  const from = year(m[1]);
+  const open = /^(?:present|now|today|current)$/i.test(m[2]);
+  const to = open ? null : year(m[2]);
+  if (!from || (!open && (!to || to < from))) return null;
+  return { from, to, current: open };
+}
+
+const STREET = /\b(?:street|st\.|avenue|ave\.?|road|rd\.?|boulevard|blvd|lane|drive|apt|apartment|suite|unit|floor|po box|zip|postcode|home|house)\b/i;
+/** A place a person is based: a city or metro area, never an address (no numbers, no street, a few words at most). */
+export function placeOnly(text) {
+  const t = tidy(String(text || '').replace(/[.,;]+$/, ''));
+  if (t.length < 2 || t.length > 48 || /\d|@/.test(t) || STREET.test(t) || t.split(/[\s,]+/).filter(Boolean).length > 6) return null;
+  if (!/^[A-Z]/.test(t)) return null;
+  return t;
+}
+
+
+/** The text with the person's own name blanked out, so only other people's names are left to find. */
+export function maskSubject(subject, text) {
+  const t = String(text || '');
+  const at = typeof subject?.hasName?.positions === 'function' ? subject.hasName.positions(t) : null;
+  if (at) {
+    let out = '';
+    let from = 0;
+    for (const p of at) { out += `${t.slice(from, p.start)} • `; from = p.end; }
+    return out + t.slice(from);
+  }
+  const vs = (subject?.variants || []).filter(Boolean);
+  return vs.length ? t.replace(new RegExp(vs.map(esc).join('|'), 'gi'), ' • ') : t;
+}
+
+// Capitalised words that make a run an organisation, school, place, title or date rather than a person
+const NOT_PERSON = new Set(`inc corp corporation llc ltd co company companies school schools university universities college institute academy capital partners ventures venture labs lab group bank banking fund funds foundation technologies technology tech systems holdings consulting business street code who under forbes fortune inc. google microsoft amazon meta apple facebook netflix oracle salesforce stripe ibm intel nvidia tesla uber airbnb mckinsey bain deloitte accenture goldman sachs morgan stanley jpmorgan chase credit suisse new san los las santa saint st north south east west united states state york francisco angeles city valley silicon bay area america american americas europe european asia africa india china london paris berlin boston texas california washington center centre health media network networks software studio studios global international research association society council board committee club program programme office department ministry government agency hospital medical sciences science engineering management law review times journal news post magazine week day summit conference award awards prize list series january february march april may june july august september october november december monday tuesday wednesday thursday friday saturday sunday previously before after prior earlier today now in at the she he they her his their a an and of for chief officer executive vice president director senior junior head manager product engineer partner founder co-founder cofounder ceo cto coo cfo cpo cro vp svp evp general managing principal associate analyst fellow member chair chairman chairwoman professor dr mr mrs ms phd mba bs ba ms ma jd md business administration computer finance economics arts`.split(/\s+/));
+// someone else brought into the sentence: hired, recruited, a co-founder or colleague of theirs
+export const HANDOFF = /(?<!\b(?:was|were|been|be|being|is|are|got|get|gets)\s+)\b(?:hired|hires|hiring|recruit(?:ed|s|ing)?|appoint(?:ed|s|ing)|brought (?:on|in)|poach(?:ed|es|ing)?|introduc(?:ed|es|ing)|married|mentor(?:ed|s|ing))\b/i;
+export const RELATION = /(?:['’]s?|\b(?:her|his|their|our|its))\s+(?:[\p{L}-]+\s+){0,2}(?:co-?\s?founders?|cofounders?|colleagues?|partners?|husband|wife|spouse|boss|manager|mentors?|mentees?|teammates?|friends?|peers?|predecessor|successor|employees?|hires?|students?|advisors?|deputy|assistant|report)\b/iu;
+export const NAME_RUN = /(?<![\p{L}\p{N}'’-])[A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}'’-]+){1,2}(?![\p{L}\p{N}'’-])/gu;
+const PERSON_BEFORE = /(?:\b(?:and|with|alongside|by|met|hired|recruited|appointed|named|told|said|says|according to|thanks|thanked|co-?\s?founders?|cofounders?|colleagues?|partners?|husband|wife|boss|manager|mentor|friend|CEO|CTO|COO|CFO|founder|president|engineer|investor|director)|&)\s*,?\s*$/i;
+const PERSON_AFTER = /^(?:['’]s\b|\s*,\s*(?:a|an|the|who|whose|our|her|his|their|its|former|then|now)\b|\s+(?:and (?:she|he|they|her|him)|studied|studies|worked|works|was|is|joined|joins|led|leads|served|serves|earned|graduated|holds|held|spent|previously|formerly|had|has|attended|received|ran|runs|heads|headed|said|says|told)\b)/i;
+export const isPersonRun = (run) => !run.split(/\s+/).some((w) => NOT_PERSON.has(w.toLowerCase().replace(/['’]s$/, '').replace(/[.'’]+$/, '')));
+
+/**
+ * Does a sentence (the person's own name aside) bring in somebody else, so that a "He/She" after it may be them?
+ * A person-like name ("Bob Smith"), someone hired or recruited, or a co-founder or colleague of theirs.
+ */
+export function bringsInSomeoneElse(subject, sentence) {
+  const m = maskSubject(subject, sentence);
+  if (HANDOFF.test(m) || RELATION.test(m)) return true;
+  for (const x of m.matchAll(NAME_RUN)) {
+    if (!isPersonRun(x[0])) continue;
+    const before = m.slice(Math.max(0, x.index - 40), x.index);
+    const after = m.slice(x.index + x[0].length, x.index + x[0].length + 30);
+    // a capitalised pair is a person only where a person stands: "and Bob Smith", "hired Bob Smith",
+    // "co-founder Bob Smith", "Bob Smith, a ...", "Bob Smith joined ...", "Bob Smith's"; never "the Israeli Navy"
+    if (PERSON_BEFORE.test(before) || PERSON_AFTER.test(after)) return true;
+  }
+  return false;
+}
+
 /**
  * Is the person the one this sentence is about? It must open on them (after an optional "Before founding
  * Acme," lead-in): their full name, "She/He/They", or, where allowed, their first name not followed by
@@ -85,7 +158,7 @@ export function bioSentences(subject, text, { max = 12, aboutThem = false } = {}
   for (const s of sentences) {
     const named = subject.hasName(s) || Boolean(byFirstName && byFirstName.test(s));
     const follows = !named && carry > 0 && CONTINUES.test(s);
-    carry = named ? 3 : follows ? carry - 1 : 0;
+    carry = (named || follows) && bringsInSomeoneElse(subject, s) ? 0 : named ? 3 : follows ? carry - 1 : 0;
     if (!(named || follows) || !BIO_WORD.test(s) || s.length > 400 || KIN.test(s)) continue;
     // an attribution line under a quotation ("... — Reference: Acme CEO Jane Roe") says nothing of their career
     if (/[—–-]\s*(?:Reference|Source|Credit)s?\s*:/i.test(s)) continue;
@@ -132,16 +205,21 @@ export function buildProfile(subject, findings, threads = []) {
   const schools = new Map(); // key -> { school, ids:Set }
   const orgs = new Map(); // key -> { org, role, ids:Set }
   const about = [];
-  const addSchool = (school, id) => {
+  const places = new Map(); // key -> { text, ids:Set }
+  const withSpan = (entry, span) => {
+    if (span && entry.from == null) { entry.from = span.from; entry.to = span.to; entry.current = span.current; }
+  };
+  const addSchool = (school, id, span = null) => {
     const name = tidy(school.replace(/^The /, ''));
     const key = name.toLowerCase();
     if (!schools.has(key)) schools.set(key, { school: name, ids: new Set() });
     schools.get(key).ids.add(id);
+    withSpan(schools.get(key), span);
   };
-  const addOrg = (raw, role, id) => {
+  const addOrg = (raw, role, id, span = null) => {
     const org = trimOrg(raw);
     const key = org.toLowerCase();
-    if (org.length < 2 || NOT_ORG.has(key) || key.split(/\s+/).every((w) => nameTokens.has(w))) return;
+    if (org.length < 2 || org.length > 60 || NOT_ORG.has(key) || key.split(/\s+/).every((w) => nameTokens.has(w))) return;
     if (coRe && coRe.test(org)) return;
     SCHOOL.lastIndex = 0;
     if (SCHOOL.test(org)) { SCHOOL.lastIndex = 0; return; }
@@ -149,6 +227,14 @@ export function buildProfile(subject, findings, threads = []) {
     const entry = orgs.get(key);
     entry.ids.add(id);
     if (role && !entry.role) entry.role = tidy(role);
+    withSpan(entry, span);
+  };
+  const addPlace = (raw, id) => {
+    const text = placeOnly(raw);
+    if (!text) return;
+    const key = text.toLowerCase();
+    if (!places.has(key)) places.set(key, { text, ids: new Set() });
+    places.get(key).ids.add(id);
   };
 
   for (const f of tied) {
@@ -156,20 +242,37 @@ export function buildProfile(subject, findings, threads = []) {
     // a record the page reader made: its title is ours, the sentences are the page's
     const whole = fromBioPage ? String(f.quote || '') : `${f.title || ''}. ${f.quote || ''}`;
     // A search snippet of a profile page: "Experience: Merge · Education: Columbia University · Location: ..."
-    const labelled = whole.match(/\bEducation:\s*([^·|.]{3,80})/);
-    if (labelled && subject.hasName(f.title || '')) addSchool(labelled[1], f.id);
+    // These labels are the profile's own fields, so they are the person's when the page title names them.
+    if (subject.hasName(f.title || '')) {
+      const labelled = whole.match(/\bEducation:\s*([^·|.]{3,80})/);
+      if (labelled) addSchool(labelled[1].replace(/\s*\(?\d{4}.*$/, ''), f.id, spanAfter(labelled[1], labelled[1].replace(/\s*\(?\d{4}.*$/, '').trim()));
+      const exp = whole.match(/\bExperience:\s*(.{2,240}?)(?=\s*(?:[·|]\s*)?(?:Education|Location|Connections|Followers|\d+\s*(?:connections|followers))\b|\s*[|\n]|\.\s|$)/i);
+      if (exp) {
+        for (const part of exp[1].split(/\s+[·•]\s+|;\s*|,\s+(?=[A-Z])/)) {
+          const name = tidy(part.replace(/\s*[(,]?\s*\d{4}.*$/, ''));
+          if (/^[A-Z0-9]/.test(name) && name.split(/\s+/).length <= 6) addOrg(name, null, f.id, spanAfter(part, name));
+        }
+      }
+      const loc = whole.match(/\bLocation:\s*([^·|\n]{2,60}?)(?=\s*(?:[·|]|\.(?:\s|$)|\d+\s*(?:connections|followers)|$))/i);
+      if (loc) addPlace(loc[1], f.id);
+    }
 
     let carry = 0;
     for (const s of sentencesOf(whole)) {
+      const who = `(?:${esc(String(subject.name).trim())}${fromBioPage && String(subject.name).trim().split(/\s+/)[0].length >= 4 ? `|${esc(String(subject.name).trim().split(/\s+/)[0])}` : ''})`;
+      const doing = new RegExp(`(?<![\\p{L}\\p{N}])${who}(?:\\s+and\\s+[A-Z][\\p{L}'’-]+(?:\\s+[A-Z][\\p{L}'’-]+)?)?\\s+(?:both\\s+|also\\s+|then\\s+|later\\s+)?(?:graduated|studied|attended|earned|received|majored|worked|joined|served|spent|interned|started (?:her|his|their) career|began (?:her|his|their) career)\\b`, 'u').test(s);
       const named = subject.hasName(s);
       const follows = !named && carry > 0 && CONTINUES.test(s);
       // on a page the reader kept, the person is also called by their first name
       const firstNamed = !named && fromBioPage && opensOnSubject(subject, s, { firstName: true });
-      carry = named || firstNamed ? 2 : follows ? carry - 1 : 0;
-      if ((!named && !follows && !firstNamed) || KIN.test(s)) continue;
+      // once someone else is brought in ("She hired Bob Smith."), the next "He/She" may be them: no carry past it
+      carry = (named || firstNamed || follows) && bringsInSomeoneElse(subject, s) ? 0 : named || firstNamed ? 2 : follows ? carry - 1 : 0;
+      if ((!named && !follows && !firstNamed && !doing) || KIN.test(s)) continue;
       // Schools and employers are read only from a sentence that opens on the person: in "Acme, founded by
       // Jane Roe and Bob Smith, a former engineer at Google" the employer is Bob Smith's.
-      const theirs = opensOnSubject(subject, s, { firstName: fromBioPage });
+      // ... or one where they are the one doing it, wherever it stands: "The journey began after Shensi and
+      // Gil graduated from Columbia" (their name, an optional "and <someone>", then the verb).
+      const theirs = doing || opensOnSubject(subject, s, { firstName: fromBioPage });
 
       if (coRe) {
         const a = s.match(new RegExp(`(${TITLES})\\s*(?:of|at|,|@)\\s+(?:the\\s+)?${esc(company)}(?![\\p{L}\\p{N}])`, 'iu'));
@@ -186,15 +289,19 @@ export function buildProfile(subject, findings, threads = []) {
       }
       if (theirs && EDU_WORD.test(s)) {
         SCHOOL.lastIndex = 0;
-        for (const m of s.matchAll(SCHOOL)) addSchool(m[0], f.id);
+        for (const m of s.matchAll(SCHOOL)) addSchool(m[0], f.id, spanAfter(s, m[0]));
       }
       for (const re of theirs ? PRIOR : []) {
         re.lastIndex = 0;
         for (const m of s.matchAll(re)) {
           const list = String(m.groups.orgs || '').split(/,\s+and\s+|\s+and\s+(?=[A-Z])|,\s+/);
           const role = m.groups.role && !/\b(?:who|which|that|is|was|the)\b/i.test(m.groups.role) ? m.groups.role : null;
-          for (const org of list) addOrg(org, list.length === 1 ? role : null, f.id);
+          for (const org of list) addOrg(org, list.length === 1 ? role : null, f.id, spanAfter(s, trimOrg(org)));
         }
+      }
+      if (theirs) {
+        const based = s.match(/\b(?:is|are|was|now|currently)?\s*based (?:in|out of)\s+([A-Z][\p{L}.'’-]+(?:(?:,\s*|\s+)[A-Z][\p{L}.'’-]+){0,3})/u);
+        if (based) addPlace(based[1], f.id);
       }
       if (named && BIO_WORD.test(s) && s.length >= 60 && s.length <= 300 && /[.!?]["”']?$/.test(s) && !/\s[—–|]\s/.test(s) && about.length < 40) about.push({ text: s, id: f.id, bio: fromBioPage, hasCo: Boolean(coRe && coRe.test(s)) });
     }
@@ -205,6 +312,8 @@ export function buildProfile(subject, findings, threads = []) {
   const top = ranked[0]?.[1].size || 0;
   const kept = ranked.filter(([, ids]) => ids.size >= Math.max(1, Math.ceil(top / 3))).map(([label]) => label);
   const order = TITLE_FORMS.map(([, label]) => label);
+  // "Co-Founder" already says founder
+  if (kept.includes('Co-Founder') && kept.includes('Founder')) kept.splice(kept.indexOf('Founder'), 1);
   kept.sort((a, b) => order.indexOf(a) - order.indexOf(b));
   const headline = kept.length ? `${kept.slice(0, 3).join(kept.length === 2 ? ' and ' : ', ')}${company ? `, ${company}` : ''}` : null;
   const headlineIds = [...new Set(kept.flatMap((label) => [...titleVotes.get(label)]))].slice(0, 4);
@@ -231,8 +340,11 @@ export function buildProfile(subject, findings, threads = []) {
   }
 
   const list = (map, field) => [...map.values()].sort((a, b) => b.ids.size - a.ids.size).slice(0, 10).map((e) => ({ ...e, ids: [...e.ids].slice(0, 4), [field]: e[field] }));
+  const place = [...places.values()].sort((a, b) => b.ids.size - a.ids.size)[0] || null;
   return {
     headline, headlineIds,
+    titles: kept.slice(0, 3),
+    basedIn: place ? { text: place.text, ids: [...place.ids].slice(0, 4) } : null,
     company: company || null,
     education: list(schools, 'school'),
     earlier: list(orgs, 'org'),

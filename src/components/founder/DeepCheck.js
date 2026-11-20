@@ -15,6 +15,7 @@ import { useSession } from 'next-auth/react';
 import { HiOutlineSparkles, HiOutlineShieldCheck, HiOutlineArrowPath, HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
 import { renderSafeHtml } from '../search/results/SimplifiedLLMResults';
 import { skippedNote } from '../../utils/skippedNote';
+import NetworkLinks from './NetworkLinks';
 
 const MATCH = {
   confirmed: { label: 'same person', chip: 'chip chip-good', title: 'The record names this person together with a company known to be theirs.' },
@@ -243,7 +244,33 @@ function Cites({ ns }) {
   return (ns || []).map((n) => <a key={n} href={`#deep-source-${n}`} className="cite ml-1">[{n}]</a>);
 }
 
-/** Who they are, from the records tied to them: role, education, earlier roles, background, public profiles. */
+/** "2019 – present", "2015 – 2017", "2015", or nothing when the record gives no years. */
+export function yearsOf({ from = null, to = null, current = false } = {}) {
+  if (from && (to || current)) return `${from} – ${current && !to ? 'present' : to}`;
+  if (from) return String(from);
+  if (to) return `until ${to}`;
+  return current ? 'present' : '';
+}
+
+/** The roles to show: the profile's own list, or (a report saved before roles were read) the headline and earlier employers. */
+function rolesOf(profile) {
+  if (Array.isArray(profile.roles)) return profile.roles;
+  const now = profile.headline ? [{ org: profile.company || '', title: profile.headline, current: true, cites: profile.headlineCites, whole: true }] : [];
+  return [...now, ...(profile.earlier || []).map((e) => ({ org: e.org, title: e.role, current: false, cites: e.cites }))];
+}
+
+function Line({ main, detail = null, when = '', cites }) {
+  return (
+    <li className="flex flex-wrap items-baseline gap-x-1.5">
+      <span className="font-medium text-ink">{main}</span>
+      {detail ? <span className="text-slate-700">· {detail}</span> : null}
+      {when ? <span className="text-xs text-muted">{when}</span> : null}
+      <Cites ns={cites} />
+    </li>
+  );
+}
+
+/** Who they are, from the records tied to them, laid out like a résumé: every line links to the record it came from. */
 function Profile({ profile }) {
   const row = (label, children) => (
     <div className="grid gap-1 py-2.5 first:pt-0 last:pb-0 sm:grid-cols-[9rem_1fr]">
@@ -251,20 +278,34 @@ function Profile({ profile }) {
       <dd className="text-sm text-slate-700">{children}</dd>
     </div>
   );
+  const roles = rolesOf(profile);
+  const education = profile.education || [];
+  const list = (items, render) => <ul className="space-y-1.5">{items.map(render)}</ul>;
   return (
-    <Block title="Profile" open note={<p className="muted mb-3 text-xs">Read from public pages tied to this person. Each line links to the record it came from.</p>}>
+    <Block title="Profile" open note={<p className="muted mb-3 text-xs">Read from public pages tied to this person. Each line links to the record it came from; a line no record states is left out.</p>}>
+      {(profile.headline || profile.basedIn) && (
+        <div className="mb-3">
+          {profile.headline && <p className="text-base font-semibold text-ink">{profile.headline}<Cites ns={profile.headlineCites} /></p>}
+          {profile.basedIn && <p className="text-xs text-muted">Based in {profile.basedIn.text}<Cites ns={profile.basedIn.cites} /></p>}
+        </div>
+      )}
       <dl className="divide-y divide-line">
-        {profile.headline && row('Current role', <><span className="font-medium text-ink">{profile.headline}</span><Cites ns={profile.headlineCites} /></>)}
-        {profile.education.length > 0 && row('Education', (
-          <ul className="space-y-1">{profile.education.map((e) => <li key={e.school}>{e.school}<Cites ns={e.cites} /></li>)}</ul>
-        ))}
-        {profile.earlier.length > 0 && row('Earlier roles', (
-          <ul className="space-y-1">{profile.earlier.map((e) => <li key={e.org}><span className="text-ink">{e.org}</span>{e.role ? <span className="text-muted"> · {e.role}</span> : null}<Cites ns={e.cites} /></li>)}</ul>
-        ))}
-        {profile.about.length > 0 && row('Background', (
+        {roles.length > 0 && row('Experience', list(roles, (r, i) => (
+          r.whole
+            ? <Line key={`now-${i}`} main={r.title} when="present" cites={r.cites} />
+            : <Line key={`${r.org}-${r.title || ''}-${i}`} main={r.org} detail={r.title} when={yearsOf(r)} cites={r.cites} />
+        )))}
+        {profile.founded?.length > 0 && row('Founded', list(profile.founded, (e) => <Line key={e.org} main={e.org} when={e.year ? String(e.year) : ''} cites={e.cites} />))}
+        {profile.boards?.length > 0 && row('Boards and advisory', list(profile.boards, (e) => <Line key={e.org} main={e.org} detail={e.role} cites={e.cites} />))}
+        {profile.investments?.length > 0 && row('Investments', list(profile.investments, (e) => <Line key={e.org} main={e.org} cites={e.cites} />))}
+        {education.length > 0 && row('Education', list(education, (e) => (
+          <Line key={e.school} main={e.school} detail={[e.degree, e.field].filter(Boolean).join(', ') || null} when={yearsOf(e)} cites={e.cites} />
+        )))}
+        {profile.recognition?.length > 0 && row('Recognition', list(profile.recognition, (e) => <Line key={e.title} main={e.title} when={e.year ? String(e.year) : ''} cites={e.cites} />))}
+        {profile.about?.length > 0 && row('Background', (
           <ul className="space-y-2">{profile.about.map((a) => <li key={a.text}>“{a.text}”<Cites ns={a.cites} /></li>)}</ul>
         ))}
-        {profile.links.length > 0 && row('Public profiles', (
+        {profile.links?.length > 0 && row('Public profiles', (
           <span className="flex flex-wrap gap-1.5">
             {profile.links.map((l) => <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer" className="chip">{PLATFORM_LABEL[l.platform] || l.platform}</a>)}
           </span>
@@ -370,6 +411,7 @@ function Report({ report, onRerun, headingRef = null }) {
       </section>
 
       {report.profile && <Profile profile={report.profile} />}
+      {report.network && <NetworkLinks network={report.network} name={report.name} />}
 
       <Block title="Red flags" count={report.redFlags.length} tone={report.redFlags.length ? 'chip chip-bad' : coverage.searched.length ? 'chip chip-good' : 'chip chip-warn'} open>
         {report.redFlags.length === 0

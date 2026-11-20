@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import NetworkPage from '../../src/pages/network';
+import NetworkPage, { findCheck, contactNameCounts } from '../../src/pages/network';
 
 jest.mock('next/head', () => function Head({ children }) { return <>{children}</>; });
 jest.mock('next/link', () => function Link({ children, href, ...props }) { return <a href={href} {...props}>{children}</a>; });
@@ -92,5 +92,30 @@ describe('NetworkPage', () => {
     fireEvent.click(screen.getByText('Connect X'));
     expect(screen.getByText("X connection isn't available on this deployment yet.")).toBeTruthy();
     expect(screen.queryByText(/paid|tier|API/)).toBeNull();
+  });
+});
+
+describe('findCheck: which finished founder check marks a contact', () => {
+  const smiths = [{ name: 'John Smith', company: 'Acme' }, { name: 'John Smith', company: 'Beta' }, { name: 'Ann Lee', company: 'Gamma' }];
+  const noCompany = { name: 'John Smith', company: '', date: '2026-11-19', redFlags: 3 };
+
+  it('a check run without a company is not pinned on namesakes', () => {
+    const counts = contactNameCounts(smiths);
+    expect(findCheck([noCompany], 'John Smith', 'Acme', counts)).toBeNull();
+    expect(findCheck([noCompany], 'John Smith', 'Beta', counts)).toBeNull();
+    // without the loaded network, nothing is assumed
+    expect(findCheck([noCompany], 'John Smith', 'Acme')).toBeNull();
+  });
+
+  it('a company-less check marks the only contact with that full name (accents and case aside)', () => {
+    const counts = contactNameCounts([{ name: 'José Smith', company: 'Acme' }, { name: 'Ann Lee' }]);
+    expect(findCheck([{ ...noCompany, name: 'jose smith' }], 'José Smith', 'Acme', counts)).toMatchObject({ redFlags: 3 });
+  });
+
+  it('a check with a company marks only the contact at that company', () => {
+    const counts = contactNameCounts(smiths);
+    const acme = { name: 'John Smith', company: 'Acme Inc', date: '2026-11-19', redFlags: 1 };
+    expect(findCheck([acme], 'John Smith', 'Acme', counts)).toBe(acme);
+    expect(findCheck([acme], 'John Smith', 'Beta', counts)).toBeNull();
   });
 });

@@ -18,7 +18,7 @@
 import { makeFinding, makeThread, severityFromText } from '../finding';
 import { threadsFromResult, relativesFromText, profileFromUrl, mentions } from '../extract';
 import { nameTokens } from '../identity';
-import { keylessSearch, ENGINES } from './searchEngines';
+import { keylessSearch, ENGINES, engineHealth } from './searchEngines';
 
 const SEVERITY_RANK = { high: 3, medium: 2, low: 1, info: 0 };
 /** How many records that name only the company (not the person) one lookup may add: the most serious first. */
@@ -33,6 +33,23 @@ const onHost = (host, list) => list.some((h) => host === h || host.endsWith(`.${
 
 /** Lookups whose query pattern has at least this prior may use the metered search services when every keyless engine came back empty. */
 export const METERED_PRIOR = 0.7;
+/**
+ * The seed of a check: the person's profile, LinkedIn, education, background, interviews and earlier
+ * ventures. These run first (deepCheck.js orders them ahead of everything else in the first round) and
+ * may always use the backup search service, within its hourly limit. Other lookups that may use it leave
+ * SEED_RESERVE uses of the hour for the seed of the next check.
+ */
+export const SEED_TEMPLATES = ['q.profile', 'q.linkedin', 'q.education', 'q.background', 'q.interviews', 'q.prior-ventures'];
+export const SEED_RESERVE = SEED_TEMPLATES.length;
+/** Is there room in this hour's backup-search uses for a lookup that is not part of a seed? */
+export function meteredRoomBeyondSeed() {
+  try {
+    const { metered } = engineHealth();
+    return metered.usedThisHour + SEED_RESERVE < metered.hourlyLimit;
+  } catch {
+    return true;
+  }
+}
 
 const LEGAL_SUFFIX = /[,\s]+(?:inc|incorporated|llc|l\.l\.c|ltd|limited|corp|corporation|co|plc|llp|lp|gmbh|ag|ug|kg|sas|sasu|sarl|sa|s\.a|s\.l|bv|b\.v|nv|oy|ab|pty|pte|holdings?)\.?$/i;
 /** "Theranos, Inc." -> "Theranos": the name people and the press actually use. */
@@ -94,20 +111,24 @@ function subjectTemplates(subject) {
   const add = (id, query, prior, why, extra = {}) => out.push({ template: `q.${id}`, params: { query, ...extra }, prior, why });
   const reference = { prefer: 'reference' }; // when the web engines are resting: an encyclopedia entry before headlines
 
-  add('profile', co ? `${name} ${co}` : name, 0.8, 'who they are and what they run', reference);
-  add('linkedin', `${name}${co ? ` ${co}` : ''} site:linkedin.com/in`, 0.75, 'their LinkedIn profile');
+  // The seed: the lookups that build the profile (who they are, where they worked and studied, their own
+  // words). They run first in a check and may use the backup search service when the keyless engines are
+  // resting (SEED_TEMPLATES).
+  const seed = { seed: true };
+  add('profile', co ? `${name} ${co}` : name, 0.8, 'who they are and what they run', { ...reference, ...seed });
+  add('linkedin', `${name}${co ? ` ${co}` : ''} site:linkedin.com/in`, 0.75, 'their LinkedIn profile', seed);
   add('lawsuit', `${name} ${any('lawsuit', 'sued', 'court', 'complaint')}`, 0.7, 'lawsuits and court cases that name them');
   add('fraud', `${name} ${any('fraud', 'scam', 'investigation', 'indicted', 'charged')}`, 0.7, 'fraud allegations, investigations and charges');
-  add('prior-ventures', `${name} ${any('founder', '"co-founder"', 'CEO')}${company ? ` -${phrase(company)}` : ''}`, 0.6, 'companies they founded or ran before', reference);
+  add('prior-ventures', `${name} ${any('founder', '"co-founder"', 'CEO')}${company ? ` -${phrase(company)}` : ''}`, 0.6, 'companies they founded or ran before', { ...reference, ...seed });
   // what they started next, and who backed it: coverage of a later venture usually names the famous one too, so nothing is excluded
   add('later-ventures', `${name} ${any('raises', 'funding', '"backed by"', 'launches', '"new company"')}`, 0.55, 'companies they started later and who invested in them');
   add('employment', `${name} ${any('fired', 'ousted', 'resigned', 'harassment', 'misconduct')}`, 0.55, 'how they left earlier roles');
   add('regulatory', `${name} ${any('SEC', 'FTC', 'regulator', 'fine', 'settlement')}`, 0.55, 'regulators, fines and settlements');
-  add('education', `${name}${co ? ` ${co}` : ''} ${any('graduated', 'alumni', 'degree', 'university', 'studied')}`, co ? 0.7 : 0.5, 'where they studied', reference);
-  add('background', `${name}${co ? ` ${co}` : ''} ${any('previously', 'formerly', '"prior to"', '"before founding"', '"worked at"')}`, 0.7, 'where they worked before', reference);
+  add('education', `${name}${co ? ` ${co}` : ''} ${any('graduated', 'alumni', 'degree', 'university', 'studied')}`, co ? 0.7 : 0.5, 'where they studied', { ...reference, ...seed });
+  add('background', `${name}${co ? ` ${co}` : ''} ${any('previously', 'formerly', '"prior to"', '"before founding"', '"worked at"')}`, 0.7, 'where they worked before', { ...reference, ...seed });
   add('insolvency', `${name} ${any('bankruptcy', 'insolvency', 'liquidation', '"shut down"')}`, 0.5, 'bankruptcies and companies that were wound up');
   add('resume', `${name} ${any('resume', 'CV', '"curriculum vitae"')}`, 0.45, 'a published resume or CV');
-  add('interviews', `${name} ${any('interview', 'podcast', 'keynote')}`, 0.45, 'interviews and talks, in their own words');
+  add('interviews', `${name} ${any('interview', 'podcast', 'keynote')}`, 0.45, 'interviews and talks, in their own words', seed);
   add('family', `${name} ${any('"son of"', '"daughter of"', 'father', 'mother', 'brother', 'sister', 'married')}`, 0.4, 'family members in public business or political roles', { family: true, ...reference });
   add('forums', `${name} ${any('site:reddit.com', 'site:news.ycombinator.com')}`, 0.4, 'what forums say about them');
   if (surname && tokens.length > 1) {
@@ -197,6 +218,23 @@ export function categoryFor(host, text, task = {}) {
 }
 
 const BIO_PATH = /\/(?:team|our-team|about|about-us|people|leadership|management|founders|staff|who-we-are|bios?|speakers?|profiles?|authors?|partners|board)(?:\/|$|[-_.])/i;
+/** Podcast show notes, interviews and talks: pages in the person's own words, usually with an introduction of their career. */
+const TALK_PATH = /\/(?:podcasts?|podcast-episodes?|episodes?|show-?notes|interviews?|fireside(?:-chats?)?|talks?|webinars?|conversations?)(?:\/|$|[-_.])/i;
+/**
+ * Established publications and press-release wires: an article there whose search snippet names the
+ * person is worth opening even when its headline does not (founder profiles, funding stories, appointment
+ * announcements). Paywalled titles are left out (nothing to read), and every page is still opened only
+ * when the site's robots.txt allows it (pages.js).
+ */
+export const PRESS_HOSTS = ['techcrunch.com', 'venturebeat.com', 'geekwire.com', 'sifted.eu', 'fortune.com', 'fastcompany.com', 'inc.com', 'forbes.com', 'businessinsider.com', 'cnbc.com', 'axios.com', 'theverge.com', 'wired.com', 'siliconangle.com', 'news.crunchbase.com', 'theguardian.com', 'bbc.com', 'bbc.co.uk', 'prnewswire.com', 'businesswire.com', 'globenewswire.com', 'eu-startups.com', 'tech.eu', 'maddyness.com', 'lesechos.fr', 'yourstory.com', 'inc42.com', 'techinasia.com', 'betakit.com', 'builtin.com', 'entrepreneur.com', 'thenextweb.com', 'protocol.com', 'semafor.com'];
+const companyLabelKey = (s) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+/** Is this host the company's own site? Its first label is the company's name ("merge.dev" for Merge, "acmerobotics.com" for Acme Robotics). */
+function companySite(subject, host) {
+  const label = host.split('.')[0];
+  if (label.length < 3) return false;
+  const names = [subject.company, ...[...(subject.anchors?.companies?.values?.() || [])].filter((a) => a.origin === 'given').map((a) => a.value)].filter(Boolean);
+  return names.some((n) => { const k = companyLabelKey(shortCompany(n)); return k.length >= 3 && (label === k || label === `${k}hq` || label === `get${k}` || label === `${k}app`); });
+}
 const RESUME_WORDS = /\b(?:resume|résumé|cv|curriculum[-_ ]?vitae)\b/i;
 
 /**
@@ -216,11 +254,17 @@ function pageThreads(subject, result, finding) {
   const add = (why, extra = {}) => out.push(makeThread('url', page, why, { trusted, ...extra }));
 
   const profile = profileFromUrl(result.url);
+  const namesThem = subject.hasName(result.title) || subject.hasName(result.snippet || '');
+  const deep = path.split('/').filter(Boolean).length;
   if (profile) {
     // a profile whose address does not carry the name ("/in/amensch"): only when the result itself names the person
     if (subject.hasName(result.title)) out.push(makeThread('url', profile.url, `${profile.platform} profile`, { trusted, platform: profile.platform }));
+    // A newsletter post or essay (substack.com/p/..., medium.com/@x/...) that names them: often an interview
+    if ((profile.platform === 'substack' || profile.platform === 'medium') && finding.match === 'confirmed' && namesThem && deep >= 2) add('interview or article page about them');
     return out.filter(Boolean);
   }
+  // The company's own site, seen on a record tied to the person: its about and team pages are read (pages.js)
+  if (finding.match === 'confirmed' && companySite(subject, host)) out.push(makeThread('domain', host, 'company website', { trusted }));
   if (onHost(host, ['indeed.com']) && (/^\/(?:r|me)\//.test(path) || /^(?:profile|resumes?)\./.test(host))) add('Indeed resume', { platform: 'indeed' });
   else if (onHost(host, ['crunchbase.com']) && /^\/person\//.test(path)) add('crunchbase profile', { platform: 'crunchbase' });
   else if (onHost(host, ['wellfound.com', 'angel.co']) && /^\/(?:u|p|people)\//.test(path)) add('wellfound profile', { platform: 'wellfound' });
@@ -236,7 +280,11 @@ function pageThreads(subject, result, finding) {
     } else if (!result.host && !result.publisher && BIO_PATH.test(path) && path.split('/').filter(Boolean).length <= 4) add('team or bio page');
     // A page whose own headline names the person (a profile, an interview, a founder story) is about them:
     // worth opening for what it says of their career and education. Never the front page of a site.
-    else if (finding.match === 'confirmed' && subject.hasName(result.title) && path.split('/').filter(Boolean).length >= 1 && !/news\.google\.com$/.test(host)) add('page about them');
+    else if (finding.match === 'confirmed' && subject.hasName(result.title) && deep >= 1 && !/news\.google\.com$/.test(host)) add('page about them');
+    // Podcast show notes and interviews: the guest's introduction usually tells their career
+    else if (finding.match === 'confirmed' && namesThem && !result.host && !result.publisher && TALK_PATH.test(path) && deep >= 2) add('podcast or interview page');
+    // An established publication's article whose snippet names them, though its headline does not
+    else if (finding.match === 'confirmed' && namesThem && !result.host && onHost(host, PRESS_HOSTS) && deep >= 1) add('article naming them');
   }
   return out.filter(Boolean);
 }
@@ -509,6 +557,17 @@ function priorOf(task, subject, templates) {
   if (mine) return mine.prior;
   return Number.isFinite(Number(task.prior)) ? Number(task.prior) : 0;
 }
+/** Is the task one of the seed lookups about the person? Read from our own patterns, never from what the task carries. */
+function isSeed(task, subject) {
+  if (task.kind !== 'subject' || !SEED_TEMPLATES.includes(task.template)) return false;
+  return Boolean(webTemplates({ kind: 'subject', value: task.value }, subject).find((t) => t.template === task.template)?.params?.seed);
+}
+/** May this lookup use the backup search service? Seeds always may; other high-value lookups while the seed reserve is left. */
+function meteredAllowed(task, subject, planned) {
+  if (isSeed(task, subject)) return true;
+  if (!(priorOf(task, subject, webTemplates) >= METERED_PRIOR || Boolean(planned.allowMetered))) return false;
+  return meteredRoomBeyondSeed();
+}
 
 export const webSearchConnector = {
   id: WEB_ID,
@@ -527,8 +586,8 @@ export const webSearchConnector = {
 
     const { results, tried } = await keylessSearch(query, {
       news: Boolean(planned.news), withinDays: planned.withinDays, num: 10, deadline: ctx.deadline,
-      // the metered services are kept for the lookups that matter most
-      allowMetered: priorOf(task, subject, webTemplates) >= METERED_PRIOR || Boolean(planned.allowMetered),
+      // the metered services are kept for the lookups that matter most: the seed first
+      allowMetered: meteredAllowed(task, subject, planned),
       lang: planned.lang, prefer: planned.prefer, accept: acceptFor(subject, task),
     });
     const { findings, threads } = collect(subject, task, results, { source: WEB_ID, sourceLabel: WEB_LABEL, family: Boolean(planned.family), companyOnlyMax: COMPANY_ONLY_MAX.web, knownWiki: knownWikiPages(ctx), backgroundKept: backgroundWikiCount(ctx) });

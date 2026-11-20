@@ -92,8 +92,9 @@ const SCREENS = {
 // The checklist of public-record screens the report shows, so a clean screen is seen to have run.
 const SCREEN_GROUPS = [
   ['Sanctions and watchlists', ['sanctions-lists', 'us-exclusions', 'wanted-lists', 'offshore-leaks']],
-  ['Courts and prosecutors', ['court-dockets', 'court-records-open', 'doj-press-releases', 'uk-case-law']],
-  ['Regulators and filings', ['us-enforcement-actions', 'finra-brokercheck', 'sec-filings', 'sec-company', 'uk-gazette', 'fr-bodacc']],
+  ['Courts and prosecutors', ['court-dockets', 'court-records-open', 'doj-press-releases', 'delaware-courts', 'uk-case-law', 'eu-courts', 'canada-federal-courts']],
+  ['Regulators and filings', ['us-enforcement-actions', 'finra-brokercheck', 'us-bank-regulators', 'fincen-actions', 'us-agency-orders', 'sec-filings', 'sec-company', 'cfpb-complaints', 'federal-register', 'fda-recalls', 'uk-gazette', 'fr-bodacc']],
+  ['US federal awards, lobbying and grants', ['us-federal-awards', 'us-lobbying', 'nih-grants']],
   ['Dark-web leak sites and data breaches (company level)', ['leak-sites', 'breach-catalogue', 'breach-registers']],
   ['Company registers', ['us-state-registries', 'uk-companies-house', 'fr-companies', 'lei-register', 'yc-directory', 'nonprofit-filings']],
   ['Patents and trademarks', ['patents', 'trademarks']],
@@ -674,19 +675,12 @@ export function buildReport(state) {
 
   const count = (m) => cited.filter((f) => f.match === m).length;
   const cite = (ids) => [...new Set((ids || []).map((id) => numberOf.get(id)).filter(Boolean))];
-  const hasProfile = profile.headline || profile.education.length || profile.earlier.length || profile.about.length || profile.links.length;
   return {
     name: state.name,
     company: state.company || null,
     identity: state.identity,
     generatedAt: new Date().toISOString(),
-    profile: hasProfile ? {
-      headline: profile.headline, headlineCites: cite(profile.headlineIds), company: profile.company,
-      education: profile.education.map((e) => ({ school: e.school, cites: cite(e.ids) })),
-      earlier: profile.earlier.map((e) => ({ org: e.org, role: e.role || null, cites: cite(e.ids) })),
-      about: profile.about.map((a) => ({ text: a.text, cites: cite([a.id]) })),
-      links: profile.links,
-    } : null,
+    profile: reportProfile(profile, cite),
     screens: screensOf(allSources, cited),
     sharedCompanyName: sharedName,
     totals: { records: cited.length, confirmed: count('confirmed'), likely: count('likely'), possible: count('possible'), company: count('company'), redFlags: redFlags.length, companyMatters: companyMatters.length, possibleNamesake: possibleNamesake.length, seriousRecords: serious.length },
@@ -704,6 +698,34 @@ export function buildReport(state) {
     log: state.log || [],
     notice: USE_NOTICE,
   };
+}
+
+/**
+ * The profile in the report's form: every line cites record numbers. Roles (the current one from the
+ * headline, then the earlier ones, latest first), education, and the fields a model-read profile adds
+ * (profileModel.js mergeProfile) left empty, so the page reads the same shape either way. Null when empty.
+ * @param {object} profile from profile.buildProfile
+ * @param {(ids: string[]) => number[]} cite record ids to record numbers
+ */
+export function reportProfile(profile, cite) {
+  if (!profile) return null;
+  const current = profile.headline && profile.company && profile.titles?.length
+    ? [{ org: profile.company, title: profile.titles.join(profile.titles.length === 2 ? ' and ' : ', '), from: null, to: null, current: true, cites: cite(profile.headlineIds) }]
+    : [];
+  const earlier = (profile.earlier || []).map((e) => ({ org: e.org, title: e.role || null, from: e.from ?? null, to: e.to ?? null, current: Boolean(e.current), cites: cite(e.ids) }));
+  const roles = [...current, ...earlier].sort((a, b) => (b.current ? 10000 : 0) + (b.from || b.to || 0) - ((a.current ? 10000 : 0) + (a.from || a.to || 0)));
+  const out = {
+    headline: profile.headline, headlineCites: cite(profile.headlineIds), company: profile.company,
+    roles,
+    education: (profile.education || []).map((e) => ({ school: e.school, degree: null, field: null, from: e.from ?? null, to: e.to ?? null, cites: cite(e.ids) })),
+    earlier: (profile.earlier || []).map((e) => ({ org: e.org, role: e.role || null, cites: cite(e.ids) })),
+    boards: [], founded: [], investments: [], recognition: [],
+    basedIn: profile.basedIn ? { text: profile.basedIn.text, cites: cite(profile.basedIn.ids) } : null,
+    about: (profile.about || []).map((a) => ({ text: a.text, cites: cite([a.id]) })),
+    links: profile.links || [],
+  };
+  const has = out.headline || out.roles.length || out.education.length || out.basedIn || out.about.length || out.links.length;
+  return has ? out : null;
 }
 
 export const DEEP_SECTIONS = ['## BOTTOM LINE', '## RED FLAGS', '## WHAT CHECKS OUT', '## CLAIMS THAT CHANGED OVER TIME', '## RELATED PARTIES', '## GAPS AND UNVERIFIED CLAIMS', '## QUESTIONS FOR THE FOUNDER'];
