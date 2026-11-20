@@ -42,6 +42,8 @@ import { query, persistenceMode } from '../db';
 const LIST_CACHE_MS = 6 * 3600 * 1000;
 const FALLBACK_RESERVE_MS = 12000;
 const MIN_ATTEMPT_MS = 5000;
+/** How many models of one service a single request may try. */
+const MAX_PER_PROVIDER = 2;
 /** The longest one model may take when others are still waiting behind it. */
 const FIRST_ATTEMPT_MS = { analysis: 26000, other: 16000 };
 const MAX_ATTEMPTS = 6;
@@ -525,7 +527,18 @@ export async function chatComplete(messages, { preferred = 'auto', task = 'chat'
   const kind = TASKS.includes(task) ? task : 'chat';
   const promptTokens = estimateTokens(messages);
   const { chain, left } = await buildChain({ task: kind, preferred, personal, promptTokens, deadline, avoid: Array.isArray(avoid) ? avoid : [] });
-  const attempts = chain.slice(0, MAX_ATTEMPTS);
+  // At most two models of one service before the other services get a turn: when a service is slow or down, its other
+  // models usually are too, and four of them in a row used to spend the whole time before another
+  // service was asked.
+  const perProvider = new Map();
+  const overflow = [];
+  const attempts = [...chain.filter((c) => {
+    const n = perProvider.get(c.p.id) || 0;
+    perProvider.set(c.p.id, n + 1);
+    if (n >= MAX_PER_PROVIDER) overflow.push(c);
+    return n < MAX_PER_PROVIDER;
+  }), ...overflow].slice(0, MAX_ATTEMPTS); // a service's third model waits behind the other services
+  const struggling = new Set(); // services that timed out or failed on their side during this request
   const errors = [];
   const skipped = [];
   const outcomes = [];
@@ -536,6 +549,12 @@ export async function chatComplete(messages, { preferred = 'auto', task = 'chat'
   for (const [i, c] of attempts.entries()) {
     const { p } = c;
     if (resting(p, c.id)) continue; // switched off or rested during this request (a tripwire, a 402)
+    // A service that just timed out is passed over while another service is still waiting to be asked
+    // (it goes to the back of the line, and is asked after them if they fail too)
+    if (!c.deferred && struggling.has(p.id) && attempts.slice(i + 1).some((x) => x.p.id !== p.id && !struggling.has(x.p.id) && !resting(x.p, x.id))) {
+      attempts.push({ ...c, deferred: true });
+      continue;
+    }
     let attemptMs = timeoutMs;
     if (deadline) {
       const remaining = deadline - Date.now();
@@ -610,6 +629,7 @@ export async function chatComplete(messages, { preferred = 'auto', task = 'chat'
       const f = describeFailure(error);
       const quota = f.status === 429 || f.status === 402 || f.status === 401 || f.status === 403;
       fail(f.why, `${f.status || error.message}${f.detail ? ` (${f.detail})` : ''}`, !quota);
+      if (error.code === 'ECONNABORTED' || /timeout|timed out/i.test(String(error.message)) || error.response?.status >= 500) struggling.add(p.id);
       const rest = restAfter(p, c.id, error);
       if (rest) {
         const until = Date.now() + rest.ms;

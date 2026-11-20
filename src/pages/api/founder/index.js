@@ -54,7 +54,7 @@ export default async function handler(req, res) {
   if (name.length > 120) return res.status(400).json({ error: 'name must be 120 characters or fewer' });
   if (company.length > 120) return res.status(400).json({ error: 'company must be 120 characters or fewer' });
   try {
-    const result = await runFounderCheck({ name, company, model, deadline: startedAt + 50000 });
+    const result = await runFounderCheck({ name, company, model, deadline: startedAt + 44000 });
     const references = await backchannelReferences(req, res, result, company);
     res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json({ ...result, references });

@@ -134,12 +134,14 @@ describe('the strongest model that can answer goes first', () => {
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     expect(await providers.chatComplete(ask)).toBeNull();
     expect(called(axios)).toEqual([
+      // a service that fails on its side goes to the back of the line while another service is waiting:
+      // its second model is asked only after every service has had a turn
       'generativelanguage:gemini-4-hydrogen',
-      'generativelanguage:gemini-3.8-flash',
       'openrouter:thinkingmachines/inkling-2-small:free',
-      'openrouter:inclusionai/ling-3.2-flash:free',
-      'openrouter:nvidia/nemotron-3-ultra-550b-a55b:free',
       'groq:qwen/qwen3.8-27b',
+      'groq:openai/gpt-oss-120b',
+      'generativelanguage:gemini-3.8-flash',
+      'openrouter:inclusionai/ling-3.2-flash:free',
     ]); // six attempts at most
     console.warn.mockRestore();
   });
