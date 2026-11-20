@@ -415,7 +415,8 @@ async function buildChain({ task, preferred, personal, promptTokens, deadline, a
       const rest = resting(p, m.id);
       if (rest) { out(rest.why); continue; }
       if (task === 'analysis' && m.entry.weak) continue; // never trusted with a report
-      if (avoid.includes(m.entry.family) || avoid.includes(`${p.id}:${m.id}`)) continue; // the caller already tried it
+      // the caller already tried it, or is asking this whole service in a parallel request ("provider:*")
+      if (avoid.includes(m.entry.family) || avoid.includes(`${p.id}:${m.id}`) || avoid.includes(`${p.id}:*`)) continue;
       if (personal && m.entry.abroad) continue;
       if (skipGeminiForPeople && p.id === 'gemini') continue;
       if (p.smallPromptsOnly && promptTokens > GROQ_FREE_TPM * 0.75) { out('question too long for this model'); continue; }
@@ -511,7 +512,7 @@ const cleanText = (data) => String(data?.choices?.[0]?.message?.content || '').r
  *     limit). Each attempt leaves FALLBACK_RESERVE_MS for the next one.
  *   personal: the text is about a named person under review; models served
  *     from another jurisdiction are left out.
- *   avoid: model families (or "provider:model" ids) to leave out, for a
+ *   avoid: model families (or "provider:model" ids, or "provider:*" for a whole service) to leave out, for a
  *     retry after they failed.
  *   trace: an array that receives every failed attempt ({ provider, model,
  *     family, why }), so a caller can retry without them even when no model answered.

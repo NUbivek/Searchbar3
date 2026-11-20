@@ -819,10 +819,29 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
     const user = `Today's date: ${new Date().toISOString().slice(0, 10)}\nPerson: ${displayName}${co ? `\nCompany (to disambiguate): ${co}` : ''}\n\nSources:\n${sourcesBlock(ranked)}`;
     // An answer that fails the citation checks sends the request to the next model rather than giving up on AI
     // Whatever a model service does, the brief is back by the deadline: past it, the quoted digest is used
-    const out = await withTimeout(chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], {
-      preferred: model, maxTokens: 1300, deadline, personal: true,
+    const ask = (avoid) => chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], {
+      preferred: model, maxTokens: 1300, deadline, personal: true, avoid,
       accept: (text) => validateAnswer(text, ranked.length, BRIEF_SECTIONS).ok,
-    }), deadline ? Math.max(1000, deadline - Date.now() + 1500) : 120000, 'AI brief').catch(() => null);
+    }).catch(() => null);
+    // One service having a bad day must not cost the brief: when the first request has not answered after
+    // a few seconds, the same question also goes to the other services, and the first good answer is used.
+    const HEDGE_AFTER_MS = 6000;
+    const hedged = async () => {
+      const first = ask([]);
+      const early = await Promise.race([first, new Promise((resolve) => setTimeout(() => resolve(undefined), HEDGE_AFTER_MS))]);
+      if (early !== undefined) return early;
+      const enabled = PROVIDERS.filter(providerEnabled).map((p) => p.id);
+      if (enabled.length < 2 || model !== 'auto') return first;
+      // the second request leaves out the service the chain leads with (the one the first request is waiting on)
+      const second = ask([`${enabled[0]}:*`]);
+      const firstGood = (ps) => new Promise((resolve) => {
+        let left = ps.length;
+        for (const p of ps) p.then((v) => { left -= 1; if (v || left === 0) resolve(v || null); });
+      });
+      return firstGood([first, second]);
+    };
+    // Whatever a model service does, the brief is back by the deadline: past it, the quoted digest is used
+    const out = await withTimeout(hedged(), deadline ? Math.max(1000, deadline - Date.now() + 1500) : 120000, 'AI brief').catch(() => null);
     if (out) {
       const checked = validateAnswer(out.text, ranked.length, BRIEF_SECTIONS);
       if (checked.ok) {
