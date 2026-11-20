@@ -45,7 +45,7 @@ const MIN_ATTEMPT_MS = 5000;
 /** How many models of one service a single request may try. */
 const MAX_PER_PROVIDER = 2;
 /** The longest one model may take when others are still waiting behind it. */
-const FIRST_ATTEMPT_MS = { analysis: 26000, other: 20000 };
+const FIRST_ATTEMPT_MS = { analysis: 26000, other: 24000 };
 const MAX_ATTEMPTS = 6;
 /** Groq's free plan allows 8,000 tokens a minute; a paid plan reports far more. */
 const GROQ_FREE_TPM = 8000;

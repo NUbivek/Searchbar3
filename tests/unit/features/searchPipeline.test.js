@@ -169,8 +169,8 @@ describe('LLM provider chain', () => {
     const [first, second] = axios.post.mock.calls;
     expect(first[0]).toMatch(/generativelanguage/);
     // one model never takes nearly all the time: the first attempt is capped so two fallbacks can still answer
-    expect(first[2].timeout).toBeLessThanOrEqual(20000);
-    expect(first[2].timeout).toBeGreaterThan(18000);
+    expect(first[2].timeout).toBeLessThanOrEqual(24000);
+    expect(first[2].timeout).toBeGreaterThan(22000);
     expect(second[0]).toMatch(/groq/);
     expect(out).toEqual(expect.objectContaining({ provider: 'groq', text: 'fast answer' }));
     expect(out.skipped).toEqual([{ provider: 'Google Gemini', model: 'gemini-3.8-flash', why: 'timed out' }]);
