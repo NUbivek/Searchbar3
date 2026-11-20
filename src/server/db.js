@@ -175,12 +175,20 @@ async function createClient() {
   throw new PersistenceUnavailableError();
 }
 
+// The local embedded database allows one open copy per folder. The development server reloads this
+// module while it runs, and a second copy opened on the same folder aborts both, so outside tests the
+// open client is kept on the process and found again after a reload.
+const keepOnProcess = process.env.NODE_ENV !== 'test' && process.env.NODE_ENV !== 'production';
+
 async function getClient() {
+  if (!clientPromise && keepOnProcess && globalThis.__researchHubDb) clientPromise = globalThis.__researchHubDb;
   if (!clientPromise) {
     clientPromise = createClient().catch((error) => {
       clientPromise = null;
+      if (keepOnProcess) globalThis.__researchHubDb = null;
       throw error;
     });
+    if (keepOnProcess) globalThis.__researchHubDb = clientPromise;
   }
   const client = await clientPromise;
   if (!schemaPromise) {

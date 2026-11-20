@@ -23,6 +23,8 @@ Released on 2026-11-17 (all live):
 
 Changed on 2026-11-20 (on preview `claude/research-hub-fix`; in production only after the owner's "push to production"), after the owner reported the tab as broken: the quick brief keeps only pages about this person; the model chain switches service after a timeout; the deep check gained a page reader (`sources/pages.js`), a Profile card (`profile.js`) and a Public-record screens checklist; name-only records sit in one collapsed block. Details in `eval/founder/LOG.md` and FOUNDER-CHECK.md. Rule added by this work: profile lines (school, employer) are read only from sentences that open on the person, never from a sentence about a colleague or relative.
 
+Second pass on 2026-11-20 (same branch): 18 more sources (`sources/debarment.js`, `government.js`, `courtsMore.js`, `presence.js`), a model-read profile (`profileModel.js`), a deeper page reader, the Network Map pairing (`networkLink.js`, `NetworkLinks.js`, `api/founder/history.js`), and a quick brief that asks a second model service in parallel when the first is slow. One source is written but not listed pending the owner (FOUNDER-CHECK.md, "Choices the owner should know about"). Rules added: contacts never leave the account and only a company name may become a search term; a one-word company name matched on the name alone is a name match, not a company record; a lookup that was cut short or not run returns `partial`, never a clean result.
+
 Quality so far, from graded live checks on public figures (`eval/founder/`):
 
 | Round | Average | Notes |
