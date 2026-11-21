@@ -2,7 +2,9 @@
  * Ask your network.
  *
  *   POST { question: string, contacts?: Contact[], target?: string, llm?: boolean }
- *   -> { question, filters: { companies, roles, keywords, locations, intent },
+ *   -> { question, filters: { companies, roles, keywords, locations, tags, industries,
+ *                             connected, intent, lens },
+ *        understood: string[] (what was read, in plain words: "Tagged “prospect”", "In New York"),
  *        parsedBy: 'rules'|'llm'|'target', intent, contactCount,
  *        results: [{ contact, score, reasons }], total, notes,
  *        intro?: { target, direct, viaInvestors: [{ investor, evidence, contacts, total }],
@@ -12,7 +14,10 @@
  * the database is unavailable). Signed out: searches the contacts the
  * browser sends, which are used for this request only and never stored.
  * Contacts are never sent to an LLM or any other external service; at most
- * the question text is.
+ * the question text is. The file's own words (its tags, the map's industry
+ * labels, its cities) are read from the contacts here on the server, so the
+ * rules recognise them without a model. The contacts sent signed out must
+ * keep tags, location and connectedOn for those questions to match.
  */
 import { getUserId } from '../../../server/auth';
 import { persistenceMode } from '../../../server/db';

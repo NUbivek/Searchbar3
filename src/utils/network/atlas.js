@@ -12,18 +12,31 @@
  * zooms over these coordinates.
  */
 import { packSiblings } from 'd3-hierarchy';
-import { normalizeCompanyKey, dedupeKey } from './parseContacts';
-import { bucketsFor, OTHER_INDUSTRY, UNKNOWN_COUNTRY } from './grouping';
+import { dedupeKey } from './parseContacts';
+import { bucketsFor, companyKeyFor, tagProfile, OTHER_INDUSTRY, UNKNOWN_COUNTRY, NO_TAG, OTHER_TAGS } from './grouping';
 
 export const NO_COMPANY_KEY = '__none__';
+/** The bubble that holds every company past the largest ones under By company. */
+export const OTHER_COMPANIES_KEY = '__other__';
+/** How many companies By company shows as their own bubbles. */
+export const MAX_COMPANY_HUBS = 16;
 export const ROOT_ID = 'root';
-export const personNodeId = (contact) => `p:${dedupeKey(contact)}`;
+const personIds = new WeakMap();
+/** A person's node id, stable across arrangements and filters. Cached per contact. */
+export function personNodeId(contact) {
+  let id = personIds.get(contact);
+  if (id === undefined) { id = `p:${dedupeKey(contact)}`; if (contact && typeof contact === 'object') personIds.set(contact, id); }
+  return id;
+}
 
 /** Layers of the map for each starting grouping, outermost first. */
 export const LAYERS = {
   role: ['role', 'industry', 'company'],
   industry: ['industry', 'role', 'company'],
   country: ['country', 'industry', 'company'],
+  place: ['country', 'industry', 'company'],
+  // A pipeline or fundraising list: the stage, then the accounts in it.
+  tag: ['tag', 'company'],
   company: ['company'],
 };
 
@@ -62,7 +75,15 @@ const REACH = { company: 5, group: 34, root: 60 };
 const COMPASS = { investors: [0, -1], founders: [0.95, -0.31], operators: [0.59, 0.81], other: [-0.59, 0.81], experts: [-0.95, -0.31] };
 
 /** 0 = runs the place, 1 = leads a function, 2 = everyone else; read from the title. */
+const ranks = new WeakMap();
 export function seniority(contact) {
+  if (!contact || typeof contact !== 'object') return 2;
+  let r = ranks.get(contact);
+  if (r === undefined) { r = readSeniority(contact); ranks.set(contact, r); }
+  return r;
+}
+
+function readSeniority(contact) {
   const t = String(contact?.position || '').toLowerCase();
   if (/\b(founder|co-?founder|ceo|chief|president|owner|chair|chairman|chairwoman|managing (director|partner)|general partner|partner|principal)\b/.test(t) && !/\b(assistant|associate) to\b/.test(t)) return 0;
   if (/\b(vp|vice president|svp|evp|head|director|lead|gm|general manager)\b/.test(t)) return 1;
@@ -73,11 +94,14 @@ export function seniority(contact) {
 const BURST = 6.4;
 const GOLDEN = Math.PI * (3 - Math.sqrt(5));
 
+/** The contact's normalised company key, or NO_COMPANY_KEY. Cached per contact. */
+export const companyKeyOf = (contact) => companyKeyFor(contact) || NO_COMPANY_KEY;
+
 /** Group contacts by normalised company. Returns [{ key, label, contacts }] largest first. */
 export function groupByCompany(contacts) {
   const groups = new Map();
   for (const c of contacts || []) {
-    const key = normalizeCompanyKey(c.company) || NO_COMPANY_KEY;
+    const key = companyKeyOf(c);
     let g = groups.get(key);
     if (!g) {
       g = { key, label: key === NO_COMPANY_KEY ? 'No company listed' : c.company, contacts: [], labels: new Map() };
@@ -97,8 +121,8 @@ export function groupByCompany(contacts) {
   return list;
 }
 
-function companyNodes(contacts, parent) {
-  return groupByCompany(contacts).map((g) => {
+function companyNodes(contacts, parent, groups = groupByCompany(contacts)) {
+  return groups.map((g) => {
     const node = {
       id: `${parent.id === ROOT_ID ? 'g' : parent.id}/c:${g.key}`, type: 'company', key: g.key, label: g.label,
       count: g.contacts.length, contacts: g.contacts, parent, depth: parent.depth + 1,
@@ -111,18 +135,59 @@ function companyNodes(contacts, parent) {
   });
 }
 
-function childNodes(contacts, dims, parent) {
+const plural = (n, one, many) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
+
+/** "{n} people · most at {company} ({k})": a line built from the people in the group. */
+function hintFor(contacts, { firstTag = false } = {}) {
+  const counts = new Map();
+  const labels = new Map();
+  for (const c of contacts) {
+    const k = companyKeyOf(c);
+    if (k === NO_COMPANY_KEY) continue;
+    counts.set(k, (counts.get(k) || 0) + 1);
+    if (!labels.has(k)) labels.set(k, c.company);
+  }
+  let best = null; let n = 0;
+  for (const [k, v] of counts) if (v > n || (v === n && String(labels.get(k)).localeCompare(String(labels.get(best))) < 0)) { best = k; n = v; }
+  const parts = [];
+  if (firstTag) parts.push('By first tag');
+  parts.push(plural(contacts.length, 'person', 'people'));
+  if (best && n >= 2) parts.push(`most at ${labels.get(best)} (${n.toLocaleString('en-US')})`);
+  return parts.join(' · ');
+}
+
+function groupNode(parent, dim, b, extra = {}) {
+  return {
+    id: `${parent.id === ROOT_ID ? 'g' : parent.id}/${dim}:${b.key}`, type: 'group', dim, key: b.key, label: b.label,
+    hint: b.hint, lens: b.lens || null, count: b.contacts.length, contacts: b.contacts, parent, depth: parent.depth + 1, ...extra,
+  };
+}
+
+function childNodes(contacts, dims, parent, opts) {
   const [dim, ...rest] = dims;
-  if (!dim || dim === 'company') return companyNodes(contacts, parent);
+  if (!dim || dim === 'company') {
+    const groups = groupByCompany(contacts);
+    // By company: the largest companies get their own bubbles and the rest
+    // share one, so the globe places a handful of clusters, not hundreds.
+    if (parent.id === ROOT_ID && groups.length > MAX_COMPANY_HUBS + 1) {
+      const kept = groups.slice(0, MAX_COMPANY_HUBS);
+      const tail = groups.slice(MAX_COMPANY_HUBS);
+      const tailContacts = tail.flatMap((g) => g.contacts);
+      const other = groupNode(parent, 'company', { key: OTHER_COMPANIES_KEY, label: 'Other companies', contacts: tailContacts });
+      other.hint = `${plural(tailContacts.length, 'person', 'people')} at ${plural(tail.length, 'smaller company', 'smaller companies')}`;
+      other.children = companyNodes(tailContacts, other, tail);
+      return [...companyNodes(contacts, parent, kept), other];
+    }
+    return companyNodes(contacts, parent, groups);
+  }
   const buckets = bucketsFor(contacts, dim);
-  // A layer that would not split anything is skipped (never the first one).
-  if (buckets.length <= 1 && parent.id !== ROOT_ID) return childNodes(contacts, rest, parent);
+  // A layer that would not split anything is skipped, the first one too: a
+  // fundraising list does not open as one "Investors & LPs" bubble.
+  if (buckets.length <= 1) return childNodes(contacts, rest, parent, opts);
   return buckets.map((b) => {
-    const node = {
-      id: `${parent.id === ROOT_ID ? 'g' : parent.id}/${dim}:${b.key}`, type: 'group', dim, key: b.key, label: b.label,
-      hint: b.hint, lens: b.lens, count: b.contacts.length, contacts: b.contacts, parent, depth: parent.depth + 1,
-    };
-    node.children = childNodes(b.contacts, rest, node);
+    const node = groupNode(parent, dim, b);
+    node.hint = b.key === OTHER_TAGS || b.key === NO_TAG ? b.hint : hintFor(b.contacts, { firstTag: dim === 'tag' && opts.multiTag });
+    node.children = childNodes(b.contacts, rest, node, opts);
     return node;
   });
 }
@@ -191,28 +256,42 @@ function layout(node, compass) {
   node.r = reach + gap / 2;
 }
 
+const NEUTRAL_KEYS = new Set([OTHER_INDUSTRY, UNKNOWN_COUNTRY, NO_TAG, OTHER_TAGS, OTHER_COMPANIES_KEY, NO_COMPANY_KEY]);
+
 /**
  * Build the atlas for `contacts` grouped by `groupBy` ('role' | 'industry' |
- * 'country' | 'company'). Returns { root, nodes, byId, groupBy, compass,
- * peopleCount, companyCount }. Every node has { id, type, label, count, depth,
+ * 'country' | 'tag' | 'company'). Returns { root, nodes, byId, groupBy,
+ * compass, box, companyIndex (company key -> node ids), peopleCount,
+ * companyCount }. Every group node carries a `hint` built from its people. Every node has { id, type, label, count, depth,
  * parent, children, x, y, r, color } with x/y/r in one shared world space.
  */
 export function buildAtlas(contacts, { groupBy = 'role' } = {}) {
   const list = contacts || [];
   const dims = LAYERS[groupBy] || LAYERS.role;
   const root = { id: ROOT_ID, type: 'root', label: 'All', count: list.length, contacts: list, parent: null, depth: 0, x: 0, y: 0 };
-  root.children = list.length ? childNodes(list, dims, root) : [];
-  const compass = dims[0] === 'role' && root.children.length > 1 && root.children.every((c) => COMPASS[c.key]);
+  // When people carry several tags, a tag bubble holds the people whose
+  // first tag it is, and says so.
+  const opts = { multiTag: dims[0] === 'tag' && tagProfile(list).multi >= 0.1 };
+  root.children = list.length ? childNodes(list, dims, root, opts) : [];
+  const compass = root.children.length > 1 && root.children.every((c) => c.dim === 'role' && COMPASS[c.key]);
   layout(root, compass);
   root.x = 0; root.y = 0;
 
   const nodes = [];
   const byId = new Map();
   const companies = new Set();
+  // Company key -> the ids of every node for it: one company can sit in
+  // several groups (Stripe's investors and its engineers), and a company
+  // selection lights them all.
+  const companyIndex = new Map();
   const walk = (node, color) => {
     nodes.push(node);
     byId.set(node.id, node);
-    if (node.type === 'company') companies.add(node.key);
+    if (node.type === 'company') {
+      companies.add(node.key);
+      if (!companyIndex.has(node.key)) companyIndex.set(node.key, []);
+      companyIndex.get(node.key).push(node.id);
+    }
     node.children.forEach((child, i) => {
       child.x += node.x;
       child.y += node.y;
@@ -227,8 +306,11 @@ export function buildAtlas(contacts, { groupBy = 'role' } = {}) {
       }
       if (node.id === ROOT_ID) {
         c = child.type === 'company' ? clusterColor(child.key)
-          : GROUP_COLORS[child.key] || (child.key === OTHER_INDUSTRY || child.key === UNKNOWN_COUNTRY ? NEUTRAL_COLOR : CLUSTER_COLORS[i % CLUSTER_COLORS.length]);
+          : (child.dim === 'role' && GROUP_COLORS[child.key])
+            || (NEUTRAL_KEYS.has(child.key) ? NEUTRAL_COLOR : CLUSTER_COLORS[i % CLUSTER_COLORS.length]);
       }
+      // Companies inside "Other companies" keep their own colours.
+      if (node.key === OTHER_COMPANIES_KEY && child.type === 'company') c = clusterColor(child.key);
       child.color = c;
       walk(child, c);
     });
@@ -248,7 +330,7 @@ export function buildAtlas(contacts, { groupBy = 'role' } = {}) {
   }
   const { box } = root;
 
-  return { root, nodes, byId, groupBy, compass, box, peopleCount: list.length, companyCount: companies.size };
+  return { root, nodes, byId, groupBy, compass, box, companyIndex, peopleCount: list.length, companyCount: companies.size };
 }
 
 /** The chain of nodes from the root down to `node` (inclusive). */

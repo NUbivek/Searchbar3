@@ -3,7 +3,16 @@
  * imported contacts.
  *
  *   parseQuestion("Who do I know at Stripe?")
- *     -> { companies: ['Stripe'], roles: [], keywords: [], locations: [], intent: 'who-at' }
+ *     -> { companies: ['Stripe'], roles: [], keywords: [], locations: [], tags: [],
+ *          industries: [], connected: null, intent: 'who-at', lens: null }
+ *
+ * It speaks the page's own vocabulary, read from the user's file: role
+ * questions count the map's families ("Which investors do I know?" lists
+ * exactly the investors chip's people), and it knows the file's tags
+ * ("prospects in New York", "everyone tagged committed"), the map's industry
+ * labels ("founders in Big Tech"), the file's cities, and when people were
+ * connected ("this year", "in 2024", "in the last 12 months", "recently").
+ *
  *   scoreContacts(contacts, filters) -> ranked matches, each with reasons
  *   introPaths(contacts, 'Stripe')    -> direct contacts + contacts at Stripe's investors
  *
@@ -15,8 +24,10 @@ import { chatComplete } from '../llm/providers';
 import { buildCompanyProfile } from '../companyProfile';
 import { normalizeCompanyKey, companyMatch, dedupeKey } from '../../utils/network/parseContacts';
 
-import { classifyContact, lensFromQuestion, LENSES, LENS_KEYS } from '../../utils/network/roles';
+import { classifyContact, lensFromQuestion, LENS_KEYS, FAMILIES, familyByKey } from '../../utils/network/roles';
 import { KEYWORD_GROUPS } from '../../utils/network/sectors';
+import { industryOf, isSector, tagsOf, cityOf } from '../../utils/network/grouping';
+import { seniority } from '../../utils/network/atlas';
 
 export { KEYWORD_GROUPS };
 
@@ -25,27 +36,68 @@ const MAX_RESULTS = 100;
 
 // ------------------------------------------------------------ vocab
 
-/** Role groups: `ask` recognises the role in a question; `match` tests a title. */
+/**
+ * Role groups: `ask` recognises the role in a question. Whom a group counts
+ * comes from the map's own classifier, so a typed question and a role chip
+ * always agree ("Which investors do I know?" lists exactly the investors
+ * chip's people):
+ *   family  the classifier's family key (roles.js FAMILIES)
+ *   title   with a family, a narrower title test inside it ("designers" are
+ *           the product family's people whose title says design)
+ *   senior  the map's "senior leaders" (seniority 0)
+ * Groups with neither (CEOs, CTOs, CFOs, executives) are plain title tests.
+ * `match` stays the title vocabulary other code ranks titles with
+ * (founder/networkLink.js).
+ */
 export const ROLE_GROUPS = [
-  { label: 'software engineers', bonus: /\b(software|swe|sde|developer|programmer)\b/i, ask: /\b(software\s+engineer(?:s|ing)?|swes?|sdes?|software\s+developers?|programmers?|coders?)\b/i, match: /\b(software|engineer(?:ing)?|developer|swe|sde|programmer|devops|sre|full[- ]?stack|front[- ]?end|back[- ]?end|architect)\b/i },
-  { label: 'engineers', ask: /\b(engineers?|engineering|developers?|devs)\b/i, match: /\b(engineer(?:ing)?|developer|swe|sde|programmer|devops|sre|architect)\b/i },
-  { label: 'product managers', ask: /\b(product\s+(?:managers?|leads?|owners?|people|folks)|pms)\b/i, match: /\b(product\s+(?:manager|lead|owner|management|director)|head of product|vp,? product|cpo|pm)\b/i },
-  { label: 'designers', ask: /\b(designers?|ux|ui\/ux)\b/i, match: /\b(design(?:er)?|ux|ui)\b/i },
-  { label: 'data scientists', ask: /\b(data\s+(?:scientists?|science|engineers?|people|folks)|ml\s+engineers?|machine\s+learning\s+(?:engineers?|people)|analysts?)\b/i, match: /\b(data|machine learning|ml|analyst|analytics|scientist)\b/i },
-  { label: 'founders', ask: /\b(co-?founders?|founders?|entrepreneurs?)\b/i, match: /\b(co-?founder|founder|founding)\b/i },
+  { label: 'software engineers', family: 'engineers', title: /\b(software|engineer(?:ing)?|developer|swe|sde|programmer|devops|sre|full[- ]?stack|front[- ]?end|back[- ]?end|architect)\b/i, bonus: /\b(software|swe|sde|developer|programmer)\b/i, ask: /\b(software\s+engineer(?:s|ing)?|swes?|sdes?|software\s+developers?|programmers?|coders?)\b/i, match: /\b(software|engineer(?:ing)?|developer|swe|sde|programmer|devops|sre|full[- ]?stack|front[- ]?end|back[- ]?end|architect)\b/i },
+  { label: 'engineers', family: 'engineers', ask: /\b(engineers?|engineering|developers?|devs)\b/i, match: /\b(engineer(?:ing)?|developer|swe|sde|programmer|devops|sre|architect)\b/i },
+  { label: 'product managers', family: 'product', title: /\b(product\s+(?:manager|lead|owner|management|director)|head of product|vp,? product|cpo|pm)\b/i, ask: /\b(product\s+(?:managers?|leads?|owners?|people|folks)|pms)\b/i, match: /\b(product\s+(?:manager|lead|owner|management|director)|head of product|vp,? product|cpo|pm)\b/i },
+  { label: 'designers', family: 'product', title: /\b(design\w*|ux|ui)\b/i, ask: /\b(designers?|ux|ui\/ux)\b/i, match: /\b(design(?:er)?|ux|ui)\b/i },
+  // Data engineers and ML engineers build: they are engineers, asked as such.
+  { label: 'data scientists', family: 'data', ask: /\b(data\s+(?:scientists?|science|people|folks|analysts?)|analysts?|analytics\s+people)\b/i, match: /\b(data|machine learning|ml|analyst|analytics|scientist)\b/i },
+  { label: 'founders', family: 'founders', ask: /\b(co-?founders?|founders?|entrepreneurs?)\b/i, match: /\b(co-?founder|founder|founding)\b/i },
   { label: 'ceos', ask: /\b(ceos?|chief executives?)\b/i, match: /\b(ceo|chief executive)\b/i },
   { label: 'ctos', ask: /\b(ctos?|chief technology officers?)\b/i, match: /\b(cto|chief technology)\b/i },
   { label: 'cfos', ask: /\b(cfos?|chief financial officers?|finance leaders?)\b/i, match: /\b(cfo|chief financial|vp,? finance|head of finance)\b/i },
-  { label: 'executives', ask: /\b(executives?|execs?|leadership|leaders|c-?suite|senior leaders?|vps?|directors?|heads? of)\b/i, match: /\b(ceo|cto|cfo|coo|cmo|cpo|chief|president|vp|vice president|svp|evp|head of|director|managing director|general manager|gm)\b/i },
-  { label: 'investors', ask: /\b(investors?|vcs?|venture\s+capitalists?|angels?|angel\s+investors?|fund\s+managers?)\b/i, match: /\b(investor|investing|investments?|venture|vc|general partner|managing partner|principal|angel|fund)\b/i, alsoCompany: /\b(capital|ventures?|partners|vc|fund)\b/i },
-  { label: 'recruiters', ask: /\b(recruiters?|recruiting|talent\s+(?:partners?|acquisition|people)|hiring\s+managers?)\b/i, match: /\b(recruit\w*|talent|sourcer|people ops|human resources|hr)\b/i },
-  { label: 'marketing', ask: /\b(marketing|marketers?|growth\s+(?:people|leads?|marketers?)|brand\s+people)\b/i, match: /\b(marketing|marketer|growth|brand|cmo|communications|content)\b/i },
-  { label: 'sales', ask: /\b(sales(?:people|\s+people)?|account\s+executives?|business\s+development|bizdev|bd\s+people)\b/i, match: /\b(sales|account executive|account manager|business development|bdr|sdr|partnerships|revenue)\b/i },
-  { label: 'lawyers', ask: /\b(lawyers?|attorneys?|counsel|legal\s+(?:people|folks|team))\b/i, match: /\b(lawyer|attorney|counsel|legal|solicitor|barrister)\b/i },
-  { label: 'consultants', ask: /\b(consultants?|consulting|advisors?|advisers?)\b/i, match: /\b(consultant|consulting|advisor|adviser)\b/i },
-  { label: 'researchers', ask: /\b(researchers?|scientists?|professors?|phds?|academics?)\b/i, match: /\b(research\w*|scientist|professor|ph\.?d|postdoc|lecturer)\b/i },
-  { label: 'doctors', ask: /\b(doctors?|physicians?|clinicians?|surgeons?|nurses?)\b/i, match: /\b(md|doctor|physician|surgeon|clinician|nurse)\b/i },
+  // The map's "senior leaders" chip, counted the same way.
+  { label: 'senior leaders', senior: true, ask: /\b(senior\s+leaders?|senior\s+leadership|c-?suite)\b/i, match: /\b(founder|co-?founder|ceo|chief|president|owner|chair|managing (?:director|partner)|general partner|partner|principal)\b/i },
+  { label: 'executives', ask: /\b(executives?|execs?|leadership|leaders|vps?|directors?|heads? of)\b/i, match: /\b(ceo|cto|cfo|coo|cmo|cpo|chief|president|vp|vice president|svp|evp|head of|director|managing director|general manager|gm)\b/i },
+  { label: 'investors', family: 'investors', ask: /\b(investors?|vcs?|venture\s+capitalists?|angels?|angel\s+investors?|fund\s+managers?)\b/i, match: /\b(investor|investing|investments?|venture|vc|general partner|managing partner|principal|angel|fund)\b/i },
+  { label: 'recruiters', family: 'people', ask: /\b(recruiters?|recruiting|talent\s+(?:partners?|acquisition|people)|hiring\s+managers?|hr\s+people)\b/i, match: /\b(recruit\w*|talent|sourcer|people ops|human resources|hr)\b/i },
+  { label: 'marketing', family: 'sales', title: /\b(marketing|marketer|growth|brand|cmo|communications|content|demand gen\w*|pr)\b/i, ask: /\b(marketing|marketers?|growth\s+(?:people|leads?|marketers?)|brand\s+people)\b/i, match: /\b(marketing|marketer|growth|brand|cmo|communications|content)\b/i },
+  { label: 'sales', family: 'sales', title: /\b(sales|account executive|account manag\w*|business development|bd|bdr|sdr|partnerships?|revenue|cro|customer success|go-to-market|gtm)\b/i, ask: /\b(sales(?:people|\s+people)?|account\s+executives?|business\s+development|bizdev|bd\s+people)\b/i, match: /\b(sales|account executive|account manager|business development|bdr|sdr|partnerships|revenue)\b/i },
+  { label: 'lawyers', family: 'lawyers', ask: /\b(lawyers?|attorneys?|counsel|legal\s+(?:people|folks|team))\b/i, match: /\b(lawyer|attorney|counsel|legal|solicitor|barrister)\b/i },
+  { label: 'consultants', family: 'consultants', ask: /\b(consultants?|consulting|advisors?|advisers?)\b/i, match: /\b(consultant|consulting|advisor|adviser)\b/i },
+  { label: 'researchers', family: 'academics', ask: /\b(researchers?|scientists?|professors?|phds?|academics?)\b/i, match: /\b(research\w*|scientist|professor|ph\.?d|postdoc|lecturer)\b/i },
+  { label: 'doctors', family: 'clinicians', ask: /\b(doctors?|physicians?|clinicians?|surgeons?|nurses?|medics?)\b/i, match: /\b(md|doctor|physician|surgeon|clinician|nurse)\b/i },
+  { label: 'bankers', family: 'bankers', ask: /\b(bankers?|investment\s+banking|m&a\s+(?:people|folks|advisors?))\b/i, match: /\b(banker|investment bank\w*|m&a|capital markets)\b/i },
+  { label: 'accountants', family: 'finance', ask: /\b(accountants?|accounting\s+people|finance\s+(?:people|folks|team))\b/i, match: /\b(accountant|accounting|cpa|controller|finance)\b/i },
+  { label: 'operations people', family: 'operations', ask: /\b(?:operations|ops)\s+(?:people|folks|team|leads?|managers?)\b/i, match: /\b(operations|ops)\b/i },
+  { label: 'students', family: 'students', ask: /\b(students?|interns?|new\s+grads?)\b/i, match: /\b(student|intern|trainee)\b/i },
+  { label: 'journalists', family: 'press', ask: /\b(journalists?|reporters?|editors?)\b/i, match: /\b(journalist|reporter|editor|correspondent)\b/i },
+  { label: 'public sector people', family: 'public', ask: /\b(government\s+(?:people|folks|officials?)|civil\s+servants?|policy\s+(?:people|folks|experts?))\b/i, match: /\b(policy|government|public sector)\b/i },
+  { label: 'accelerator people', family: 'accelerators', ask: /\b(accelerator\s+(?:people|folks|staff|leads?)|community\s+leads?)\b/i, match: /\b(accelerator|incubator|community)\b/i },
 ];
+
+/**
+ * Every family's own words ("Which sales and marketing people do I know?",
+ * "a founder or CEO"), read before the groups above so a chip's label typed
+ * back as a question counts exactly the chip's people. Single-word labels
+ * ("investors", "engineers") are left to the groups, where a narrower phrase
+ * ("software engineers") can win first.
+ */
+const phraseRe = (label) => new RegExp(`\\b${label.toLowerCase().split(/\s+/)
+  .map((w) => (w === 'and' ? '(?:and|&)' : w === 'or' ? '(?:or|and|&)' : w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  .join('\\s+')}\\b`, 'i');
+const FAMILY_PHRASES = FAMILIES
+  .flatMap((f) => [f.many, f.one].filter((l) => /\s/.test(l)).map((l) => ({ label: f.many, family: f.key, ask: phraseRe(l) })))
+  // Longest first: "data scientist or analyst" before shorter phrases.
+  .sort((a, b) => b.ask.source.length - a.ask.source.length);
+const FAMILY_BY_LABEL = new Map(FAMILIES.flatMap((f) => [[f.many.toLowerCase(), f], [f.one.toLowerCase(), f]]));
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const NUMBER_WORDS = { few: 3, one: 1, a: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, eighteen: 18, 'twenty-four': 24 };
 
 const LOCATION_ALIASES = {
   sf: ['san francisco', 'sf', 'bay area'],
@@ -66,7 +118,7 @@ const STOPWORDS = new Set((
   'people person persons folks contacts contact connections connection network friends friend everyone all some might could should would can ' +
   'work works working worked employed there that this these those have has had them they their please help me intro introduction introductions ' +
   'warm path paths reach into via through connect job jobs opportunities opportunity role roles industry sector space field ' +
-  'currently now based located near around who\'s whos'
+  'currently now based located near around who\'s whos connected added tagged'
 ).split(/\s+/));
 
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -142,11 +194,14 @@ const isGenericWord = (entity) => entity.split(' ').length === 1
  * accepted only when some contact is actually there; without it any such
  * word that is not a role, industry or company counts as a place.
  */
-export function parseQuestionRules(question, { knownLocations } = {}) {
+export function parseQuestionRules(question, { knownLocations, vocab, today } = {}) {
   const q = String(question || '').replace(/\s+/g, ' ').trim().slice(0, 500);
-  const filters = { companies: [], roles: [], keywords: [], locations: [], intent: 'general', lens: null };
+  const filters = { companies: [], roles: [], keywords: [], locations: [], tags: [], industries: [], connected: null, intent: 'general', lens: null };
   if (!q) return filters;
   let rest = q;
+  // A recognised phrase is cut out of `rest` so it is not read twice ("Big
+  // Tech" is not also a place, "software engineers" not also "engineers").
+  const cut = (re) => { rest = rest.replace(new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`), ' ').replace(/\s+/g, ' '); };
   // "Who can help me raise / source deals / diligence X": a lens over the
   // network, optionally narrowed by company, industry or place.
   filters.lens = lensFromQuestion(q);
@@ -174,14 +229,61 @@ export function parseQuestionRules(question, { knownLocations } = {}) {
     }
   }
 
-  // Roles: a specific group wins over its generic parent ("software engineers" vs "engineers").
-  const lower = rest.toLowerCase();
-  for (const g of ROLE_GROUPS) {
-    if (!g.ask.test(lower)) continue;
-    if (g.label === 'engineers' && filters.roles.includes('software engineers')) continue;
-    if (g.label === 'executives' && filters.roles.some((r) => ['ceos', 'ctos', 'cfos'].includes(r))) continue;
-    filters.roles.push(g.label);
+  // Tags named outright: "everyone tagged committed", "with the tag warm".
+  const knownTags = (vocab?.tags || []).map((t) => String(t).toLowerCase()).filter(Boolean);
+  const explicitTag = /\b(?:tagged(?:\s+as)?|with\s+(?:the\s+)?tags?|labell?ed(?:\s+as)?|marked\s+as)\s+["“'‘]?([^"”'’?!,.;]+?)["”'’]?(?=$|[?!,.;]|\s+(?:in|at|from|who|whom|that|and|or|near|based|located|i|we)\b)/i;
+  for (let i = 0; i < 3; i += 1) {
+    const m = rest.match(explicitTag);
+    if (!m) break;
+    const said = m[1].trim().toLowerCase();
+    const tag = knownTags.find((t) => t === said) || knownTags.find((t) => t === singular(said)) || said;
+    if (tag && !filters.tags.includes(tag)) filters.tags.push(tag);
+    rest = rest.replace(m[0], ' ');
   }
+
+  // Family labels as the chips say them ("sales and marketing people").
+  for (const p of FAMILY_PHRASES) {
+    if (!p.ask.test(rest)) continue;
+    if (!filters.roles.includes(p.label)) filters.roles.push(p.label);
+    cut(p.ask);
+  }
+
+  // Tags of this file said plainly ("prospects in New York", "my champions"),
+  // unless the word is a kind of person the map already counts.
+  for (const tag of [...knownTags].sort((a, b) => b.length - a.length)) {
+    if (tag.length < 3 || /^\d+$/.test(tag) || STOPWORDS.has(tag)) continue;
+    if (ROLE_GROUPS.some((g) => g.ask.test(tag)) || FAMILY_BY_LABEL.has(tag)) continue;
+    const re = tagRe(tag);
+    if (!re.test(rest)) continue;
+    if (!filters.tags.includes(tag)) filters.tags.push(tag);
+    cut(re);
+  }
+
+  // Roles: a specific group wins over its generic parent ("software engineers" vs "engineers").
+  for (const g of ROLE_GROUPS) {
+    if (!g.ask.test(rest)) continue;
+    if (g.label === 'executives' && filters.roles.some((r) => ['ceos', 'ctos', 'cfos', 'senior leaders'].includes(r))) continue;
+    if (!filters.roles.includes(g.label)) filters.roles.push(g.label);
+    cut(g.ask);
+  }
+
+  // When they connected: "this year", "in 2024", "in the last 12 months", "recently".
+  const when = parseConnected(rest, today);
+  if (when) {
+    filters.connected = when.connected;
+    for (const re of when.cuts) cut(re);
+  }
+
+  // The map's own industry labels, as far as this file has them ("Big Tech",
+  // "Healthcare"): the same people the industry chip lights.
+  for (const label of [...(vocab?.industries || [])].sort((a, b) => b.length - a.length)) {
+    const re = industryRe(label);
+    if (!re.test(rest)) continue;
+    if (!filters.industries.includes(label)) filters.industries.push(label);
+    cut(re);
+  }
+
+  const lower = rest.toLowerCase();
   for (const g of KEYWORD_GROUPS) {
     if (g.ask.test(lower)) {
       // "ai" inside "data scientists" style role phrases is already covered by the role
@@ -231,14 +333,15 @@ export function parseQuestionRules(question, { knownLocations } = {}) {
     else if (filters.roles.length) filters.intent = 'role';
     else if (filters.lens) filters.intent = 'lens';
   }
+  const fromFile = filters.tags.length || filters.industries.length || filters.connected;
   // With a lens, generic words ("fund", "deals", "company") are not keywords.
-  if (filters.lens && !filters.companies.length && !filters.roles.length && !filters.keywords.length && !filters.locations.length) {
+  if (filters.lens && !filters.companies.length && !filters.roles.length && !filters.keywords.length && !filters.locations.length && !fromFile) {
     return { ...filters, companies: [], roles: [], keywords: [], locations: [] };
   }
   if (filters.lens && filters.roles.includes('investors') && filters.lens === 'raise') filters.roles = filters.roles.filter((r) => r !== 'investors');
 
   // Nothing recognised: fall back to the meaningful words as keywords.
-  if (!filters.companies.length && !filters.roles.length && !filters.keywords.length && !filters.locations.length) {
+  if (!filters.companies.length && !filters.roles.length && !filters.keywords.length && !filters.locations.length && !fromFile) {
     const words = rest.toLowerCase().replace(/[^a-z0-9&+.\- ]+/g, ' ').split(/\s+/)
       .map((w) => w.replace(/^[.\-]+|[.\-]+$/g, ''))
       .filter((w) => w.length >= 2 && !STOPWORDS.has(w));
@@ -248,7 +351,155 @@ export function parseQuestionRules(question, { knownLocations } = {}) {
   filters.roles = cleanList(filters.roles);
   filters.keywords = cleanList(filters.keywords);
   filters.locations = cleanList(filters.locations, 5);
+  filters.tags = cleanList(filters.tags, 5);
+  filters.industries = cleanList(filters.industries, 5);
   return filters;
+}
+
+/** "prospects" -> "prospect", "companies" -> "company"; other words unchanged. */
+function singular(word) {
+  const w = String(word || '');
+  if (/ies$/.test(w) && w.length > 4) return `${w.slice(0, -3)}y`;
+  if (/(?:ss|us|is)$/.test(w)) return w;
+  if (/(?:ches|shes|xes|sses)$/.test(w)) return w.slice(0, -2);
+  return w.replace(/s$/, '');
+}
+
+/** A tag as a whole phrase, singular or plural ("decision maker(s)", "follow up"). */
+function tagRe(tag) {
+  const words = tag.split(/\s+/).map((w) => escapeRe(w));
+  const last = words.pop();
+  const lastForms = /y$/.test(last) ? `(?:${last}|${last.slice(0, -1)}ies)` : `${last}(?:s|es)?`;
+  return new RegExp(`(^|[^a-z0-9])${[...words, lastForms].join('[\\s-]+')}(?=$|[^a-z0-9])`, 'i');
+}
+
+/** An industry label as the map shows it; "&" may be typed as "and". */
+function industryRe(label) {
+  const body = label.toLowerCase().split(/\s+/)
+    .map((w) => (w === '&' ? '(?:&|and)' : escapeRe(w)))
+    .join('\\s+');
+  return new RegExp(`(^|[^a-z0-9])${body}(?=$|[^a-z0-9])`, 'i');
+}
+
+/** 'YYYY-MM-DD' (or a Date) to a UTC day number; null when unreadable. */
+const DAY_MS = 86400000;
+function dayOf(value) {
+  if (!value) return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : Math.floor(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()) / DAY_MS);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value));
+  return m ? Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY_MS) : null;
+}
+const dayFromParts = (y, m, d) => Math.floor(Date.UTC(y, m, d) / DAY_MS);
+const isoOf = (day) => new Date(day * DAY_MS).toISOString().slice(0, 10);
+const monthName = (day) => {
+  const d = new Date(day * DAY_MS);
+  return `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+};
+
+/**
+ * Dates in a question about when people were connected. Returns { connected,
+ * cuts } or null. `connected` is plain data: { kind: 'range', from, to,
+ * label } for calendar periods (worked out against `today`), or { kind:
+ * 'last', months | days, label } for a window that ends at the file's newest
+ * date when that is earlier than today, as the "connected in the last 12
+ * months" chip does.
+ */
+function parseConnected(text, today) {
+  const t = String(text || '');
+  const now = dayOf(today || new Date());
+  const year = new Date(now * DAY_MS).getUTCFullYear();
+  const yearOk = (y) => y >= 1990 && y <= year + 1;
+  const num = (s) => (/^\d+$/.test(s) ? Number(s) : NUMBER_WORDS[String(s).toLowerCase()] || null);
+  let m;
+  // "in the last 12 months", "over the past year", "last 6 months", "past 90 days"
+  const lastRe = /\b(?:(?:in|over|during|within)\s+)?the\s+(?:last|past)\s+(?:(\d{1,3}|[a-z-]+)\s+)?(days?|weeks?|months?|years?)\b|\b(?:last|past)\s+(\d{1,3}|[a-z-]+)\s+(days?|weeks?|months?|years?)\b/i;
+  if ((m = t.match(lastRe))) {
+    const count = num(m[1] || m[3] || '1') || (m[1] || m[3] ? null : 1);
+    const unit = (m[2] || m[4]).toLowerCase().replace(/s$/, '');
+    if (count) {
+      const months = unit === 'year' ? count * 12 : unit === 'month' ? count : null;
+      const days = unit === 'day' ? count : unit === 'week' ? count * 7 : null;
+      const label = `in the last ${count === 1 ? '' : `${count} `}${unit}${count === 1 ? '' : 's'}`.replace('last  ', 'last ');
+      return { connected: { kind: 'last', ...(months ? { months } : { days }), label }, cuts: [lastRe] };
+    }
+  }
+  const recentRe = /\b(?:recent(?:ly)?|lately|new(?:est)?\s+connections?)\b/i;
+  if (recentRe.test(t)) return { connected: { kind: 'last', months: 12, label: 'recently' }, cuts: [recentRe] };
+  const thisYearRe = /\b(?:this|the\s+current)\s+year\b/i;
+  if (thisYearRe.test(t)) return { connected: { kind: 'range', from: `${year}-01-01`, to: `${year}-12-31`, label: `in ${year}` }, cuts: [thisYearRe] };
+  const lastYearRe = /\blast\s+year\b/i;
+  if (lastYearRe.test(t)) return { connected: { kind: 'range', from: `${year - 1}-01-01`, to: `${year - 1}-12-31`, label: `in ${year - 1}` }, cuts: [lastYearRe] };
+  const thisMonthRe = /\bthis\s+month\b/i;
+  if (thisMonthRe.test(t)) {
+    const d = new Date(now * DAY_MS);
+    return { connected: { kind: 'range', from: isoOf(dayFromParts(year, d.getUTCMonth(), 1)), to: isoOf(dayFromParts(year, d.getUTCMonth() + 1, 0)), label: 'this month' }, cuts: [thisMonthRe] };
+  }
+  // "in March 2025"
+  const monthRe = /\b(?:in|during)\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+((?:19|20)\d{2})\b/i;
+  if ((m = t.match(monthRe)) && yearOk(Number(m[2]))) {
+    const mi = MONTHS.indexOf(m[1].toLowerCase().slice(0, 3));
+    const y = Number(m[2]);
+    return { connected: { kind: 'range', from: isoOf(dayFromParts(y, mi, 1)), to: isoOf(dayFromParts(y, mi + 1, 0)), label: `in ${monthName(dayFromParts(y, mi, 1))}` }, cuts: [monthRe] };
+  }
+  // "since 2023", "after 2022", "before 2020"
+  const sinceRe = /\b(since|after|from|before|prior\s+to)\s+((?:19|20)\d{2})\b/i;
+  if ((m = t.match(sinceRe)) && yearOk(Number(m[2]))) {
+    const y = Number(m[2]);
+    const word = m[1].toLowerCase();
+    if (word === 'before' || word.startsWith('prior')) return { connected: { kind: 'range', from: null, to: `${y - 1}-12-31`, label: `before ${y}` }, cuts: [sinceRe] };
+    const from = word === 'after' ? `${y + 1}-01-01` : `${y}-01-01`;
+    return { connected: { kind: 'range', from, to: null, label: word === 'after' ? `after ${y}` : `since ${y}` }, cuts: [sinceRe] };
+  }
+  // "in 2024", "during 2024", "connected 2024"
+  const yearRe = /\b(?:in|during|connected|added|met)\s+((?:19|20)\d{2})\b/i;
+  if ((m = t.match(yearRe)) && yearOk(Number(m[1]))) {
+    const y = Number(m[1]);
+    return { connected: { kind: 'range', from: `${y}-01-01`, to: `${y}-12-31`, label: `in ${y}` }, cuts: [/\b(?:in|during)\s+(?:19|20)\d{2}\b/i, new RegExp(`\\b${y}\\b`)] };
+  }
+  return null;
+}
+
+/**
+ * The words of one file the rules can recognise: its tags, the map's
+ * industry labels that are sectors and that someone in the file falls under,
+ * and its location strings. Read from the contacts on the server; nothing is
+ * sent anywhere.
+ */
+export function vocabularyOf(contacts) {
+  const tags = new Set();
+  const industries = new Set();
+  for (const c of Array.isArray(contacts) ? contacts : []) {
+    for (const t of tagsOf(c)) tags.add(t);
+    const ind = industryOf(c);
+    if (isSector(ind)) industries.add(ind);
+  }
+  return { tags: [...tags], industries: [...industries] };
+}
+
+/**
+ * The window a `connected` filter covers, as day numbers { from, to } (either
+ * may be null), with a note when the window was moved back to the file's
+ * newest date. `newest` is the newest connected-on day in the contacts.
+ */
+function connectedWindow(connected, { today, newest }) {
+  if (!connected || typeof connected !== 'object') return null;
+  if (connected.kind === 'range') {
+    return { from: dayOf(connected.from), to: dayOf(connected.to), note: '' };
+  }
+  const now = dayOf(today || new Date());
+  // Like the recent chip: an old export still shows its own last months.
+  const end = newest !== null && newest < now ? newest : now;
+  const d = new Date(end * DAY_MS);
+  let start;
+  if (connected.months) start = dayFromParts(d.getUTCFullYear(), d.getUTCMonth() - Number(connected.months), d.getUTCDate());
+  else start = end - Number(connected.days || 0);
+  const moved = end !== now && now - end > 60;
+  return {
+    // The chip counts after the start day, up to and including the end day.
+    from: start + 1,
+    to: end,
+    note: moved ? `Your file's newest connection is from ${monthName(end)}, so this counts back from then.` : '',
+  };
 }
 
 /** Validate an LLM (or client) filter object into the canonical shape, or null. */
@@ -306,9 +557,10 @@ export async function parseQuestionWithLlm(question, { complete = chatComplete }
  * Question -> { filters, parsedBy }. Rules first; the LLM (when configured
  * and allowed) is only consulted when the rules recognised nothing specific.
  */
-export async function parseQuestion(question, { useLlm = true, complete, knownLocations } = {}) {
-  const rules = parseQuestionRules(question, { knownLocations });
+export async function parseQuestion(question, { useLlm = true, complete, knownLocations, vocab, today } = {}) {
+  const rules = parseQuestionRules(question, { knownLocations, vocab, today });
   const specific = rules.companies.length || rules.roles.length || rules.locations.length
+    || rules.tags.length || rules.industries.length || rules.connected
     || rules.keywords.some((k) => KEYWORD_GROUPS.some((g) => g.label === k));
   if (specific || !useLlm || String(question || '').trim().split(/\s+/).length < 2) {
     return { filters: rules, parsedBy: 'rules' };
@@ -332,10 +584,44 @@ export function companyRelation(contactKey, targetKey) {
   return null;
 }
 
+/**
+ * How a role label is counted: a group's own label, a family's label ("sales
+ * and marketing people", "investor"), or a group whose words it contains
+ * (a model may say "VCs"). Null when nothing fits.
+ */
 const roleGroupFor = (label) => {
-  const l = String(label).toLowerCase();
-  return ROLE_GROUPS.find((g) => g.label === l) || ROLE_GROUPS.find((g) => g.ask.test(l)) || null;
+  const l = String(label).toLowerCase().trim();
+  const own = ROLE_GROUPS.find((g) => g.label === l);
+  if (own) return own;
+  const fam = FAMILY_BY_LABEL.get(l);
+  if (fam) return { label: fam.many, family: fam.key };
+  const phrase = FAMILY_PHRASES.find((p) => p.ask.test(l));
+  if (phrase) return { label: phrase.label, family: phrase.family };
+  return ROLE_GROUPS.find((g) => g.ask.test(l)) || null;
 };
+
+/** Does the contact belong to a role group? Families come from the map's classifier. */
+function roleHit(group, contact, position) {
+  if (group.senior) return seniority(contact) === 0;
+  if (group.family) {
+    if (classifyContact(contact).family !== group.family) return false;
+    return group.title ? group.title.test(position) : true;
+  }
+  return group.match.test(position);
+}
+
+/** Why the contact counts under a role group, in plain words. */
+function roleReason(group, contact, position) {
+  if (group.family && !group.title) {
+    const kind = classifyContact(contact);
+    const fam = familyByKey(group.family);
+    const why = kind.reason.startsWith('Company:') ? `from their employer, ${String(contact.company || '').slice(0, 60)}`
+      : position ? `title "${position.slice(0, 80)}"` : 'from their employer';
+    return `${fam ? fam.one.charAt(0).toUpperCase() + fam.one.slice(1) : group.label} (${why})`;
+  }
+  if (group.senior) return `Senior leader: "${position.slice(0, 80)}"`;
+  return position ? `Title "${position.slice(0, 80)}" matches ${group.label}` : `Company "${contact.company}" matches ${group.label}`;
+}
 const keywordGroupFor = (label) => {
   const l = String(label).toLowerCase();
   return KEYWORD_GROUPS.find((g) => g.label === l) || KEYWORD_GROUPS.find((g) => g.ask.test(l)) || null;
@@ -364,32 +650,53 @@ export const STRICT_COMPANY = new Set(['exact', 'contains', 'within']);
  * Returns { results: [{ contact, score, reasons, companyMatch }], total,
  * strictTotal (results whose companyMatch is exact/contains/within), notes }.
  */
-export function scoreContacts(contacts, filters, { limit = MAX_RESULTS } = {}) {
+export function scoreContacts(contacts, filters, { limit = MAX_RESULTS, today } = {}) {
+  const arr = (v) => (Array.isArray(v) ? v : []);
   const f = {
-    companies: filters?.companies || [], roles: filters?.roles || [],
-    keywords: filters?.keywords || [], locations: filters?.locations || [],
+    companies: arr(filters?.companies), roles: arr(filters?.roles),
+    keywords: arr(filters?.keywords), locations: arr(filters?.locations),
+    tags: arr(filters?.tags).map((t) => String(t).toLowerCase().trim()).filter(Boolean),
+    industries: arr(filters?.industries).map((t) => String(t).trim()).filter(Boolean),
   };
+  const list = Array.isArray(contacts) ? contacts : [];
   const targets = f.companies.map((name) => ({ name, key: normalizeCompanyKey(name), re: wordRe(name) })).filter((t) => t.key);
-  const roles = f.roles.map((label) => {
-    const g = roleGroupFor(label);
-    return g ? { label: g.label, match: g.match, alsoCompany: g.alsoCompany, bonus: g.bonus } : { label, match: wordRe(label.replace(/s$/i, '')) };
-  });
+  const roles = f.roles.map((label) => roleGroupFor(label) || { label, match: wordRe(String(label).replace(/s$/i, '')) });
   const keywords = f.keywords.map((label) => {
     const g = keywordGroupFor(label);
     return g ? { label: g.label, res: g.terms.map((t) => ({ term: t, re: wordRe(t) })) } : { label, res: [{ term: label, re: wordRe(label) }] };
   });
+  // A place that is one of the contacts' own cities matches by city, as the
+  // place chip counts ("New York" is not also "New York Mills"); any other
+  // place (a country, a region) matches the location text.
+  let cities = null;
   const locations = f.locations.map((place) => {
+    if (!cities) cities = new Set(list.map((c) => cityOf(c).toLowerCase()).filter(Boolean));
+    const city = cityOf({ location: place }).toLowerCase();
+    if (city && cities.has(city)) return { place, city };
     const aliases = LOCATION_ALIASES[place.toLowerCase()] || [place];
     return { place, res: aliases.map((a) => wordRe(a)) };
   });
+  // Industry labels compare without case, as typed or as the map shows them.
+  const industries = f.industries.map((label) => label.toLowerCase());
+  let newest = null;
+  if (filters?.connected) for (const c of list) { const d = dayOf(c.connectedOn); if (d !== null && (newest === null || d > newest)) newest = d; }
+  const when = connectedWindow(filters?.connected, { today, newest });
 
   const lens = LENS_KEYS.includes(filters?.lens) ? filters.lens : null;
   const notes = [];
-  const list = Array.isArray(contacts) ? contacts : [];
   if (locations.length && !list.some((c) => c.location)) {
     notes.push('None of your contacts have a location (LinkedIn\'s Connections export does not include one), so location filters cannot match.');
   }
-  if (!targets.length && !roles.length && !keywords.length && !locations.length && !lens) {
+  if (f.tags.length && !list.some((c) => tagsOf(c).length)) {
+    notes.push('None of your contacts have tags in this file, so tag filters cannot match.');
+  } else if (f.tags.length) {
+    const missing = f.tags.filter((t) => !list.some((c) => tagsOf(c).includes(t)));
+    if (missing.length) notes.push(`Nobody in your network is tagged ${missing.map((t) => `“${t}”`).join(' or ')}.`);
+  }
+  if (when && newest === null) {
+    notes.push('None of your contacts have a connection date in this file (LinkedIn exports do; most CRM files do not), so date filters cannot match.');
+  } else if (when?.note) notes.push(when.note);
+  if (!targets.length && !roles.length && !keywords.length && !locations.length && !lens && !f.tags.length && !industries.length && !when) {
     return { results: [], total: 0, notes: ['Ask about a company, a role, an industry or a place, e.g. "Who do I know at Stripe?"'] };
   }
 
@@ -428,12 +735,35 @@ export function scoreContacts(contacts, filters, { limit = MAX_RESULTS } = {}) {
     }
 
     if (roles.length) {
-      const hits = roles.filter((r) => r.match.test(position) || (r.alsoCompany && r.alsoCompany.test(c.company || '')));
+      const hits = roles.filter((r) => roleHit(r, c, position));
       if (!hits.length) continue;
       for (const r of hits) {
         score += 40 + (r.bonus && r.bonus.test(position) ? 10 : 0);
-        reasons.push(position ? `Title "${position.slice(0, 80)}" matches ${r.label}` : `Company "${c.company}" matches ${r.label}`);
+        reasons.push(roleReason(r, c, position));
       }
+    }
+
+    if (f.tags.length) {
+      const own = tagsOf(c);
+      const hits = f.tags.filter((t) => own.includes(t));
+      if (!hits.length) continue;
+      score += 25;
+      const shown = (c.tags || []).filter((raw) => hits.includes(String(raw).trim().toLowerCase().replace(/\s+/g, ' ')));
+      reasons.push(`Tagged ${(shown.length ? shown : hits).map((t) => `“${String(t).trim()}”`).join(', ')}`);
+    }
+
+    if (industries.length) {
+      const ind = industryOf(c);
+      if (!industries.includes(ind.toLowerCase())) continue;
+      score += 15;
+      reasons.push(`In ${ind}`);
+    }
+
+    if (when) {
+      const d = dayOf(c.connectedOn);
+      if (d === null || (when.from !== null && d < when.from) || (when.to !== null && d > when.to)) continue;
+      score += 10;
+      reasons.push(`Connected ${monthName(d)}`);
     }
 
     if (keywords.length) {
@@ -452,7 +782,7 @@ export function scoreContacts(contacts, filters, { limit = MAX_RESULTS } = {}) {
 
     if (locations.length) {
       const loc = String(c.location || '');
-      const hit = loc && locations.find((l) => l.res.some((re) => re.test(loc)));
+      const hit = loc && locations.find((l) => (l.city ? cityOf(c).toLowerCase() === l.city : l.res.some((re) => re.test(loc))));
       if (!hit) continue;
       score += 20;
       reasons.push(`Located in ${loc}`);
@@ -573,15 +903,42 @@ export function knownLocationsOf(contacts) {
   return out;
 }
 
+/**
+ * What the rules read from a question, as short plain phrases the page can
+ * show under the answer ("At Stripe", "Investors", "Tagged “prospect”",
+ * "In Healthcare", "In New York", "Connected in 2024").
+ */
+export function understoodOf(filters) {
+  const out = [];
+  if (!filters) return out;
+  const cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
+  for (const c of filters.companies || []) out.push(`At ${c}`);
+  for (const r of filters.roles || []) out.push(cap(r));
+  for (const t of filters.tags || []) out.push(`Tagged “${t}”`);
+  for (const i of filters.industries || []) out.push(`In ${i}`);
+  for (const l of filters.locations || []) out.push(`In ${l}`);
+  if (filters.connected?.label) out.push(`Connected ${filters.connected.label}`);
+  for (const k of filters.keywords || []) out.push(`Mentions ${k}`);
+  return out;
+}
+
+// The page never names the lenses (spec section 1): a note says whom it looked for.
+const LENS_PEOPLE = {
+  raise: 'an investor, an allocator or a banker',
+  source: 'a founder, an investor or someone who sees new companies early',
+  diligence: 'an expert, an operator or an advisor',
+};
+
 /** Full pipeline used by the API route. */
-export async function answerQuestion(contacts, { question, target, useLlm = true, profileLoader, complete } = {}) {
+export async function answerQuestion(contacts, { question, target, useLlm = true, profileLoader, complete, today } = {}) {
   const parsed = target
     ? { filters: { companies: [String(target).trim().slice(0, 120)], roles: [], keywords: [], locations: [], intent: 'intro-path' }, parsedBy: 'target' }
-    : await parseQuestion(question, { useLlm, complete, knownLocations: knownLocationsOf(contacts) });
+    : await parseQuestion(question, { useLlm, complete, knownLocations: knownLocationsOf(contacts), vocab: vocabularyOf(contacts), today });
   const { filters } = parsed;
   const response = {
     question: String(question || '').slice(0, 500),
     filters,
+    understood: understoodOf(filters),
     parsedBy: parsed.parsedBy,
     intent: filters.intent,
     contactCount: Array.isArray(contacts) ? contacts.length : 0,
@@ -590,9 +947,9 @@ export async function answerQuestion(contacts, { question, target, useLlm = true
     const intro = await introPaths(contacts, filters.companies[0], profileLoader ? { profileLoader } : undefined);
     return { ...response, results: intro.direct, total: intro.direct.length, intro, notes: intro.notes };
   }
-  const scored = scoreContacts(contacts, filters);
+  const scored = scoreContacts(contacts, filters, { today });
   if (filters.lens && scored.total === 0) {
-    scored.notes = [...(scored.notes || []), `Nobody in your network is placed under "${LENSES[filters.lens].label}"${filters.keywords.length || filters.companies.length || filters.locations.length ? ' with those filters' : ''}. Roles come from titles and company names in your import.`];
+    scored.notes = [...(scored.notes || []), `Nobody in your network looks like ${LENS_PEOPLE[filters.lens]}${filters.keywords.length || filters.companies.length || filters.locations.length || filters.tags?.length || filters.industries?.length || filters.connected ? ' with those filters' : ''}. Roles come from titles and company names in your import.`];
   }
   if (filters.companies.some((name) => normalizeCompanyKey(name))) {
     // "Who do I know at X": people at X first; similar names and title

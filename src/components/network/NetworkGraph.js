@@ -20,12 +20,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { HiOutlineArrowsPointingOut, HiOutlineMinus, HiOutlinePlus } from 'react-icons/hi2';
 import { PERSON_R, ROOT_ID, shade } from '../../utils/network/atlas';
 
-export const SOURCE_COLORS = { linkedin: '#0077B5', x: '#0F172A', csv: '#64748B', attio: '#B8742A' };
-
 /** Stands for "the theme's text colour" wherever a label is not tinted by a node. */
 const INK = 'ink';
-const HIGHLIGHT = '#F59E0B';
-const SELECTED = '#FB7185';
 const FONT = 'Inter, ui-sans-serif, system-ui, sans-serif';
 /** Space kept clear at the top (sticky group labels) when framing a cluster. */
 const INSET_TOP = 34;
@@ -44,10 +40,24 @@ const COVER = 0.62;
 const SHELL = { root: 0, group: 0.5, subgroup: 0.7, company: 0.86, person: 1 };
 const shellOf = (node) => (node.type === 'group' ? (node.depth === 1 ? SHELL.group : SHELL.subgroup) : SHELL[node.type]);
 const MAX_PITCH = 1.5;
+/** The swing-in, kept only for the very first globe of a page load. */
 const OPENING_MS = 2600;
+/** Any other change of data (an upload, a filter, a new arrangement) settles this fast. */
+const SETTLE_MS = 600;
+/** Turning to a selection. */
+const TURN_MS = 650;
+/** One pulse of the lit dots after a selection, so a press is always seen. */
+const PULSE_MS = 1100;
+/** Lit people spread over more than this share of the globe's surface: show the whole globe. */
+const WIDE_SHARE = 1 / 3;
+/** Smallest angular gap (radians) kept between two top-level clusters. */
+const MIN_GAP = 0.015;
+// The swing-in happens at most once per page load, so coming back to the tab
+// or a remount after an upload does not replay it.
+let swungThisLoad = false;
 
 function withAlpha(hex, alpha) {
-  const n = parseInt(String(hex || '#7C8A9E').slice(1), 16);
+  const n = parseInt(String(hex || THEMES.light.neutral).slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -56,7 +66,7 @@ const liteCache = new Map();
 function lift(hex) {
   let out = liteCache.get(hex);
   if (!out) {
-    const n = parseInt(String(hex || '#7C8A9E').slice(1), 16);
+    const n = parseInt(String(hex || THEMES.light.neutral).slice(1), 16);
     const mix = (c) => Math.round(c + (255 - c) * 0.36).toString(16).padStart(2, '0');
     out = `#${mix((n >> 16) & 255)}${mix((n >> 8) & 255)}${mix(n & 255)}`;
     liteCache.set(hex, out);
@@ -74,12 +84,16 @@ export const THEMES = {
   light: {
     bg: '#F8FAFC', backdrop: 'radial-gradient(ellipse at 50% 42%, #FFFFFF 0%, #F6F8FB 55%, #EEF2F7 100%)',
     ink: '#0F172A', muted: '#64748B', grid: '71,85,105', gridStrength: 1,
-    tone: (hex) => hex || '#7C8A9E', spark: null, senior: '#0F172A', onNode: '#FFFFFF',
+    tone: (hex) => hex || '#7C8A9E', neutral: '#7C8A9E', spark: null, senior: '#0F172A', onNode: '#FFFFFF',
     pill: '#FFFFFF', halo: 'rgba(255,255,255,0.95)', me: '15,23,42',
     // Solid panel behind a label, tinted with its layer's colour.
     panel: (hex) => shade(hex, 0.86), panelEdge: 0.55,
     air: '61,106,150', airStrength: 0.1, body: ['rgba(255,255,255,0.5)', 'rgba(226,232,240,0.16)', 'rgba(148,163,184,0.1)'], stars: false,
     glow: 0.7,
+    // A lit (selected) person, and the one clicked.
+    lit: '#F59E0B', selected: '#FB7185', starInk: '203,213,225',
+    // Where a contact came from; the page uses these for its source chips.
+    sources: { linkedin: '#0077B5', x: '#0F172A', csv: '#64748B', attio: '#B8742A' },
   },
   dark: {
     bg: '#0B1220', backdrop: 'radial-gradient(ellipse at 50% 42%, #18253F 0%, #0F192D 45%, #0B1220 100%)',
@@ -89,8 +103,13 @@ export const THEMES = {
     panel: (hex) => shade(hex, -0.74), panelEdge: 0.7,
     air: '96,140,200', airStrength: 0.16, body: ['rgba(46,70,112,0.22)', 'rgba(20,32,56,0.12)', 'rgba(11,18,32,0.18)'], stars: true,
     glow: 1,
+    lit: '#FBBF24', selected: '#FB7185', starInk: '203,213,225', neutral: '#7C8A9E',
+    sources: { linkedin: '#0077B5', x: '#0F172A', csv: '#64748B', attio: '#B8742A' },
   },
 };
+
+/** Source colours for the page's chips (they mean the same thing in both themes). */
+export const SOURCE_COLORS = THEMES.light.sources;
 
 const initials = (name) => String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - ((-2 * t + 2) ** 3) / 2);
@@ -134,6 +153,143 @@ const STARS = (() => {
   });
 })();
 
+const apart = (p, q) => Math.acos(clamp(p[0] * q[0] + p[1] * q[1] + p[2] * q[2], -1, 1));
+
+const spotCache = new Map();
+/** Evenly spread candidate centres: straight at the viewer first, then a golden spiral. */
+function spotsFor(count) {
+  let spots = spotCache.get(count);
+  if (!spots) {
+    spots = [[0, 0, 1]];
+    for (let i = 0; i < count; i += 1) {
+      const y = 1 - (2 * (i + 0.5)) / count; const r = Math.sqrt(1 - y * y);
+      spots.push([r * Math.cos(i * GOLDEN), y, r * Math.sin(i * GOLDEN)]);
+    }
+    spotCache.set(count, spots);
+  }
+  return spots;
+}
+
+/**
+ * Greedy placement at a given scale: each cluster (largest first) goes to the
+ * spot with the most room left. The room at a spot does not depend on the
+ * size of the cluster being placed, so it is kept per spot and updated once
+ * per placed cluster. No spot has more room than the best one, so a new
+ * cluster can only change spots within (best room + its own reach): the rest
+ * are ruled out with a dot product and cost no trigonometry.
+ */
+function greedy(radii, spots, kappa) {
+  const room = new Float64Array(spots.length).fill(Infinity);
+  const centres = [];
+  let most = Infinity;
+  for (let t = 0; t < radii.length; t += 1) {
+    let best = 0;
+    if (t) {
+      // The largest cluster faces the viewer (spot 0); the rest go where there is most room.
+      most = -Infinity;
+      for (let i = 0; i < spots.length; i += 1) if (room[i] > most) { most = room[i]; best = i; }
+    }
+    const c = spots[best];
+    centres.push(c);
+    const reach = radii[t] * kappa;
+    const near = most + reach >= Math.PI ? -2 : Math.cos(most + reach);
+    for (let i = 0; i < spots.length; i += 1) {
+      const p = spots[i];
+      const dot = p[0] * c[0] + p[1] * c[1] + p[2] * c[2];
+      if (dot <= near) continue;
+      const r = Math.acos(clamp(dot, -1, 1)) - reach;
+      if (r < room[i]) room[i] = r;
+    }
+  }
+  return centres;
+}
+
+/**
+ * The largest scale (up to `cap`) at which no two placed clusters come closer
+ * than MIN_GAP. Only pairs near enough to matter at `cap` are measured.
+ */
+function fittingScale(radii, centres, cap) {
+  let k = cap;
+  const r0 = radii[0];
+  for (let i = 0; i < centres.length; i += 1) {
+    const a = centres[i];
+    const span = k * (radii[i] + r0) + MIN_GAP;
+    const near = span >= Math.PI ? -2 : Math.cos(span);
+    for (let j = i + 1; j < centres.length; j += 1) {
+      const b = centres[j];
+      const dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+      if (dot <= near) continue;
+      k = Math.min(k, (Math.acos(clamp(dot, -1, 1)) - MIN_GAP) / Math.max(1e-9, radii[i] + radii[j]));
+    }
+  }
+  return k;
+}
+
+/**
+ * Where the top-level clusters sit on the unit globe. `radii` are their sizes
+ * in map units, largest first. Returns { centres, kappa }: one unit vector per
+ * cluster (the first faces the viewer) and the scale from map units to
+ * radians, chosen so the patches cover no more than COVER of the globe and
+ * none overlap. Two greedy passes and one pairwise check, so it stays fast
+ * however many clusters there are (By company can have hundreds).
+ */
+export function placeClusters(radii) {
+  if (!radii.length) return { centres: [], kappa: 1 };
+  // Start with the largest cluster spanning a good part of a hemisphere, then
+  // shrink everything until the patches cover no more than COVER of the globe.
+  let kappa = 0.95 / (radii[0] || 1);
+  const covered = (k) => radii.reduce((sum, r) => sum + (1 - Math.cos(Math.min(Math.PI, r * k))) / 2, 0);
+  while (covered(kappa) > COVER) kappa *= 0.96;
+  if (radii.length === 1) return { centres: [[0, 0, 1]], kappa };
+  // Enough candidate spots that every cluster has several to choose from.
+  const spots = spotsFor(Math.max(700, radii.length * 6));
+  let centres = greedy(radii, spots, kappa);
+  const fit = fittingScale(radii, centres, kappa);
+  if (fit < kappa) {
+    // Too crowded at this scale: shrink to what fits and place once more at
+    // the new scale (the spacing then suits it), then make sure it still fits.
+    kappa = Math.max(1e-6, fit * 0.98);
+    centres = greedy(radii, spots, kappa);
+    kappa = Math.max(1e-6, fittingScale(radii, centres, kappa));
+  }
+  return { centres, kappa };
+}
+
+/**
+ * How spread out a set of points on the unit globe is. Returns the direction
+ * of their middle (`dir`, null when they balance out all round), the angle
+ * from it that holds nine in ten of them (one stray person does not decide
+ * the view), and `share`: the part of the globe's surface inside that angle.
+ */
+export function spreadOf(points) {
+  if (!points || !points.length) return { dir: null, angle: 0, share: 0 };
+  let x = 0; let y = 0; let z = 0;
+  for (const p of points) { x += p[0]; y += p[1]; z += p[2]; }
+  const len = Math.hypot(x, y, z);
+  if (len < 1e-6 * points.length) return { dir: null, angle: Math.PI, share: 1 };
+  const dir = [x / len, y / len, z / len];
+  const angles = points.map((p) => apart(p, dir)).sort((p, q) => p - q);
+  const angle = angles[Math.max(0, Math.ceil(0.9 * angles.length) - 1)];
+  return { dir, angle, share: (1 - Math.cos(angle)) / 2 };
+}
+
+/**
+ * How strongly everything outside a selection is dimmed, as the opacity left
+ * to it. No selection: nothing is dimmed (all 1). The larger the share of the
+ * network that is lit, the further the rest steps back, so a big selection
+ * still stands out from what is left.
+ */
+export function dimLevels(litCount, total) {
+  if (!litCount) return { person: 1, company: 1, group: 1, ray: 1 };
+  const share = clamp(litCount / Math.max(1, total || litCount), 0, 1);
+  return {
+    person: 0.14 - 0.08 * share,
+    company: 0.2 - 0.1 * share,
+    group: 0.28 - 0.12 * share,
+    ray: 0.06 - 0.03 * share,
+  };
+}
+
 /**
  * Wrap the atlas into a unit globe, all the way round. Every top-level
  * cluster gets its own patch of the sphere (largest first, each placed as
@@ -143,38 +299,10 @@ const STARS = (() => {
  * Returns the place of every node ([x, y, z, shrink, shell]) and the scale
  * that turns map units into radians.
  */
-function wrapOntoGlobe(atlas) {
+export function wrapOntoGlobe(atlas) {
   const tops = [...atlas.root.children].sort((p, q) => q.r - p.r);
-  const spots = [[0, 0, 1]];
-  for (let i = 0; i < 700; i += 1) {
-    const y = 1 - (2 * (i + 0.5)) / 700; const r = Math.sqrt(1 - y * y);
-    spots.push([r * Math.cos(i * GOLDEN), y, r * Math.sin(i * GOLDEN)]);
-  }
-  const apart = (p, q) => Math.acos(clamp(p[0] * q[0] + p[1] * q[1] + p[2] * q[2], -1, 1));
-  const biggest = tops.length ? tops[0].r : 1;
-  // Start with the largest cluster spanning a good part of a hemisphere, then
-  // shrink everything until the patches cover no more than COVER of the globe and fit.
-  let kappa = 0.95 / biggest;
-  const covered = () => tops.reduce((sum, t) => sum + (1 - Math.cos(Math.min(Math.PI, t.r * kappa))) / 2, 0);
-  while (covered() > COVER) kappa *= 0.96;
-  const centre = new Map();
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    centre.clear();
-    let ok = true;
-    for (const t of tops) {
-      let best = null; let bestGap = -Infinity;
-      for (const spot of spots) {
-        let gap = Infinity;
-        for (const [other, c] of centre) gap = Math.min(gap, apart(spot, c) - (t.r + other.r) * kappa);
-        if (gap > bestGap) { bestGap = gap; best = spot; }
-        if (!centre.size) break; // the largest cluster faces the viewer
-      }
-      if (centre.size && bestGap < 0.015) { ok = false; break; }
-      centre.set(t, best);
-    }
-    if (ok) break;
-    kappa *= 0.93;
-  }
+  const { centres, kappa } = placeClusters(tops.map((t) => t.r));
+  const centre = new Map(tops.map((t, i) => [t, centres[i]]));
 
   const place = new Map();
   place.set(atlas.root, [0, 0, 1, 1, 0]);
@@ -207,6 +335,7 @@ const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export default function NetworkGraph({
   atlas, width, height = 620, insetBottom = 0, theme = 'light', highlightIds, selectedId, focus, viewId, onNodeClick, onViewNode, onBackgroundClick, children,
+  intro = true,
 }) {
   const canvasRef = useRef(null);
   const tipRef = useRef(null);
@@ -224,6 +353,8 @@ export default function NetworkGraph({
   const lastAtlas = useRef(null);
   const lastSize = useRef('');
   const opened = useRef(false);
+  // When the lit dots last started their one pulse (0: no pulse).
+  const pulse = useRef(0);
   const [hoverNode, setHoverNode] = useState(null);
   const [grabbing, setGrabbing] = useState(false);
 
@@ -242,6 +373,16 @@ export default function NetworkGraph({
     return set;
   }, [atlas, highlightIds]);
   live.current.litContainers = litContainers;
+
+  // How many of the lit people are on this globe (the corner count), and how
+  // strongly everyone else steps back.
+  const litCount = useMemo(() => {
+    if (!atlas || !highlightIds || !highlightIds.size) return 0;
+    let n = 0;
+    highlightIds.forEach((id) => { if (atlas.byId.has(id)) n += 1; });
+    return n;
+  }, [atlas, highlightIds]);
+  live.current.dims = dimLevels(litCount, atlas?.peopleCount);
 
   // The branch from "you" down to the selected node, which carries a pulse.
   const trail = useMemo(() => {
@@ -350,6 +491,8 @@ export default function NetworkGraph({
     if (!canvas || !a || !g || !w) return;
     const T = THEMES[live.current.theme] || THEMES.light;
     const BG = T.bg; const MUTED = T.muted; const GRID = T.grid; const lite = T.tone;
+    const HIGHLIGHT = T.lit; const SELECTED = T.selected;
+    const D = live.current.dims || dimLevels(0, 0);
     const paintOf = (color) => (color === INK ? T.ink : lite(color));
     const now = performance.now();
     const dt = Math.min(64, now - (lastFrame.current || now));
@@ -396,6 +539,10 @@ export default function NetworkGraph({
     const kFront = c.s * FRONT * g.kappa;
     const open = openness(kFront);
     const hasLit = Boolean(lit && lit.size);
+    // Lit people already drawn as people (close up); the rest get a lit dot afterwards.
+    const drawnLit = new Set();
+    const pt = hasLit && pulse.current ? (now - pulse.current) / PULSE_MS : 1;
+    const pulsing = pt < 1;
     const hot = hover.current;
     const labels = [];
     const tr = live.current.trail;
@@ -407,7 +554,7 @@ export default function NetworkGraph({
       const y2 = y * Math.cos(c.pitch * 0.35) - z1 * Math.sin(c.pitch * 0.35);
       if (y * Math.sin(c.pitch * 0.35) + z1 * Math.cos(c.pitch * 0.35) < 0) continue;
       ctx.beginPath(); ctx.arc(cx + x1 * shell, cy + y2 * shell, size, 0, 2 * Math.PI);
-      ctx.fillStyle = `rgba(203,213,225,${glow})`; ctx.fill();
+      ctx.fillStyle = `rgba(${T.starInk},${glow})`; ctx.fill();
     }
 
     // The globe itself: a soft atmosphere, a faintly lit body and its outline.
@@ -528,7 +675,7 @@ export default function NetworkGraph({
         const collapsed = sr < 11;
         const R0 = collapsed ? Math.max(2, sr * 0.7) : clamp(node.dot * m, 4, 16);
         const kids = collapsed ? [] : node.children.map((child) => [child, S(child)]);
-        ctx.globalAlpha = (dim ? 0.3 : 1) * depth;
+        ctx.globalAlpha = (dim ? D.group : 1) * depth;
         if (!collapsed) {
           // No outline around a cluster: a glow that fades out from its cell body.
           const glow = ctx.createRadialGradient(hx, hy, 0, sx, sy, sr);
@@ -540,12 +687,12 @@ export default function NetworkGraph({
           if (isHot) { ctx.setLineDash([2, 6]); ctx.lineWidth = 1; ctx.strokeStyle = withAlpha(col, 0.5); ctx.stroke(); ctx.setLineDash([]); }
           for (const [child, cq] of kids) {
             const faded = hasLit && !litC.has(child.id);
-            if (child.type === 'group') arc(node, child, lite(child.color), (faded ? 0.1 : 0.55) * (0.25 + 0.75 * reveal(child.depth)), 1.6, tr.has(child.id));
-            else if (child.dot * cq.m > 0.7) arc(node, child, lite(child.color), (faded ? 0.06 : Math.min(0.55, 0.2 + 0.03 * child.count)) * (0.25 + 0.75 * reveal(child.depth)), child.count >= 10 ? 1.2 : 0.8, tr.has(child.id), 8);
+            if (child.type === 'group') arc(node, child, lite(child.color), (faded ? D.ray * 1.6 : 0.55) * (0.25 + 0.75 * reveal(child.depth)), 1.6, tr.has(child.id));
+            else if (child.dot * cq.m > 0.7) arc(node, child, lite(child.color), (faded ? D.ray : Math.min(0.55, 0.2 + 0.03 * child.count)) * (0.25 + 0.75 * reveal(child.depth)), child.count >= 10 ? 1.2 : 0.8, tr.has(child.id), 8);
           }
           ctx.globalAlpha = 1;
           for (const [child, cq] of kids) paint(child, cq);
-          ctx.globalAlpha = (dim ? 0.3 : 1) * depth;
+          ctx.globalAlpha = (dim ? D.group : 1) * depth;
         }
         // Cell body: a point of light with a halo, not a disc.
         const halo = ctx.createRadialGradient(hx, hy, 0, hx, hy, R0 * 2.4);
@@ -578,10 +725,10 @@ export default function NetworkGraph({
           ctx.beginPath();
           for (const [, pq] of people) { ctx.moveTo(hx, hy); ctx.lineTo(pq.sx, pq.sy); }
           ctx.lineWidth = personPx > 6 ? 1 : 0.7;
-          ctx.strokeStyle = withAlpha(col, (dim ? 0.06 : isHot || isSel ? 0.6 : hasLit ? 0.14 : 0.34) * depth); ctx.stroke();
+          ctx.strokeStyle = withAlpha(col, (dim ? D.ray : isHot || isSel ? 0.6 : hasLit ? 0.14 : 0.34) * depth); ctx.stroke();
           if (personPx >= 0.5 && !far && shown > 0.3) for (const [child, pq] of people) paint(child, pq);
         }
-        ctx.globalAlpha = (dim ? 0.22 : 1) * depth;
+        ctx.globalAlpha = (dim ? D.company : 1) * depth;
         const core = ctx.createRadialGradient(hx, hy, 0, hx, hy, R0 * 2);
         core.addColorStop(0, withAlpha(col, 1)); core.addColorStop(0.45, withAlpha(col, isHot || isSel ? 0.7 : 0.4)); core.addColorStop(1, withAlpha(col, 0));
         ctx.fillStyle = core; ctx.beginPath(); ctx.arc(hx, hy, R0 * 2, 0, 2 * Math.PI); ctx.fill();
@@ -611,7 +758,8 @@ export default function NetworkGraph({
       const tip = (node.rank === 0 ? 0.62 : node.rank === 1 ? 0.5 : 0.4) + (0.86 - 0.4) * grown;
       const pr0 = Math.max(0.6, sr * (isHot || isLit || isSel ? 1.05 : Math.min(0.86, tip)));
       if (isSel || isHot) { const pq = S(node.parent); twig(pq.hx, pq.hy, sx, sy, col, 0.8, 1.2, isSel); }
-      ctx.globalAlpha = (hasLit && !isLit && !isSel ? 0.16 : 1) * depth * (node.rank === 0 || grown > 0 ? 1 : 0.85);
+      if (isLit) drawnLit.add(node.id);
+      ctx.globalAlpha = (hasLit && !isLit && !isSel ? D.person : 1) * depth * (node.rank === 0 || grown > 0 ? 1 : 0.85);
       ctx.beginPath(); ctx.arc(sx, sy, pr0, 0, 2 * Math.PI);
       if (node.contact?.relationship === 'firm') {
         // Firm-wide CRM contact (a colleague's): hollow dot.
@@ -626,6 +774,10 @@ export default function NetworkGraph({
         ctx.globalAlpha = 1;
         ctx.beginPath(); ctx.arc(sx, sy, pr0 + 3, 0, 2 * Math.PI);
         ctx.lineWidth = 2; ctx.strokeStyle = isSel ? SELECTED : HIGHLIGHT; ctx.stroke();
+        if (isLit && pulsing) {
+          ctx.beginPath(); ctx.arc(sx, sy, pr0 + 3 + 14 * ease(pt), 0, 2 * Math.PI);
+          ctx.lineWidth = 1.6; ctx.strokeStyle = withAlpha(HIGHLIGHT, 0.85 * (1 - pt)); ctx.stroke();
+        }
       }
       ctx.globalAlpha = 1;
       if (isHot || isSel) {
@@ -667,12 +819,38 @@ export default function NetworkGraph({
     const tops = a.root.children.map((child) => [child, S(child)]);
     for (const [child, cq] of tops) {
       const faded = hasLit && !litC.has(child.id);
-      if (child.type === 'group') arc(a.root, child, lite(child.color), faded ? 0.12 : 0.7, 2.2, tr.has(child.id), 6);
-      else if (child.dot * cq.m > 0.7) arc(a.root, child, lite(child.color), faded ? 0.06 : Math.min(0.5, 0.14 + 0.03 * child.count), child.count >= 10 ? 1.2 : 0.8, tr.has(child.id), 4);
+      if (child.type === 'group') arc(a.root, child, lite(child.color), faded ? D.ray * 2 : 0.7, 2.2, tr.has(child.id), 6);
+      else if (child.dot * cq.m > 0.7) arc(a.root, child, lite(child.color), faded ? D.ray : Math.min(0.5, 0.14 + 0.03 * child.count), child.count >= 10 ? 1.2 : 0.8, tr.has(child.id), 4);
     }
     // Far side first, so the near side is drawn over it.
     tops.sort((p, q) => p[1].hz - q[1].hz);
     for (const [child, cq] of tops) paint(child, cq);
+
+    // Every lit person not already drawn up close gets a lit dot where they
+    // sit, so a selection shows at any zoom, near side and far side. Just
+    // after a selection the dots pulse once.
+    if (hasLit) {
+      lit.forEach((id) => {
+        if (drawnLit.has(id)) return;
+        const node = a.byId.get(id);
+        const u = node && g.place.get(node);
+        if (!u) return;
+        const [x, y, z] = pr(u[0], u[1], u[2]);
+        if (x < -20 || x > w + 20 || y < -20 || y > h + 20) return;
+        const front = z >= 0;
+        ctx.globalAlpha = front ? 1 : 0.35;
+        ctx.beginPath(); ctx.arc(x, y, front ? 5 : 3.5, 0, 2 * Math.PI);
+        ctx.fillStyle = withAlpha(HIGHLIGHT, 0.22); ctx.fill();
+        ctx.beginPath(); ctx.arc(x, y, front ? 2.4 : 1.8, 0, 2 * Math.PI);
+        ctx.fillStyle = HIGHLIGHT; ctx.fill();
+        if (pulsing && front) {
+          ctx.beginPath(); ctx.arc(x, y, 3 + 14 * ease(pt), 0, 2 * Math.PI);
+          ctx.lineWidth = 1.6; ctx.strokeStyle = withAlpha(HIGHLIGHT, 0.85 * (1 - pt)); ctx.stroke();
+        }
+      });
+      ctx.globalAlpha = 1;
+    }
+
     const mr = clamp(a.root.dot * me.m, 6, 13);
     // Dive into a cluster and the core is straight behind it: let it fade so it does not sit on top.
     const coreAlpha = clamp(2.2 - c.s / st.home, 0, 1);
@@ -806,7 +984,7 @@ export default function NetworkGraph({
     }
 
     // Keep going while anything is in motion (a flight, momentum, the idle drift, a pulse).
-    if ((moving || tr.size) && !frame.current) frame.current = requestAnimationFrame(draw);
+    if ((moving || tr.size || pulsing) && !frame.current) frame.current = requestAnimationFrame(draw);
   }, [reportView, settleSoon]);
 
   const redraw = useCallback(() => {
@@ -850,7 +1028,10 @@ export default function NetworkGraph({
 
   // New data or a new canvas size: face the focused cluster (or the whole globe) at once.
   // An explicit navigation (focus.nonce changes): turn and fly there.
-  // The very first time, the globe swings in from the side and settles.
+  // Only the very first globe of a page load swings in from the side (and not
+  // when the page says this is fresh data, `intro={false}`, as after an
+  // upload): everything else settles within SETTLE_MS, so the value is on
+  // screen at once rather than after a show.
   useEffect(() => {
     if (!atlas || !width) return;
     const size = `${width}x${height}x${insetBottom}`;
@@ -863,32 +1044,39 @@ export default function NetworkGraph({
     if (!opened.current) {
       opened.current = true;
       const calm = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (!calm) {
+      if (intro && !swungThisLoad && !calm) {
+        swungThisLoad = true;
         cam.current = { yaw: -2.6, pitch: 0.6, s: stage().home * 0.5 };
         fitNode(node, OPENING_MS);
         return;
       }
+      // Any first view without the swing starts in place, already framed.
+      swungThisLoad = true;
+      fitNode(node, 0);
+      return;
     }
-    fitNode(node, fresh ? 0 : 750);
+    fitNode(node, fresh ? 0 : SETTLE_MS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [atlas, width, height, insetBottom, focus?.id, focus?.nonce]);
 
-  // A search or an answer lit people up: turn to them and bring them all into view.
+  // A selection lit people up: turn to them and bring them all into view.
+  // Only the camera moves; the globe's layout is never rebuilt for a selection.
+  // When they are spread over more than about a third of the globe, show the
+  // whole globe instead (turned towards their middle), and pulse the lit dots
+  // once either way so a press is always seen.
   useEffect(() => {
-    if (!atlas || !width || !highlightIds || !highlightIds.size) { redraw(); return; }
-    // Face the middle of the lit people; come in as close as still shows them all.
+    if (!atlas || !width || !globe || !highlightIds || !highlightIds.size) { pulse.current = 0; redraw(); return; }
     const lit = [];
     highlightIds.forEach((id) => { const u = globe.place.get(atlas.byId.get(id)); if (u) lit.push(u); });
-    if (!lit.length) { redraw(); return; }
-    const mid = lit.reduce((m, u) => [m[0] + u[0], m[1] + u[1], m[2] + u[2]], [0, 0, 0]);
-    const len = Math.hypot(mid[0], mid[1], mid[2]);
+    if (!lit.length) { pulse.current = 0; redraw(); return; }
+    pulse.current = performance.now();
     const st = stage();
-    if (len < 1e-6) { flyTo(homeCamera(), 750); return; }
-    const dir = [mid[0] / len, mid[1] / len, mid[2] / len];
-    const spread = Math.max(...lit.map((u) => Math.acos(clamp(u[0] * dir[0] + u[1] * dir[1] + u[2] * dir[2], -1, 1))));
-    if (spread > 1.1) { flyTo({ ...facing(dir, st.home) }, 750); return; }
+    const { dir, angle, share } = spreadOf(lit);
+    if (!dir) { flyTo(homeCamera(), TURN_MS); return; }
+    if (share > WIDE_SHARE) { flyTo(facing(dir, st.home), TURN_MS); return; }
+    // Come in as close as still shows them all.
     const room = 0.42 * Math.min(st.w, st.hh);
-    flyTo(facing(dir, clamp(room / (FRONT * Math.max(0.02, Math.sin(spread) + 0.03)), st.home, 9 / (PERSON_R * FRONT * globe.kappa))), 750);
+    flyTo(facing(dir, clamp(room / (FRONT * Math.max(0.02, Math.sin(angle) + 0.03)), st.home, 9 / (PERSON_R * FRONT * globe.kappa))), TURN_MS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightIds]);
 
@@ -1068,7 +1256,12 @@ export default function NetworkGraph({
         <button type="button" className={tool} onClick={() => fitNode(atlas.byId.get(ROOT_ID), 650)} aria-label="Fit to view" title="Fit to view"><HiOutlineArrowsPointingOut style={{ width: 15, height: 15 }} /></button>
         {children}
       </div>
-      <div className="pointer-events-none absolute left-3 flex items-center gap-3 text-[11px] text-muted" style={{ bottom: insetBottom + 8 }} aria-hidden="true">
+      {litCount > 0 && (
+        <div className="pointer-events-none absolute right-3 top-3 rounded-full border border-line bg-white px-2.5 py-0.5 text-xs font-semibold text-ink shadow-card" aria-live="polite">
+          {`${litCount.toLocaleString('en-US')} lit`}
+        </div>
+      )}
+      <div className="pointer-events-none absolute left-3 flex items-center gap-3 text-xs text-muted" style={{ bottom: insetBottom + 8 }} aria-hidden="true">
         <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-500 ring-2 ring-slate-300" />group</span>
         <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-500" />company, with a ray to each person</span>
         <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-900" />{theme === 'dark' ? 'bright' : 'dark'} tip = leader</span>

@@ -44,16 +44,27 @@ describe('groupKeyFor / bucketsFor', () => {
     expect(groupKeyFor(list[1], 'industry')).toBe('Fintech');
     expect(groupKeyFor(list[2], 'country')).toBe('Unknown');
     expect(groupKeyFor(list[2], 'company')).toBeNull();
-    expect(GROUPINGS.map((g) => g.key)).toEqual(['role', 'company', 'industry', 'country']);
+    // Spec 2026-11-21: a 'tag' arrangement, and country is shown as "By place".
+    expect(GROUPINGS.map((g) => g.key)).toEqual(['role', 'company', 'industry', 'country', 'tag']);
+    expect(GROUPINGS.find((g) => g.key === 'country').label).toBe('By place');
   });
-  test('country buckets are largest first with Unknown last', () => {
+  test('place buckets: by city when fewer than three countries appear, largest first with Unknown last', () => {
+    // Changed 2026-11-21: two countries would not split these people, so the
+    // place arrangement falls back to cities.
     const b = bucketsFor(list, 'country');
-    expect(b.map((x) => [x.key, x.contacts.length])).toEqual([['United States', 2], ['United Kingdom', 1], ['Unknown', 1]]);
+    expect(b.map((x) => [x.key, x.contacts.length])).toEqual([['London', 1], ['Menlo Park', 1], ['New York', 1], ['Unknown', 1]]);
+  });
+  test('place buckets: by country when countries split the people', () => {
+    const spread = [
+      c('A', '', '', 'Menlo Park, CA'), c('B', '', '', 'Boston, MA'), c('C', '', '', 'London, United Kingdom'),
+      c('D', '', '', 'Paris, France'), c('E', '', '', 'Berlin, Germany'), c('F', '', '', ''),
+    ];
+    expect(bucketsFor(spread, 'country').map((x) => [x.key, x.contacts.length])).toEqual([['United States', 2], ['France', 1], ['Germany', 1], ['United Kingdom', 1], ['Unknown', 1]]);
   });
   test('buildAtlas by industry/country makes one bubble per bucket with its companies inside', () => {
     const atlas = buildAtlas(list, { groupBy: 'country' });
     const groups = atlas.root.children;
-    expect(groups.map((h) => h.label).sort()).toEqual(['United Kingdom', 'United States', 'Unknown']);
+    expect(groups.map((h) => h.label).sort()).toEqual(['London', 'Menlo Park', 'New York', 'Unknown']);
     expect(groups.every((h) => h.type === 'group' && h.dim === 'country' && Number.isFinite(h.x) && h.r > 0)).toBe(true);
     expect(atlas.compass).toBe(false);
     const google = atlas.nodes.find((n) => n.type === 'company' && n.label === 'Google');

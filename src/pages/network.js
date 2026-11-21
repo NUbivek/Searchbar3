@@ -1,29 +1,42 @@
 /**
  * Network Map: import your own contacts (LinkedIn's Connections.csv export,
- * any CSV/XLSX, or your X following list), see them as a company graph, and
- * ask questions like "Who do I know at Stripe?" or "Intro paths to OpenAI".
+ * any CSV/XLSX, or your X following list), read in plain words what the file
+ * holds, and use shortcuts built from it to light people on the globe and
+ * list them beside it. Ask questions like "Who do I know at Stripe?".
  *
  * Signed in: contacts are saved to your account (/api/network/contacts).
  * Signed out: contacts stay in this browser tab only.
  * Only first-degree connections exist in these exports; nothing is invented.
+ *
+ * One selection drives the page (spec section 2): a shortcut (or several,
+ * combined), the Find box, an answer, or a click on the globe. It lights
+ * people on the globe and fills the people panel; it never rebuilds the
+ * globe's layout (only "Arrange by", the source chips and "direct only" do).
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useSession } from 'next-auth/react';
 import {
-  HiOutlineArrowUpTray, HiOutlineTrash, HiOutlineXMark, HiOutlineArrowTopRightOnSquare, HiOutlineMagnifyingGlass,
-  HiOutlineShare, HiOutlineSparkles, HiOutlineCloudArrowUp, HiOutlineInformationCircle, HiOutlineArrowsPointingIn, HiOutlineArrowsPointingOut,
+  HiOutlineShare, HiOutlineCloudArrowUp, HiOutlineArrowsPointingIn, HiOutlineArrowsPointingOut, HiOutlineXMark,
 } from 'react-icons/hi2';
 import PageShell from '../components/layout/PageShell';
 import NetworkGraph, { SOURCE_COLORS } from '../components/network/NetworkGraph';
+import AtAGlance from '../components/network/AtAGlance';
+import PeoplePanel, { sortPeople } from '../components/network/PeoplePanel';
+import SourceStrip from '../components/network/SourceStrip';
+import Connectors, { X_UNAVAILABLE } from '../components/network/Connectors';
+import { ChecksContext, contactNameCounts, checkHref, formatDate } from '../components/network/checks';
 import {
-  parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, companyMatch, companyFormMatch, MAX_CONTACTS,
+  parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, MAX_CONTACTS,
 } from '../utils/network/parseContacts';
-import { buildAtlas, pathTo, personNodeId, seniority, LAYERS, NO_COMPANY_KEY, ROOT_ID } from '../utils/network/atlas';
-import { classifyContact, roleStats, LENSES } from '../utils/network/roles';
-import { GROUPINGS, countryOf, UNKNOWN_COUNTRY } from '../utils/network/grouping';
+import { buildAtlas, pathTo, personNodeId, NO_COMPANY_KEY, ROOT_ID } from '../utils/network/atlas';
+import { GROUPINGS } from '../utils/network/grouping';
+import { profileNetwork, combine, countIfAdded } from '../utils/network/insights';
 import { useTheme } from '../utils/theme';
+
+// Kept where other pages and tests import them from.
+export { findCheck, contactNameCounts, checkHref, checkChip } from '../components/network/checks';
 
 function classNames(...classes) {
   return classes.filter(Boolean).join(' ');
@@ -31,36 +44,19 @@ function classNames(...classes) {
 
 const ICON = { width: 15, height: 15 };
 const SOURCE_LABELS = { linkedin: 'LinkedIn', csv: 'CSV/XLSX', x: 'X', attio: 'Attio' };
-/** Height of the two-row bar at the bottom of the map; the map keeps its content clear of it. */
-const NAV_HEIGHT = 84;
-/** Most chips shown in the bottom navigator for one bubble. */
-const QUICK_MAX = 40;
-/** Seniority read from the title: the first thing a partner scans a list for. */
-const SENIORITY = [
-  // Tones are theme variables, so the bar reads in day and night mode.
-  { rank: 0, label: 'Leaders', hint: 'Founders, CEOs, partners, chiefs', tone: 'rgb(var(--c-ink))' },
-  { rank: 1, label: 'Heads', hint: 'VPs, directors, heads of function', tone: 'rgb(var(--c-muted))' },
-  { rank: 2, label: 'Team', hint: 'Everyone else', tone: 'rgb(var(--c-slate-300))' },
-];
-const LAYER_LABEL = { role: 'Role', industry: 'Industry', country: 'Country', company: 'Company' };
-/** People listed in the dashboard before "Show more". */
-const PEOPLE_PAGE = 50;
-const PEOPLE_SORTS = [{ key: 'senior', label: 'Seniority' }, { key: 'recent', label: 'Recent' }, { key: 'name', label: 'A–Z' }];
-/** Ink or white, whichever reads on a fill of `hex` (avatars come in many shades). */
-const readableOn = (hex) => {
-  const n = parseInt(String(hex || '#94A3B8').slice(1), 16);
-  const lum = (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
-  return lum > 0.55 ? '#0F172A' : '#FFFFFF';
-};
-const initialsOf = (name) => String(name || '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
-const EXAMPLES = ['Who can help me raise a fund?', 'Who sends me deal flow in fintech?', 'Who can diligence an AI company?', 'Who do I know at Google?', 'Intro paths to Stripe'];
+const GROUPING_LABEL = Object.fromEntries(GROUPINGS.map((g) => [g.key, g.label]));
+/** Height of the globe, and the most group rows the panel lists for the part in view. */
+const GRAPH_HEIGHT = 620;
+const MAX_GROUP_ROWS = 40;
+/** Shortcuts that can be pressed at once. */
+const MAX_CHIPS = 3;
+const NO_IDS = new Set();
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 // The contacts API accepts 15 MB request bodies; stop a little short of it.
 const MAX_BODY_BYTES = 14 * 1024 * 1024;
 const fmt = (n) => Number(n || 0).toLocaleString('en-US');
 const LINKEDIN_UNAVAILABLE = "LinkedIn connection isn't available on this deployment yet";
-const X_UNAVAILABLE = "X connection isn't available on this deployment yet";
-// Attio stays a placeholder until the firm's workspace token is set up (the import route and UI are ready).
+// Attio stays a placeholder until the firm's workspace access is set up (the import route and UI are ready).
 const ATTIO_ENABLED = process.env.NEXT_PUBLIC_ATTIO_ENABLED === 'true';
 
 // OAuth redirects come back with ?error=<code>; only these are shown.
@@ -77,169 +73,13 @@ const AUTH_ERRORS = {
 };
 const authErrorText = (code) => AUTH_ERRORS[String(code || '')] || 'Sign-in did not complete. Please try again.';
 
-const formatDate = (iso) => {
-  if (!iso) return '';
-  const d = new Date(iso.length === 10 ? `${iso}T00:00:00Z` : iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', ...(iso.length === 10 ? { timeZone: 'UTC' } : {}) });
-};
-const formatTime = (iso) => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-};
-
 async function readJson(response) {
   try { return await response.json(); } catch { return {}; }
 }
 
-function SourceBadge({ source }) {
-  return (
-    <span className="chip">
-      <span className="inline-block h-2 w-2 rounded-full" style={{ background: SOURCE_COLORS[source] || SOURCE_COLORS.csv }} />
-      {SOURCE_LABELS[source] || source}
-    </span>
-  );
-}
-
-// ---- founder checks already run (from /api/founder/history): contacts with a finished check are marked.
-const ChecksContext = React.createContext(null);
-// Titles before a name and degrees after it are not part of it: "Dr. Jane Roe, PhD" is "jane roe". "Jr" and "Sr"
-// stay, since they tell a father from a son.
-const HONORIFIC = /^(?:dr|mr|mrs|ms|mx|miss|prof|professor|sir|dame)\s+/;
-const DEGREES = new Set(['phd', 'mba', 'md', 'jd', 'cfa', 'cpa', 'pe', 'esq', 'msc', 'ma', 'bsc', 'ba', 'bs', 'ms', 'mph', 'dds', 'rn', 'pmp']);
-const checkNameKey = (name) => {
-  let key = String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\([^)]*\)/g, ' ').split(',')[0].replace(/['’`.]/g, '').replace(/[^a-z0-9\- ]+/g, ' ').replace(/\s+/g, ' ').trim();
-  for (let prev = ''; prev !== key;) { prev = key; key = key.replace(HONORIFIC, ''); }
-  const words = key.split(' ');
-  while (words.length > 2 && DEGREES.has(words[words.length - 1])) words.pop();
-  return words.join(' ');
-};
-/** The same company written two ways: equal, a longer name containing a two-word one, or only form words added. */
-const sameCompany = (a, b) => {
-  const x = normalizeCompanyKey(a);
-  const y = normalizeCompanyKey(b);
-  return Boolean(x && y) && Boolean(companyMatch(x, y) || companyFormMatch(x, y));
-};
-/**
- * The finished check for this contact: same full name, and the same company
- * when the check had one. A check run without a company is only tied to a
- * contact when no other loaded contact carries that full name (nameCounts:
- * name key -> how many loaded contacts carry it); otherwise it may be about
- * a namesake, and nothing is shown.
- */
-export function findCheck(checks, name, company, nameCounts) {
-  const key = checkNameKey(name);
-  if (!key || !Array.isArray(checks)) return null;
-  const sameName = checks.filter((c) => checkNameKey(c.name) === key);
-  const withCompany = sameName.find((c) => String(company || '').trim() && String(c.company || '').trim() && sameCompany(c.company, company));
-  if (withCompany) return withCompany;
-  const unique = nameCounts && typeof nameCounts.get === 'function' && nameCounts.get(key) === 1;
-  return unique ? (sameName.find((c) => !String(c.company || '').trim()) || null) : null;
-}
-/** name key -> how many of these contacts carry that full name. */
-export function contactNameCounts(contacts) {
-  const counts = new Map();
-  for (const c of Array.isArray(contacts) ? contacts : []) {
-    const key = checkNameKey(c?.name);
-    if (key) counts.set(key, (counts.get(key) || 0) + 1);
-  }
-  return counts;
-}
-/**
- * The finished check itself (?job=), so the Founder Check page reopens it instead of starting a new one; the
- * name and company stay in the link for a check the server no longer keeps. A check anchored on a company it
- * was given (seededCompany) keeps that company.
- */
-export const checkHref = (c) => {
-  const q = new URLSearchParams({ name: String(c.name || '') });
-  const company = c.company || c.seededCompany;
-  if (company) q.set('company', String(company));
-  if (c.id) q.set('job', String(c.id));
-  return `/founder?${q}`;
-};
-/**
- * The "Checked" chip for a finished check: { className, text, title }. Never green: the list does not say
- * whether every court and watchlist screen answered, so 0 red flags is not a clean result. Serious records
- * held "if this is the right person" (the check assumed the company) make it amber and are said.
- */
-export function checkChip(check) {
-  const flags = Number(check?.redFlags) || 0;
-  const held = Number(check?.ifRightPerson) || 0;
-  return {
-    className: flags ? 'chip chip-bad' : held > 0 ? 'chip chip-warn' : 'chip',
-    text: `Checked${flags ? ` · ${flags} red flag${flags === 1 ? '' : 's'}` : ''}${held > 0 ? ` · ${held} serious if right person` : ''}`,
-    title: `Founder check finished ${formatDate(check?.date)}. Open the report to see which screens answered.${held > 0 ? ` ${held} serious matter${held === 1 ? ' holds' : 's hold'} if this is the right person.` : ''}`,
-  };
-}
-function CheckMark({ name, company }) {
-  const ctx = React.useContext(ChecksContext);
-  const check = findCheck(ctx?.checks, name, company, ctx?.nameCounts);
-  if (!check) {
-    // A check still running is shown as running, so opening it picks it up instead of starting another.
-    const running = findCheck(ctx?.running, name, company, ctx?.nameCounts);
-    return running ? <Link href={checkHref(running)} className="chip" title="A founder check of this person is still running. Open it to follow it.">Running</Link> : null;
-  }
-  const chip = checkChip(check);
-  return (
-    <Link href={checkHref(check)} className={chip.className} title={chip.title}>{chip.text}</Link>
-  );
-}
-
-function ContactActions({ name, company }) {
-  if (!company && !name) return null;
-  return (
-    <div className="mt-3 flex flex-wrap gap-2">
-      {company && (
-        <>
-          <Link href={`/company/${encodeURIComponent(company)}`} className="btn-primary px-3 py-1.5 text-xs">Company profile</Link>
-          <Link href={`/?q=${encodeURIComponent(company)}`} className="btn-secondary px-3 py-1.5 text-xs">Search company</Link>
-        </>
-      )}
-      {name && (
-        <Link
-          href={`/founder?name=${encodeURIComponent(name)}${company ? `&company=${encodeURIComponent(company)}` : ''}`}
-          className="btn-secondary px-3 py-1.5 text-xs"
-        >
-          Founder check
-        </Link>
-      )}
-    </div>
-  );
-}
-
-function ResultRow({ item, onShow }) {
-  const c = item.contact;
-  return (
-    <li className="py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => onShow(c)} className="text-left text-sm font-medium text-ink hover:text-brand-600">{c.name}</button>
-            {c.company && <span className="chip">{c.company}</span>}
-            {item.roleLabel && item.role !== 'other' && <span className="chip chip-active">{item.roleLabel}</span>}
-            {c.relationship === 'firm' && <span className="chip chip-warn">Firm{c.via ? ` · via ${c.via}` : ''}</span>}
-            <CheckMark name={c.name} company={c.company} />
-          </div>
-          <div className="mt-0.5 truncate text-sm text-slate-600">{c.position || (c.company ? '' : 'No title or company listed')}</div>
-          {item.reasons.length > 0 && <p className="mt-1 text-xs text-muted">{item.reasons.join(' · ')}</p>}
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <SourceBadge source={c.source} />
-          {c.profileUrl && (
-            <a href={c.profileUrl} target="_blank" rel="noopener noreferrer nofollow" className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
-              Profile <HiOutlineArrowTopRightOnSquare style={{ width: 12, height: 12 }} />
-            </a>
-          )}
-        </div>
-      </div>
-    </li>
-  );
-}
-
 export default function NetworkPage() {
   const router = useRouter();
-  const { data: session, status: sessionStatus } = useSession();
+  const { status: sessionStatus } = useSession();
   const signedIn = sessionStatus === 'authenticated';
 
   const [contacts, setContacts] = useState([]);
@@ -250,34 +90,29 @@ export default function NetworkPage() {
   const [notice, setNotice] = useState(null); // { kind: 'error'|'success'|'info', text }
   const [busy, setBusy] = useState(null);
 
-  const [linkedin, setLinkedin] = useState({ checked: false, connected: false, name: '', configured: true });
   const [xStatus, setXStatus] = useState({ checked: false, connected: false, username: '', note: '', configured: true });
   // Shown inline when a connection is offered but not available on this deployment.
-  const [unavailable, setUnavailable] = useState({ linkedin: false, x: false });
+  const [unavailable, setUnavailable] = useState({ x: false });
 
   const [sourceFilter, setSourceFilter] = useState({ linkedin: true, csv: true, x: true, attio: true });
   const [directOnly, setDirectOnly] = useState(false);
-  const [attioOpen, setAttioOpen] = useState(false);
-  const [attioToken, setAttioToken] = useState('');
-  const [companyFilter, setCompanyFilter] = useState('');
-  const [graphSearch, setGraphSearch] = useState('');
-  const [groupBy, setGroupBy] = useState('role');
+  // The arrangement the user picked; null follows the file's own default.
+  const [groupChoice, setGroupChoice] = useState(null);
   // The map is one fixed layout; `focus` is where the camera was last sent
   // (the nonce re-triggers a flight to the same place) and `viewId` is the
   // bubble the viewer is inside right now, as reported by the map.
-  const [focus, setFocus] = useState({ id: 'root', nonce: 0 });
-  const [viewId, setViewId] = useState('root');
-  const [lensFilter, setLensFilter] = useState(null);
-  const [selected, setSelected] = useState(null);
+  const [focus, setFocus] = useState({ id: ROOT_ID, nonce: 0 });
+  const [viewId, setViewId] = useState(ROOT_ID);
   const [theme] = useTheme();
-  // Dashboard beside the globe: filters that apply to its people list.
-  const [rankFilter, setRankFilter] = useState(null);
-  const [panelLens, setPanelLens] = useState(null);
-  const [panelQuery, setPanelQuery] = useState('');
-  const [panelSort, setPanelSort] = useState('senior');
-  const [peopleShown, setPeopleShown] = useState(PEOPLE_PAGE);
-  const [dragging, setDragging] = useState(false);
 
+  // ---- the one selection: at most one of these is set at a time.
+  const [chipIds, setChipIds] = useState([]); // shortcuts pressed together
+  const [findText, setFindText] = useState(''); // the panel's Find box (a selection from two characters)
+  const [pick, setPick] = useState(null); // a click on the globe: { label, keys, sort, company, nodeId }
+  const [answer, setAnswer] = useState(null); // an answer to a question
+  const [openId, setOpenId] = useState(null); // the row opened in place in the panel
+
+  const [dragging, setDragging] = useState(false);
   const [checks, setChecks] = useState([]); // founder checks this user has finished
   const [runningChecks, setRunningChecks] = useState([]); // and the ones still running
   useEffect(() => {
@@ -293,17 +128,20 @@ export default function NetworkPage() {
 
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
-  const [answer, setAnswer] = useState(null);
   const [askError, setAskError] = useState('');
-  const [exampleIndex, setExampleIndex] = useState(0);
-  const [askFocused, setAskFocused] = useState(false);
 
   const graphBoxRef = useRef(null);
+  const mapRef = useRef(null);
+  const glanceRef = useRef(null);
   const [graphWidth, setGraphWidth] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
-  const [graphHeight, setGraphHeight] = useState(620);
+  const [graphHeight, setGraphHeight] = useState(GRAPH_HEIGHT);
   const linkedinInput = useRef(null);
   const genericInput = useRef(null);
+  // Set once the user has uploaded in this visit: the globe then settles at
+  // once instead of swinging in, and the page scrolls to the read-out.
+  const uploaded = useRef(false);
+  const [scrollToGlance, setScrollToGlance] = useState(0);
 
   // ------------------------------------------------------------ loading
 
@@ -337,24 +175,16 @@ export default function NetworkPage() {
 
   const checkSocial = useCallback(async () => {
     try {
-      const r = await fetch('/api/auth/linkedin/token');
-      const d = await readJson(r);
-      const name = [d.user?.firstName, d.user?.lastName].filter(Boolean).join(' ');
-      setLinkedin({ checked: true, connected: Boolean(d.isAuthenticated), name, configured: d.configured !== false });
-    } catch {
-      setLinkedin({ checked: true, connected: false, name: '', configured: true });
-    }
-    try {
       const r = await fetch('/api/auth/twitter/token');
       const d = await readJson(r);
       const configured = d.configured !== false;
       if (r.status === 429) {
-        setXStatus({ checked: true, connected: false, username: '', note: 'X status is temporarily unavailable (rate limited).', configured });
+        setXStatus({ checked: true, connected: false, username: '', note: 'X status is temporarily unavailable (too many requests). Try again in a few minutes.', configured });
       } else if (r.status === 403 && d.signedIn) {
-        // Signed in at X, but X refuses API reads for this app.
+        // Signed in at X, but X refuses to share data with this app.
         const why = /client-not-enrolled/i.test(d.xReason || '') || /attached to a Project/i.test(d.xDetail || '')
-          ? 'X accepted the sign-in but refuses API access: the X app must be attached to a Project in the X developer portal.'
-          : `X accepted the sign-in but refused API access${d.xReason ? ` (${d.xReason})` : ''}. Check the app's Project and access level in the X developer portal.`;
+          ? 'X accepted the sign-in but will not share your follows: the X app must be attached to a Project in the X developer portal.'
+          : `X accepted the sign-in but will not share your follows${d.xReason ? ` (${d.xReason})` : ''}. Check the app's Project and access level in the X developer portal.`;
         setXStatus({ checked: true, connected: false, username: '', note: why, configured });
       } else {
         setXStatus({ checked: true, connected: Boolean(d.authenticated), username: d.profile?.username || '', note: '', configured });
@@ -364,6 +194,7 @@ export default function NetworkPage() {
     }
   }, []);
 
+  // LinkedIn gives apps no connections, so the page offers its export and never asks for LinkedIn's sign-in status.
   useEffect(() => { checkSocial(); }, [checkSocial]);
 
   // OAuth callbacks come back as ?auth=linkedin_success / ?error=...
@@ -378,6 +209,8 @@ export default function NetworkPage() {
     router.replace('/network', undefined, { shallow: true });
   }, [router.isReady, router.query, router, checkSocial]);
 
+  const hasContacts = contacts.length > 0;
+
   // Graph width follows its container.
   useEffect(() => {
     const el = graphBoxRef.current;
@@ -391,37 +224,51 @@ export default function NetworkPage() {
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [contacts.length > 0]);
+  }, [hasContacts]);
 
-  // Full screen: the graph box itself goes full screen (details and legend
-  // ride along); the canvas follows the window height while it is.
+  // Full screen: the map section (globe, panel and toolbar) goes full screen;
+  // the canvas follows the window height, less the toolbar, while it is.
   useEffect(() => {
     const onChange = () => {
-      const on = Boolean(document.fullscreenElement) && document.fullscreenElement === graphBoxRef.current;
+      const on = Boolean(document.fullscreenElement) && document.fullscreenElement === mapRef.current;
       setFullscreen(on);
-      setGraphHeight(on ? window.innerHeight : 620);
+      setGraphHeight(on ? Math.max(320, window.innerHeight - 52) : GRAPH_HEIGHT);
     };
-    const onResize = () => { if (document.fullscreenElement === graphBoxRef.current) setGraphHeight(window.innerHeight); };
+    const onResize = () => { if (document.fullscreenElement === mapRef.current) setGraphHeight(Math.max(320, window.innerHeight - 52)); };
     document.addEventListener('fullscreenchange', onChange);
     window.addEventListener('resize', onResize);
     return () => { document.removeEventListener('fullscreenchange', onChange); window.removeEventListener('resize', onResize); };
   }, []);
   const toggleFullscreen = () => {
-    const el = graphBoxRef.current;
+    const el = mapRef.current;
     if (!el) return;
     if (document.fullscreenElement) document.exitFullscreen?.();
     else el.requestFullscreen?.();
   };
 
-  // The example questions live in the search bar: one rotates as the
-  // placeholder, all of them drop down while the empty field has focus.
-  useEffect(() => {
-    if (question) return undefined;
-    const id = setInterval(() => setExampleIndex((i) => (i + 1) % EXAMPLES.length), 3500);
-    return () => clearInterval(id);
-  }, [question]);
+  // ------------------------------------------------------------ selection
+
+  const clearSelection = useCallback(() => {
+    setChipIds([]);
+    setFindText('');
+    setPick(null);
+    setAnswer(null);
+    setOpenId(null);
+  }, []);
+  /** Fly the map to a bubble. */
+  const goTo = useCallback((id) => { setViewId(id); setFocus((f) => ({ id, nonce: f.nonce + 1 })); }, []);
 
   // ------------------------------------------------------------ import
+
+  /** A new file opens on its own default arrangement, with nothing selected, and the page shows its read-out. */
+  const freshData = () => {
+    uploaded.current = true;
+    clearSelection();
+    setGroupChoice(null);
+    setViewId(ROOT_ID);
+    setFocus((f) => ({ id: ROOT_ID, nonce: f.nonce + 1 }));
+    setScrollToGlance((n) => n + 1);
+  };
 
   /**
    * Save (signed in) or keep (signed out) one source's contacts. Returns the
@@ -492,7 +339,7 @@ export default function NetworkPage() {
       if (!parsed.headerFound) {
         let text;
         if (parsed.reason === 'not-linkedin') {
-          text = 'This is a contacts file, not LinkedIn\'s Connections.csv (no First Name, Last Name and Connected On columns), so it was not imported. Use "Upload CSV/XLSX contacts" for it; your LinkedIn import is unchanged.';
+          text = 'This is a contacts file, not LinkedIn\'s Connections.csv (no First Name, Last Name and Connected On columns), so it was not imported. Use "Upload contacts" for it; your LinkedIn import is unchanged.';
         } else if (kind === 'linkedin') {
           text = 'This does not look like LinkedIn\'s Connections.csv: no header row with First Name, Last Name, Company, Position and Connected On was found.';
         } else {
@@ -511,9 +358,7 @@ export default function NetworkPage() {
         parsed.duplicates ? `${fmt(parsed.duplicates)} duplicate rows in the file were merged.` : '',
       ].filter(Boolean).join(' ');
       setNotice({ kind: 'success', text: `${message}${details ? ` ${details}` : ''}` });
-      setAnswer(null);
-      setSelected(null);
-      if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') window.scrollTo({ top: 0, behavior: 'smooth' });
+      freshData();
     } catch (error) {
       setNotice({ kind: 'error', text: `Import failed: ${error.message}` });
     } finally {
@@ -537,6 +382,7 @@ export default function NetworkPage() {
     if (busy || mode === 'loading') return;
     importFile(event.dataTransfer?.files?.[0], 'auto');
   };
+  const dropProps = { onDragOver, onDragLeave, onDrop };
 
   const importX = async () => {
     setBusy('x');
@@ -562,6 +408,7 @@ export default function NetworkPage() {
       const message = await saveSource('x', parsed.contacts, { fileTruncated: parsed.truncated || 0 });
       const dupes = parsed.duplicates ? ` ${fmt(parsed.duplicates)} duplicate accounts were merged.` : '';
       setNotice({ kind: 'success', text: `${message}${dupes}${data.note ? ` ${data.note}` : ''}` });
+      freshData();
     } catch (error) {
       setNotice({ kind: 'error', text: error.message });
     } finally {
@@ -569,10 +416,9 @@ export default function NetworkPage() {
     }
   };
 
-  const importAttio = async (event) => {
-    event?.preventDefault?.();
-    const token = attioToken.trim();
-    if (!token) return;
+  /** Import from Attio with the access code pasted in Connectors; true when it worked. */
+  const importAttio = async (token) => {
+    if (!token) return false;
     setBusy('attio');
     setNotice(null);
     try {
@@ -583,8 +429,6 @@ export default function NetworkPage() {
       });
       const data = await readJson(response);
       if (!response.ok) throw new Error(data.error || `Attio import failed (${response.status})`);
-      setAttioToken('');
-      setAttioOpen(false);
       if (Array.isArray(data.contacts)) {
         setContacts((prev) => [...prev.filter((c) => c.source !== 'attio'), ...data.contacts]);
         if (data.stats) setStats(data.stats);
@@ -598,10 +442,11 @@ export default function NetworkPage() {
         data.note || '',
       ].filter(Boolean);
       setNotice({ kind: data.saved ? 'success' : 'info', text: parts.join(' ') });
-      setAnswer(null);
-      setSelected(null);
+      freshData();
+      return true;
     } catch (error) {
       setNotice({ kind: 'error', text: error.message });
+      return false;
     } finally {
       setBusy(null);
     }
@@ -613,8 +458,7 @@ export default function NetworkPage() {
     } catch {
       // cookies are cleared server side; nothing else to do
     }
-    if (service === 'linkedin') setLinkedin((s) => ({ ...s, checked: true, connected: false, name: '' }));
-    else setXStatus((s) => ({ ...s, checked: true, connected: false, username: '', note: '' }));
+    setXStatus((s) => ({ ...s, checked: true, connected: false, username: '', note: '' }));
   };
 
   const removeAll = async () => {
@@ -631,9 +475,9 @@ export default function NetworkPage() {
       }
       setContacts([]);
       setMemoryImports({});
-      setAnswer(null);
-      setSelected(null);
-      setExpanded(new Set());
+      clearSelection();
+      setGroupChoice(null);
+      setViewId(ROOT_ID);
       setNotice({ kind: 'success', text: 'All of your network data was removed.' });
     } catch (error) {
       setNotice({ kind: 'error', text: error.message });
@@ -642,149 +486,205 @@ export default function NetworkPage() {
     }
   };
 
-  // ------------------------------------------------------------ graph
+  // ------------------------------------------------------------ the network
 
   const counts = useMemo(() => countBySource(contacts), [contacts]);
+  const firmCount = useMemo(() => contacts.filter((c) => c.relationship === 'firm').length, [contacts]);
 
-  const visibleContacts = useMemo(() => {
-    const q = companyFilter.trim().toLowerCase();
-    const qKey = normalizeCompanyKey(companyFilter);
-    return contacts.filter((c) => {
-      if (!sourceFilter[c.source]) return false;
-      if (directOnly && c.relationship === 'firm') return false;
-      if (lensFilter && !classifyContact(c).lenses.includes(lensFilter)) return false;
-      if (!q) return true;
-      const company = String(c.company || '').toLowerCase();
-      return company.includes(q) || (qKey && normalizeCompanyKey(c.company).includes(qKey));
-    });
-  }, [contacts, sourceFilter, companyFilter, lensFilter, directOnly]);
+  // The people in view: only the source chips and "direct only" narrow them.
+  const visibleContacts = useMemo(
+    () => contacts.filter((c) => sourceFilter[c.source] !== false && !(directOnly && c.relationship === 'firm')),
+    [contacts, sourceFilter, directOnly],
+  );
 
-  // The whole map is laid out once per filter change; navigating only moves the camera.
+  // What the file holds: the read-out, the shortcuts, the example questions
+  // and the arrangements that split it. Depends only on the people in view.
+  const profile = useMemo(() => profileNetwork(visibleContacts), [visibleContacts]);
+  const groupings = profile.groupings || [];
+  const groupBy = groupChoice && groupings.some((g) => g.key === groupChoice) ? groupChoice : profile.defaultGrouping || 'role';
+
+  // The whole map is laid out once per arrangement or source change; a
+  // selection only lights people and moves the camera.
   const atlas = useMemo(() => buildAtlas(visibleContacts, { groupBy }), [visibleContacts, groupBy]);
-  const roleCounts = useMemo(() => roleStats(contacts), [contacts]);
-  // LinkedIn's export has no location, so grouping by country is only offered once some contact has one.
-  const hasLocations = useMemo(() => contacts.some((c) => countryOf(c) !== UNKNOWN_COUNTRY), [contacts]);
+
+  /** person id -> contact, for the people in view. */
+  const byPersonId = useMemo(() => {
+    const m = new Map();
+    for (const c of visibleContacts) m.set(personNodeId(c), c);
+    return m;
+  }, [visibleContacts]);
 
   // A check run without a company marks a contact only when that contact's full name is unique here.
   const checksContext = useMemo(() => ({ checks, running: runningChecks, nameCounts: contactNameCounts(contacts) }), [checks, runningChecks, contacts]);
 
-  const answerKeys = useMemo(() => {
+  // An answer's people come back keyed by dedupeKey; map them onto the globe's ids.
+  const byDedupe = useMemo(() => {
     if (!answer) return null;
-    const keys = new Set();
-    (answer.results || []).forEach((r) => keys.add(r.contact.key));
-    (answer.intro?.viaInvestors || []).forEach((g) => g.contacts.forEach((r) => keys.add(r.contact.key)));
-    return keys;
-  }, [answer]);
+    const m = new Map();
+    for (const c of contacts) m.set(dedupeKey(c), c);
+    return m;
+  }, [answer, contacts]);
+  const resolve = useCallback((contact) => {
+    const full = (byDedupe && contact?.key && byDedupe.get(contact.key)) || contact;
+    return { c: full, id: personNodeId(full) };
+  }, [byDedupe]);
 
-  const highlightIds = useMemo(() => {
-    const ids = new Set();
-    const term = graphSearch.trim().toLowerCase();
-    if (!term && !answerKeys) return ids;
-    for (const c of visibleContacts) {
-      const hitSearch = term && [c.name, c.company, c.position].some((v) => String(v || '').toLowerCase().includes(term));
-      const hitAnswer = answerKeys && answerKeys.has(dedupeKey(c));
-      if (hitSearch || hitAnswer) ids.add(personNodeId(c));
+  // Signed in, the server searches every saved contact; the source chips and
+  // "direct only" may hide some of them. Keep the answer to the people in
+  // view so it never counts anyone the read-out and the globe leave out.
+  const shownAnswer = useMemo(() => {
+    if (!answer || visibleContacts.length === contacts.length) return answer;
+    let hidden = 0;
+    const keep = (list) => (list || []).filter((r) => {
+      const ok = byPersonId.has(resolve(r.contact).id);
+      if (!ok) hidden += 1;
+      return ok;
+    });
+    const results = keep(answer.results);
+    const intro = answer.intro ? {
+      ...answer.intro,
+      direct: keep(answer.intro.direct),
+      possiblyRelated: keep(answer.intro.possiblyRelated),
+      viaInvestors: (answer.intro.viaInvestors || [])
+        .map((g) => { const kept = keep(g.contacts); return { ...g, contacts: kept, total: Math.max(kept.length, (g.total || 0) - (g.contacts.length - kept.length)) }; })
+        .filter((g) => g.contacts.length),
+    } : answer.intro;
+    const possiblyRelated = answer.possiblyRelated
+      ? { ...answer.possiblyRelated, results: keep(answer.possiblyRelated.results) } : answer.possiblyRelated;
+    const removed = (answer.results || []).length - results.length;
+    return {
+      ...answer,
+      results,
+      intro,
+      possiblyRelated,
+      total: Math.max(results.length, (Number(answer.total) || 0) - removed),
+      hiddenByFilters: hidden,
+    };
+  }, [answer, visibleContacts.length, contacts.length, byPersonId, resolve]);
+
+  // Shortcut ids that still exist after the people in view changed.
+  const liveChipIds = useMemo(() => {
+    const known = new Set([...profile.shortcuts, ...profile.more].map((s) => s.id));
+    return chipIds.filter((id) => known.has(id));
+  }, [chipIds, profile]);
+
+  // The one selection { label, keys: Set, sort, company?, nodeId? }, or null.
+  // Its key Set is built once per selection, so the globe turns and pulses
+  // only when the selection really changes.
+  const term = findText.trim().toLowerCase();
+  const selection = useMemo(() => {
+    if (answer) {
+      const keys = new Set();
+      const add = (r) => { const id = resolve(r.contact).id; if (byPersonId.has(id)) keys.add(id); };
+      (answer.results || []).forEach(add);
+      (answer.intro?.direct || []).forEach(add);
+      (answer.intro?.viaInvestors || []).forEach((g) => g.contacts.forEach(add));
+      return { kind: 'answer', label: 'Answer', keys, sort: null };
     }
-    return ids;
-  }, [graphSearch, answerKeys, visibleContacts]);
+    if (pick) return pick;
+    if (term.length >= 2) {
+      // Most senior first, as everyone is listed.
+      const keys = new Set(profile.everyone.keys.filter((id) => {
+        const c = byPersonId.get(id);
+        return c && [c.name, c.company, c.position].some((v) => String(v || '').toLowerCase().includes(term));
+      }));
+      return { kind: 'find', label: `Find “${findText.trim()}”`, keys, sort: 'senior' };
+    }
+    if (liveChipIds.length) {
+      // One company chip is a company selection: the panel offers its profile and intro paths.
+      const only = liveChipIds.length === 1 && liveChipIds[0].startsWith('company:')
+        ? [...profile.shortcuts, ...profile.more].find((s) => s.id === liveChipIds[0]) : null;
+      return { kind: 'chips', ...combine(profile, liveChipIds), company: only ? only.short.replace(/^at /, '') : '' };
+    }
+    return null;
+  }, [answer, resolve, pick, term, findText, liveChipIds, profile, byPersonId]);
+  const highlightIds = selection ? selection.keys : NO_IDS;
+
+  const toggleChip = (id) => {
+    setFindText('');
+    setPick(null);
+    setAnswer(null);
+    setOpenId(null);
+    setChipIds((prev) => {
+      const live = prev.filter((x) => liveChipIds.includes(x));
+      if (live.includes(id)) return live.filter((x) => x !== id);
+      return live.length >= MAX_CHIPS ? live : [...live, id];
+    });
+  };
+  const onEveryone = () => { clearSelection(); goTo(ROOT_ID); };
+  const onFind = (value) => {
+    setFindText(value);
+    setOpenId(null);
+    if (value.trim().length >= 2) { setChipIds([]); setPick(null); setAnswer(null); }
+  };
+
+  /** People ids in the order everyone is listed (most senior first), kept to `wanted`. */
+  const inSeniorOrder = useCallback((wanted) => new Set(profile.everyone.keys.filter((id) => wanted.has(id))), [profile]);
+
+  // A click on the globe is a selection like any other. A company selects
+  // the whole company, all its people across groups, not the slice clicked.
+  const onNodeClick = (node) => {
+    if (!node || node.type === 'root') return;
+    setChipIds([]);
+    setFindText('');
+    setAnswer(null);
+    if (node.type === 'person') {
+      setPick({ kind: 'person', label: node.label, keys: new Set([node.id]), sort: 'senior', nodeId: node.id });
+      setOpenId(node.id);
+      return;
+    }
+    setOpenId(null);
+    const wanted = new Set();
+    let company = '';
+    if (node.type === 'company' && node.key !== NO_COMPANY_KEY) {
+      for (const nid of atlas.companyIndex.get(node.key) || [node.id]) {
+        for (const c of atlas.byId.get(nid)?.contacts || []) wanted.add(personNodeId(c));
+      }
+      company = node.label;
+    } else {
+      for (const c of node.contacts || []) wanted.add(personNodeId(c));
+    }
+    const label = node.type === 'company' && node.key !== NO_COMPANY_KEY ? `at ${node.label}` : node.label;
+    setPick({ kind: node.type, label, keys: inSeniorOrder(wanted), sort: 'senior', company, nodeId: node.id });
+  };
+
+  const onOpenRow = (id) => setOpenId((v) => (v === id ? null : id));
 
   // Where the viewer is: the bubble that fills the canvas. The map reports it
-  // as you pan and zoom, and the breadcrumb and navigator follow.
+  // as you pan and zoom; the breadcrumb and the panel's group rows follow.
   const viewed = atlas.byId.get(viewId);
   const viewNode = !viewed ? atlas.root : viewed.type === 'person' ? viewed.parent : viewed;
   const trail = useMemo(() => pathTo(viewNode), [viewNode]);
-  /** Fly the map to a bubble. */
-  const goTo = (id) => { setViewId(id); setFocus((f) => ({ id, nonce: f.nonce + 1 })); };
-  const resetMap = () => { setSelected(null); goTo(ROOT_ID); };
-  // Choosing a lens filters the globe and turns the group it is about to the
-  // front (investors for raise, founders for source, experts for diligence).
-  const LENS_GROUP = { raise: 'investors', source: 'founders', diligence: 'experts' };
-  const pickLens = (key) => {
-    const on = lensFilter !== key;
-    setLensFilter(on ? key : null);
-    setSelected(null);
-    goTo(on && groupBy === 'role' ? `g/role:${LENS_GROUP[key]}` : ROOT_ID);
+  const groupRows = useMemo(() => (viewNode.children || [])
+    .filter((n) => n.type !== 'person')
+    .sort((a, b) => b.count - a.count || String(a.label).localeCompare(String(b.label)))
+    .slice(0, MAX_GROUP_ROWS), [viewNode]);
+
+  // The panel's list: the selection's people in its own order, or the
+  // people in the part of the globe in view, most senior first.
+  const panelPeople = useMemo(() => {
+    if (selection) return [...selection.keys].map((id) => byPersonId.get(id)).filter(Boolean);
+    return sortPeople(viewNode.contacts || [], 'senior');
+  }, [selection, viewNode, byPersonId]);
+  const panelTitle = selection ? selection.label : viewNode.id === ROOT_ID ? 'Everyone' : viewNode.label;
+
+  const arrange = (key) => {
+    setGroupChoice(key);
+    setPick((p) => (p ? { ...p, nodeId: null } : p));
+    goTo(ROOT_ID);
   };
 
-  const selectContact = (contact) => {
-    if (lensFilter && !classifyContact(contact).lenses.includes(lensFilter)) setLensFilter(null);
-    const full = contacts.find((c) => dedupeKey(c) === contact.key) || contact;
-    const id = personNodeId(full);
-    setSelected({ type: 'person', id, contact: full, color: atlas.byId.get(id)?.color });
-    goTo(atlas.byId.get(id)?.parent?.id || id);
-    graphBoxRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-  };
-
-  const onNodeClick = (node) => {
-    if (node.type === 'person') {
-      setSelected({ type: 'person', id: node.id, contact: node.contact, color: node.color });
-      return;
-    }
-    if (node.type === 'company') setSelected({ type: 'company', id: node.id, key: node.key, label: node.label, count: node.count, color: node.color, contacts: node.contacts });
-    else setSelected(null);
-    goTo(node.id);
-  };
-
-  const selectedCompanyPeople = useMemo(
-    () => (selected?.type === 'company' ? [...selected.contacts].sort((a, b) => a.name.localeCompare(b.name)) : []),
-    [selected],
-  );
-
-  // Bottom navigator: what is inside the bubble you are looking at, largest
-  // first (groups, then companies, then the people of one company).
-  const quick = useMemo(() => {
-    const all = viewNode.type === 'company' ? viewNode.children
-      : [...viewNode.children].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-    return { items: all.slice(0, QUICK_MAX), more: Math.max(0, all.length - QUICK_MAX) };
-  }, [viewNode]);
-  const biggest = useMemo(
-    () => atlas.nodes.reduce((best, n) => (n.type === 'company' && n.key !== NO_COMPANY_KEY && (!best || n.count > best.count) ? n : best), null),
-    [atlas],
-  );
-
-  // The dashboard: who is in the layer in view (or lit by a search or an
-  // answer), broken down by seniority and by what they can help with.
-  const panel = useMemo(() => {
-    const lit = highlightIds.size > 0;
-    const base = lit ? visibleContacts.filter((c) => highlightIds.has(personNodeId(c))) : (viewNode.contacts || []);
-    const ranks = [0, 0, 0];
-    const lens = { raise: 0, source: 0, diligence: 0 };
-    const rows = base.map((c) => {
-      const rank = seniority(c);
-      const cl = classifyContact(c);
-      ranks[rank] += 1;
-      cl.lenses.forEach((l) => { if (lens[l] != null) lens[l] += 1; });
-      return { c, rank, cl };
-    });
-    return { lit, total: base.length, ranks, lens, rows };
-  }, [viewNode, highlightIds, visibleContacts]);
-  const panelRows = useMemo(() => {
-    const q = panelQuery.trim().toLowerCase();
-    const rows = panel.rows.filter((r) => (rankFilter == null || r.rank === rankFilter)
-      && (!panelLens || r.cl.lenses.includes(panelLens))
-      && (!q || [r.c.name, r.c.company, r.c.position].some((v) => String(v || '').toLowerCase().includes(q))));
-    const byName = (x, y) => String(x.c.name || '').localeCompare(String(y.c.name || ''));
-    const byRecent = (x, y) => String(y.c.connectedOn || '').localeCompare(String(x.c.connectedOn || ''));
-    rows.sort(panelSort === 'name' ? byName : panelSort === 'recent' ? (x, y) => byRecent(x, y) || byName(x, y) : (x, y) => x.rank - y.rank || byRecent(x, y) || byName(x, y));
-    return rows;
-  }, [panel, rankFilter, panelLens, panelQuery, panelSort]);
-  useEffect(() => { setPeopleShown(PEOPLE_PAGE); }, [viewNode.id, rankFilter, panelLens, panelQuery, panelSort, highlightIds]);
-  // The layers of this grouping as steps: the ones already chosen, the one
-  // you are choosing now, and what is still below.
-  const layerSteps = useMemo(() => {
-    const dims = LAYERS[groupBy] || LAYERS.role;
-    const chosen = trail.slice(1).map((n) => ({ dim: n.type === 'company' ? 'company' : n.dim, value: n.label, id: n.id, color: n.color }));
-    const last = chosen.length ? chosen[chosen.length - 1].dim : null;
-    const rest = (last ? dims.slice(dims.indexOf(last) + 1) : dims).map((dim) => ({ dim }));
-    return [...chosen, ...rest, { dim: 'people' }];
-  }, [trail, groupBy]);
-  const panelFiltered = rankFilter != null || panelLens || panelQuery.trim();
+  // After an upload, the read-out is the first thing in view.
+  useEffect(() => {
+    if (!scrollToGlance || !hasContacts) return;
+    glanceRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, [scrollToGlance, hasContacts]);
 
   // ------------------------------------------------------------ ask
 
-  const ask = async (text, { target } = {}) => {
+  const ask = async (text) => {
     const q = String(text ?? question).trim();
-    if (!q && !target) return;
+    if (!q) return;
     if (!contacts.length) {
       setAskError('Import your contacts first: there is nothing to search yet.');
       return;
@@ -792,7 +692,7 @@ export default function NetworkPage() {
     setAsking(true);
     setAskError('');
     try {
-      const body = { question: q, ...(target ? { target } : {}) };
+      const body = { question: q };
       if (mode !== 'saved') {
         // Signed out, the server has no copy: send only what scoring uses
         // (never email) plus the identity key so results map back to the graph.
@@ -808,8 +708,13 @@ export default function NetworkPage() {
       });
       const data = await readJson(response);
       if (!response.ok) throw new Error(data.error || `Search failed (${response.status})`);
+      // An answer is a selection: it replaces any shortcut, Find or click.
+      setChipIds([]);
+      setFindText('');
+      setPick(null);
+      setOpenId(null);
       setAnswer(data);
-      setSelected(null);
+      mapRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
     } catch (error) {
       setAskError(error.message);
     } finally {
@@ -821,6 +726,7 @@ export default function NetworkPage() {
     setQuestion(text);
     ask(text);
   };
+  const introPaths = (company) => askExample(`Intro paths to ${company}`);
 
   // A link from a report ("Ask your network about Acme") arrives as ?ask=: run it once, when the contacts are in.
   const askedFromLink = useRef(false);
@@ -836,8 +742,6 @@ export default function NetworkPage() {
   }, [router.isReady, router.query, mode, contacts.length]);
 
   const lastImport = (source) => (mode === 'saved' ? stats?.lastImportBySource?.[source] : memoryImports[source]);
-  const lastImportAny = mode === 'saved' ? stats?.lastImportAt : Object.values(memoryImports).sort().pop();
-  const filtersShown = answer?.filters;
 
   // ------------------------------------------------------------ render
 
@@ -846,163 +750,26 @@ export default function NetworkPage() {
     setUnavailable((u) => ({ ...u, x: true }));
   };
 
-  const hasContacts = contacts.length > 0;
   const loading = mode === 'loading';
-  const firmCount = useMemo(() => contacts.filter((c) => c.relationship === 'firm').length, [contacts]);
+  const showSignIn = mode === 'memory' && !signedIn && sessionStatus !== 'loading';
 
-  const LINKEDIN_HOW = 'LinkedIn: Settings & Privacy → Data privacy → Get a copy of your data → Connections. LinkedIn emails a zip within minutes; upload the Connections.csv inside it. LinkedIn never shares connections with apps, so the export is the only way in.';
-  const linkedinInfo = (
-    <span className="inline-flex items-center text-muted hover:text-ink" title={LINKEDIN_HOW} aria-label="How to get your LinkedIn connections" role="img">
-      <HiOutlineInformationCircle style={{ width: 15, height: 15 }} />
-    </span>
-  );
-
-  /** One tight row: where contacts come from. */
-  const card = (title, note, action) => (
-    <div className="flex flex-col gap-2 rounded-xl border border-line bg-white p-3">
-      <div>
-        <div className="text-sm font-medium text-ink">{title}</div>
-        <div className="mt-0.5 text-xs leading-snug text-muted">{note}</div>
-      </div>
-      <div className="mt-auto">{action}</div>
-    </div>
-  );
   const connectors = (
-    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-      {card(
-        <span className="inline-flex items-center gap-1.5">LinkedIn {linkedinInfo}</span>,
-        counts.linkedin ? `${fmt(counts.linkedin)} connections${lastImport('linkedin') ? ` · ${formatTime(lastImport('linkedin'))}` : ''}` : 'Your connections, from the Connections.csv export.',
-        <button type="button" onClick={() => linkedinInput.current?.click()} disabled={Boolean(busy) || loading} className="btn-primary w-full py-2 text-xs">
-          <HiOutlineArrowUpTray style={{ width: 13, height: 13 }} /> {busy === 'linkedin' ? 'Importing…' : counts.linkedin ? 'Replace export' : 'Upload Connections.csv'}
-        </button>,
-      )}
-      {card(
-        'CSV / XLSX',
-        counts.csv ? `${fmt(counts.csv)} contacts${lastImport('csv') ? ` · ${formatTime(lastImport('csv'))}` : ''}` : 'Any spreadsheet with names and companies.',
-        <button type="button" onClick={() => genericInput.current?.click()} disabled={Boolean(busy) || loading} className="btn-secondary w-full py-2 text-xs">
-          <HiOutlineArrowUpTray style={{ width: 13, height: 13 }} /> {busy === 'auto' ? 'Importing…' : counts.csv ? 'Replace file' : 'Upload contacts'}
-        </button>,
-      )}
-      {card(
-        'X',
-        xStatus.connected ? `Connected as @${xStatus.username || 'you'}.` : 'The accounts you follow, where X allows it.',
-        xStatus.connected ? (
-          <div className="flex gap-1">
-            <button type="button" onClick={importX} disabled={Boolean(busy)} className="btn-secondary flex-1 py-2 text-xs">{busy === 'x' ? 'Importing…' : 'Import follows'}</button>
-            <button type="button" onClick={() => disconnect('twitter')} className="btn-ghost text-xs">Disconnect</button>
-          </div>
-        ) : <button type="button" onClick={connectX} className="btn-secondary w-full py-2 text-xs">Connect X</button>,
-      )}
-      {card(
-        <span>Attio <span className="font-normal text-muted">· firm CRM</span></span>,
-        counts.attio ? `${fmt(counts.attio)} people, ${fmt(firmCount)} firm-wide.` : "The firm's contacts, kept apart from yours.",
-        ATTIO_ENABLED
-          ? <button type="button" onClick={() => setAttioOpen((v) => !v)} className="btn-secondary w-full py-2 text-xs">{counts.attio ? 'Re-import from Attio' : 'Connect Attio'}</button>
-          : <button type="button" disabled className="btn-secondary w-full py-2 text-xs" title="Not connected yet">Connect Attio · soon</button>,
-      )}
-      {(unavailable.x && !xStatus.configured) && <p className="muted text-xs sm:col-span-2 lg:col-span-4" role="status">{X_UNAVAILABLE}.</p>}
-      {xStatus.note && <p className="text-xs text-amber-700 sm:col-span-2 lg:col-span-4">{xStatus.note}</p>}
-      {attioOpen && (
-        <form onSubmit={importAttio} className="rounded-xl border border-line bg-slate-50/70 p-3.5 sm:col-span-2 lg:col-span-4">
-          <p className="text-sm text-ink">Connect Attio</p>
-          <p className="mt-0.5 text-xs text-muted">
-            Paste an Attio API access token (Attio → Workspace settings → Developers). It is used once to read People, Companies and workspace members, and is not stored.
-            People whose strongest connection in Attio is you are saved as <span className="font-medium text-slate-700">direct</span>; everyone else is a <span className="font-medium text-slate-700">firm-wide</span> contact, labelled with the colleague who knows them.
-          </p>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-            <input
-              type="password"
-              value={attioToken}
-              onChange={(e) => setAttioToken(e.target.value)}
-              placeholder="Attio access token"
-              aria-label="Attio access token"
-              autoComplete="off"
-              className="input flex-1 py-2"
-            />
-            <button type="submit" disabled={Boolean(busy) || !attioToken.trim()} className="btn-primary px-4 py-2">{busy === 'attio' ? 'Importing…' : 'Import from Attio'}</button>
-            <button type="button" onClick={() => { setAttioOpen(false); setAttioToken(''); }} className="btn-ghost justify-center">Cancel</button>
-          </div>
-        </form>
-      )}
-    </div>
-  );
-
-  const details = selected && (
-    <aside
-      className={fullscreen
-        ? 'glass absolute right-3 top-3 max-h-[calc(100%-7rem)] w-80 overflow-y-auto rounded-xl border border-line p-4 text-sm shadow-card'
-        : 'min-h-0 flex-1 overflow-y-auto p-4 text-sm'}
-      aria-label="Details"
-    >
-      {selected.type === 'person' && (
-        <div>
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: selected.color || '#64748B' }} />
-              <h3 className="font-semibold text-ink">{selected.contact.name}</h3>
-            </div>
-            <button type="button" onClick={() => setSelected(null)} aria-label="Close details" className="text-muted hover:text-ink"><HiOutlineXMark style={ICON} /></button>
-          </div>
-          {selected.contact.position && <p className="mt-1 text-slate-700">{selected.contact.position}</p>}
-          <p className="mt-1.5 flex flex-wrap gap-1.5">
-            {selected.contact.company && <span className="chip">{selected.contact.company}</span>}
-            {classifyContact(selected.contact).role !== 'other' && (
-              <span className="chip chip-active" title={classifyContact(selected.contact).reason}>{classifyContact(selected.contact).label}</span>
-            )}
-            {classifyContact(selected.contact).lenses.map((l) => <span key={l} className="chip">{LENSES[l].short}</span>)}
-            {selected.contact.relationship === 'firm' && <span className="chip chip-warn" title="A firm-wide CRM contact, not your own connection">Firm contact{selected.contact.via ? ` · via ${selected.contact.via}` : ''}</span>}
-            <CheckMark name={selected.contact.name} company={selected.contact.company} />
-          </p>
-          <dl className="mt-3 space-y-1 text-xs text-muted">
-            {selected.contact.location && <div><dt className="inline font-medium text-slate-700">Location: </dt><dd className="inline">{selected.contact.location}</dd></div>}
-            {selected.contact.connectedOn && <div><dt className="inline font-medium text-slate-700">Connected on: </dt><dd className="inline">{formatDate(selected.contact.connectedOn)}</dd></div>}
-            {selected.contact.email && <div><dt className="inline font-medium text-slate-700">Email: </dt><dd className="inline break-all">{selected.contact.email}</dd></div>}
-            <div><dt className="inline font-medium text-slate-700">Source: </dt><dd className="inline"><SourceBadge source={selected.contact.source} /></dd></div>
-            {selected.contact.tags?.length > 0 && <div><dt className="inline font-medium text-slate-700">Tags: </dt><dd className="inline">{selected.contact.tags.join(', ')}</dd></div>}
-          </dl>
-          {selected.contact.profileUrl && (
-            <a href={selected.contact.profileUrl} target="_blank" rel="noopener noreferrer nofollow" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
-              Open profile <HiOutlineArrowTopRightOnSquare style={{ width: 12, height: 12 }} />
-            </a>
-          )}
-          <ContactActions name={selected.contact.name} company={selected.contact.company} />
-        </div>
-      )}
-      {selected.type === 'company' && (
-        <div>
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="inline-block h-3 w-3 shrink-0 rounded-full" style={{ background: selected.color || '#64748B' }} />
-              <h3 className="font-semibold text-ink">{selected.label}</h3>
-            </div>
-            <button type="button" onClick={() => setSelected(null)} aria-label="Close details" className="text-muted hover:text-ink"><HiOutlineXMark style={ICON} /></button>
-          </div>
-          <p className="muted mt-0.5">{fmt(selected.count)} {selected.count === 1 ? 'person' : 'people'} you know</p>
-          {selected.key !== NO_COMPANY_KEY && (
-            <>
-              <ContactActions company={selected.label} />
-              <button
-                type="button"
-                onClick={() => { const q = `Intro paths to ${selected.label}`; setQuestion(q); ask(q); }}
-                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline"
-              >
-                <HiOutlineSparkles style={{ width: 13, height: 13 }} /> Find intro paths to {selected.label}
-              </button>
-            </>
-          )}
-          <ul className="mt-3 max-h-56 divide-y divide-line overflow-y-auto">
-            {selectedCompanyPeople.map((c) => (
-              <li key={dedupeKey(c)} className="py-1.5">
-                <button type="button" className="text-left hover:text-brand-600" onClick={() => selectContact({ ...c, key: dedupeKey(c) })}>
-                  <span className="font-medium text-ink">{c.name}</span>
-                  {c.position && <span className="block text-xs text-muted">{c.position}</span>}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </aside>
+    <Connectors
+      counts={counts}
+      lastImport={lastImport}
+      busy={busy}
+      loading={loading}
+      firmCount={firmCount}
+      onLinkedIn={() => linkedinInput.current?.click()}
+      onFile={() => genericInput.current?.click()}
+      xStatus={xStatus}
+      xUnavailable={unavailable.x && !xStatus.configured}
+      onConnectX={connectX}
+      onImportX={importX}
+      onDisconnectX={() => disconnect('twitter')}
+      attioEnabled={ATTIO_ENABLED}
+      onImportAttio={importAttio}
+    />
   );
 
   return (
@@ -1033,50 +800,9 @@ export default function NetworkPage() {
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{loadError}</div>
         )}
 
-        {/* ---------------------------------------------------- ask */}
-        <section className="ai-card p-4 sm:p-5" aria-labelledby="ask-heading">
-          <h2 id="ask-heading" className="sr-only">Ask your network</h2>
-          <form onSubmit={(e) => { e.preventDefault(); ask(); }} className="flex flex-col gap-2 sm:flex-row">
-            <div className="relative flex-1">
-              <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink" style={{ width: 18, height: 18 }} />
-              <input
-                type="text"
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                onFocus={() => setAskFocused(true)}
-                onBlur={() => setTimeout(() => setAskFocused(false), 150)}
-                placeholder={hasContacts ? EXAMPLES[exampleIndex] : 'Search your network...'}
-                aria-label="Ask your network"
-                maxLength={500}
-                className="input-hero pl-11"
-              />
-              {askFocused && !question && hasContacts && (
-                <ul className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-line bg-white py-1 shadow-card" role="listbox" aria-label="Example questions">
-                  {EXAMPLES.map((ex) => (
-                    <li key={ex}>
-                      <button type="button" role="option" aria-selected={false} onMouseDown={(e) => e.preventDefault()} onClick={() => { setAskFocused(false); askExample(ex); }} className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 hover:text-ink">
-                        <HiOutlineMagnifyingGlass className="shrink-0 text-muted" style={{ width: 14, height: 14 }} />{ex}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <button type="submit" disabled={asking || !question.trim() || !hasContacts} className="btn-primary sm:px-5">
-              <HiOutlineSparkles style={ICON} /> {asking ? 'Searching…' : 'Ask'}
-            </button>
-          </form>
-          {askError && <p role="alert" className="mt-3 text-sm text-rose-600">{askError}</p>}
-        </section>
-
-        {/* ---------------------------------------------------- empty state */}
+        {/* ---------------------------------------------------- empty state: the upload is the page */}
         {!hasContacts && (
-          <section
-            className={classNames('card overflow-hidden', dragging && 'ring-2 ring-brand-300')}
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-          >
+          <section className={classNames('card overflow-hidden', dragging && 'ring-2 ring-brand-300')} {...dropProps}>
             <div className="flex flex-col items-center px-6 py-12 text-center">
               <span className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-ink text-white shadow-float">
                 {loading ? <HiOutlineShare style={{ width: 26, height: 26 }} /> : <HiOutlineCloudArrowUp style={{ width: 28, height: 28 }} />}
@@ -1085,15 +811,160 @@ export default function NetworkPage() {
               {!loading && (
                 <>
                   <h2 className="mt-1 text-xl font-semibold tracking-tight text-ink">Drop your contacts here to draw your map</h2>
-                  <p className="muted mt-1 max-w-md">LinkedIn&apos;s Connections.csv, or any CSV or XLSX with names and companies. Everything stays private to you.</p>
+                  <p className="muted mt-1 max-w-md">See in plain words who you know, at which companies and where, with one-click lists you can copy or download. Everything stays private to you.</p>
                 </>
               )}
             </div>
             <div className="space-y-2 border-t border-line px-5 py-4">
               {connectors}
-              {mode === 'memory' && !signedIn && sessionStatus !== 'loading' && (
+              {showSignIn && (
                 <p className="text-xs text-amber-700"><Link href="/signin" className="font-medium underline">Sign in to save your network</Link>; until then imports stay in this tab.</p>
               )}
+            </div>
+          </section>
+        )}
+
+        {hasContacts && (
+          <SourceStrip
+            total={contacts.length}
+            counts={counts}
+            labels={SOURCE_LABELS}
+            colors={SOURCE_COLORS || {}}
+            saved={mode === 'saved'}
+            showSignIn={showSignIn}
+            busy={busy}
+            onRemoveAll={removeAll}
+            connectors={connectors}
+            sourceFilter={sourceFilter}
+            onToggleSource={(s) => { clearSelection(); setSourceFilter((f) => ({ ...f, [s]: !f[s] })); goTo(ROOT_ID); }}
+            firmCount={firmCount}
+            directOnly={directOnly}
+            onToggleDirect={() => { clearSelection(); setDirectOnly((v) => !v); goTo(ROOT_ID); }}
+            dropProps={dropProps}
+            dragging={dragging}
+          />
+        )}
+
+        {/* ---------------------------------------------------- at a glance */}
+        {hasContacts && (
+          <AtAGlance
+            ref={glanceRef}
+            profile={profile}
+            activeIds={selection?.kind === 'chips' ? liveChipIds : []}
+            countFor={(id) => countIfAdded(profile, liveChipIds, id)}
+            onToggle={toggleChip}
+            onEveryone={onEveryone}
+            everyoneActive={!selection}
+            question={question}
+            onQuestion={setQuestion}
+            onAsk={() => ask()}
+            asking={asking}
+            askError={askError}
+            onExample={askExample}
+          />
+        )}
+
+        {/* ---------------------------------------------------- map and people */}
+        {hasContacts && (
+          <section ref={mapRef} className="card overflow-hidden bg-white" aria-labelledby="graph-heading">
+            <h2 id="graph-heading" className="sr-only">Map</h2>
+            <div className="flex flex-col lg:flex-row">
+              <div className="min-w-0 flex-1 lg:border-r lg:border-line">
+                <div ref={graphBoxRef} className="relative overflow-hidden bg-white">
+                  {atlas.peopleCount === 0 ? (
+                    <div className="flex items-center justify-center text-sm text-muted" style={{ height: graphHeight }}>No contacts match these filters.</div>
+                  ) : (
+                    <NetworkGraph
+                      atlas={atlas}
+                      width={graphWidth}
+                      height={graphHeight}
+                      highlightIds={highlightIds}
+                      selectedId={openId || selection?.nodeId || null}
+                      focus={focus}
+                      theme={theme}
+                      viewId={viewNode.id}
+                      onNodeClick={onNodeClick}
+                      onViewNode={setViewId}
+                      onBackgroundClick={() => setOpenId(null)}
+                      intro={!uploaded.current}
+                    >
+                      <button
+                        type="button"
+                        onClick={toggleFullscreen}
+                        className="glass flex h-8 w-8 items-center justify-center rounded-lg text-ink shadow-card hover:bg-white"
+                        aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+                        title={fullscreen ? 'Exit full screen' : 'Full screen'}
+                      >
+                        {fullscreen ? <HiOutlineArrowsPointingIn style={ICON} /> : <HiOutlineArrowsPointingOut style={{ ...ICON, transform: 'rotate(45deg)' }} />}
+                      </button>
+                    </NetworkGraph>
+                  )}
+                </div>
+                {/* Under the globe: the arrangements that split this file, and where you are. */}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line px-4 py-2 text-xs">
+                  {groupings.length > 1 && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-muted">Arrange by</span>
+                      <div className="flex rounded-lg border border-line bg-white p-0.5" role="radiogroup" aria-label="Arrange by">
+                        {groupings.map(({ key }) => (
+                          <button
+                            key={key}
+                            type="button"
+                            role="radio"
+                            aria-checked={groupBy === key}
+                            onClick={() => arrange(key)}
+                            className={classNames('rounded-md px-2 py-0.5 font-medium', groupBy === key ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}
+                          >
+                            {(GROUPING_LABEL[key] || key).replace(/^By (\w)/, (m, c) => c.toUpperCase())}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <nav className="flex min-w-0 flex-wrap items-center gap-1" aria-label="Where you are on the map">
+                    {trail.map((node, i) => (
+                      <React.Fragment key={node.id}>
+                        {i > 0 && <span className="text-muted">›</span>}
+                        <button
+                          type="button"
+                          onClick={() => goTo(node.id)}
+                          className={classNames('rounded-md px-1 py-0.5', i === trail.length - 1 ? 'font-medium text-ink' : 'text-muted hover:text-ink')}
+                        >
+                          {node.id === ROOT_ID ? 'All' : node.label}
+                          {i === trail.length - 1 && <span className="ml-1 font-normal text-muted">{fmt(node.count)}</span>}
+                        </button>
+                      </React.Fragment>
+                    ))}
+                  </nav>
+                  <span className="ml-auto hidden text-muted sm:inline">Drag to spin · scroll to zoom · click to select</span>
+                </div>
+              </div>
+              {/* On a phone the panel comes first, the globe under it. */}
+              <div className="relative order-first border-b border-line lg:order-none lg:w-2/5 lg:shrink-0 lg:border-b-0">
+                <div className="flex h-full max-h-96 flex-col lg:absolute lg:inset-0 lg:max-h-none">
+                  <PeoplePanel
+                    title={panelTitle}
+                    count={panelPeople.length}
+                    active={Boolean(selection)}
+                    onClear={clearSelection}
+                    people={panelPeople}
+                    listOrder={selection ? selection.sort : 'senior'}
+                    find={findText}
+                    onFind={onFind}
+                    groups={groupRows}
+                    onGroup={goTo}
+                    openId={openId}
+                    onOpen={onOpenRow}
+                    onIntro={introPaths}
+                    company={selection?.company || ''}
+                    answer={shownAnswer}
+                    asking={asking}
+                    resolve={resolve}
+                    idOf={personNodeId}
+                    heightClass="h-full"
+                  />
+                </div>
+              </div>
             </div>
           </section>
         )}
@@ -1121,463 +992,6 @@ export default function NetworkPage() {
             </ul>
           </details>
         )}
-
-        {/* ---------------------------------------------------- sources */}
-        {hasContacts && (
-          <section
-            className={classNames('card', dragging && 'ring-2 ring-brand-300')}
-            aria-labelledby="sources-heading"
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                <h2 id="sources-heading" className="section-title">Sources</h2>
-                <span className="text-xs text-muted">{fmt(contacts.length)} contacts · {mode === 'saved' ? 'saved to your account' : 'kept in this tab only'}</span>
-              </div>
-              <button type="button" onClick={removeAll} disabled={Boolean(busy)} className="btn-danger px-2.5 py-1 text-xs disabled:opacity-50">
-                <HiOutlineTrash style={{ width: 13, height: 13 }} /> {busy === 'delete' ? 'Removing…' : 'Remove all'}
-              </button>
-            </div>
-            <div className="space-y-2 border-t border-line px-4 py-3 sm:px-5">
-              {connectors}
-              {mode === 'memory' && !signedIn && sessionStatus !== 'loading' && (
-                <p className="text-xs text-amber-700"><Link href="/signin" className="font-medium underline">Sign in to save your network</Link></p>
-              )}
-            </div>
-          </section>
-        )}
-        {/* ---------------------------------------------------- graph */}
-        {hasContacts && (
-          <section className="card overflow-hidden" aria-labelledby="graph-heading">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
-              <h2 id="graph-heading" className="sr-only">Map</h2>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex rounded-lg border border-line bg-white p-0.5 text-xs" role="radiogroup" aria-label="Group the map">
-                  {GROUPINGS.map(({ key: v, label }) => (
-                    <button
-                      key={v}
-                      type="button"
-                      role="radio"
-                      aria-checked={groupBy === v}
-                      disabled={v === 'country' && !hasLocations}
-                      title={v === 'country' && !hasLocations ? 'None of your contacts has a location yet. LinkedIn exports do not include one; a CSV with a Location column does.' : undefined}
-                      onClick={() => { setGroupBy(v); resetMap(); }}
-                      className={classNames('rounded-md px-2.5 py-1 font-medium disabled:cursor-not-allowed disabled:opacity-40', groupBy === v ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <div className="relative">
-                  <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" style={{ width: 14, height: 14 }} />
-                  <input
-                    type="search"
-                    value={graphSearch}
-                    onChange={(e) => setGraphSearch(e.target.value)}
-                    placeholder="Find a person or company"
-                    aria-label="Highlight in graph"
-                    className="input w-56 py-1.5 pl-8 text-sm"
-                  />
-                </div>
-                {['linkedin', 'csv', 'x', 'attio'].filter((s) => counts[s]).length > 1 && ['linkedin', 'csv', 'x', 'attio'].filter((s) => counts[s]).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    role="checkbox"
-                    aria-checked={sourceFilter[s]}
-                    onClick={() => setSourceFilter((f) => ({ ...f, [s]: !f[s] }))}
-                    className={classNames('chip', sourceFilter[s] && 'chip-active')}
-                  >
-                    <span className="inline-block h-2 w-2 rounded-full" style={{ background: SOURCE_COLORS[s] }} />
-                    {SOURCE_LABELS[s]} <span className="text-muted">{fmt(counts[s])}</span>
-                  </button>
-                ))}
-              </div>
-              <span className="ml-auto text-xs text-muted">{fmt(atlas.peopleCount)} people · {fmt(atlas.companyCount)} companies</span>
-            </div>
-
-            <nav className="flex flex-wrap items-center gap-1 border-b border-line bg-slate-50/60 px-4 py-2 text-xs sm:px-5" aria-label="Map layers">
-              {trail.map((node, i) => (
-                <React.Fragment key={node.id}>
-                  {i > 0 && <span className="text-line">›</span>}
-                  <button
-                    type="button"
-                    onClick={() => { setSelected(null); goTo(node.id); }}
-                    className={classNames('rounded-md px-1.5 py-0.5', i === trail.length - 1 ? 'font-medium text-ink' : 'text-muted hover:text-ink')}
-                  >
-                    {node.id === ROOT_ID ? 'All' : node.label}
-                    {i === trail.length - 1 && <span className="ml-1 font-normal text-muted">{fmt(node.count)}</span>}
-                  </button>
-                </React.Fragment>
-              ))}
-              <span className="ml-auto text-muted">
-                {highlightIds.size > 0 ? `${fmt(highlightIds.size)} highlighted` : 'Drag to spin · scroll to zoom · click to open'}
-              </span>
-            </nav>
-
-            <div className="lg:flex">
-            <div ref={graphBoxRef} className="relative min-w-0 flex-1 overflow-hidden bg-white">
-              {atlas.peopleCount === 0 ? (
-                <div className="flex items-center justify-center text-sm text-muted" style={{ height: graphHeight }}>No contacts match these filters.</div>
-              ) : (
-                <NetworkGraph
-                  atlas={atlas}
-                  width={graphWidth}
-                  height={graphHeight}
-                  insetBottom={NAV_HEIGHT}
-                  highlightIds={highlightIds}
-                  selectedId={selected?.id}
-                  focus={focus}
-                  theme={theme}
-                  viewId={viewNode.id}
-                  onNodeClick={onNodeClick}
-                  onViewNode={setViewId}
-                  onBackgroundClick={() => setSelected(null)}
-                >
-                  <button
-                    type="button"
-                    onClick={toggleFullscreen}
-                    className="glass flex h-8 w-8 items-center justify-center rounded-lg text-ink shadow-card hover:bg-white"
-                    aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
-                    title={fullscreen ? 'Exit full screen' : 'Full screen'}
-                  >
-                    {fullscreen ? <HiOutlineArrowsPointingIn style={{ width: 15, height: 15 }} /> : <HiOutlineArrowsPointingOut style={{ width: 15, height: 15, transform: 'rotate(45deg)' }} />}
-                  </button>
-                </NetworkGraph>
-              )}
-              <div className="glass absolute bottom-0 left-0 right-0 border-t border-line text-xs">
-                <nav className="scroll-quiet flex items-center gap-1.5 overflow-x-auto px-3 py-2" aria-label="Map navigator">
-                  {viewNode.parent ? (
-                    <button type="button" onClick={() => { setSelected(null); goTo(viewNode.parent.id); }} className="chip shrink-0" title={`Back out to ${viewNode.parent.id === ROOT_ID ? 'the whole map' : viewNode.parent.label}`}>
-                      ← {viewNode.parent.id === ROOT_ID ? 'All' : viewNode.parent.label}
-                    </button>
-                  ) : (
-                    <span className="shrink-0 font-medium text-ink">Zoom to</span>
-                  )}
-                  <span className="text-line">|</span>
-                  {quick.items.map((node) => (
-                    <button
-                      key={node.id}
-                      type="button"
-                      onClick={() => onNodeClick(node)}
-                      title={node.type === 'person' ? [node.label, node.contact.position].filter(Boolean).join(' · ') : `Zoom to ${node.label}`}
-                      className={classNames('chip shrink-0', selected?.id === node.id && 'chip-active')}
-                    >
-                      <span className="inline-block h-2 w-2 rounded-full" style={{ background: node.color }} />
-                      {node.label} {node.type !== 'person' && <span className="text-muted">{fmt(node.count)}</span>}
-                    </button>
-                  ))}
-                  {quick.more > 0 && <span className="shrink-0 text-muted">+{fmt(quick.more)} more on the map</span>}
-                </nav>
-                <div className="scroll-quiet flex items-center gap-1.5 overflow-x-auto border-t border-line/70 px-3 py-2" role="group" aria-label="Presets">
-                  <span className="shrink-0 text-muted">Presets</span>
-                  <span className="text-line">|</span>
-                  <button
-                    type="button"
-                    onClick={() => { setLensFilter(null); setGraphSearch(''); resetMap(); }}
-                    className={classNames('chip shrink-0', !lensFilter && viewNode.id === ROOT_ID && 'chip-active')}
-                    title="Everyone, zoomed all the way out"
-                  >
-                    Whole network
-                  </button>
-                  {Object.values(LENSES).map((l) => (
-                    <button
-                      key={l.key}
-                      type="button"
-                      role="checkbox"
-                      aria-checked={lensFilter === l.key}
-                      title={l.description}
-                      onClick={() => pickLens(l.key)}
-                      className={classNames('chip shrink-0', lensFilter === l.key && 'chip-active')}
-                    >
-                      {l.label} <span className="text-muted">{fmt(roleCounts.lenses[l.key])}</span>
-                    </button>
-                  ))}
-                  {biggest && (
-                    <button type="button" onClick={() => onNodeClick(biggest)} className="chip shrink-0" title={`Zoom to ${biggest.label}, the company you know most people at`}>
-                      Largest company
-                    </button>
-                  )}
-                  {firmCount > 0 && (
-                    <>
-                      <span className="text-line">|</span>
-                      <button
-                        type="button"
-                        role="checkbox"
-                        aria-checked={directOnly}
-                        title="Hide firm-wide CRM contacts held by colleagues"
-                        onClick={() => { setDirectOnly((v) => !v); resetMap(); }}
-                        className={classNames('chip shrink-0', directOnly && 'chip-active')}
-                      >
-                        My direct connections only
-                      </button>
-                      <span className="ml-auto shrink-0 text-muted"><span className="inline-block h-2 w-2 rounded-full border border-brand-400 bg-white align-middle" /> hollow = firm contact</span>
-                    </>
-                  )}
-                </div>
-              </div>
-              {fullscreen && details}
-            </div>
-            {/* ---------------------------------------------- dashboard */}
-            <aside className="flex max-h-[560px] min-h-0 flex-col border-t border-line bg-white lg:h-[620px] lg:max-h-none lg:w-[360px] lg:shrink-0 lg:border-l lg:border-t-0" aria-label="Dashboard">
-              {selected && !fullscreen ? details : (
-                <>
-                  <div className="space-y-3 border-b border-line px-4 py-3">
-                    {/* Layers: where you are in the hierarchy, as steps. */}
-                    <ol className="flex items-stretch gap-1" aria-label="Layers">
-                      {layerSteps.map((step, i) => {
-                        const done = Boolean(step.id);
-                        const current = !done && (i === 0 || Boolean(layerSteps[i - 1].id));
-                        return (
-                          <li key={`${step.dim}:${i}`} className="min-w-0 flex-1">
-                            <button
-                              type="button"
-                              disabled={!done}
-                              onClick={() => { setSelected(null); goTo(step.id); }}
-                              title={done ? `Back to ${step.value}` : undefined}
-                              className={classNames('block w-full rounded-md border px-1.5 py-1 text-left', done ? 'border-transparent bg-slate-100 hover:bg-slate-200' : current ? 'border-ink bg-white' : 'border-dashed border-line bg-white opacity-60')}
-                            >
-                              <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted">
-                                <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: done ? step.color || 'rgb(var(--c-ink))' : current ? 'rgb(var(--c-ink))' : 'rgb(var(--c-slate-300))' }} />
-                                {step.dim === 'people' ? 'People' : LAYER_LABEL[step.dim]}
-                              </span>
-                              <span className={classNames('block truncate text-xs', done || current ? 'font-medium text-ink' : 'text-muted')}>
-                                {done ? step.value : current ? (step.dim === 'people' ? `${fmt(panel.total)} here` : `${fmt(viewNode.children.length)} to pick`) : '—'}
-                              </span>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ol>
-                    <div>
-                      <h3 className="flex items-center gap-2 font-semibold leading-tight text-ink">
-                        {!panel.lit && viewNode.color && <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: viewNode.color }} />}
-                        {panel.lit ? 'Highlighted matches' : viewNode.id === ROOT_ID ? 'Everyone you know' : viewNode.label}
-                        <span className="font-normal text-muted">{fmt(panel.total)}</span>
-                      </h3>
-                      {!panel.lit && viewNode.hint && <p className="mt-0.5 text-xs text-muted">{viewNode.hint}</p>}
-                    </div>
-                    {/* Seniority: a bar you can click to filter. */}
-                    {panel.total > 0 && (
-                      <div role="group" aria-label="Filter by seniority">
-                        <div className="flex h-7 gap-0.5 overflow-hidden rounded-md">
-                          {SENIORITY.map((sn) => panel.ranks[sn.rank] > 0 && (
-                            <button
-                              key={sn.rank}
-                              type="button"
-                              role="checkbox"
-                              aria-checked={rankFilter === sn.rank}
-                              title={`${sn.label}: ${fmt(panel.ranks[sn.rank])} · ${sn.hint}`}
-                              onClick={() => setRankFilter((v) => (v === sn.rank ? null : sn.rank))}
-                              style={{ flexGrow: panel.ranks[sn.rank], background: sn.tone, opacity: rankFilter == null || rankFilter === sn.rank ? 1 : 0.3 }}
-                              className={classNames('min-w-[34px] basis-0 px-1.5 text-left text-[11px] font-semibold', sn.rank === 2 ? 'text-slate-700' : 'text-white', rankFilter === sn.rank && 'ring-2 ring-inset ring-amber-400')}
-                            >
-                              {fmt(panel.ranks[sn.rank])}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="mt-1 flex gap-3 text-[11px] text-muted">
-                          {SENIORITY.map((sn) => <span key={sn.rank} title={sn.hint} className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: sn.tone }} />{sn.label}</span>)}
-                        </div>
-                      </div>
-                    )}
-                    {/* What they can help with: three gauges you can click to filter. */}
-                    {panel.total > 0 && (
-                      <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Filter by what they can help with">
-                        {Object.values(LENSES).map((l) => (
-                          <button
-                            key={l.key}
-                            type="button"
-                            role="checkbox"
-                            aria-checked={panelLens === l.key}
-                            title={l.description}
-                            onClick={() => setPanelLens((v) => (v === l.key ? null : l.key))}
-                            className={classNames('rounded-md border px-2 py-1.5 text-left', panelLens === l.key ? 'border-brand-500 bg-brand-50' : 'border-line hover:bg-slate-50')}
-                          >
-                            <span className="block text-[10px] font-medium uppercase tracking-wide text-muted">{l.short}</span>
-                            <span className="block text-sm font-semibold text-ink">{fmt(panel.lens[l.key])}</span>
-                            <span className="mt-1 block h-1 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full bg-brand-500" style={{ width: `${(panel.lens[l.key] / panel.total) * 100}%` }} /></span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {/* The next layer down, as bars in the colours used on the globe. */}
-                  {!panel.lit && viewNode.type !== 'company' && quick.items.length > 1 && (
-                    <div className="border-b border-line px-4 py-3">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted">Next layer · {viewNode.children[0]?.type === 'company' ? 'companies' : LAYER_LABEL[viewNode.children[0]?.dim]?.toLowerCase() || 'groups'}</p>
-                      <ul className="mt-1.5 max-h-[132px] space-y-1 overflow-y-auto pr-1">
-                        {quick.items.map((node) => (
-                          <li key={node.id}>
-                            <button type="button" onClick={() => onNodeClick(node)} className="group flex w-full items-center gap-2 text-left text-xs" title={`Open ${node.label} on the globe`}>
-                              <span className="w-28 shrink-0 truncate text-ink group-hover:underline">{node.label}</span>
-                              <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full" style={{ width: `${Math.max(3, (node.count / Math.max(1, quick.items[0].count)) * 100)}%`, background: node.color }} /></span>
-                              <span className="w-9 shrink-0 text-right tabular-nums text-muted">{fmt(node.count)}</span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {/* People in this layer. */}
-                  <div className="flex items-center gap-2 border-b border-line px-4 py-2">
-                    <div className="relative min-w-0 flex-1">
-                      <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted" style={{ width: 13, height: 13 }} />
-                      <input type="search" value={panelQuery} onChange={(e) => setPanelQuery(e.target.value)} placeholder="Filter these people" aria-label="Filter these people" className="input w-full py-1 pl-7 text-xs" />
-                    </div>
-                    <div className="flex shrink-0 rounded-md border border-line p-0.5 text-[11px]" role="radiogroup" aria-label="Sort people">
-                      {PEOPLE_SORTS.map((o) => (
-                        <button key={o.key} type="button" role="radio" aria-checked={panelSort === o.key} onClick={() => setPanelSort(o.key)} className={classNames('rounded px-1.5 py-0.5', panelSort === o.key ? 'bg-slate-100 font-medium text-ink' : 'text-muted hover:text-ink')}>{o.label}</button>
-                      ))}
-                    </div>
-                  </div>
-                  {panelFiltered && (
-                    <p className="flex items-center justify-between border-b border-line bg-slate-50/70 px-4 py-1.5 text-[11px] text-muted">
-                      <span>{fmt(panelRows.length)} of {fmt(panel.total)}</span>
-                      <button type="button" onClick={() => { setRankFilter(null); setPanelLens(null); setPanelQuery(''); }} className="font-medium text-brand-600 hover:underline">Clear filters</button>
-                    </p>
-                  )}
-                  <ul className="min-h-0 flex-1 divide-y divide-line overflow-y-auto">
-                    {panelRows.slice(0, peopleShown).map(({ c, rank, cl }) => {
-                      const tone = atlas.byId.get(personNodeId(c))?.color || '#94A3B8';
-                      return (
-                        <li key={dedupeKey(c)}>
-                          <button type="button" onClick={() => selectContact({ ...c, key: dedupeKey(c) })} className="flex w-full items-center gap-2.5 px-4 py-2 text-left hover:bg-slate-50">
-                            <span
-                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold"
-                              style={c.relationship === 'firm' ? { border: `1.5px solid ${tone}`, color: tone } : { background: tone, color: readableOn(tone) }}
-                              title={c.relationship === 'firm' ? 'A firm-wide CRM contact, not your own connection' : undefined}
-                            >
-                              {initialsOf(c.name)}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-center gap-1.5">
-                                <span className="truncate text-sm font-medium text-ink">{c.name}</span>
-                                {rank < 2 && <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: SENIORITY[rank].tone }} title={SENIORITY[rank].label} />}
-                              </span>
-                              <span className="block truncate text-xs text-muted">{[c.position, c.company].filter(Boolean).join(' · ') || 'No title or company'}</span>
-                            </span>
-                            <span className="flex shrink-0 gap-0.5">
-                              {Object.values(LENSES).map((l) => (
-                                <span key={l.key} title={cl.lenses.includes(l.key) ? `Can help you ${l.short.toLowerCase()}` : undefined} className={classNames('flex h-4 w-4 items-center justify-center rounded text-[9px] font-semibold', cl.lenses.includes(l.key) ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-300')}>{l.short[0]}</span>
-                              ))}
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                    {panelRows.length === 0 && <li className="px-4 py-8 text-center text-xs text-muted">No one in this layer matches.</li>}
-                    {panelRows.length > peopleShown && (
-                      <li className="px-4 py-2 text-center">
-                        <button type="button" onClick={() => setPeopleShown((n) => n + PEOPLE_PAGE)} className="text-xs font-medium text-brand-600 hover:underline">Show {fmt(Math.min(PEOPLE_PAGE, panelRows.length - peopleShown))} more of {fmt(panelRows.length)}</button>
-                      </li>
-                    )}
-                  </ul>
-                </>
-              )}
-            </aside>
-            </div>
-          </section>
-        )}
-
-        {/* ---------------------------------------------------- answer */}
-        {hasContacts && (asking || answer) && (
-          <section className="card card-pad" aria-live="polite">
-            {asking && (
-              <div aria-busy="true">
-                <p className="flex items-center gap-2 text-sm text-ink">
-                  <HiOutlineSparkles className="text-brand-500 animate-glow" style={{ width: 16, height: 16 }} />
-                  {/intro|path/i.test(question) ? 'Searching your contacts and looking up the company\'s investors…' : 'Searching your contacts…'}
-                </p>
-                <div className="mt-3 space-y-2">
-                  <div className="skeleton h-4 w-1/3" />
-                  <div className="skeleton h-3 w-2/3" />
-                  <div className="skeleton h-4 w-1/4" />
-                </div>
-              </div>
-            )}
-
-            {answer && !asking && (
-              <div>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-sm text-slate-700">
-                    {answer.filters?.lens && <span className="chip chip-active mr-2">{LENSES[answer.filters.lens]?.label}</span>}
-                    {answer.intent === 'intro-path'
-                      ? <>Intro paths to <span className="font-semibold text-ink">{answer.intro?.target}</span></>
-                      : <><span className="font-semibold text-ink">{fmt(answer.total)}</span> {answer.total === 1 ? 'match' : 'matches'}{answer.total > answer.results.length ? ` (top ${answer.results.length} shown)` : ''}</>}
-                  </div>
-                  <button type="button" onClick={() => setAnswer(null)} className="btn-ghost text-xs">Clear results</button>
-                </div>
-                {filtersShown && (
-                  <div className="mb-3 flex flex-wrap gap-1.5">
-                    {filtersShown.companies.map((v) => <span key={`c${v}`} className="chip">Company: {v}</span>)}
-                    {filtersShown.roles.map((v) => <span key={`r${v}`} className="chip">Role: {v}</span>)}
-                    {filtersShown.keywords.map((v) => <span key={`k${v}`} className="chip">Keyword: {v}</span>)}
-                    {filtersShown.locations.map((v) => <span key={`l${v}`} className="chip">Location: {v}</span>)}
-                    {answer.parsedBy === 'llm' && <span className="chip chip-active"><HiOutlineSparkles style={{ width: 12, height: 12 }} /> question interpreted by AI (your contacts were not shared)</span>}
-                  </div>
-                )}
-                {(answer.notes || []).filter((n) => !/^Past employees/.test(n)).map((n) => (
-                  <p key={n} className="mb-2 text-xs text-amber-700">{n}</p>
-                ))}
-
-                {answer.intent === 'intro-path' && answer.intro ? (
-                  <div className="space-y-5">
-                    <div>
-                      <h3 className="text-sm font-semibold text-ink">Direct: people at {answer.intro.target} <span className="chip ml-1">{answer.intro.direct.length}</span></h3>
-                      {answer.intro.direct.length ? (
-                        <ul className="divide-y divide-line">{answer.intro.direct.map((r) => <ResultRow key={r.contact.key} item={r} onShow={selectContact} />)}</ul>
-                      ) : (
-                        <p className="muted mt-1">No one in your network lists {answer.intro.target} as their company.</p>
-                      )}
-                    </div>
-                    {answer.intro.possiblyRelated?.length > 0 && (
-                      <div>
-                        <h3 className="text-sm font-semibold text-ink">Possibly related <span className="chip ml-1">{answer.intro.possiblyRelated.length}</span></h3>
-                        <p className="muted text-xs">Similar company names, or {answer.intro.target} mentioned in a title. They may not work there.</p>
-                        <ul className="divide-y divide-line">{answer.intro.possiblyRelated.map((r) => <ResultRow key={`rel-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
-                      </div>
-                    )}
-                    <div>
-                      <h3 className="text-sm font-semibold text-ink">Via investors <span className="chip ml-1">{answer.intro.viaInvestors.reduce((n, g) => n + g.total, 0)}</span></h3>
-                      {answer.intro.viaInvestors.length ? answer.intro.viaInvestors.map((g) => (
-                        <div key={g.investor} className="mt-2 border-l-2 border-brand-200 pl-3">
-                          <div className="text-sm font-medium text-slate-700">{g.investor} <span className="text-xs font-normal text-muted">({g.evidence}; {g.total} {g.total === 1 ? 'contact' : 'contacts'})</span></div>
-                          <ul className="divide-y divide-line">{g.contacts.map((r) => <ResultRow key={`${g.investor}-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
-                        </div>
-                      )) : (
-                        <p className="muted mt-1">
-                          {answer.intro.investorsChecked.length
-                            ? `You don't know anyone at the investors found for ${answer.intro.target} (${answer.intro.investorsChecked.slice(0, 8).join(', ')}${answer.intro.investorsChecked.length > 8 ? '…' : ''}).`
-                            : 'No investor paths found.'}
-                        </p>
-                      )}
-                    </div>
-                    <p className="muted text-xs">Past-employee paths are not available: contact exports only include the current company.</p>
-                  </div>
-                ) : (
-                  <>
-                    {answer.results.length ? (
-                      <ul className="divide-y divide-line">{answer.results.map((r) => <ResultRow key={r.contact.key} item={r} onShow={selectContact} />)}</ul>
-                    ) : (
-                      <p className="muted">No one in your network matches that. Try a company name, a role like &quot;engineers&quot;, or an industry like &quot;fintech&quot;.</p>
-                    )}
-                    {answer.possiblyRelated?.results?.length > 0 && (
-                      <div className="mt-4">
-                        <h3 className="text-sm font-semibold text-ink">Possibly related <span className="chip ml-1">{fmt(answer.possiblyRelated.total)}</span></h3>
-                        <p className="muted text-xs">Similar company names, or the company mentioned in a title. They may not work there.</p>
-                        <ul className="divide-y divide-line">{answer.possiblyRelated.results.map((r) => <ResultRow key={`rel-${r.contact.key}`} item={r} onShow={selectContact} />)}</ul>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </section>
-        )}
-
       </div>
     </PageShell>
     </ChecksContext.Provider>

@@ -39,8 +39,10 @@ describe('classifyContact', () => {
     expect(inLens(c('D', 'Professor', 'MIT'), 'diligence')).toBe(true);
   });
 
-  test('tags count as title text; no title and no company is "other"', () => {
-    expect(classifyContact(c('A', '', 'Acme', ['angel investor'])).role).toBe('investor');
+  test('tags are never read as titles (changed 2026-11-21); no title and no company is "other"', () => {
+    // A CRM tag "partner" or "angel investor" is the user's label, not a job.
+    expect(classifyContact(c('A', '', 'Acme', ['angel investor'])).role).toBe('professional');
+    expect(classifyContact(c('A2', 'Buyer', 'Marlowe Department Stores', ['partner'])).family).toBe('operations');
     expect(classifyContact(c('B', '', ''))).toMatchObject({ role: 'other', group: 'other', lenses: [] });
   });
 
