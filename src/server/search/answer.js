@@ -234,7 +234,8 @@ function legalUnsupported(claim, citedTied) {
 
 /** Split a line into sentences, each keeping its own citations ("x. [Source 1] y" -> "x [Source 1].", "y"). */
 function lineSentences(body) {
-  const moved = body.replace(/([.!?])((?:\s*\[Source \d+\])+)/g, '$2$1');
+  // "x. [Source 1]." would become "x [Source 1].." (seen on the live site): one full stop after the markers is enough
+  const moved = body.replace(/([.!?])((?:\s*\[Source \d+\])+)/g, '$2$1').replace(/(\[Source \d+\])([.!?])[.!?]+/g, '$1$2');
   const out = [];
   let start = 0;
   const re = /(?<=[.!?])\s+(?=["“(]?[A-Z0-9•])/g;
