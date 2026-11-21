@@ -61,3 +61,6 @@
 - Merged `claude/research-hub-fix` into `openclaw-fixes` with a merge commit, after the full suite (3,840 tests) and the production build passed on the preview head. Production before this release: `87b8248`.
 - In the release: the three passes of 2026-11-20 and 21 (first overhaul, second pass with the Network Map pairing, the audit of 226 findings and its repair, the independent review of 107 findings and its fixes, the live-run fixes), 28 new sources, the contact taken from sign-in, debug routes following sign-in.
 - Still for the owner after release: a signed-in deep check on the live site has not been run by anyone yet (it needs a Google sign-in); six sources are built and off (`FOUNDER_SOURCES_ON`); patents and US trademarks are off.
+
+## 2026-11-21, second release of the day (Claude, on the owner's "Yes, release it")
+- One commit: the quick brief showed two full stops after a citation ("[Source 6].."), seen on the live site after the first release. Production `openclaw-fixes` is now `bcbff9b`; the tree equals preview. Live checks after it: pages load, the deep check answers 401 signed out, two real quick briefs returned AI summaries in 9 to 10 s with no doubled full stop.
