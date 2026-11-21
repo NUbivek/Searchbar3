@@ -118,8 +118,10 @@ export function companiesOf(report) {
   const r = report || {};
   add(r.company, 'current');
   add(r.profile?.company, 'current');
+  // a person the check names (a co-host, a co-founder) is not a company, whatever a headline made of them
+  const people = new Set([...(r.relatedParties || []).map((p) => p?.name), ...(r.threads || []).filter((t) => t?.kind === 'associate' || t?.kind === 'relative').map((t) => t.value)].map((n) => String(n || '').trim().toLowerCase()).filter(Boolean));
   for (const t of r.threads || []) {
-    if (t?.kind !== 'company' || LOOSE.test(t.why || '')) continue;
+    if (t?.kind !== 'company' || LOOSE.test(t.why || '') || people.has(String(t.value || '').trim().toLowerCase())) continue;
     const why = String(t.why || '');
     if (GIVEN.test(why)) add(t.value, 'current', null, why);
     else if (FOUNDED.test(why)) add(t.value, 'founded', PAST.test(why) ? 'founder (earlier)' : 'founder', why);

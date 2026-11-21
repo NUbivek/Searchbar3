@@ -445,13 +445,30 @@ export function buildReport(state) {
     .map((t) => { try { return new URL(/^https?:/.test(t.value) ? t.value : `https://${t.value}`).hostname.replace(/^www\./, '').toLowerCase(); } catch { return ''; } })
     .filter((h) => h && !/(?:forbes|linkedin|crunchbase|substack|medium|techcrunch|bloomberg)\.com$/.test(h));
   const colleagues = trustedThreads.filter((t) => t.kind === 'associate' && String(t.value).trim().split(/\s+/).length >= 2).map((t) => String(t.value).toLowerCase());
+  // 3. A one-word company name that is also an ordinary word ("Ramp", "Merge", "Flow"): a news item found on
+  //    that word alone ("body found near the boat ramp", "The Ramp church") is about the company only when
+  //    the word stands as a name of its own and the text speaks of a business.
+  const oneWord = Boolean(state.company) && companyKeys(state.company)[0] && !companyKeys(state.company)[0].includes(' ');
+  const coWord = oneWord ? String(state.company).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
+  const PART_OF_LONGER = oneWord ? new RegExp(`(?:[A-Z][\\p{L}'’-]+\\s+|['"‘“]?[Tt]he\\s+)${coWord}(?![\\p{L}\\p{N}])|(?<![\\p{L}\\p{N}])${coWord}\\s+(?:Road|Street|Church|Park|Festival|Lake|River|Bridge|County|School|Avenue)\\b`, 'u') : null;
+  const STANDS_ALONE = oneWord ? new RegExp(`(?<![\\p{L}\\p{N}])${coWord}(?![\\p{L}\\p{N}])`, 'gu') : null;
+  const BUSINESS = /\b(?:compan(?:y|ies)|startup|start-up|fintech|software|platform|ceo|co-?founders?|founders?|raises?|raised|funding|valuation|valued|investors?|customers|acquir\w+|ipo|layoffs?|employees|inc\.?|corp\.?|llc|series [a-h]|unicorn|shareholders?|executives?)\b/i;
+  const ordinaryWordOnly = (f) => {
+    if (!oneWord || f.match !== 'company' || !NAME_PLUS_SOURCES.has(f.source) || f.data?.person) return f;
+    const text = `${f.title || ''}\n${f.quote || ''}`;
+    if (subject.hasName(text) || ownHosts.some((h) => text0(f).toLowerCase().includes(h)) || colleagues.some((c) => text.toLowerCase().includes(c))) return f;
+    const all = (text.match(STANDS_ALONE) || []).length;
+    const inLonger = (text.match(new RegExp(PART_OF_LONGER.source, 'gu')) || []).length;
+    if (all > inLonger && BUSINESS.test(text)) return f;
+    return { ...f, match: 'possible', matchReasons: [`the word "${state.company}" appears, but not clearly as this company`], data: { ...(f.data || {}), companyNamesake: true } };
+  };
   const byCompanyNameOnly = (f) => {
     if (!sharedName || f.match !== 'company' || NAME_PLUS_SOURCES.has(f.source)) return f;
     const text = text0(f).toLowerCase();
     if (subject.hasName(text) || ownHosts.some((h) => text.includes(h)) || colleagues.some((c) => text.includes(c))) return f;
     return { ...f, match: 'possible', matchReasons: [`shares the company name only; several companies are called ${state.company}`], data: { ...(f.data || {}), companyNamesake: true } };
   };
-  const findings = (state.findings || []).map(byEmployer).map(byCompanyNameOnly).map(eventDated).map(businessHistory);
+  const findings = (state.findings || []).map(byEmployer).map(byCompanyNameOnly).map(ordinaryWordOnly).map(eventDated).map(businessHistory);
   const groups = new Map();
   for (const f of findings) {
     const key = corroborationKey(f);

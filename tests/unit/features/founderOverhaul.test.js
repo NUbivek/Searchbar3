@@ -285,3 +285,19 @@ test('a school is theirs when they are the one who graduated, wherever the sente
   expect(p.education.map((e) => e.school)).toEqual(['Columbia University']);
   expect(p.headline).toBe('Co-Founder and CEO, Merge');
 });
+
+test('a one-word company name that is an ordinary word: news about the word is not news about the company', () => {
+  const s = startState({ name: 'Eric Glyman', company: 'Ramp' });
+  const news = (title, quote = '') => rec({ source: 'news-archive', match: 'company', severity: 'high', title, quote });
+  s.findings = [
+    rec({ title: 'Eric Glyman, co-founder and CEO of Ramp' }),
+    news('Body found near Misty Water Boat Ramp identified, homicide investigation underway'),
+    news("Son-in-law of 'The Ramp' church founder fired after admitting abuse"),
+    news('Ramp sued by rival fintech over trade secrets', 'The company, valued at $13 billion, denies the claims.'),
+  ];
+  const report = buildReport(s);
+  expect(report.companyMatters.map((m) => m.title)).toEqual(['Ramp sued by rival fintech over trade secrets']);
+  expect(report.redFlags).toHaveLength(0);
+  // they stay listed, as name matches only
+  expect(report.sections.flatMap((x) => x.items).filter((f) => f.match === 'possible')).toHaveLength(2);
+});

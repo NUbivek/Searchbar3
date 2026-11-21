@@ -346,7 +346,8 @@ export function buildProfile(subject, findings, threads = []) {
     titles: kept.slice(0, 3),
     basedIn: place ? { text: place.text, ids: [...place.ids].slice(0, 4) } : null,
     company: company || null,
-    education: list(schools, 'school'),
+    // "Harvard" beside "Harvard University" is one school
+    education: list(schools, 'school').filter((e, _i, all) => !all.some((o) => o !== e && o.school.length > e.school.length && o.school.toLowerCase().startsWith(`${e.school.toLowerCase()} `))),
     earlier: list(orgs, 'org'),
     about: picked.map(({ text, id }) => ({ text, id })),
     links,
