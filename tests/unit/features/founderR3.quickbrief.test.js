@@ -360,6 +360,11 @@ describe('false alarms of the line check, seen from a live model on the preview 
     expect(but.content).not.toMatch(/Globex/);
   });
 
+  test('the caveat the prompt asks for is a negative from end to end (Adam Neumann, live)', () => {
+    const out = check('## SUMMARY\nMistral AI closed a $2 billion Series B [Source 1].\n## LITIGATION AND REGULATORY\nNo other litigation or regulatory actions identified in the sources, but absence of evidence is not evidence of a clean record.', src, opts);
+    expect(out).toMatchObject({ ok: true, dropped: 0 });
+  });
+
   test('a reference question about litigation, with a bold label, is not an invented legal matter', () => {
     const out = check('## SUMMARY\nMistral AI closed a $2 billion Series B [Source 1].\n## RED FLAGS AND OPEN QUESTIONS\n• **Verification of funding details:** Confirm the $113 M seed round and $2 billion Series B with the company.\n• **Litigation:** Ask whether any lawsuit or regulatory investigation involves the company?\n• Confirm that no fraud claims or settlements exist.', src, opts);
     expect(out.ok).toBe(true);

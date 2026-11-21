@@ -116,8 +116,17 @@ mr mrs ms dr prof jr sr inc corp ltd llc co plc sa ag gmbh`.split(/\s+/));
 // "No litigation or regulatory actions involving X are mentioned in the sources" is one too (seen from a live model).
 const NEGATIVE = /\b(?:not found|no (?:[\p{L}\p{N}'’&.-]+[ ,]+){0,12}?(?:found|mentions?|mentioned|results?|records?|sources?|identified|reported|listed|known|disclosed|appears?|appeared|exists?)|none (?:found|identified|reported|mentioned|known)|not evidence of|absence of|could not be (?:found|confirmed|verified)|nothing (?:was )?found|there (?:is|are|was|were) no)\b/iu;
 // ... unless it goes on to state something after all ("No conviction was found, but he was sued by X").
+// The caveat the prompt asks for is a negative from end to end ("No litigation was identified, but absence of
+// evidence is not evidence of a clean record"): what follows the contrast word decides.
 const CONTRAST = /\b(?:but|however|although|though|except|yet|while)\b/i;
-const onlyNegative = (claim) => NEGATIVE.test(claim) && !CONTRAST.test(claim);
+const CAVEAT = /\b(?:absence of|not (?:evidence|proof)|does not (?:mean|prove|rule out)|cannot (?:be ruled out|rule out)|may (?:still )?exist|not (?:be )?(?:exhaustive|complete|conclusive))\b/i;
+const onlyNegative = (claim) => {
+  if (!NEGATIVE.test(claim)) return false;
+  const m = CONTRAST.exec(claim);
+  if (!m) return true;
+  const tail = claim.slice(m.index + m[0].length);
+  return CAVEAT.test(tail) || (NEGATIVE.test(tail) && !/\d/.test(tail));
+};
 // A reference question or a request to the reader states nothing: "Confirm whether any litigation exists",
 // "Ask about the 2021 lawsuit?", "**Verification of funding:** Confirm the seed round".
 const ASKING = /^(?:[^:]{0,60}:\s*)?(?:ask|confirm|verify|check|request|clarify|obtain|review|seek|probe|explore|determine|establish|find out|whether|what|why|how|who|when|which|did|does|do|is|are|was|were|has|have|had|can|could|should|would)\b/i;
