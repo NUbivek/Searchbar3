@@ -405,3 +405,12 @@ describe('a legal matter the person\'s own sources state is a loose citation, no
     expect(out.content).not.toMatch(/harassment/);
   });
 });
+
+test('a full stop written both before and after the citation leaves one, not two (seen on the live site)', () => {
+  const { checkClaims: check } = require('../../../src/server/search/answer');
+  const src = new Map([[1, { text: 'Jane Doe co-founded Acme Robotics in 2019 and raised $20M.' }]]);
+  const out = check('## SUMMARY\nJane Doe co-founded Acme Robotics in 2019. [Source 1]. She raised $20M [Source 1].', src, { inherit: true });
+  expect(out.ok).toBe(true);
+  expect(out.content).not.toMatch(/\]\.\./);
+  expect(out.content).toMatch(/2019 \[Source 1\]\. She raised/);
+});
