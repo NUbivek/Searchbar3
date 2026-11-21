@@ -1459,7 +1459,10 @@ async function writeBrief(state, { model = 'auto', useLLM = true, deadline = nul
       }
       briefInfo = { mode: 'quoted', reason: `The AI brief failed validation (${checked.reason})` };
     } else {
-      briefInfo = { mode: 'quoted', reason: 'The AI model was unavailable', ...(rejected.length ? { answersNotUsed: rejected.length } : {}) };
+      // On a preview or local deployment the reasons travel with the answer, so a too-strict check can be seen
+      // without the server log; in production only the count does.
+      const showWhy = process.env.VERCEL_ENV === 'preview' || process.env.NODE_ENV !== 'production';
+      briefInfo = { mode: 'quoted', reason: 'The AI model was unavailable', ...(rejected.length ? { answersNotUsed: rejected.length, ...(showWhy ? { notUsed: rejected } : {}) } : {}) };
     }
     if (rejected.length) console.warn(`Quick brief: ${rejected.length} model answer(s) did not pass the checks:`, JSON.stringify(rejected).slice(0, 1800));
   }
