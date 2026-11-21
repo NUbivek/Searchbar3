@@ -71,9 +71,16 @@ describe('quickbrief-fabricated-legal-claims-pass / weak-sources-outside-lit: a 
   test('a made-up conviction citing a profile, and a charge citing a funding story, are both removed; two refuse the brief', () => {
     const out = check({
       '## LITIGATION AND REGULATORY': '• She was convicted of wire fraud and sentenced to prison [Source 1].',
-      '## RED FLAGS AND OPEN QUESTIONS': '• She was charged with securities fraud [Source 2].\n• Confirm the role history with references.',
+      '## RED FLAGS AND OPEN QUESTIONS': '• She was arrested for embezzlement [Source 2].\n• Confirm the role history with references.',
     });
     expect(out.ok).toBe(false);
+    // a charge one other tied source does state, cited to the wrong source, is removed but is not an invention
+    const miscited = check({
+      '## LITIGATION AND REGULATORY': '• She was convicted of wire fraud and sentenced to prison [Source 1].',
+      '## RED FLAGS AND OPEN QUESTIONS': '• She was charged with securities fraud [Source 2].\n• Confirm the role history with references.',
+    });
+    expect(miscited.ok).toBe(true);
+    expect(miscited.content).not.toMatch(/convicted|charged with securities fraud/);
     const one = check({ '## SUMMARY': 'Jane Doe co-founded Acme Robotics in 2019 [Source 2]. She was convicted of fraud [Source 2].' });
     expect(one.ok).toBe(true);
     expect(one.content).not.toMatch(/convicted/);

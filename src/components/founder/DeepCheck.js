@@ -213,9 +213,11 @@ function Screens({ screens }) {
               {g.items.map((s) => {
                 const [tone, text] = SCREEN_CHIP[s.status] || SCREEN_CHIP.failed;
                 return (
-                  <li key={s.id} className="flex items-baseline justify-between gap-3">
-                    <span className="text-ink">{s.label}</span>
-                    <span className="shrink-0 text-right">
+                  // The result wraps under a long source name instead of squeezing it to one word a line
+                  // (seen in a real browser on a screen with three citations).
+                  <li key={s.id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <span className="min-w-[11rem] flex-1 text-ink">{s.label}</span>
+                    <span className="flex flex-wrap items-baseline justify-end gap-1 text-right">
                       <span className={tone}>{text(s)}</span>
                       {s.incomplete && (s.status === 'records' || s.status === 'name-only') && <span className="chip chip-warn ml-1">answered in part</span>}
                       {(s.status === 'records' || s.status === 'name-only') && <Cites ns={s.cites} />}

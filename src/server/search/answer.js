@@ -274,6 +274,7 @@ export function checkClaims(content, sources, opts = {}) {
   const everything = prepareSource([...map.values()].map((v) => v?.text || '').join(' \n '));
   // every source that is tied to the subject by more than the name: what "said elsewhere" may rest on
   const strong = prepareSource([...map.values()].filter((v) => !v?.weak).map((v) => v?.text || '').join(' \n '));
+  const tiedTexts = [...map.values()].filter((v) => !v?.weak).map((v) => v?.text || '').filter(Boolean);
   const ignore = new Set(ignoreWords.flatMap((w) => String(w || '').split(/\s+/)).filter(Boolean).map(fold));
   const reasons = [];
   let checked = 0;
@@ -314,8 +315,18 @@ export function checkClaims(content, sources, opts = {}) {
         // only sources tied to the subject by more than the name may carry a legal matter
         const tied = valid.filter((n) => !map.get(n)?.weak).map((n) => map.get(n)?.text || '').join(' \n ');
         why = legalUnsupported(claim, tied);
-        legal = typeof why === 'string';
-        if (why && !legal) why = why.minor;
+        if (typeof why === 'string') {
+          // Not in the source it cites. A person whose public record is a fraud trial has it in most of their
+          // sources, and a live model cites loosely (every answer about Elizabeth Holmes was refused): when two
+          // or more other sources tied to the person state the same matter, the citation is loose and the
+          // sentence stays. With one such source the sentence goes but is not an invented matter; with none it
+          // goes and counts as invented.
+          const backers = tiedTexts.filter((t) => legalUnsupported(claim, t) === null).length;
+          if (backers >= 2) why = null;
+          else legal = backers === 0;
+        } else if (why) {
+          why = why.minor;
+        }
       }
       if (why) {
         // removed below; never rescued by another source

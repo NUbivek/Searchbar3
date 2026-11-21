@@ -86,6 +86,22 @@ function companyCountries(findings) {
   return [...out];
 }
 const PARTLY_ANSWERED = 0.2; // share of failed lookups from which a source's answer is called partial
+
+/**
+ * What a source says did not answer, for the reader. Twenty open-web questions answered from headlines only are one
+ * fact, not twenty lines, and a lookup's internal name ("q.roles") is never shown: such parts are counted.
+ */
+function partsText(parts) {
+  const list = Array.isArray(parts) ? parts.filter(Boolean) : [];
+  if (!list.length) return '';
+  const HEADLINES = /news headlines or the encyclopedia only/i;
+  const headlines = list.filter((x) => HEADLINES.test(x));
+  const rest = list.filter((x) => !HEADLINES.test(x)).map((x) => String(x).replace(/\bq\.[a-z-]+/g, 'one question').trim());
+  return [
+    headlines.length ? `${headlines.length} question${headlines.length === 1 ? ' was' : 's were'} answered from news headlines or the encyclopedia only` : '',
+    rest.length ? `parts did not answer: ${rest.slice(0, 4).join(', ')}${rest.length > 4 ? `, and ${rest.length - 4} more` : ''}` : '',
+  ].filter(Boolean).join('; ');
+}
 const TIMELINE_MAX = 60;
 
 // The checklist of public-record screens the report shows, so a clean screen is seen to have run. A screen
@@ -1454,7 +1470,7 @@ export function buildReport(state) {
           s.errors > 0 ? `${s.errors} of ${s.runs} lookups failed${s.lastError ? `: ${s.lastError}` : ''}` : '',
           s.waitedOut ? `${s.waitedOut} more lookup${s.waitedOut === 1 ? '' : 's'} not run because its allowance for the next few minutes was used up` : '',
           s.notRun ? `${s.notRun} more lookup${s.notRun === 1 ? '' : 's'} not run before the check ended` : '',
-          s.partial?.length ? `parts did not answer: ${s.partial.join(', ')}` : '',
+          partsText(s.partial),
         ].filter(Boolean).join('; '),
       })),
     // Sources that failed every lookup, are off, or were never asked because their lookups were dropped.
@@ -2046,6 +2062,22 @@ function whatChecksOut(report, byN) {
   return { lines: lines.filter(Boolean), unconfirmed };
 }
 
+/**
+ * Sources that answered only in part, for the gaps list. A source whose only shortfall is lookups left unrun when
+ * the check ended (the low-priority profile lookups) is not worth a line each: those are folded into one.
+ */
+function partlyLines(partly) {
+  const onlyUnrun = (s) => !s.failed && !s.parts?.length && s.notRun > 0 && /not run before the check ended/.test(String(s.reason || '')) && !/allowance/.test(String(s.reason || ''));
+  const folded = partly.filter(onlyUnrun);
+  const lines = partly.filter((s) => !onlyUnrun(s)).map((s) => `• ${inert(s.label)} answered only in part: ${inert(s.reason)}.`);
+  if (folded.length === 1) lines.push(`• ${inert(folded[0].label)} answered only in part: ${inert(folded[0].reason)}.`);
+  else if (folded.length > 1) {
+    const total = folded.reduce((n, s) => n + (s.notRun || 0), 0);
+    lines.push(`• ${total} lower-priority lookups were left unrun when the check ended, in ${folded.length} sources that answered the rest: ${folded.map((s) => inert(s.label)).join(', ')}.`);
+  }
+  return lines;
+}
+
 /** One line per screen group: what answered with no match, what found records, name-only matches, what did not answer. */
 function screenLines(report) {
   const groups = listOf(report.screens);
@@ -2058,13 +2090,22 @@ function screenLines(report) {
     const of = (...st) => items.filter((i) => st.includes(i.status));
     const label = (i) => `${inert(i.label)}${i.incomplete && (i.status === 'records' || i.status === 'name-only') ? ' (answered in part)' : ''}`;
     const withRefs = (i) => [label(i), refs(i.cites, 3)].filter(Boolean).join(' ');
+    // The page lists every screen with its result. The brief is read in a minute: it names the screens that found
+    // something or did not answer, names the clean ones only for watchlists and courts (the screens an investor
+    // asks about first), and counts the rest.
+    const named = /sanction|watchlist|court|prosecutor/i.test(g.group);
+    // a long explanation in brackets goes; a short one that says which lists stays ("(US, UN, EU, UK, Canada)")
+    const short = (i) => inert(String(i.label).replace(/\s*\(([^()]*)\)\s*$/, (m, inner) => (inner.length <= 30 ? m : '')));
+    const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    const clear = of('clear');
+    const off = of('off');
     const parts = [
-      of('clear').length ? `no match in ${of('clear').map(label).join(', ')}` : '',
+      clear.length ? (named ? `no match in ${clear.map(short).join(', ')}` : `${count(clear.length, 'screen', 'screens')} answered with no match`) : '',
       of('records').length ? `records found: ${of('records').map(withRefs).join(', ')}` : '',
       of('name-only').length ? `name-only matches to rule out: ${of('name-only').map(withRefs).join(', ')}` : '',
       of('partial').length ? `answered only in part: ${of('partial').map(label).join(', ')}` : '',
       of('failed', 'not-run').length ? `did not answer: ${of('failed', 'not-run').map(label).join(', ')}` : '',
-      of('off').length ? `not enabled on this deployment: ${of('off').map(label).join(', ')}` : '',
+      off.length ? (named ? `not enabled on this deployment: ${off.map(short).join(', ')}` : `${count(off.length, 'screen is', 'screens are')} not enabled on this deployment`) : '',
     ].filter(Boolean);
     return `• ${g.group}: ${parts.join('; ')}.`;
   });
@@ -2302,7 +2343,7 @@ function assembleSections(report) {
     ...(checks.unconfirmed.length ? [`• Stated only in bios, profiles or press, with no independent record found: ${checks.unconfirmed.slice(0, 8).map((c) => `${c.text} ${refs(c.cites, 1)}`).join('; ')}${checks.unconfirmed.length > 8 ? `; and ${checks.unconfirmed.length - 8} more` : ''}.`] : []),
     ...listOf(report.inconsistencies).map((x) => `• Inconsistent record: ${inert(x.title)}. ${inert(x.note)} [Source ${x.n}]`),
     ...listOf(coverage.notSearched).filter((s) => !screenLabels.has(s.label)).map((s) => (s.off ? `• ${inert(s.label)}: not enabled on this deployment.` : `• ${inert(s.label)} did not answer: ${inert(s.reason)}`)),
-    ...listOf(coverage.partlyAnswered).filter((s) => !screenLabels.has(s.label)).map((s) => `• ${inert(s.label)} answered only in part: ${inert(s.reason)}.`),
+    ...partlyLines(listOf(coverage.partlyAnswered).filter((s) => !screenLabels.has(s.label))),
     ...(limits.length ? [`• Limits of this check: ${limits.join(', ')}.`] : []),
     ...(coverage.searchNote ? [`• ${inert(coverage.searchNote)}`] : []),
     ...listOf(coverage.notCovered).map((s) => `• Not covered: ${inert(s)}.`),

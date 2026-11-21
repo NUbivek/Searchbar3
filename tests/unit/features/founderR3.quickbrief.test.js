@@ -371,3 +371,32 @@ describe('false alarms of the line check, seen from a live model on the preview 
     expect(out.ok).toBe(false);
   });
 });
+
+describe('a legal matter the person\'s own sources state is a loose citation, not an invention (Elizabeth Holmes, live, 2026-11-21)', () => {
+  const { checkClaims: check } = require('../../../src/server/search/answer');
+  const src = new Map([
+    [1, { text: 'Elizabeth Holmes - Founder and CEO - Theranos | Crunchbase. Elizabeth Holmes founded Theranos in 2003.' }],
+    [2, { text: 'Elizabeth Holmes convicted of investor fraud. A jury convicted Theranos founder Elizabeth Holmes of fraud in 2022; she was sentenced to prison.' }],
+    [3, { text: 'Theranos founder Elizabeth Holmes begins prison sentence after fraud conviction, 2023.' }],
+    [4, { text: 'Elizabeth Holmes of Acme was sued for harassment.', weak: true }],
+  ]);
+  const opts = { inherit: true, elsewhere: true, failAfter: 2, maxDropShare: 0.5, legalTerms: true, failSections: ['## LITIGATION AND REGULATORY'], advisorySections: ['## RED FLAGS AND OPEN QUESTIONS'], ignoreWords: ['Elizabeth Holmes'] };
+
+  test('stated by two other tied sources: the sentence stays although it cites the profile', () => {
+    const out = check('## SUMMARY\nElizabeth Holmes founded Theranos in 2003 and was later convicted of fraud [Source 1].\n## CAREER TIMELINE\n• 2022: Holmes was convicted of investor fraud [Source 1].', src, opts);
+    expect(out).toMatchObject({ ok: true, dropped: 0 });
+  });
+
+  test('stated by no tied source: removed and counted; two of them refuse the answer', () => {
+    const one = check('## SUMMARY\nElizabeth Holmes founded Theranos in 2003 [Source 1].\n## CAREER TIMELINE\n• 2019: Holmes was arrested for embezzlement [Source 1].', src, opts);
+    expect(one.ok).toBe(true);
+    expect(one.content).not.toMatch(/embezzlement/);
+    const two = check('## SUMMARY\nElizabeth Holmes founded Theranos in 2003 [Source 1].\n## CAREER TIMELINE\n• 2019: Holmes was arrested for embezzlement [Source 1].\n• 2020: She filed for bankruptcy [Source 1].', src, opts);
+    expect(two.ok).toBe(false);
+  });
+
+  test('a matter only a name-only source states is never rescued', () => {
+    const out = check('## SUMMARY\nElizabeth Holmes founded Theranos in 2003 [Source 1].\n## CAREER TIMELINE\n• Holmes was accused of harassment [Source 1].', src, opts);
+    expect(out.content).not.toMatch(/harassment/);
+  });
+});
