@@ -32,7 +32,10 @@ import { validateAnswer, checkClaims } from './search/answer';
 import { tierInfo } from '../utils/sourceTiers';
 import { isBlockedUrl, safeHref, cleanSentences, cleanModelText } from './founder/guardrails';
 import { cleanText, formatDate, sourceLabel, sourceType, sentencesOf } from '../utils/evidence';
-import { personNameMatcher, cleanPersonName, companyKeys, companyMentionMatcher, cooccurrences, personNameVariants, isBroadOrganisation } from './founder/names';
+import { personNameMatcher, cleanPersonName, companyKeys, companyMentionMatcher, cooccurrences, personNameVariants, isBroadOrganisation, nameCommonness } from './founder/names';
+// One validator for both founder routes (the deep check's). deepCheck.js imports this file too; the two only call
+// each other's functions at run time, never while loading.
+import { validatePersonName, validateOrgName } from './founder/deepCheck';
 
 const USER_AGENT = 'Searchbar3-Research/1.0';
 // The searches get 7 s: the model chain is set up meanwhile, and the brief needs the rest of the time limit.
@@ -203,13 +206,25 @@ export function nameMatcher(name) {
 
 // "Guillaume Faury, CEO of Airbus": a capitalized two-word name, a comma, then the match.
 const OTHER_PERSON_BEFORE = /([A-ZÀ-Þ][\p{L}'’-]+\s+[A-ZÀ-Þ][\p{L}'’-]+),\s*(?:the\s+)?$/u;
+const OTHER_PERSON_PAREN = /([A-ZÀ-Þ][\p{L}'’-]+\s+[A-ZÀ-Þ][\p{L}'’-]+)\s*\(\s*(?:the\s+|an?\s+)?$/u;
+// After "joined", "met" or "with", two capitalised words followed by a role in brackets or after a comma, or a common
+// given name and a common surname, are a person ("joined Erik Torenberg (Co-founder of ...)"), not a company.
+const ROLE_APPOSITION = /^\s*[(,]\s*(?:the\s+|an?\s+)?(?:[\p{L}-]+\s+){0,2}?(?:co-?founder|founder|ceo|cto|cfo|coo|partner|investor|president|chair\w*|director|host|author|managing partner|general partner)\b/iu;
+const PERSON_AFTER_VERB = /\b(?:joined|joins|met|meets|with)\s+$/i;
+function personNotCompany(text, m, co) {
+  if (!PERSON_AFTER_VERB.test(String(text).slice(Math.max(0, m.index), m.index + m[0].length - String(m.groups?.co || '').length))) return false;
+  if (!/^[A-ZÀ-Þ][\p{L}'’-]+\s+[A-ZÀ-Þ][\p{L}'’-]+$/u.test(co)) return false;
+  const after = String(text).slice(m.index + m[0].length);
+  return ROLE_APPOSITION.test(after) || nameCommonness(co).common;
+}
 
 /**
  * Does another person's name directly precede position `a` ("..., and
  * Guillaume Faury, CEO of Airbus")? Then the role belongs to that person.
  */
 function otherPersonBefore(text, names, a) {
-  const m = String(text).slice(0, a).match(OTHER_PERSON_BEFORE);
+  // "Erik Torenberg (Co-founder of Village Global)": a bracket opened right after another person's name is about them.
+  const m = String(text).slice(0, a).match(OTHER_PERSON_BEFORE) || String(text).slice(0, a).match(OTHER_PERSON_PAREN);
   if (!m) return false;
   const nameEnd = m.index + m[1].length;
   return !names.some(({ end }) => end === nameEnd);
@@ -431,7 +446,7 @@ export function extractFounderEvidence({ name, company, results, keepAllSources 
         const m = nearName(text, hasName, re, NEAR_CHARS, { ownOnly: true });
         if (!m) continue;
         const co = cleanCompany(m.groups?.co, personName, hostOf(result));
-        if (!co) continue;
+        if (!co || personNotCompany(text, m, co)) continue;
         let role = m.groups?.role ? String(m.groups.role).replace(/\s+/g, ' ') : null;
         if (role && /founded$/i.test(role)) role = /^co/i.test(role) ? 'co-founder' : 'founder';
         const before = text.slice(Math.max(0, m.index - 40), m.index);
@@ -885,37 +900,27 @@ export function normalizePersonName(name) {
 // Control, format (zero-width, bidi override) and separator characters: invisible, and able to make a list show
 // another name than the one searched.
 const INVISIBLE = /[\p{Cc}\p{Cf}\u2028\u2029]/gu;
-const SEARCH_OPERATOR = /(?:^|\s)(?:site|inurl|intitle|intext|allinurl|allintitle|allintext|filetype|ext|related|cache|link|info|define|before|after):\S*/gi;
 
 /**
- * One check of what was typed, for both founder routes. The name: Unicode letters, marks, spaces, hyphens,
- * apostrophes and periods only; at least two words and at least one of two letters or more ("Malcolm X" passes,
- * "J S" does not); never an email, a web address, digits or a search operator. The company: invisible characters,
- * search operators, a leading minus or plus, OR/AND/NOT and quotation marks are removed (the searches quote it).
+ * One check of what was typed, for callers of this module (the routes themselves use deepCheck.js
+ * validateCheckInput): it wraps the deep check's own validators (validatePersonName and validateOrgName), so
+ * whatever calls it accepts and refuses the same names as the routes. The name: Unicode
+ * letters, marks, spaces, hyphens, apostrophes and periods only; at least two words and at least one of two letters
+ * or more ("Malcolm X" passes, "J S" does not), or a name in a script written without spaces ("张一鸣"); never an
+ * email, a web address, digits or a search operator. A one-word name is left to the deep check. The company:
+ * invisible characters, search operators, a leading minus or plus, OR/AND/NOT and quotation marks are removed.
  * @returns {{ ok: true, name: string, company: string } | { ok: false, error: string }}
  */
 export function validateFounderInput({ name, company } = {}) {
+  const co = validateOrgName(company);
+  if (!co.ok) return { ok: false, error: co.error };
   const raw = String(name ?? '').normalize('NFKC').replace(INVISIBLE, '').replace(/\s+/g, ' ').trim();
-  if (!raw) return { ok: false, error: 'Enter the person\'s full name.' };
-  if (raw.length > 120) return { ok: false, error: 'The name must be 120 characters or fewer.' };
-  if (/@/.test(raw)) return { ok: false, error: 'Enter a person\'s name, not an email address.' };
-  if (/\bhttps?:|\bwww\.|\.(?:com|org|net|io|ai|co|me)\b/i.test(raw)) return { ok: false, error: 'Enter a person\'s name, not a web address.' };
-  if (/:/.test(raw)) return { ok: false, error: 'Search words such as "site:" cannot be part of a name.' };
-  if (/\d/.test(raw)) return { ok: false, error: 'A name cannot contain digits.' };
-  const person = normalizePersonName(raw);
-  if (!/^[\p{L}\p{M}][\p{L}\p{M}\s'’.,-]*$/u.test(person)) return { ok: false, error: 'Use letters only in the name (hyphens, apostrophes and periods are fine).' };
-  const tokens = person.split(/\s+/).filter(Boolean);
-  if (tokens.length < 2) return { ok: false, error: 'Enter the full name (first and last name).' };
-  if (!tokens.some((t) => (t.match(/\p{L}/gu) || []).length >= 2)) return { ok: false, error: 'Enter the full name, not only initials.' };
-  const co = String(company ?? '').normalize('NFKC').replace(INVISIBLE, '')
-    .replace(SEARCH_OPERATOR, ' ')
-    .replace(/(^|\s)[-+](?=\S)/g, '$1')
-    .replace(/\b(?:OR|AND|NOT)\b/g, ' ')
-    .replace(/["“”„]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (co.length > 120) return { ok: false, error: 'The company must be 120 characters or fewer.' };
-  return { ok: true, name: person, company: co };
+  const person = validatePersonName(raw, { company: co.value });
+  if (!person.ok) return { ok: false, error: person.error };
+  // One word in a spaced script is a person known by one name: the quick brief cannot tell them from the many
+  // people who share that word, so only the signed-in deep check takes it (with the company).
+  if (person.mononym) return { ok: false, error: 'Enter the full name (first and last name). For someone known by one name only, run the signed-in deep check with their company.' };
+  return { ok: true, name: person.name, company: co.value };
 }
 
 /**

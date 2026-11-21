@@ -39,6 +39,7 @@ import { request, htmlToText } from '../http';
 import { makeFinding } from '../finding';
 import { cached } from '../cache';
 import { nameTokens, companyTokens, personVariants, normalizeName } from './sanctions';
+import { withAliasHold } from './alias';
 import { screenRows, personNameForms } from './debarment';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -273,7 +274,8 @@ function finding(task, ctx, { row, matched }) {
 export const fdaDebarmentConnector = {
   id: ID,
   label: LABEL,
-  kinds: ['subject', 'company'],
+  // 'alias': another name of the person, screened like their own name
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.2,
   timeoutMs: 20000,
   plan() {
@@ -316,3 +318,6 @@ export const fdaDebarmentConnector = {
     return { findings, threads: [], notes, ...(partial.length ? { partial } : {}) };
   },
 };
+
+// A record found only under another name of the person the user did not type is 'likely' at most (alias.js).
+fdaDebarmentConnector.run = withAliasHold(fdaDebarmentConnector.run);

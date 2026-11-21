@@ -95,7 +95,7 @@ afterEach(() => setTransport());
 describe('connector shape and wording', () => {
   test('ids, kinds and plain-English labels', () => {
     expect(secPersonConnector.id).toBe('sec-filings');
-    expect(secPersonConnector.kinds).toEqual(['subject']);
+    expect(secPersonConnector.kinds).toEqual(['subject', 'alias']);
     expect(secCompanyConnector.id).toBe('sec-company');
     expect(secCompanyConnector.kinds).toEqual(['company']);
     for (const c of [secPersonConnector, secCompanyConnector]) {

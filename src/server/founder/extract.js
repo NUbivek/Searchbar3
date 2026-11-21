@@ -391,7 +391,9 @@ export function profileFromUrl(url) {
     if (!pathRe && !/^\/?(?:about\/?)?$/.test(u.pathname)) return null;
     const handle = pathRe ? (u.pathname.match(pathRe) || [])[1] : hm[1];
     if (!handle || NOT_HANDLES.has(handle.toLowerCase())) return null;
-    return { platform, handle: decodeURIComponent(handle), url: `https://${host}${pathRe ? u.pathname.replace(/\/$/, '') : ''}` };
+    // fr.linkedin.com, uk.linkedin.com and www.linkedin.com show one profile: one address, so the copies dedupe
+    const shownHost = platform === 'linkedin' ? 'linkedin.com' : host;
+    return { platform, handle: decodeURIComponent(handle), url: `https://${shownHost}${pathRe ? u.pathname.replace(/\/$/, '') : ''}` };
   }
   return null;
 }

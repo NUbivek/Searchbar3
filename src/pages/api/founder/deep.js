@@ -2,11 +2,15 @@
  * Deep background check, one step per request (a full check takes minutes,
  * a serverless request does not).
  *
- *   POST { action: 'start', name, company,     -> { jobId, progress, assumed? }   nothing is looked up yet: the
- *          website?, profileUrl?, place?,           first 'step' does the work, so a failed or slow first step
- *          otherCompanies?: [], school?,            never costs an hourly slot without the page knowing the id.
- *          otherNames?: [], useNetworkCompany? }    The owner's running check of the same person from the last
- *                                                   hour is handed back instead of starting another.
+ *   POST { action: 'start', name, company,     -> { jobId, progress, assumed?, networkSuggestion? }
+ *          website?, profileUrl?, place?,           The owner's running check of the same person from the last
+ *          otherCompanies?: [], school?,            hour is handed back instead of starting another.
+ *          otherNames?: [], useNetworkCompany?,
+ *          askNetwork?, confirmedCompany? }      -> { needsConfirm: { company, question } } (nothing started)
+ *                                                   With no company typed, the one contact with this name is
+ *                                                   a question for the user first (askNetwork: the page can
+ *                                                   ask it); only after a yes (confirmedCompany) is that
+ *                                                   company assumed, with the network as its origin.
  *   POST { action: 'step', jobId }           -> { progress }            while collecting
  *                                            -> { done: true, report }  when finished
  *                                            -> 409 while another request works on the same check
@@ -22,11 +26,11 @@
  * a check gathers a lot about one person and uses shared free quotas, so it
  * is tied to an account and limited per hour.
  */
-import { getUserId } from '../../../server/auth';
+import { getUserId, requireFounderUser } from '../../../server/auth';
 import { startState, stepDeepCheck, progressOf, stopCollecting, validateCheckInput, validateOrgName, validatePersonName } from '../../../server/founder/deepCheck';
 import { createSubject } from '../../../server/founder/identity';
 import { buildReport, writeDeepBrief, quotedDeepBrief } from '../../../server/founder/report';
-import { createJob, getJob, saveJob, recentJobCount, clientLabel, leaseJob, releaseLease, findLatestJob, listJobs } from '../../../server/founder/jobStore';
+import { createJob, getJob, saveJob, recentJobCount, recentJobCountAll, oldestRecentJobAt, clientLabel, leaseJob, releaseLease, findLatestJob, listJobs } from '../../../server/founder/jobStore';
 import { CONNECTORS } from '../../../server/founder/sources';
 import { findGaps } from '../../../server/founder/gaps';
 import { readProfile } from '../../../server/founder/profileModel';
@@ -38,10 +42,27 @@ import { llmConfigured } from '../../../server/llm/providers';
 // anchor a check started without one, exactly as if the user had typed it. Read live on every
 // answer, so a contact removed from the Network Map tab is gone from the report too.
 const linker = () => import('../../../server/founder/networkLink');
-/** The company to start with: the one typed, or (none typed) the one contact with this full name. */
-async function networkSeed(signedIn, owner, name, company) {
-  if (!signedIn || company) return null;
-  try { return await (await linker()).companySeed(owner, name, company); } catch { return null; }
+/**
+ * The company to start with when none was typed: the one contact with this full name, and only once the user
+ * said yes to it (`confirmedCompany`), so a namesake in the network never silently decides who is checked.
+ *   -> { seed: { company, origin: 'network' } } after a yes that still holds
+ *   -> { suggestion: { company, question } } when there is a contact to ask about
+ *   -> {} otherwise (signed out, a company typed, no single contact, or the network could not be read)
+ */
+async function networkSeed(signedIn, owner, name, company, confirmedCompany) {
+  if (!signedIn || company) return {};
+  try {
+    const link = await linker();
+    const confirmed = String(confirmedCompany || '').trim();
+    if (confirmed) {
+      const seed = await link.companySeed(owner, name, '', { confirmedCompany: confirmed });
+      return seed?.company ? { seed: { company: seed.company, origin: 'network' } } : {};
+    }
+    const suggestion = await link.seedSuggestion(owner, name, '');
+    return suggestion?.company ? { suggestion: { company: suggestion.company, question: suggestion.question } } : {};
+  } catch {
+    return {};
+  }
 }
 /** Resolves to `fallback` once `until` (a clock time) passes, so a slow part never holds the answer. */
 function by(promise, until, fallback) {
@@ -74,11 +95,10 @@ async function networkInvestors(signedIn, owner, report, until) {
       if (!(await store.countContacts(owner))) return { investors: [], missed: false };
       const companies = investorCompanies(report);
       if (!companies.length) return { investors: [], missed: false };
-      const results = await Promise.all(companies.map((c) => link.lookupInvestorsResult(c, { timeoutMs: Math.min(8000, until - Date.now()) }).catch(() => ({ investors: [], complete: false }))));
-      const investors = [];
-      for (const r of results) for (const i of r.investors || []) if (!investors.some((x) => String(x).toLowerCase() === String(i).toLowerCase())) investors.push(i);
-      // the current company's lookup decides "missed"; an earlier company's that did not finish only adds less
-      return { investors: investors.slice(0, 25), missed: !results[0]?.complete };
+      // All companies under one time limit, each investor kept with the company it backed ({ name, of }), so the
+      // report can say "an investor in Upfit Labs, which they founded". Any lookup that did not finish is said.
+      const result = await link.lookupInvestorsForCompanies(companies, { timeoutMs: Math.min(8000, until - Date.now()), max: 3 });
+      return { investors: (result?.investors || []).slice(0, 25), missed: !result?.complete };
     } catch { return MISSED; }
   })(), until, MISSED);
 }
@@ -118,6 +138,9 @@ const NETWORK_MS = 4000;
 const NETWORK_MIN_MS = 750;
 const REPORT_MS = REPORT_BUDGET.BRIEF_MS;
 export const MAX_JOBS_PER_HOUR = 12;
+// All accounts together: new accounts are cheap to make, the sources' shared allowances are not.
+export const MAX_JOBS_ALL_PER_HOUR = 60;
+const MANY_STARTED = 'Many checks have been started in the last hour. Try again later.';
 
 /** The second reader (gaps.js) needs an AI model; without one the loop simply stops when it runs dry. */
 const reviewer = () => (llmConfigured() ? findGaps : null);
@@ -158,12 +181,19 @@ async function oneStartAtATime(owner, fn) {
   }
 }
 
-/** Who is asking: the signed-in user, or (only when public checks are allowed) a label for their address. */
+/**
+ * Who is asking: the signed-in user, or (only when public checks are allowed, never in production) a label for
+ * their address. Otherwise an account the allow-list leaves out is told so (403) and a signed-out visitor is
+ * asked to sign in (401), by requireFounderUser itself: then `answered` is set and nothing else is sent.
+ */
 async function ownerOf(req, res) {
-  const userId = await getUserId(req, res);
-  if (userId) return { owner: userId, signedIn: true };
-  if (publicAllowed()) return { owner: `anon:${clientLabel(clientIp(req))}`, signedIn: false };
-  return { owner: null, signedIn: false };
+  if (publicAllowed()) {
+    const userId = await getUserId(req, res);
+    if (userId) return { owner: userId, signedIn: true };
+    return { owner: `anon:${clientLabel(clientIp(req))}`, signedIn: false };
+  }
+  const userId = await requireFounderUser(req, res);
+  return userId ? { owner: userId, signedIn: true } : { owner: null, signedIn: false, answered: true };
 }
 
 const BUSY = { error: 'Another request is already working on this check.' };
@@ -258,8 +288,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { owner, signedIn } = await ownerOf(req, res);
-    if (!owner) return res.status(401).json({ error: 'Sign in to run a deep background check.', signIn: true });
+    const { owner, signedIn, answered } = await ownerOf(req, res);
+    if (!owner) return answered ? undefined : res.status(401).json({ error: 'Sign in to run a deep background check.', signIn: true });
 
     if (req.method === 'GET') {
       const q = req.query || {};
@@ -292,24 +322,33 @@ export default async function handler(req, res) {
       // The same person started in the last hour and still running: hand it back rather than use another slot.
       const running = await findLatestJob(owner, { name: input.name, company: input.company, status: 'running', withinMinutes: 60 });
       if (running && (running.state?.phase === 'collect' || running.state?.phase === 'report')) return res.status(200).json({ jobId: running.id, progress: progressOf(running.state), resumed: true });
-      // network pairing: with no company typed, the one contact with this name gives a company to assume. It may
-      // make records likely, never confirmed, and the report says so; the page may ask the check to run without it.
-      const seed = body.useNetworkCompany === false ? null : await networkSeed(signedIn, owner, input.name, input.company);
+      // network pairing: with no company typed, the one contact with this name is put to the user as a question
+      // first. Only after a yes is its company assumed: it may make records likely, never confirmed, and the report
+      // says so. A page that cannot ask yet gets the check without it, and the question beside it.
+      const network = body.useNetworkCompany === false ? {} : await networkSeed(signedIn, owner, input.name, input.company, body.confirmedCompany);
+      if (network.suggestion && body.askNetwork === true) return res.status(200).json({ needsConfirm: network.suggestion });
+      const seed = network.seed || null;
       const state = startState({ ...input, assumedCompany: seed?.company || '' });
-      if (seed) state.networkSeed = { company: seed.company }; // network pairing
+      if (seed) state.networkSeed = { company: seed.company, origin: 'network' }; // network pairing
       // The count and the record of the new job happen under one lock, and the
       // job store may refuse the insert itself (limited) when the hour is full.
       // A job that could not be recorded throws and ends in a 500, never a check run from memory.
       const created = await oneStartAtATime(owner, async () => {
         if (await recentJobCount(owner, 60) >= MAX_JOBS_PER_HOUR) return null;
+        if (await recentJobCountAll(60) >= MAX_JOBS_ALL_PER_HOUR) return { everyone: true };
         const job = await createJob({ name: input.name, company: input.company, owner, state, limit: { minutes: 60, max: MAX_JOBS_PER_HOUR } });
         return job && job.id && !job.limited ? job : null;
       });
       if (!created) {
-        return res.status(429).json({ error: 'You have started many checks in the last hour. Try again later.' });
+        // When the oldest of the hour's checks leaves the window a slot frees: the page says that time.
+        const oldest = await oldestRecentJobAt(owner, 60).catch(() => null);
+        const retryAfter = oldest ? Math.max(1, Math.ceil((oldest + 60 * 60000 - Date.now()) / 1000)) : null;
+        if (retryAfter && typeof res.setHeader === 'function') res.setHeader('Retry-After', String(retryAfter));
+        return res.status(429).json({ error: 'You have started many checks in the last hour. Try again later.', ...(retryAfter ? { retryAfter } : {}) });
       }
+      if (created.everyone) return res.status(429).json({ error: MANY_STARTED });
       const { id } = created;
-      const extra = seed ? { assumed: { company: seed.company } } : {};
+      const extra = seed ? { assumed: { company: seed.company } } : network.suggestion ? { networkSuggestion: network.suggestion } : {};
       // The first step runs now. If it fails or cannot be saved, the check still exists and its id goes back:
       // the page's next step carries on from the saved start, and no second slot is used.
       try {

@@ -71,7 +71,7 @@ test('a model-written brief is kept only if it has the sections and cites record
   expect(brief).toMatch(/\[Source 1\]/);
   expect(brief).not.toMatch(/\[Source 99\]/);
   const sent = providers.chatComplete.mock.calls[0][0][1].content;
-  expect(sent).toMatch(/\[Source \d\] \(possible; Courts and litigation/); // the model is told which records are name-only
+  expect(sent).toMatch(/<record n="\d" tie="possible">\n\(Courts and litigation/); // the model is told which records are name-only
   expect(sent).toMatch(/Sources that did not answer: Registry\.\nSources not enabled on this deployment: Needs key/);
 });
 

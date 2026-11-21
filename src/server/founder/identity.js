@@ -223,13 +223,17 @@ export function findNameAliases(subject, text) {
 // An origin of 'encyclopedia' (or 'encyclopedia:<finding id>') marks an organisation or person linked to the
 // subject in their own encyclopedia entry (investors, acquirers, co-founders, counterparties).
 const isEncyclopedia = (origin) => /^encyclopedia(?::|$)/.test(String(origin || ''));
+// An origin of 'reader' (or 'reader:<finding id>') marks something the second reader (gaps.js) proposed from the
+// records: a model's reading, never proof. It is kept apart like an encyclopedia link, schools included.
+const isReader = (origin) => /^reader(?::|$)/.test(String(origin || ''));
 
 /**
  * Record something learned about the subject. `origin` says how we know:
  * 'given' (the user typed it) or the finding id that established it.
  * An organisation or person from the subject's encyclopedia entry (origin 'encyclopedia') is kept apart as a
  * 'related' anchor: it counts like a school (full name plus one gives 'likely', never 'confirmed') and is never
- * treated as the subject's own company.
+ * treated as the subject's own company. What the second reader proposed (origin 'reader') is kept the same way,
+ * schools too, and on its own leaves a record 'possible': it needs a second clue that is not the reader's.
  * Returns true when the anchor is new.
  */
 export function addAnchor(subject, kind, value, origin = 'found') {
@@ -237,8 +241,9 @@ export function addAnchor(subject, kind, value, origin = 'found') {
   if (v.length < 2 || !subject.anchors[kind] || kind === 'roles' || kind === 'events' || kind === 'related' || kind === 'aliases' || kind === 'otherNames') return false;
   const key = kind === 'companies' ? (companyKeys(v)[0] || v.toLowerCase()) : v.toLowerCase();
   if (!key || subject.anchors[kind].has(key)) return false;
-  if (isEncyclopedia(origin)) {
-    if (kind !== 'companies' && kind !== 'people') return false;
+  if (isEncyclopedia(origin) || isReader(origin)) {
+    // The second reader may also propose a school; an encyclopedia link is an organisation or a person.
+    if (kind !== 'companies' && kind !== 'people' && !(kind === 'schools' && isReader(origin))) return false;
     // A university, a party or a very large employer has thousands of members: being linked to one in an
     // encyclopedia entry says nothing about which namesake a record is about.
     if (kind === 'companies' && isBroadOrganisation(v)) return false;
@@ -283,7 +288,8 @@ export function addAnchor(subject, kind, value, origin = 'found') {
 export function addCompanyAlias(subject, { company, alias, origin = 'found' } = {}) {
   const c = String(company || '').trim();
   const v = String(alias || '').trim().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/.*$/, '');
-  if (!c || v.length < 3 || isEncyclopedia(origin)) return false;
+  // Neither an encyclopedia link nor the second reader's reading names the company's legal name.
+  if (!c || v.length < 3 || isEncyclopedia(origin) || isReader(origin)) return false;
   const of = companyKeys(c)[0] || c.toLowerCase();
   if (!subject.anchors.companies.has(of)) return false;
   if (!subject.anchors.aliases) subject.anchors.aliases = new Map();
@@ -441,7 +447,7 @@ export function restoreSubject({ name, company, otherNames, anchors = {} }) {
         const owner = subject.anchors.companies.get(a.of);
         if (owner) addCompanyAlias(subject, { company: owner.value, alias: a.value, origin: a.origin });
       }
-      else if (kind === 'related') addAnchor(subject, a.as === 'people' ? 'people' : 'companies', a.value, a.origin);
+      else if (kind === 'related') addAnchor(subject, a.as === 'people' || a.as === 'schools' ? a.as : 'companies', a.value, a.origin);
       else if (kind === 'otherNames') { if (!a.typed) addNameAlias(subject, { alias: a.value, origin: a.origin }); }
       else addAnchor(subject, kind, a.value, a.origin);
     }
@@ -523,6 +529,8 @@ export function matchSubject(subject, text, { date } = {}) {
   masked += str.slice(from);
   const common = Boolean(subject.common);
   let other = 0;
+  // Clues only the second reader proposed: they never carry a grade on their own.
+  let fromReader = 0;
   // Facts other than the company that the record gives about this person (a school, an associate, a handle, a
   // domain): a second fact that lets a large employer or a one-word name confirm.
   let personal = 0;
@@ -535,6 +543,7 @@ export function matchSubject(subject, text, { date } = {}) {
       // For a very common name a school counts only beside the name ("John Smith, a Stanford graduate").
       if (common && kind === 'schools' && typeof a.test.positions === 'function' && !cooccurrences(str, names, a.test.positions(str), { isSelf }).length) continue;
       other += 1;
+      if (kind === 'related' && isReader(a.origin)) fromReader += 1;
       if (kind !== 'related') personal += 1;
       basis.add(kind);
       reasons.push(`names ${a.value}`);
@@ -568,6 +577,9 @@ export function matchSubject(subject, text, { date } = {}) {
   } else if (subject.mononym) {
     // One word alone is shared by too many people to keep even as 'possible'.
     return { level: 'none', reasons: [], weak: 'mononym-without-company' };
+  } else if (other > 0 && other === fromReader) {
+    // Only what the second reader proposed: a model's reading is not a record, so the name alone is all that ties it.
+    result = { level: 'possible', reasons: ['matched by name only', 'a clue the second reader suggested is not yet borne out by a record'], basis: ['related'] };
   } else if (other > 0) {
     result = { level: 'likely', reasons: reasons.slice(0, 4), basis: [...basis] };
   } else {

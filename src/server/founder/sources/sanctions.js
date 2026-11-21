@@ -52,6 +52,7 @@ import { makeFinding } from '../finding';
 import { cachedEntry } from '../cache';
 import { mentionsMinor } from '../guardrails';
 import { parsePersonName, personNameVariants, personNameMatcher, companyKeys, isBroadOrganisation } from '../names';
+import { isSelfTask, withAliasHold } from './alias';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** "2026-11-20" from an epoch time or an ISO string ('' when there is none). */
@@ -1048,7 +1049,8 @@ const ALL_LISTS = 'list.all';
 export const sanctionsListsConnector = {
   id: 'sanctions-lists',
   get label() { return groupLabel(); },
-  kinds: ['subject', 'company', 'associate', 'relative'],
+  // 'alias': another name of the person, screened like their own name (alias.js holds the grade)
+  kinds: ['subject', 'alias', 'company', 'associate', 'relative'],
   prior: 0.5,
   timeoutMs: 20000,
   /**
@@ -1325,7 +1327,7 @@ export const exclusionsConnector = {
   label: EXCLUSIONS_LABEL,
   // Associates and relatives are screened too (a debarred co-founder matters), graded 'possible' unless the
   // record also names the person being checked
-  kinds: ['subject', 'company', 'associate', 'relative'],
+  kinds: ['subject', 'alias', 'company', 'associate', 'relative'],
   prior: 0.4,
   // The LEIE file is about 11 MB: a cold load needs longer than a search
   timeoutMs: 25000,
@@ -1352,13 +1354,14 @@ export const OFFSHORE_NOTE = 'Appearing in the Offshore Leaks database is not ev
 export const offshoreLeaksConnector = {
   id: 'offshore-leaks',
   label: ICIJ_LABEL,
-  // A leak database, not a watchlist: never searched for an associate or relative by name alone
-  kinds: ['subject', 'company'],
+  // A leak database, not a watchlist: never searched for an associate or relative by name alone. Another name
+  // of the person is searched like their own.
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.3,
   timeoutMs: 12000,
   async run(task, ctx) {
     const name = oneLine(task.value);
-    if (task.kind !== 'subject' && task.kind !== 'company') return { findings: [], threads: [], notes: [] };
+    if (!isSelfTask(task) && task.kind !== 'company') return { findings: [], threads: [], notes: [] };
     if (!canScreen(task, ctx)) return notScreened(ICIJ_LABEL, task);
     const person = isPersonTask(task);
     // Forms that can be screened only (a name typed in Cyrillic is searched in Latin letters); a company under
@@ -1504,7 +1507,7 @@ async function screenEuWanted(task, ctx) {
 export const wantedConnector = {
   id: 'wanted-lists',
   label: WANTED_LABEL,
-  kinds: ['subject'],
+  kinds: ['subject', 'alias'],
   prior: 0.2,
   timeoutMs: 14000,
   plan() {
@@ -1514,8 +1517,11 @@ export const wantedConnector = {
     ];
   },
   async run(task, ctx) {
-    if (task.kind !== 'subject') return { findings: [], threads: [], notes: [] };
+    if (!isSelfTask(task)) return { findings: [], threads: [], notes: [] };
     if (!canScreen(task, ctx)) return notScreened(WANTED_LABEL, task);
     return task.template === 'wanted.eu' ? screenEuWanted(task, ctx) : screenFbi(task, ctx);
   },
 };
+
+// A record found only under another name of the person the user did not type is 'likely' at most (alias.js).
+for (const c of [sanctionsListsConnector, exclusionsConnector, offshoreLeaksConnector, wantedConnector]) c.run = withAliasHold(c.run);

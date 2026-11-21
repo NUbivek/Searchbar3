@@ -315,7 +315,8 @@ describe('Hacker News', () => {
       title: 'Hacker News (544 points, 502 comments): Grand jury indicts Trevor Milton, Nikola founder, on three counts of fraud',
       url: 'https://www.cnbc.com/2021/07/29/us-prosecutors-charge-trevor-milton-founder-of-electric-carmaker-nikola-with-three-counts-of-fraud.html',
     });
-    expect(indicted.data).toEqual({ points: 544, comments: 502, discussionUrl: 'https://news.ycombinator.com/item?id=27996321' });
+    // makeFinding now also stores the matter's outcome (data.outcome, identity2)
+    expect(indicted.data).toMatchObject({ points: 544, comments: 502, discussionUrl: 'https://news.ycombinator.com/item?id=27996321' });
     expect(resigned).toMatchObject({ severity: 'low', match: 'confirmed', date: '2020-09-21' });
 
     // a text post: the record is the discussion itself, quoted around the name

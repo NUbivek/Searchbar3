@@ -98,7 +98,7 @@ test('the brief is passed through the privacy rules', async () => {
   const report = buildReport(state('Elizabeth Holmes', 'Theranos', [
     rec({ title: 'Elizabeth Holmes founded Theranos', url: 'https://p.test/1', category: 'career' }),
   ]));
-  const text = '## BOTTOM LINE\nElizabeth Holmes founded Theranos [Source 1]. Holmes has two children [Source 1].\n## RED FLAGS\nNone found in the records searched.\n## WHAT CHECKS OUT\n• Founded Theranos [Source 1]\n## CLAIMS THAT CHANGED OVER TIME\nNone found.\n## RELATED PARTIES\nNone found.\n## GAPS AND UNVERIFIED CLAIMS\n• None [Source 1]\n## QUESTIONS FOR THE FOUNDER\n• Ask [Source 1]\nCONFIDENCE: Medium - thin';
+  const text = '## BOTTOM LINE\nElizabeth Holmes founded Theranos [Source 1]. Holmes has two children [Source 1].\n## RED FLAGS\nNone found in the records searched.\n## WHAT CHECKS OUT\n• Founded Theranos [Source 1]\n## CLAIMS THAT CHANGED OVER TIME\nNone found.\n## RELATED PARTIES\nNone found.\n## CAREER AND EDUCATION\n• Founded Theranos [Source 1]\n## COMPANY\n• Theranos was founded by Elizabeth Holmes [Source 1]\n## PUBLIC-RECORD SCREENS\n• No screen was asked.\n## GAPS AND UNVERIFIED CLAIMS\n• None [Source 1]\n## QUESTIONS FOR THE FOUNDER\n• Ask [Source 1]\nCONFIDENCE: Medium - thin';
   const { brief, briefInfo } = await writeDeepBrief(report, { complete: async (m, o) => (o.accept(text) ? { text, providerLabel: 'G', model: 'm' } : null) });
   expect(briefInfo.mode).toBe('ai');
   expect(brief).not.toMatch(/children/);

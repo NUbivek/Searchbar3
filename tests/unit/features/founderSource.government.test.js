@@ -49,7 +49,7 @@ describe('the sources as a set', () => {
     for (const c of GOVERNMENT_CONNECTORS) {
       expect(c.id).toMatch(/^[a-z0-9-]+$/);
       expect(c.label).not.toMatch(BANNED);
-      expect(c.kinds.every((k) => ['subject', 'company'].includes(k))).toBe(true);
+      expect(c.kinds.every((k) => ['subject', 'alias', 'company'].includes(k))).toBe(true);
       expect(c.prior).toBeGreaterThan(0);
       expect(typeof c.run).toBe('function');
     }

@@ -408,6 +408,12 @@ const REGISTERS = new Set(['uk-companies-house', 'fr-companies', 'us-state-regis
 const titleCaseIfShouting = (s) => (s && s === s.toUpperCase() && /[A-Z]{3}/.test(s) ? s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase()).replace(/\b(Llc|Ltd|Plc|Uk|Usa|Us)\b/g, (m) => m.toUpperCase()) : s);
 const cleanAssignee = (s) => tidy(String(s || '').replace(/,\s*Llc\b/i, ', LLC').replace(/,\s*Inc\b/i, ', Inc'));
 const dateKey = (d) => String(d || '');
+// A role read only from a broker registration or a patent's assignee is marked so: the report never uses it to
+// raise another record (a registration or a patent filed at a large firm says little about which namesake it is).
+const viaOf = (facts) => {
+  const vias = new Set((facts || []).map((x) => x.via || ''));
+  return facts && facts.length && vias.size === 1 && (vias.has('brokercheck') || vias.has('patent')) ? { via: [...vias][0] } : {};
+};
 
 /**
  * Build the profile from records.
@@ -563,6 +569,25 @@ export function buildProfile(subject, findings, threads = []) {
       for (const a of d.appointments) {
         addRole({ org, title: a.role || 'Officer', from: year(a.appointed), to: year(a.resigned), current: !a.resigned, id: f.id, date: a.resigned || a.appointed || fdate, basis: 'record' });
         if (isCompany(org) && !a.resigned) presence.push({ id: f.id, date: a.appointed || fdate });
+      }
+    }
+    // An archived copy of their own profile page (a Crunchbase or team page): the roles and degrees the page listed,
+    // read by the archive source (archiveClaims.js), with the dates it printed.
+    if (f.source === 'web-archive' && d.kind === 'snapshot' && d.claims && typeof d.claims === 'object') {
+      const span = (dates) => {
+        const ys = String(dates || '').match(/\b(?:19|20)\d{2}\b/g) || [];
+        const now = /\b(?:present|current|now|today)\b/i.test(String(dates || ''));
+        return { from: year(ys[0]), to: now ? null : year(ys[1] || null), current: now ? true : ys.length ? false : null };
+      };
+      for (const r of Array.isArray(d.claims.roles) ? d.claims.roles.slice(0, 12) : []) {
+        if (!r || !r.org) continue;
+        const { from, to, current } = span(r.dates);
+        addRole({ org: r.org, title: r.title || null, from, to, current, id: f.id, date: d.capturedAt || fdate, basis: 'record' });
+      }
+      for (const e of Array.isArray(d.claims.education) ? d.claims.education.slice(0, 6) : []) {
+        if (!e || !e.school) continue;
+        const { from, to } = span(e.dates);
+        addEdu({ school: e.school, degree: e.degree || null, field: null, from, to, id: f.id, basis: 'record' });
       }
     }
     // BrokerCheck: the firms and dates of a registration tied to the person
@@ -1006,7 +1031,7 @@ export function buildProfile(subject, findings, threads = []) {
       if (!sorted.length) current = false;
     }
     const title = e.titles.length ? (e.titles.length <= 2 ? e.titles.join('; ') : `${e.titles.slice(0, 2).join('; ')}`) : null;
-    resumeRoles.push({ org: e.org, title, from: e.from, to: current ? null : e.to, current, ids: [...e.ids].slice(0, 6), basis: e.basis, ...(e.facts.length && e.facts.every((x) => x.via === 'brokercheck') ? { via: 'brokercheck' } : {}) });
+    resumeRoles.push({ org: e.org, title, from: e.from, to: current ? null : e.to, current, ids: [...e.ids].slice(0, 6), basis: e.basis, ...viaOf(e.facts) });
   }
   resumeRoles.sort((a, b) => (Number(b.current) - Number(a.current)) || ((b.from || b.to || 0) - (a.from || a.to || 0)));
 
@@ -1097,7 +1122,8 @@ export function buildProfile(subject, findings, threads = []) {
         const fits = from && (gradYear ? from >= gradYear - 1 && from <= gradYear + 2 : foundedYearOfCompany ? from < foundedYearOfCompany : false);
         if (!fits) continue;
         leads.push({
-          text: `${firm}${from ? `, ${from}${to ? `–${to}` : ''}` : ''}: a FINRA BrokerCheck registration under the same full name${d.crd ? ` (CRD ${d.crd})` : ''}. Ask the person to confirm it is theirs.`,
+          // no CRD number: it identifies the person, and the profile card shows a lead's text as it is
+          text: `${firm}${from ? `, ${from}${to ? `–${to}` : ''}` : ''}: a FINRA BrokerCheck registration under the same full name. Ask the person to confirm it is theirs.`,
           why: 'a record tied to them mentions a start in banking or finance, and the registration dates fit; the registration itself is matched by name only',
           ids: [f.id, ...[...bankingIds].slice(0, 2)],
         });

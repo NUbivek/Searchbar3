@@ -5,28 +5,17 @@
  * report (report.network, built by server/founder/networkLink.js) and is the
  * signed-in user's own; it is never shown to anyone else.
  *
- * Same markup and classes as the report's other sections (DeepCheck.js Block).
+ * Same markup and classes as the report's other sections (parts.js Block).
+ * A lookup that did not finish is said as such (network.failed), never shown
+ * as "none of your contacts".
  */
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { HiOutlineArrowTopRightOnSquare } from 'react-icons/hi2';
+import { Block, ExternalLink, usePrinting } from './parts';
 
-function Section({ title, count, children, open = false, note = null }) {
-  return (
-    <details className="card card-pad group" open={open}>
-      <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-        <h2 className="section-title">{title}</h2>
-        {typeof count === 'number' && <span className="chip">{count}</span>}
-        <span className="ml-auto text-xs text-muted group-open:hidden">Show</span>
-        <span className="ml-auto hidden text-xs text-muted group-open:inline">Hide</span>
-      </summary>
-      <div className="mt-3">
-        {note}
-        {children}
-      </div>
-    </details>
-  );
-}
+// Same card as the report's other sections (parts.js Block): prints open, heading outside the toggle.
+const Section = Block;
 
 export function connectedSince(date) {
   const d = date ? new Date(`${String(date).slice(0, 10)}T00:00:00Z`) : null;
@@ -46,27 +35,25 @@ function Person({ p, children = null }) {
   return (
     <li className="py-2.5 text-sm first:pt-0 last:pb-0">
       <div className="flex flex-wrap items-center gap-1.5">
-        {p.profileUrl
-          ? (
-            <a href={p.profileUrl} target="_blank" rel="noopener noreferrer nofollow" className="font-medium text-ink hover:text-brand-600 hover:underline">
-              {p.name} <HiOutlineArrowTopRightOnSquare className="inline align-text-top text-muted" style={{ width: 12, height: 12 }} />
-            </a>
-          )
-          : <span className="font-medium text-ink">{p.name}</span>}
+        <ExternalLink href={p.profileUrl} className="font-medium text-ink hover:text-brand-600 hover:underline">
+          {p.name}{p.profileUrl ? <> <HiOutlineArrowTopRightOnSquare className="founder-no-print inline align-text-top text-muted" style={{ width: 12, height: 12 }} /></> : null}
+        </ExternalLink>
         <Relationship p={p} />
         {since && <span className="text-xs text-muted">connected {since}</span>}
       </div>
-      {(p.position || p.company) && <p className="text-slate-700">{[p.position, p.company].filter(Boolean).join(' · ')}</p>}
+      {(p.position || p.company) && <p className="text-slate-700">{[p.position, p.company].filter(Boolean).join(' · ')}{p.years ? <span className="text-xs text-muted"> · {p.years}</span> : null}</p>}
       {p.why && <p className="text-xs text-muted">{p.why}</p>}
+      {p.reason && <p className="text-xs text-muted">{p.reason}</p>}
       {children}
     </li>
   );
 }
 
 function Group({ g }) {
+  const printing = usePrinting();
   const [all, setAll] = useState(false);
   const first = 6;
-  const shown = all ? g.people : g.people.slice(0, first);
+  const shown = all || printing ? g.people : g.people.slice(0, first);
   return (
     <div>
       <p className="eyebrow mb-1.5">
@@ -74,8 +61,9 @@ function Group({ g }) {
       </p>
       {g.companies?.length > 0 && <p className="mb-1.5 text-xs text-muted">{g.companies.join(', ')}</p>}
       <ul className="divide-y divide-line">{shown.map((p) => <Person key={`${p.name}|${p.company}`} p={p} />)}</ul>
-      {g.people.length > first && (
-        <button type="button" className="btn-ghost mt-2 px-2 py-1 text-xs" onClick={() => setAll((v) => !v)} aria-expanded={all}>
+      {g.more > 0 && <p className="mt-1.5 text-xs text-muted">{g.more} more not listed; the most senior are shown first.</p>}
+      {g.people.length > first && !printing && (
+        <button type="button" className="founder-no-print btn-ghost mt-2 px-2 py-1 text-xs" onClick={() => setAll((v) => !v)} aria-expanded={all}>
           {all ? 'Show fewer' : `Show all ${g.people.length}`}
         </button>
       )}
@@ -85,7 +73,7 @@ function Group({ g }) {
 
 const importLink = <Link href="/network" className="font-medium text-brand-600 hover:underline">Network Map</Link>;
 
-export default function NetworkLinks({ network, name }) {
+export default function NetworkLinks({ network, name, company = '' }) {
   if (!network) return null;
   if (!network.available) {
     return (
@@ -96,7 +84,12 @@ export default function NetworkLinks({ network, name }) {
     );
   }
   const { self, sameNameContacts = [], groups = [], references = [], counts = {}, notes = [] } = network;
+  const failed = network.failed || {};
   const person = name || 'this person';
+  // "None of your contacts work at…" only when the lookups it rests on all answered
+  const noneText = failed.companies
+    ? 'People you know at their companies could not be read just now. Open the report again in a moment.'
+    : `None of your contacts work at ${network.companiesChecked?.length ? network.companiesChecked.slice(0, 6).join(', ') : 'a company tied to them'}${network.investorsChecked?.length && !failed.investors ? ' or at their investors' : ''}.`;
   return (
     <>
       <Section
@@ -107,11 +100,13 @@ export default function NetworkLinks({ network, name }) {
       >
         {network.seededCompany && (
           <p className="mb-3 rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700">
-            No company was entered, so this check used {network.seededCompany}, the company of the one contact in your network named {person}.
+            No company was entered, so this check used {network.seededCompany}, the company of the one contact in your network named {person}, which you confirmed.
           </p>
         )}
         {self ? (
           <ul><Person p={{ ...self, why: self.note }} /></ul>
+        ) : failed.self ? (
+          <p className="text-sm text-slate-700">Whether {person} is one of your contacts could not be read just now.</p>
         ) : (
           <p className="text-sm text-slate-700">{sameNameContacts.length ? `${person} is not clearly one of your contacts.` : `${person} is not one of your contacts.`}</p>
         )}
@@ -131,9 +126,16 @@ export default function NetworkLinks({ network, name }) {
         note={<p className="muted mb-3 text-xs">Your contacts at the companies this check ties to {person}, and contacts named in the check. Your own connections first, then senior titles. Company names come from your import, so check that each person overlapped with them.</p>}
       >
         {groups.length === 0
-          ? <p className="text-sm text-slate-700">None of your contacts work at {network.companiesChecked?.length ? network.companiesChecked.slice(0, 6).join(', ') : 'a company tied to them'}{network.investorsChecked?.length ? ' or at their investors' : ''}.</p>
+          ? <p className="text-sm text-slate-700">{noneText}</p>
           : <div className="space-y-5">{groups.map((g) => <Group key={g.key} g={g} />)}</div>}
-        {notes.map((n) => <p key={n} className="mt-3 text-xs text-muted">{n}</p>)}
+        {notes.filter((n) => !(failed.companies && groups.length === 0 && n === noneText)).map((n) => <p key={n} className="mt-3 text-xs text-muted">{n}</p>)}
+        {String(company || '').trim() && (
+          <p className="founder-no-print mt-3 text-xs">
+            <Link href={`/network?${new URLSearchParams({ ask: `Who do I know at ${String(company).trim()}?` })}`} className="font-medium text-brand-600 hover:underline">
+              Ask your network about {String(company).trim()}
+            </Link>
+          </p>
+        )}
       </Section>
 
       {references.length > 0 && (

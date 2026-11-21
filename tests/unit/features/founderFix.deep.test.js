@@ -5,7 +5,12 @@
  * check run from memory.
  */
 jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
-jest.mock('../../../src/server/auth', () => ({ getUserId: jest.fn(async () => 'user-1') }));
+jest.mock('../../../src/server/auth', () => {
+  const getUserId = jest.fn(async () => 'user-1');
+  // requireFounderUser answers 401 itself when signed out (and 403 for an account outside the allow-list)
+  const requireFounderUser = jest.fn(async (req, res) => { const id = await getUserId(req, res); if (!id) { res.status(401).json({ error: 'Sign in to use this feature.', signIn: true }); return null; } return id; });
+  return { getUserId, requireFounderUser };
+});
 jest.mock('../../../src/server/llm/providers', () => ({ chatComplete: jest.fn(async () => null), chatJson: jest.fn(async () => null), llmConfigured: () => false, PROVIDERS: [], providerEnabled: () => false }));
 jest.mock('../../../src/server/founder/sources', () => ({ CONNECTORS: [{ id: 'fake', label: 'Fake registry', kinds: ['subject'], run: async () => ({ findings: [], threads: [] }) }] }));
 

@@ -57,6 +57,7 @@ import { cachedEntry } from '../cache';
 import {
   normalizeName, nameTokens, companyTokens, matchPersonName, matchCompanyName, screenNames, gradeListedPerson,
 } from './sanctions';
+import { isSelfTask, withAliasHold } from './alias';
 import { parsePersonName } from '../names';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -451,7 +452,7 @@ function ebrdFinding(task, ctx, hit, copy) {
 export const mdbDebarmentConnector = {
   id: MDB_ID,
   label: MDB_LABEL,
-  kinds: ['subject', 'company', 'associate', 'relative'],
+  kinds: ['subject', 'alias', 'company', 'associate', 'relative'],
   prior: 0.3,
   timeoutMs: 22000,
   plan() {
@@ -757,12 +758,12 @@ const BANK_ALL = 'bank.all';
 export const usBankRegulatorsConnector = {
   id: BANK_ID,
   label: BANK_LABEL,
-  kinds: ['subject', 'company', 'associate', 'relative'],
+  kinds: ['subject', 'alias', 'company', 'associate', 'relative'],
   prior: 0.3,
   timeoutMs: 20000,
   /** The person and their companies get one lookup per regulator; associates and relatives one lookup for all three. */
   plan(thread) {
-    if (thread?.kind === 'subject' || thread?.kind === 'company') return BANK_LISTS.map((l) => ({ template: `bank.${l.key}`, prior: 0.3, why: `screen the name against the ${l.name}` }));
+    if (isSelfTask(thread) || thread?.kind === 'company') return BANK_LISTS.map((l) => ({ template: `bank.${l.key}`, prior: 0.3, why: `screen the name against the ${l.name}` }));
     return [{ template: BANK_ALL, prior: 0.3, why: 'screen the name against the US bank regulators\' enforcement actions' }];
   },
   async run(task, ctx) {
@@ -836,7 +837,7 @@ const loadFincen = (deadline) => loadList('enforcement:fincen:v1', async (d) => 
 export const fincenActionsConnector = {
   id: FINCEN_ID,
   label: FINCEN_LABEL,
-  kinds: ['subject', 'company', 'associate', 'relative'],
+  kinds: ['subject', 'alias', 'company', 'associate', 'relative'],
   prior: 0.25,
   timeoutMs: 18000,
   plan() {
@@ -865,3 +866,6 @@ export const fincenActionsConnector = {
     return withStale({ findings, threads: [], notes }, 'FinCEN enforcement actions', copy);
   },
 };
+
+// A record found only under another name of the person the user did not type is 'likely' at most (alias.js).
+for (const c of [mdbDebarmentConnector, usBankRegulatorsConnector, fincenActionsConnector]) c.run = withAliasHold(c.run);

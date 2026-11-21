@@ -7,7 +7,7 @@ jest.mock('../../../src/server/founderCheck', () => {
   const actual = jest.requireActual('../../../src/server/founderCheck');
   return { ...actual, runFounderCheck: jest.fn(), runFounderBrief: jest.fn() };
 });
-jest.mock('../../../src/server/auth', () => ({ getUserId: jest.fn(async () => null) }));
+jest.mock('../../../src/server/auth', () => ({ getUserId: jest.fn(async () => null), callerAddress: jest.requireActual('../../../src/server/auth').callerAddress }));
 jest.mock('../../../src/server/network/store', () => ({ countContacts: jest.fn(async () => 0), findContactsAtCompanies: jest.fn(async () => []) }));
 jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
 

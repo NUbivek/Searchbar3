@@ -352,6 +352,44 @@ export async function recentJobCount(owner, minutes = 60) {
   return [...memory.values()].filter((j) => j.owner === owner && j.createdAt >= cutoff).length;
 }
 
+/**
+ * When the oldest of the owner's jobs started in the last `minutes` was created (ms), or null: the hourly limit
+ * frees a slot `minutes` after it, so the page can say when another check can start.
+ */
+export async function oldestRecentJobAt(owner, minutes = 60) {
+  if (!owner) return null;
+  if (useDb()) {
+    try {
+      const row = await queryOne(`SELECT MIN(created_at) AS t FROM founder_jobs WHERE user_id = $1 AND created_at > now() - interval '${Number(minutes) || 60} minutes'`, [owner]);
+      const t = row && row.t ? new Date(row.t).getTime() : NaN;
+      return Number.isFinite(t) ? t : null;
+    } catch {
+      return null; // a courtesy for the message only
+    }
+  }
+  const cutoff = Date.now() - minutes * 60000;
+  const times = [...memory.values()].filter((j) => j.owner === owner && j.createdAt >= cutoff).map((j) => j.createdAt);
+  return times.length ? Math.min(...times) : null;
+}
+
+/**
+ * How many jobs all owners together started in the last `minutes`: a ceiling across accounts, so many new
+ * accounts cannot drain the shared allowances of the sources between them.
+ */
+export async function recentJobCountAll(minutes = 60) {
+  if (useDb()) {
+    try {
+      const row = await queryOne(`SELECT COUNT(*)::int AS n FROM founder_jobs WHERE created_at > now() - interval '${Number(minutes) || 60} minutes'`);
+      if (row) return Number(row.n) || 0;
+    } catch {
+      // a courtesy limit, as for one owner: when the database cannot answer, the start is not blocked for it
+    }
+    return 0;
+  }
+  const cutoff = Date.now() - minutes * 60000;
+  return [...memory.values()].filter((j) => j.createdAt >= cutoff).length;
+}
+
 /** Forget in-memory jobs (tests). */
 export function __resetJobsForTests() {
   memory.clear();

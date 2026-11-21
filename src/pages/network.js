@@ -18,7 +18,7 @@ import {
 import PageShell from '../components/layout/PageShell';
 import NetworkGraph, { SOURCE_COLORS } from '../components/network/NetworkGraph';
 import {
-  parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, MAX_CONTACTS,
+  parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, companyMatch, companyFormMatch, MAX_CONTACTS,
 } from '../utils/network/parseContacts';
 import { buildAtlas, pathTo, personNodeId, seniority, LAYERS, NO_COMPANY_KEY, ROOT_ID } from '../utils/network/atlas';
 import { classifyContact, roleStats, LENSES } from '../utils/network/roles';
@@ -104,7 +104,23 @@ function SourceBadge({ source }) {
 
 // ---- founder checks already run (from /api/founder/history): contacts with a finished check are marked.
 const ChecksContext = React.createContext(null);
-const checkNameKey = (name) => String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\([^)]*\)/g, ' ').split(',')[0].replace(/['’`.]/g, '').replace(/[^a-z0-9\- ]+/g, ' ').replace(/\s+/g, ' ').trim();
+// Titles before a name and degrees after it are not part of it: "Dr. Jane Roe, PhD" is "jane roe". "Jr" and "Sr"
+// stay, since they tell a father from a son.
+const HONORIFIC = /^(?:dr|mr|mrs|ms|mx|miss|prof|professor|sir|dame)\s+/;
+const DEGREES = new Set(['phd', 'mba', 'md', 'jd', 'cfa', 'cpa', 'pe', 'esq', 'msc', 'ma', 'bsc', 'ba', 'bs', 'ms', 'mph', 'dds', 'rn', 'pmp']);
+const checkNameKey = (name) => {
+  let key = String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\([^)]*\)/g, ' ').split(',')[0].replace(/['’`.]/g, '').replace(/[^a-z0-9\- ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  for (let prev = ''; prev !== key;) { prev = key; key = key.replace(HONORIFIC, ''); }
+  const words = key.split(' ');
+  while (words.length > 2 && DEGREES.has(words[words.length - 1])) words.pop();
+  return words.join(' ');
+};
+/** The same company written two ways: equal, a longer name containing a two-word one, or only form words added. */
+const sameCompany = (a, b) => {
+  const x = normalizeCompanyKey(a);
+  const y = normalizeCompanyKey(b);
+  return Boolean(x && y) && Boolean(companyMatch(x, y) || companyFormMatch(x, y));
+};
 /**
  * The finished check for this contact: same full name, and the same company
  * when the check had one. A check run without a company is only tied to a
@@ -116,8 +132,7 @@ export function findCheck(checks, name, company, nameCounts) {
   const key = checkNameKey(name);
   if (!key || !Array.isArray(checks)) return null;
   const sameName = checks.filter((c) => checkNameKey(c.name) === key);
-  const co = normalizeCompanyKey(company);
-  const withCompany = sameName.find((c) => co && String(c.company || '').trim() && normalizeCompanyKey(c.company) === co);
+  const withCompany = sameName.find((c) => String(company || '').trim() && String(c.company || '').trim() && sameCompany(c.company, company));
   if (withCompany) return withCompany;
   const unique = nameCounts && typeof nameCounts.get === 'function' && nameCounts.get(key) === 1;
   return unique ? (sameName.find((c) => !String(c.company || '').trim()) || null) : null;
@@ -131,13 +146,29 @@ export function contactNameCounts(contacts) {
   }
   return counts;
 }
-const checkHref = (c) => `/founder?name=${encodeURIComponent(c.name)}${c.company ? `&company=${encodeURIComponent(c.company)}` : ''}`;
+/**
+ * The finished check itself (?job=), so the Founder Check page reopens it instead of starting a new one; the
+ * name and company stay in the link for a check the server no longer keeps. A check anchored on a company it
+ * was given (seededCompany) keeps that company.
+ */
+export const checkHref = (c) => {
+  const q = new URLSearchParams({ name: String(c.name || '') });
+  const company = c.company || c.seededCompany;
+  if (company) q.set('company', String(company));
+  if (c.id) q.set('job', String(c.id));
+  return `/founder?${q}`;
+};
 function CheckMark({ name, company }) {
   const ctx = React.useContext(ChecksContext);
   const check = findCheck(ctx?.checks, name, company, ctx?.nameCounts);
-  if (!check) return null;
+  if (!check) {
+    // A check still running is shown as running, so opening it picks it up instead of starting another.
+    const running = findCheck(ctx?.running, name, company, ctx?.nameCounts);
+    return running ? <Link href={checkHref(running)} className="chip" title="A founder check of this person is still running. Open it to follow it.">Running</Link> : null;
+  }
   return (
-    <Link href={checkHref(check)} className={check.redFlags ? 'chip chip-bad' : 'chip chip-good'} title={`Founder check finished ${formatDate(check.date)}`}>
+    // Never green: the list does not say whether every court and watchlist screen answered, so 0 red flags is not a clean result.
+    <Link href={checkHref(check)} className={check.redFlags ? 'chip chip-bad' : 'chip'} title={`Founder check finished ${formatDate(check.date)}. Open the report to see which screens answered.`}>
       Checked{check.redFlags ? ` · ${check.redFlags} red flag${check.redFlags === 1 ? '' : 's'}` : ''}
     </Link>
   );
@@ -236,10 +267,15 @@ export default function NetworkPage() {
   const [dragging, setDragging] = useState(false);
 
   const [checks, setChecks] = useState([]); // founder checks this user has finished
+  const [runningChecks, setRunningChecks] = useState([]); // and the ones still running
   useEffect(() => {
-    if (sessionStatus !== 'authenticated') { setChecks([]); return undefined; }
+    if (sessionStatus !== 'authenticated') { setChecks([]); setRunningChecks([]); return undefined; }
     let live = true;
-    fetch('/api/founder/history').then((r) => (r.ok ? r.json() : { checks: [] })).then((d) => { if (live) setChecks(Array.isArray(d.checks) ? d.checks : []); }).catch(() => {});
+    fetch('/api/founder/history').then((r) => (r.ok ? r.json() : { checks: [] })).then((d) => {
+      if (!live) return;
+      setChecks(Array.isArray(d.checks) ? d.checks : []);
+      setRunningChecks(Array.isArray(d.running) ? d.running : []);
+    }).catch(() => {});
     return () => { live = false; };
   }, [sessionStatus]);
 
@@ -618,7 +654,7 @@ export default function NetworkPage() {
   const hasLocations = useMemo(() => contacts.some((c) => countryOf(c) !== UNKNOWN_COUNTRY), [contacts]);
 
   // A check run without a company marks a contact only when that contact's full name is unique here.
-  const checksContext = useMemo(() => ({ checks, nameCounts: contactNameCounts(contacts) }), [checks, contacts]);
+  const checksContext = useMemo(() => ({ checks, running: runningChecks, nameCounts: contactNameCounts(contacts) }), [checks, runningChecks, contacts]);
 
   const answerKeys = useMemo(() => {
     if (!answer) return null;
@@ -773,6 +809,19 @@ export default function NetworkPage() {
     setQuestion(text);
     ask(text);
   };
+
+  // A link from a report ("Ask your network about Acme") arrives as ?ask=: run it once, when the contacts are in.
+  const askedFromLink = useRef(false);
+  useEffect(() => {
+    if (askedFromLink.current || !router.isReady || mode === 'loading' || !contacts.length) return;
+    const q = String(router.query?.ask || '').trim().slice(0, 300);
+    if (!q) return;
+    askedFromLink.current = true;
+    setQuestion(q);
+    ask(q);
+    // `ask` is a new function each render; the ref keeps this to one run
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.isReady, router.query, mode, contacts.length]);
 
   const lastImport = (source) => (mode === 'saved' ? stats?.lastImportBySource?.[source] : memoryImports[source]);
   const lastImportAny = mode === 'saved' ? stats?.lastImportAt : Object.values(memoryImports).sort().pop();
@@ -1052,7 +1101,7 @@ export default function NetworkPage() {
                 <li key={`${c.name}|${c.company}`} className="flex flex-wrap items-center gap-2 py-2 text-sm">
                   <Link href={checkHref(c)} className="font-medium text-ink hover:text-brand-600 hover:underline">{c.name}</Link>
                   {c.company && <span className="chip">{c.company}</span>}
-                  {typeof c.redFlags === 'number' && <span className={c.redFlags ? 'chip chip-bad' : 'chip chip-good'}>{c.redFlags} red flag{c.redFlags === 1 ? '' : 's'}</span>}
+                  {typeof c.redFlags === 'number' && <span className={c.redFlags ? 'chip chip-bad' : 'chip'}>{c.redFlags} red flag{c.redFlags === 1 ? '' : 's'}</span>}
                   {c.date && <span className="ml-auto text-xs text-muted">{formatDate(c.date)}</span>}
                 </li>
               ))}

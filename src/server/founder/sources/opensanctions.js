@@ -48,6 +48,7 @@ import { makeFinding } from '../finding';
 import { cached } from '../cache';
 import { isSensitive, mentionsMinor } from '../guardrails';
 import { normalizeName, nameTokens, companyTokens, personVariants, reasonText } from './sanctions';
+import { withAliasHold } from './alias';
 import { eachCsvRow, screenRows, personNameForms } from './debarment';
 
 const ID = 'opensanctions-lists';
@@ -387,7 +388,8 @@ async function screenLists(task, ctx, lists) {
 export const openSanctionsConnector = {
   id: ID,
   label: LABEL,
-  kinds: ['subject', 'company', 'associate', 'relative'],
+  // 'alias': another name of the person, screened like their own name (alias.js holds the grade)
+  kinds: ['subject', 'alias', 'company', 'associate', 'relative'],
   prior: 0.3,
   timeoutMs: 40000,
   maxParallel: 2,
@@ -417,3 +419,6 @@ export const openSanctionsConnector = {
     return screenLists(task, ctx, DATASETS.filter((d) => d.group === group.key));
   },
 };
+
+// A record found only under another name of the person the user did not type is 'likely' at most (alias.js).
+openSanctionsConnector.run = withAliasHold(openSanctionsConnector.run);

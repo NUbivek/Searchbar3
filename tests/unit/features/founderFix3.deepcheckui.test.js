@@ -51,12 +51,15 @@ function mockFetch(handler) {
   global.fetch = jest.fn(async (url, opts = {}) => {
     const body = opts.body ? JSON.parse(opts.body) : null;
     calls.push({ url, method: opts.method || 'GET', body });
+    // the lookup of the account's latest check of this person finds none unless a test says otherwise
+    if (!body && String(url).includes('/api/founder/deep?name=')) return { ok: false, status: 404, json: async () => ({ error: 'not found' }) };
     return handler(url, body, calls.length);
   });
 }
 
 beforeEach(() => {
   window.sessionStorage.clear();
+  window.localStorage.clear();
   Element.prototype.scrollIntoView = jest.fn();
 });
 
@@ -113,7 +116,7 @@ describe('DeepCheck component', () => {
     expect(screen.getByText('Not enabled on this deployment')).toBeTruthy();
     expect(screen.getByRole('status').textContent).toBe('Deep check finished: 3 records, 1 red flag.');
     // the start request carried the query
-    expect(calls[0].body).toEqual({ action: 'start', name: 'Pat Example', company: 'Example Co' });
+    expect(calls.find((c) => c.body?.action === 'start').body).toEqual({ action: 'start', name: 'Pat Example', company: 'Example Co' });
   });
 
   it('shows the short model name, with the provider on hover, and the confidence', async () => {
@@ -151,23 +154,42 @@ describe('DeepCheck component', () => {
     expect(screen.getByText(/not proof of a clean record/)).toBeTruthy();
   });
 
-  it('turns [Source n] into a citation that opens and reveals its record past the first few', async () => {
+  it('turns [Source n] into a citation that opens a card, then reveals its record past the first few', async () => {
     mockFetch(async () => ok({ jobId: 'job-cite', done: true, report: report({ brief: 'Late detail [Source 18].' }) }));
     const { container } = render(<DeepCheck name="Pat Cite" />);
     await screen.findByText('Late detail', { exact: false });
     const link = container.querySelector('.founder-brief a[href="#deep-source-18"]');
     expect(link).toBeTruthy();
+    expect(link.textContent).toBe('[18]');
     expect(container.querySelector('#deep-source-18')).toBeNull(); // only the first 15 of 20 show
 
     fireEvent.click(link);
+    const card = await screen.findByRole('dialog');
+    expect(within(card).getByText('Record 18')).toBeTruthy();
+    expect(within(card).getByText('same person')).toBeTruthy();
+    expect(within(card).getByText(/Open source/).closest('a').getAttribute('href')).toBe('https://example.test/18');
+    fireEvent.click(within(card).getByText('Show in report'));
     await waitFor(() => expect(container.querySelector('#deep-source-18')).toBeTruthy());
     const target = container.querySelector('#deep-source-18');
-    expect(target.closest('details').open).toBe(true);
+    await waitFor(() => expect(target.closest('[data-block]').querySelector('[hidden]')).toBeNull());
     await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+    // and a way back to where the citation was
+    fireEvent.click(screen.getByText('Back to where you were'));
+    expect(screen.queryByText('Back to where you were')).toBeNull();
     // the record keeps a single anchor: copies under red flags or namesakes carry none
     expect(container.querySelectorAll('[id="deep-source-2"]').length).toBe(1);
     expect(container.querySelectorAll('[id="deep-source-9"]').length).toBe(1);
-    expect(container.querySelector('#deep-source-9').closest('details').querySelector('h2').textContent).toBe('Companies');
+    expect(container.querySelector('#deep-source-9').closest('[data-block]').querySelector('h2').textContent).toBe('Companies');
+  });
+
+  it('Escape closes the citation card', async () => {
+    mockFetch(async () => ok({ jobId: 'job-esc', done: true, report: report({ brief: 'Detail [Source 1].' }) }));
+    const { container } = render(<DeepCheck name="Pat Escape" />);
+    await screen.findByText('Detail', { exact: false });
+    fireEvent.click(container.querySelector('.founder-brief a[href="#deep-source-1"]'));
+    await screen.findByRole('dialog');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('retries a step after a 503 and carries on', async () => {
@@ -196,7 +218,7 @@ describe('DeepCheck component', () => {
     expect(calls.some((c) => c.method === 'GET' && c.url === '/api/founder/deep?jobId=job-409')).toBe(true);
   });
 
-  it('does not retry a client error and offers to try again', async () => {
+  it('does not retry a client error, and does not offer a try again that cannot work', async () => {
     mockFetch(async (url, body) => {
       if (body?.action === 'start') return ok({ jobId: 'job-400', done: false, progress: { phase: 'collect', tasksRun: 0, queued: 1, findings: 0 } });
       return fail(400, 'Bad request');
@@ -204,28 +226,34 @@ describe('DeepCheck component', () => {
     render(<DeepCheck name="Pat Bad" />);
     expect((await screen.findByRole('alert')).textContent).toBe('Bad request');
     expect(calls.filter((c) => c.body?.action === 'step')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: /Try again/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Try again/ })).toBeNull();
+    expect(screen.getByText(/Change the details in the form above/)).toBeTruthy();
   });
 
   it('asks to sign in on a 401', async () => {
     mockFetch(async () => fail(401, 'Sign in'));
     render(<DeepCheck name="Pat Signin" />);
-    expect((await screen.findByText('Sign in to run it')).getAttribute('href')).toBe('/signin');
+    // the sign-in page sends the visitor back to this same check
+    expect((await screen.findByText('Sign in to run it')).getAttribute('href')).toBe(`/signin?callbackUrl=${encodeURIComponent('/')}`);
   });
 
-  it('gives up on a step after three server errors', async () => {
+  it('keeps trying a step through server errors for about two minutes, then gives up', async () => {
     await expect((async () => {
       mockFetch(async () => fail(500, 'down'));
       jest.useFakeTimers();
       try {
         const p = step('job-500');
         const caught = p.catch((e) => e);
-        await jest.advanceTimersByTimeAsync(10000);
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(calls.length).toBeGreaterThan(5); // still trying after a minute
+        await jest.advanceTimersByTimeAsync(200000);
         throw await caught;
       } finally {
         jest.useRealTimers();
       }
     })()).rejects.toMatchObject({ status: 500, message: 'down' });
-    expect(calls).toHaveLength(3);
+    const n = calls.length;
+    expect(n).toBeGreaterThan(8);
+    expect(n).toBeLessThan(20);
   });
 });

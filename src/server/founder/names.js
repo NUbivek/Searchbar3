@@ -73,6 +73,12 @@ const lowerFold = (s) => foldAccents(s).toLowerCase();
 const words = (s) => new Set(s.trim().split(/\s+/));
 
 const TITLES = words('dr mr mrs ms mx miss prof professor sir dame rev reverend hon honorable lord lady judge');
+// Capitalised words that may stand right before a person's name without being their given name.
+const NOT_A_GIVEN = words(`monday tuesday wednesday thursday friday saturday sunday january february march april may june july
+august september october november december senator governor representative rep mayor ambassador secretary minister
+officer detective agent attorney prosecutor defendant plaintiff witness justice commissioner chancellor congressman
+congresswoman councilman councilwoman sheriff general captain colonel lieutenant sergeant inventor author editor
+reporter host speaker partner trustee dean coach saint san santa`);
 const GENERATIONAL = words('jr sr ii iii iv');
 const DEGREE_SUFFIX = words('phd md esq mba cpa jd dds qc kc obe cbe mbe frs');
 const SURNAME_PARTICLES = words('van von der den de del della di da dos das du la le bin binti ibn al el ben ter ten');
@@ -420,6 +426,26 @@ export function personNameMatcher(name) {
       const after = text.slice(e);
       if (/^'(?!s(?![\p{L}]))\p{L}/u.test(after)) continue; // "Smith'son": inside another word
       if (/^-\p{L}/u.test(after)) { push(weak, s, e, 'longer-surname'); continue; } // "John Smith-Jones"
+      // "Erin Elizabeth Holmes" for Elizabeth Holmes: a given name written right before the name makes it someone
+      // else's longer name. A known given name counts anywhere; another capitalised word only inside a sentence
+      // written in lower case ("the trust for Erin Elizabeth Holmes"), so a title-case headline ("Convicted
+      // Fraudster Elizabeth Holmes"), a list ("Balwani and Elizabeth Holmes") or a title ("Senator") does not.
+      if (!single) {
+        const before = text.slice(0, s);
+        const prevW = before.match(/(?<![\p{L}'’.-])(\p{Lu}\p{Ll}+)\s+$/u);
+        const g = prevW ? lowerFold(prevW[1]) : '';
+        const own = g === lowerFold(p.given) || subjectMiddles.includes(g) || (NICKNAMES.get(lowerFold(p.given)) || new Set()).has(g);
+        let otherGivenName = false;
+        if (g && !own && !NOT_A_GIVEN.has(g) && !TITLES.has(g) && !ROLE_WORDS.has(g) && !FUNCTION_WORDS.has(g) && !DETERMINERS.has(g) && !LEGAL_FORMS.has(g) && !BUSINESS_VERBS.has(g)) {
+          const at = s - prevW[0].length;
+          const lowerBefore = /(?:^|[\s(])\p{Ll}[\p{L}'’-]*[,;:]?\s+$/u.test(before.slice(0, at));
+          otherGivenName = COMMON_GIVEN.has(g) || (lowerBefore && !atSentenceStart(text, at));
+        }
+        if (otherGivenName) {
+          push(weak, s - prevW[0].length, e, 'other-given');
+          continue;
+        }
+      }
       if (mononym) {
         // A one-word name followed or preceded by another capitalised name word is part of someone's longer
         // name ("Budi Santoso", "Rina Budi"), not the person known only as Budi.

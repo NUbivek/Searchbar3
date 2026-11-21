@@ -135,11 +135,22 @@ export function makeFinding(subject, f) {
   // The record's own date goes to the grade, so a role held at that time (a CEO tenure) can count.
   // A re-grade reads the same date back from the finding's `date`.
   const date = isoDate(f.date);
+  let basis = null;
   if (!match) {
     const graded = matchSubject(subject, text, { date });
     if (graded.level === 'none') return null;
     match = graded.level;
     reasons = graded.reasons;
+    // Which anchors carried the grade: a likely grade resting only on an encyclopedia link or an event another
+    // record reports must not make the record's threads trusted, nor (event only) a red flag.
+    if (Array.isArray(graded.basis) && graded.basis.length) basis = graded.basis;
+  }
+  // The matter's outcome and the person's part in it (acquitted, dismissed, settled, pardoned; plaintiff, witness),
+  // kept so the report can show it beside the matter. Read from the cleaned grade text, never a private sentence.
+  let data = f.data || null;
+  if (!data?.outcome && subject && typeof subject.hasName === 'function') {
+    const told = matterOutcome(gradeText || clipLines(cleanSentences(cleanText(text).slice(0, PRE_CLIP)).text, 1500), { person: subject.hasName });
+    if (told.outcome || told.role) data = { ...(data || {}), outcome: { outcome: told.outcome || null, role: told.role || null } };
   }
   // The privacy rules run on the full text before it is clipped: a phone number or a birth date cut in half
   // at the clip would no longer be recognised. The text is only pre-cut to a bound the rules can read quickly.
@@ -156,7 +167,8 @@ export function makeFinding(subject, f) {
     matchReasons: reasons,
     severity: SEVERITIES.includes(f.severity) ? f.severity : 'info',
     ...(matchFixed ? { matchFixed: true } : {}),
-    ...(f.data ? { data: f.data } : {}),
+    ...(basis ? { matchBasis: basis } : {}),
+    ...(data ? { data } : {}),
   });
   if (!finding) return null;
   finding.title = clipClean(finding.title, 220);
@@ -182,7 +194,7 @@ function clipClean(s, n) {
 }
 
 const HIGH = /\b(indict(?:s|ed|ments?)?|convict(?:s|ed|ions?)?|plead(?:ed|s)? guilty|pled guilty|found guilty|guilty verdict|guilty of|jailed|sentenced|imprison\w*|felony|criminal charges?|charged with|securities fraud|wire fraud|bank fraud|fraud charges|ponzi|embezzl\w*|money launder\w*|bribe\w*|racketeer\w*|insider trading|sanctioned|sanctions list|debarred|barred from|disqualified|banned from|arrest(?:ed)?|extradit\w*|wanted by|cease[- ]and[- ]desist)\b/i;
-const MEDIUM = /\b(landlord to|related[- ]party (?:transactions?|deals?)|self[- ]dealing|conflicts? of interest|bankrupt|chapter 11|lawsuits?|sued|sues|suing|class[- ]action|complaint filed|settle(?:d|s|ment)|investigat(?:ion|ed|ing)|probe|subpoena\w*|fined|penalt(?:y|ies)|bankruptc(?:y|ies)|insolven\w*|liquidat\w*|receivership|fraud|misconduct|misappropriat\w*|harass\w*|discriminat\w*|retaliat\w*|whistleblower|allegations?|alleged(?:ly)?|fired(?! up)|ousted|forced out|terminated for cause|(?:steps?|stepped|stepping) down (?:under|amid) (?:\w+ )?pressure|breach of (?:contract|fiduciary)|default judgment|judgments? against|damages awards?|ordered to pay|restitution|arbitrat\w*|claw(?:s|ed|ing)?[- ]?backs?|restraining order|data breach|ransomware)\b/i;
+const MEDIUM = /\b(landlord to|related[- ]party (?:transactions?|deals?)|self[- ]dealing|conflicts? of interest|bankrupt|chapter 11|lawsuits?|sued|sues|suing|class[- ]action|complaint filed|settle(?:d|s|ment)|investigat(?:ion|ed|ing)|probe|subpoena\w*|fined|penalt(?:y|ies)|bankruptc(?:y|ies)|insolven\w*|liquidat\w*|receivership|fraud|misconduct|misappropriat\w*|harass\w*|discriminat\w*|retaliat\w*|whistleblower|allegations?|alleged(?:ly)?|accus(?:ed|es|ing|ations?)|attorneys? general\b[^.;]{0,60}?\b(?:letters?|investigat\w*|demands?|subpoena\w*|inquir(?:y|ies)|probe)|fired(?! up)|ousted|forced out|terminated for cause|(?:steps?|stepped|stepping) down (?:under|amid) (?:\w+ )?pressure|breach of (?:contract|fiduciary)|default judgment|judgments? against|damages awards?|ordered to pay|restitution|arbitrat\w*|claw(?:s|ed|ing)?[- ]?backs?|restraining order|data breach|ransomware)\b/i;
 const LOW = /\b(resign(?:ed|s|ation)|stepped down|steps down|departed|controvers\w*|dispute[ds]?|layoffs?|shut(?:s|ting)? down|shutdown|wound down|dissolved|struck off|criticis\w*|criticiz\w*|backlash|restat(?:ed|ement))\b/i;
 
 // A probe or inquiry that a regulator declined, closed, dropped or cleared ("CMA decides not to

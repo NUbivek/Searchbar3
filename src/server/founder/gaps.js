@@ -26,7 +26,7 @@
  * the role shown is the one the sentence states, never the model's wording,
  * and a suggested company is looked at only together with the person.
  */
-import { chatJson } from '../llm/providers';
+import { chatJson, reportAnswerQuality } from '../llm/providers';
 import { restoreSubject } from './identity';
 import { makeThread } from './finding';
 import { mentions, publicRelativeIn, plausiblePersonName } from './extract';
@@ -376,7 +376,8 @@ export function verifyGaps(state, records, data) {
  * Ask a model what the check has missed, and keep only what the records bear out.
  * @param {object} state the check's state
  * @param {{ deadline?: number, complete?: Function }} options
- * @returns {Promise<{ threads: object[], searches: string[], dropped: number, model: string|null, note: string|null }>}
+ * @returns {Promise<{ threads: object[], searches: string[], dropped: number, model: string|null, note: string|null, failed?: true }>}
+ *   failed: the model did not answer (fewer than three records is not a failure: there was nothing to read)
  */
 export async function findGaps(state, { deadline = null, complete = chatJson } = {}) {
   const empty = { threads: [], searches: [], dropped: 0, model: null, note: null };
@@ -395,7 +396,12 @@ export async function findGaps(state, { deadline = null, complete = chatJson } =
   } catch {
     out = null;
   }
-  if (!out?.data) return empty;
+  // No answer is not "nothing more to follow": the loop reads failed as a reader that did not answer.
+  if (!out?.data) return { ...empty, failed: true };
   const checked = verifyGaps(state, records, out.data);
+  // How much of the answer held up against the records teaches the chain which model reads records well.
+  const share = checked.threads.length + checked.searches.length + checked.dropped > 0
+    ? (checked.threads.length + checked.searches.length) / (checked.threads.length + checked.searches.length + checked.dropped) : 1;
+  if (typeof reportAnswerQuality === 'function') Promise.resolve(reportAnswerQuality(out, share, 'extract')).catch(() => {});
   return { ...checked, model: out.model || null, note: null };
 }

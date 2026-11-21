@@ -291,7 +291,7 @@ describe('list readers keep names only', () => {
 describe('sanctionsListsConnector', () => {
   test('identity and plan: one lookup per list for the subject', () => {
     expect(sanctionsListsConnector.id).toBe('sanctions-lists');
-    expect(sanctionsListsConnector.kinds).toEqual(['subject', 'company', 'associate', 'relative']);
+    expect(sanctionsListsConnector.kinds).toEqual(['subject', 'alias', 'company', 'associate', 'relative']);
     expect(sanctionsListsConnector.label).toBe('Sanctions lists (US, UN, EU, UK, Canada)');
     expect(sanctionsListsConnector.plan({ kind: 'subject' }).map((p) => p.template)).toEqual(['list.us-csl', 'list.un', 'list.eu', 'list.uk', 'list.ca']);
     expect(sanctionsListsConnector.plan({ kind: 'company' }).map((p) => p.template)).toEqual(['list.all']);
@@ -395,7 +395,7 @@ describe('sanctionsListsConnector', () => {
 describe('exclusionsConnector', () => {
   test('identity and plan', () => {
     // Associates and relatives are screened too (round 3: watchlists-associates-not-on-exclusions)
-    expect(exclusionsConnector).toMatchObject({ id: 'us-exclusions', label: 'US federal exclusion lists (SAM.gov, HHS OIG)', kinds: ['subject', 'company', 'associate', 'relative'] });
+    expect(exclusionsConnector).toMatchObject({ id: 'us-exclusions', label: 'US federal exclusion lists (SAM.gov, HHS OIG)', kinds: ['subject', 'alias', 'company', 'associate', 'relative'] });
     expect(exclusionsConnector.plan({ kind: 'subject' }).map((p) => p.template)).toEqual(['excl.sam', 'excl.leie']);
     expect(exclusionsConnector.plan({ kind: 'company' }).map((p) => p.template)).toEqual(['excl.sam']);
   });
@@ -512,7 +512,7 @@ describe('offshoreLeaksConnector', () => {
 
 describe('wantedConnector', () => {
   test('identity', () => {
-    expect(wantedConnector).toMatchObject({ id: 'wanted-lists', label: 'Wanted lists (FBI, EU Most Wanted)', kinds: ['subject'] });
+    expect(wantedConnector).toMatchObject({ id: 'wanted-lists', label: 'Wanted lists (FBI, EU Most Wanted)', kinds: ['subject', 'alias'] });
   });
 
   test('FBI: exact full name only; missing people and victims are never used', async () => {
@@ -585,7 +585,8 @@ describe('review fixes: name order and Offshore Leaks scope', () => {
   });
 
   test('Offshore Leaks is never searched for an associate or relative', async () => {
-    expect(offshoreLeaksConnector.kinds).toEqual(['subject', 'company']);
+    // another name of the person ('alias') is the person, not a related party
+    expect(offshoreLeaksConnector.kinds).toEqual(['subject', 'alias', 'company']);
     serve({ 'offshoreleaks.icij.org': () => ({ status: 201, body: json(ICIJ) }) });
     for (const kind of ['associate', 'relative']) {
       const out = await offshoreLeaksConnector.run({ kind, value: 'Adam Neumann', relation: 'brother' }, ctxFor('Elizabeth Holmes'));

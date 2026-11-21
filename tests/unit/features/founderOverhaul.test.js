@@ -71,7 +71,7 @@ describe('report', () => {
       rec({ source: 'finra-brokercheck', category: 'regulatory', match: 'possible', title: 'Jane Roe (CRD 1): no disclosures', quote: 'Jane Roe, CRD 1. Firms: Credit Suisse Securities (USA) LLC (2015 to 2017).' }),
     ]));
     expect(one.sections.find((s) => s.key === 'regulatory').items.map((f) => f.match)).toEqual(['possible']);
-    expect(one.profile.leads.map((l) => l.text)).toEqual(['Jane Roe (CRD 1): no disclosures']);
+    expect(one.profile.leads.map((l) => l.text)).toEqual(['Jane Roe: no disclosures']); // the CRD number identifies the person: dropped from the lead
     const report = buildReport(state([
       rec({ title: 'Founder story', quote: 'Jane Roe, co-founder of Acme, previously worked at Credit Suisse.' }),
       rec({ title: 'Founder story 2', quote: 'Jane Roe previously worked at Credit Suisse.' }),

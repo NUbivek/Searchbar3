@@ -799,8 +799,11 @@ async function listChecks(userId, status, { limit = 50, memory = globalThis.__fo
     )) || [];
   } else if (memory && typeof memory.values === 'function') {
     const done = (j) => j.status === 'done' || Boolean(j.state?.report);
+    // The same retention as the hosted list: a check older than the job store keeps is not listed.
+    const since = Date.now() - (Number(RETENTION_HOURS) || 72) * 3600 * 1000;
+    const fresh = (j) => !(Number(j.updatedAt) > 0) || Number(j.updatedAt) > since;
     rows = [...memory.values()]
-      .filter((j) => j && j.owner === userId && (status === 'done' ? done(j) : j.status === 'running' && !done(j)))
+      .filter((j) => j && j.owner === userId && fresh(j) && (status === 'done' ? done(j) : j.status === 'running' && !done(j)))
       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
       .slice(0, cap)
       .map((j) => ({ id: j.id, name: j.name, company: j.company, status: status, updated_at: j.updatedAt, red_flags: j.state?.report?.totals?.redFlags, seeded: j.state?.networkSeed?.company }));

@@ -104,6 +104,11 @@ export function companyNames(subject, findings = [], threads = []) {
     }
     // A register entry that names the person as an officer
     if (REGISTERS.has(f.source) && TIED.has(f.match) && d.company) addName(d.company, f.id);
+    // The legal name the company's own site prints in its footer (page reader), and that site's domain
+    if (d.kind === 'legal-name' && f.match !== 'possible') {
+      if (d.legalName) addName(d.legalName, f.id);
+      if (d.domain) addDomain(d.domain, f.id);
+    }
     // The domain record of the company itself
     if (f.source === 'domain-history' && f.match !== 'possible') {
       const m = String(f.title || '').match(/^([a-z0-9-]+(?:\.[a-z0-9-]+)+):/i);
@@ -135,9 +140,13 @@ export function learnCompanyNames(subject, findings = [], threads = []) {
   if (!subject?.company) return [];
   const { legalNames, domains } = companyNames(subject, findings, threads);
   const learned = [];
+  const byId = new Map((findings || []).map((f) => [f.id, f]));
+  // The origin says how strongly the record is tied ('found:' confirmed, 'weak:' anything less), so the check can
+  // see which record produced the name and never re-grade that record on it.
+  const originOf = (id) => { const f = byId.get(id); return f && f.match === 'confirmed' && !f.assumedTie ? `found:${id}` : `weak:${id}`; };
   for (const x of [...legalNames.map((n) => ({ v: n.name, ids: n.ids })), ...domains.map((d) => ({ v: d.domain, ids: d.ids }))]) {
     if (!x.ids.length) continue;
-    if (addCompanyAlias(subject, { company: subject.company, alias: x.v, origin: x.ids[0] })) learned.push(x.v);
+    if (addCompanyAlias(subject, { company: subject.company, alias: x.v, origin: originOf(x.ids[0]) })) learned.push(x.v);
   }
   return learned;
 }

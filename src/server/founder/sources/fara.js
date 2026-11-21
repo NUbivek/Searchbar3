@@ -50,6 +50,7 @@ import {
 } from '../names';
 import { companyNames, companyTokens, matchCompanyName } from './sanctions';
 import { eachCsvRow } from './debarment';
+import { withAliasHold } from './alias';
 
 const ID = 'fara-registrations';
 const LABEL = 'US foreign agent registrations (FARA filings)';
@@ -490,7 +491,8 @@ const asOf = (...copies) => {
 export const faraConnector = {
   id: ID,
   label: LABEL,
-  kinds: ['subject', 'company'],
+  // 'alias': another name of the person, looked for like their own name
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.2,
   timeoutMs: 25000,
   plan(thread) {
@@ -558,3 +560,6 @@ export const faraConnector = {
     return { findings, threads: [], notes, ...(partial.length ? { partial } : {}) };
   },
 };
+
+// A record found only under another name of the person the user did not type is 'likely' at most (alias.js).
+faraConnector.run = withAliasHold(faraConnector.run);

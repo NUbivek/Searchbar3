@@ -221,7 +221,7 @@ describe('FDA debarment source', () => {
     const c = fdaDebarmentConnector;
     expect(c.id).toMatch(/^[a-z0-9-]+$/);
     expect(c.label).not.toMatch(/\b(api|endpoint|key|token|free|paid|tier|quota|env)\b/i);
-    expect(c.kinds).toEqual(['subject', 'company']);
+    expect(c.kinds).toEqual(['subject', 'alias', 'company']);
     for (const kind of c.kinds) {
       for (const p of c.plan({ kind, value: 'x' })) {
         expect(p.template).toMatch(/^[a-z0-9.:_-]+$/i);

@@ -11,7 +11,12 @@ jest.mock('../../../src/server/db', () => ({
   persistenceMode: jest.fn(() => 'pglite'),
   PersistenceUnavailableError: class PersistenceUnavailableError extends Error {},
 }));
-jest.mock('../../../src/server/auth', () => ({ getUserId: jest.fn(async () => 'user-1') }));
+jest.mock('../../../src/server/auth', () => {
+  const getUserId = jest.fn(async () => 'user-1');
+  // requireFounderUser answers 401 itself when signed out (and 403 for an account outside the allow-list)
+  const requireFounderUser = jest.fn(async (req, res) => { const id = await getUserId(req, res); if (!id) { res.status(401).json({ error: 'Sign in to use this feature.', signIn: true }); return null; } return id; });
+  return { getUserId, requireFounderUser };
+});
 jest.mock('../../../src/server/llm/providers', () => ({ chatComplete: jest.fn(async () => null), chatJson: jest.fn(async () => null), llmConfigured: () => false, PROVIDERS: [], providerEnabled: () => false }));
 jest.mock('../../../src/server/companyProfile', () => ({ buildCompanyProfile: jest.fn(async () => ({ investors: [] })) }));
 // Every lookup the deep check runs is recorded, so the test can see which words went out.
@@ -350,10 +355,12 @@ describe('listFinishedChecks', () => {
     expect(checks).toEqual([{ id: null, name: 'Jane Doe', company: 'Acme', seededCompany: null, status: 'done', date: '2026-11-19T10:00:00.000Z', redFlags: 2 }]);
   });
   test('kept in memory: another user\'s checks are never listed', async () => {
+    // Recent times: a check older than the job store's retention (72 hours) is not listed (needs-phase2 entry 47).
+    const now = Date.now();
     const memory = new Map([
-      ['a', { owner: 'user-1', name: 'Jane Doe', company: '', status: 'done', updatedAt: 2, state: { report: { totals: { redFlags: 0 } } } }],
-      ['b', { owner: 'user-2', name: 'Other Person', company: '', status: 'done', updatedAt: 3, state: { report: { totals: { redFlags: 4 } } } }],
-      ['c', { owner: 'user-1', name: 'Run Ning', company: '', status: 'running', updatedAt: 4, state: {} }],
+      ['a', { owner: 'user-1', name: 'Jane Doe', company: '', status: 'done', updatedAt: now - 2000, state: { report: { totals: { redFlags: 0 } } } }],
+      ['b', { owner: 'user-2', name: 'Other Person', company: '', status: 'done', updatedAt: now - 1000, state: { report: { totals: { redFlags: 4 } } } }],
+      ['c', { owner: 'user-1', name: 'Run Ning', company: '', status: 'running', updatedAt: now, state: {} }],
     ]);
     expect((await link.listFinishedChecks('user-1', { memory })).map((c) => c.name)).toEqual(['Jane Doe']);
     expect(await link.listFinishedChecks(null, { memory })).toEqual([]);

@@ -106,8 +106,9 @@ test('the brief lists the screens that came back clean, even with red flags', ()
   // labelled as the screens checklist labels them (round 3: one source of truth for clean screens)
   expect(cleanScreens(report.coverage)).toEqual(['Sanctions lists', 'US exclusions', 'ICIJ']);
   const brief = quotedDeepBrief(report, 'test');
-  expect(brief).toMatch(/Screens with no match: Sanctions lists, US exclusions, ICIJ\./);
-  expect(brief).not.toMatch(/Screens with no match:.*(?:wanted|DOJ)/);
+  // round 3: one line per screen group in the brief's screens section
+  expect(brief).toMatch(/• Sanctions and watchlists: no match in Sanctions lists, US exclusions, ICIJ;/);
+  expect(brief).not.toMatch(/no match in [^;\n]*(?:Wanted|DOJ)/);
 });
 
 test('approximate dates and roles that start before the company was founded stay off the timeline', () => {

@@ -56,6 +56,7 @@ import { cachedEntry } from '../cache';
 import { normalizeName, nameTokens, companyTokens, matchPersonName, matchCompanyName, screenNames, companyNames } from './sanctions';
 import { personNameMatcher, companyMentionMatcher } from '../names';
 import { cleanSentences } from '../guardrails';
+import { isSelfTask, withAliasHold } from './alias';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_FINDINGS = 6;
@@ -415,7 +416,7 @@ async function searchFtc(query, deadline) {
 export const ftcCasesConnector = {
   id: FTC_ID,
   label: FTC_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.25,
   maxParallel: 1,
   timeoutMs: 25000,
@@ -423,7 +424,7 @@ export const ftcCasesConnector = {
   enabled: () => contactDeclared() && !switchedOff(FTC_ID),
   unavailableReason: 'The FTC site asks automated readers to name a contact, and this deployment does not declare one.',
   plan(thread) {
-    if (thread?.kind === 'subject') return [{ template: 'ftc.person', prior: 0.25, why: 'FTC cases and proceedings naming the person' }];
+    if (isSelfTask(thread)) return [{ template: 'ftc.person', prior: 0.25, why: 'FTC cases and proceedings naming the person' }];
     if (thread?.kind === 'company') return [{ template: 'ftc.company', prior: 0.3, why: 'FTC cases and proceedings against the company' }];
     return [];
   },
@@ -690,18 +691,18 @@ const sfcSeverity = (title) => (/\bban|banned|prohibit|convict|jail|imprison|sen
 export const sfcEnforcementConnector = {
   id: SFC_ID,
   label: SFC_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.15,
   timeoutMs: 25000,
   enabled: () => switchedOn(SFC_ID),
   unavailableReason: 'Hong Kong securities regulator enforcement news is not enabled on this deployment.',
   plan(thread, subject) {
-    if (thread?.kind !== 'subject' && thread?.kind !== 'company') return [];
+    if (!isSelfTask(thread) && thread?.kind !== 'company') return [];
     const signs = hkSigns(thread, subject);
-    const what = thread.kind === 'subject' ? 'person' : 'company';
+    const what = isSelfTask(thread) ? 'person' : 'company';
     if (signs.length) return [{ template: `sfc.${what}`, prior: 0.25, why: `Hong Kong securities regulator: ${signs[0]}` }];
     // The person and the company given get a late check: run() reads the records found by then for a Hong Kong tie
-    if (thread.kind === 'subject' || isPrimary(thread, subject)) return [{ template: `sfc.${what}.if-placed`, prior: 0.06, why: 'ask the Hong Kong securities regulator only if the records place the person or company there' }];
+    if (isSelfTask(thread) || isPrimary(thread, subject)) return [{ template: `sfc.${what}.if-placed`, prior: 0.06, why: 'ask the Hong Kong securities regulator only if the records place the person or company there' }];
     return [];
   },
   async run(task, ctx) {
@@ -825,14 +826,14 @@ function taxCaseFields(r) {
 export const usTaxCourtConnector = {
   id: TAX_ID,
   label: TAX_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.15,
   maxParallel: 1,
   timeoutMs: 25000,
   enabled: () => switchedOn(TAX_ID),
   unavailableReason: 'US Tax Court dockets and opinions are not enabled on this deployment.',
   plan(thread) {
-    if (thread?.kind !== 'subject' && thread?.kind !== 'company') return [];
+    if (!isSelfTask(thread) && thread?.kind !== 'company') return [];
     return [
       { template: 'taxcourt.cases', prior: 0.15, why: 'US Tax Court cases where the name is the petitioner' },
       { template: 'taxcourt.opinions', prior: 0.12, why: 'US Tax Court opinions in cases of that petitioner' },
@@ -932,3 +933,7 @@ export const usTaxCourtConnector = {
 
 /** The four sources of this file, for the registry. */
 export const REGULATORS_MORE_CONNECTORS = [ftcCasesConnector, esmaSanctionsConnector, sfcEnforcementConnector, usTaxCourtConnector];
+
+// Another name of the person ('alias') is searched like their own; a record found only under a name read from a
+// record is 'likely' at most (alias.js).
+for (const c of [ftcCasesConnector, sfcEnforcementConnector, usTaxCourtConnector]) c.run = withAliasHold(c.run);

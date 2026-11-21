@@ -43,6 +43,7 @@ import { makeFinding } from '../finding';
 import { cachedEntry } from '../cache';
 import { isOrdinaryWordCompany, companyMention } from '../names';
 import { nameTokens, companyTokens, screenNames, gradeListedPerson, normalizeName } from './sanctions';
+import { withAliasHold } from './alias';
 import { screenRows, personNameForms, firmNameForms } from './debarment';
 
 export const ASIC_ID = 'asic-banned';
@@ -330,7 +331,8 @@ const asOfText = (copy) => (copy?.index?.asOf ? ` (register file of ${copy.index
 export const asicBannedConnector = {
   id: ASIC_ID,
   label: ASIC_LABEL,
-  kinds: ['subject', 'company', 'associate', 'relative'],
+  // 'alias': another name of the person, screened like their own name (alias.js holds the grade)
+  kinds: ['subject', 'alias', 'company', 'associate', 'relative'],
   prior: 0.15,
   timeoutMs: 25000,
   enabled: () => isOn(),
@@ -380,3 +382,6 @@ export const asicBannedConnector = {
     return out;
   },
 };
+
+// A record found only under another name of the person the user did not type is 'likely' at most (alias.js).
+asicBannedConnector.run = withAliasHold(asicBannedConnector.run);

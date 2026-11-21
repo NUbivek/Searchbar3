@@ -272,7 +272,7 @@ describe('Profile card', () => {
       profile,
     };
   }
-  beforeEach(() => { window.sessionStorage.clear(); Element.prototype.scrollIntoView = jest.fn(); });
+  beforeEach(() => { window.sessionStorage.clear(); window.localStorage.clear(); Element.prototype.scrollIntoView = jest.fn(); });
   afterEach(() => { delete global.fetch; });
 
   test('renders roles, education, boards, founded, investments, recognition and place, each with its citation', async () => {
@@ -290,7 +290,7 @@ describe('Profile card', () => {
     }) }));
     render(<DeepCheck name="Pat Example" company="Example Co" />);
     const heading = await screen.findByRole('heading', { name: 'Profile' });
-    const card = within(heading.closest('details'));
+    const card = within(heading.closest('section'));
     for (const label of ['Experience', 'Founded', 'Boards and advisory', 'Investments', 'Education', 'Recognition', 'Public profiles']) expect(card.getByText(label)).toBeTruthy();
     expect(card.getByText('2020 – present')).toBeTruthy();
     expect(card.getByText('2015 – 2018')).toBeTruthy();
@@ -299,7 +299,7 @@ describe('Profile card', () => {
     expect(card.getByText(/Based in Brooklyn, New York/)).toBeTruthy();
     expect(card.getByText('LinkedIn').getAttribute('href')).toBe('https://linkedin.com/in/pat');
     expect(card.getAllByText('[1]').length).toBeGreaterThanOrEqual(9);
-    expect(heading.closest('details').textContent).not.toMatch(/\b(?:API|key|token|free|paid|tier|quota)\b/i);
+    expect(heading.closest('section').textContent).not.toMatch(/\b(?:API|key|token|free|paid|tier|quota)\b/i);
   });
 
   test('a report saved before roles were read still renders its headline and earlier roles', async () => {
@@ -309,7 +309,7 @@ describe('Profile card', () => {
     }) }));
     render(<DeepCheck name="Pat Example" company="Example Co" />);
     const heading = await screen.findByRole('heading', { name: 'Profile' });
-    const card = within(heading.closest('details'));
+    const card = within(heading.closest('section'));
     expect(card.getAllByText('Founder, Example Co').length).toBeGreaterThan(0);
     expect(card.getByText('Google')).toBeTruthy();
     expect(card.getByText('MIT')).toBeTruthy();

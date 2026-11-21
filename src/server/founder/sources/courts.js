@@ -37,6 +37,7 @@ import { threadsFromResult } from '../extract';
 import { companyKeys } from '../../founderCheck';
 import { companyMention, isOrdinaryWordCompany } from '../names';
 import { mentionsMinor, isSensitive } from '../guardrails';
+import { withAliasHold } from './alias';
 
 /* ------------------------------------------------------------------ text helpers */
 
@@ -591,7 +592,7 @@ function opinionFinding(o, ctx, who) {
 export const courtDocketsConnector = {
   id: CL_ID,
   label: CL_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.7,
   // As long as a step of the check, so a lookup that has to wait its turn is run again on the next step instead of failing.
   timeoutMs: 45000,
@@ -857,7 +858,7 @@ async function chargedDockets(ctx, who, seen) {
 export const courtRecordsOpenConnector = {
   id: IA_ID,
   label: IA_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.35,
   timeoutMs: 15000,
   // The fallback for deployments without the fuller docket search.
@@ -1004,7 +1005,7 @@ const dojSeverity = (text) => (DOJ_CRIMINAL.test(text) ? 'high' : severityFromTe
 export const dojConnector = {
   id: DOJ_ID,
   label: DOJ_LABEL,
-  kinds: ['subject', 'company', 'associate'],
+  kinds: ['subject', 'alias', 'company', 'associate'],
   prior: 0.65,
   timeoutMs: 20000,
   plan(thread, subject) {
@@ -1262,7 +1263,7 @@ function firmOverlap(hit, subject) {
 export const brokerCheckConnector = {
   id: BC_ID,
   label: BC_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.4,
   timeoutMs: 20000,
   plan(thread, subject) {
@@ -1351,7 +1352,7 @@ const gazetteSeverity = (n) => (/disqualif/i.test(`${n.type} ${n.snippet}`) ? 'h
 export const ukGazetteConnector = {
   id: GZ_ID,
   label: GZ_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.3,
   timeoutMs: 30000,
   async run(task, ctx) {
@@ -1462,7 +1463,7 @@ function judgmentFinding(j, ctx, extra) {
 export const ukCaseLawConnector = {
   id: TNA_ID,
   label: TNA_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.35,
   timeoutMs: 20000,
   async run(task, ctx) {
@@ -1752,7 +1753,7 @@ const isAction = (r) => r.agency !== 'CFTC' || CFTC_ACTION.test(r.title);
 export const enforcementActionsConnector = {
   id: EN_ID,
   label: EN_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.3,
   timeoutMs: 25000,
   async run(task, ctx) {
@@ -1817,3 +1818,6 @@ export const COURT_CONNECTORS = [
   courtDocketsConnector, courtRecordsOpenConnector, dojConnector, brokerCheckConnector,
   ukGazetteConnector, ukCaseLawConnector, bodaccConnector, enforcementActionsConnector,
 ];
+
+// A record found only under another name of the person the user did not type is 'likely' at most (alias.js).
+for (const c of [courtDocketsConnector, courtRecordsOpenConnector, dojConnector, brokerCheckConnector, ukGazetteConnector, ukCaseLawConnector, enforcementActionsConnector]) c.run = withAliasHold(c.run);

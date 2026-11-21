@@ -20,7 +20,7 @@
  * Years, degrees and titles are kept only when the quote states them.
  * What passes is merged with the pattern-read profile (profile.js).
  */
-import { chatJson } from '../llm/providers';
+import { chatJson, reportAnswerQuality } from '../llm/providers';
 import { restoreSubject } from './identity';
 import { sentencesOf, opensOnSubject, placeOnly, maskSubject, bringsInSomeoneElse, leadsToSomeoneElse as tiedToSomeoneElse, HANDOFF, RELATION, NAME_RUN, isPersonRun } from './profile';
 import { privacyReason } from './guardrails';
@@ -400,13 +400,15 @@ const hasAny = (p) => Boolean(p && (p.headline || p.roles?.length || p.education
  * @param {{ deadline?: number, complete?: Function }} options
  * @returns {Promise<object|null>} the profile to put in report.profile
  */
-export async function readProfile(report, state, { deadline = null, complete = chatJson } = {}) {
+export async function readProfile(report, state, { deadline = null, complete = chatJson, trace = null } = {}) {
   const base = report?.profile || null;
+  // `trace` (an object from the diagnostics route) is told why the reader fell back, so a silent fallback has a name.
+  const fallback = (why) => { if (trace && typeof trace === 'object') trace.fallback = why; return base; };
   try {
     const numberOf = new Map((report?.sources || []).map((s) => [s.id, s.n]));
     const records = profileRecords((state?.findings || []).filter((f) => numberOf.has(f.id)));
-    if (records.length < 1) return base;
-    if (deadline && deadline - Date.now() < 4000) return base;
+    if (records.length < 1) return fallback('no records');
+    if (deadline && deadline - Date.now() < 4000) return fallback('out of time');
     const subject = restoreSubject({ name: state.name, company: state.company, anchors: state.anchors });
     const block = recordsBlock(records);
     const user = `Person: ${state.name}${state.company ? `\nCompany: ${state.company}` : ''}\n\nRecords:\n${block}`;
@@ -415,9 +417,14 @@ export async function readProfile(report, state, { deadline = null, complete = c
       hedgeMs: 5000, // a slow first service is joined by the others (llm/providers.js)
       check: (d) => Boolean(d) && typeof d === 'object' && !Array.isArray(d),
     });
-    if (!out?.data) return base;
+    if (trace && typeof trace === 'object' && out) { trace.provider = out.provider || null; trace.model = out.model || null; }
+    if (!out) return fallback('no model');
+    if (!out.data) return fallback('check failed');
     const verified = verifyProfile(subject, records, out.data);
-    if (!verified.kept) return base;
+    // How much of the answer the records bore out teaches the chain which model reads records well.
+    const total = verified.kept + verified.dropped;
+    if (typeof reportAnswerQuality === 'function') Promise.resolve(reportAnswerQuality(out, total ? verified.kept / total : 0, 'extract')).catch(() => {});
+    if (!verified.kept) return fallback('nothing verified');
     const toCites = (list) => list.map(({ ids, quote, ...rest }) => ({ ...rest, cites: ids.map((id) => numberOf.get(id)).filter(Boolean) })).filter((x) => x.cites.length);
     const v = {
       roles: toCites(verified.roles), education: toCites(verified.education), boards: toCites(verified.boards),
@@ -425,8 +432,8 @@ export async function readProfile(report, state, { deadline = null, complete = c
       basedIn: verified.basedIn ? toCites([verified.basedIn])[0] || null : null,
     };
     const merged = mergeProfile(base, v);
-    return hasAny(merged) ? { ...merged, readBy: 'model' } : base;
+    return hasAny(merged) ? { ...merged, readBy: 'model' } : fallback('nothing verified');
   } catch {
-    return base;
+    return fallback('error');
   }
 }

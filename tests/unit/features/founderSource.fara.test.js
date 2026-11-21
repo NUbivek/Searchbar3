@@ -359,7 +359,7 @@ describe('the source', () => {
   test('contract: id, label, kinds, plans', () => {
     expect(faraConnector.id).toMatch(/^[a-z0-9-]+$/);
     expect(faraConnector.label).not.toMatch(/\b(api|endpoint|api key|token|free|paid|tier|env)\b/i);
-    expect(faraConnector.kinds).toEqual(['subject', 'company']);
+    expect(faraConnector.kinds).toEqual(['subject', 'alias', 'company']);
     const subject = createSubject({ name: 'Elizabeth Holmes', company: 'Theranos' });
     for (const kind of faraConnector.kinds) {
       const plans = faraConnector.plan({ kind, value: kind === 'company' ? 'Theranos' : 'Elizabeth Holmes' }, subject);

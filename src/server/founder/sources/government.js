@@ -64,6 +64,7 @@ import { person, sameName, namesPerson, findMentions, sameCompany } from './cour
 import { withoutAddress, PRIVATE_MATTER, FR_EXCLUDED_AGENCIES } from './courtsMore';
 // Every known name of a company (the name as typed and the legal names learned during the check)
 import { companyNames } from './sanctions';
+import { withAliasHold } from './alias';
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -546,7 +547,8 @@ const frQuote = (d) => `${d.type || 'Document'}, ${d.agencies.slice(0, 2).join('
 export const federalRegisterConnector = {
   id: FR_ID,
   label: FR_LABEL,
-  kinds: ['subject', 'company'],
+  // 'alias': another name of the person, searched like their own (alias.js holds the grade)
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.2,
   timeoutMs: 20000,
   async run(task, ctx) {
@@ -817,3 +819,6 @@ export const GOVERNMENT_CONNECTORS = [
   usFederalAwardsConnector, usLobbyingConnector, cfpbComplaintsConnector,
   federalRegisterConnector, fdaRecallsConnector, nihGrantsConnector,
 ];
+
+// A record found only under another name of the person the user did not type is 'likely' at most (alias.js).
+federalRegisterConnector.run = withAliasHold(federalRegisterConnector.run);

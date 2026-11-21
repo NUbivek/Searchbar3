@@ -12,8 +12,9 @@
  * calls in a loop is told to wait. Signed-in users with an imported network also get backchannel references:
  * their own contacts at the founder's current and past companies (never sent to any external service).
  */
-import { runFounderCheck, runFounderBrief, validateFounderInput } from '../../../server/founderCheck';
-import { getUserId } from '../../../server/auth';
+import { runFounderCheck, runFounderBrief } from '../../../server/founderCheck';
+import { validatePersonName, validateOrgName } from '../../../server/founder/deepCheck';
+import { getUserId, callerAddress } from '../../../server/auth';
 import { clientLabel } from '../../../server/founder/jobStore';
 import { query, persistenceMode } from '../../../server/db';
 
@@ -79,7 +80,9 @@ async function countHit(owner, windows) {
   return wait;
 }
 
-const clientIp = (req) => String(req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress || '').split(',')[0].trim();
+// The address the host set (its own headers, else the last forwarded hop), never the first hop: a client can
+// write anything there, and would dodge the limit with a new made-up address on every call.
+const clientIp = (req) => callerAddress(req);
 
 /** The request's fields, from a JSON body (POST) or the query string (GET). */
 function input(req) {
@@ -131,9 +134,17 @@ export default async function handler(req, res) {
 
   const asked = input(req);
   if (!String(asked.name || '').trim()) return res.status(400).json({ error: 'name is required' });
-  const checked = validateFounderInput({ name: asked.name, company: asked.company });
-  if (!checked.ok) return res.status(400).json({ error: checked.error });
-  const { name, company } = checked;
+  // The deep check's validators, so both routes accept and refuse the same names. The quick brief needs the full
+  // name: a one-word name is only told apart by its company in the deep check's stricter grading.
+  const org = validateOrgName(asked.company);
+  if (!org.ok) return res.status(400).json({ error: org.error });
+  // Quotation marks and a possessive ("Jane" Doe's) were always dropped here before the check; the searches quote
+  // the name themselves, so nothing is lost and no operator gets through.
+  const person = validatePersonName(String(asked.name || '').replace(/["“”„]/g, ' ').replace(/[’']s\b/g, ''));
+  if (!person.ok) return res.status(400).json({ error: person.error });
+  if (person.name.split(/\s+/).length < 2) return res.status(400).json({ error: 'Enter the full name (first and last name). The deep check accepts one-word names with a company.' });
+  const { name } = person;
+  const company = org.value;
   const model = /^[\w.:/-]{1,120}$/.test(asked.model) ? asked.model : 'auto';
   const mode = asked.brief === '0' || asked.brief === 'false' || asked.brief === 'none' ? 'none' : asked.brief === 'only' ? 'only' : 'auto';
 

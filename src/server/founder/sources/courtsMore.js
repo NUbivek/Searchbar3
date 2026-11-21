@@ -26,6 +26,7 @@ import * as cheerio from 'cheerio';
 import { getJson, getText, htmlToText, HttpError } from '../http';
 import { makeFinding, severityFromText } from '../finding';
 import { mentionsMinor } from '../guardrails';
+import { withAliasHold } from './alias';
 import {
   person, sameName, caseParties, sameCompany, namesPerson, findMentions, personTokens,
   PRIVATE_MATTER, textNamesCompany, formCore, companyNames, matchNames, partyIsKnownCompany,
@@ -298,7 +299,7 @@ function archiveYears(subject, company, lastYear) {
 export const delawareCourtsConnector = {
   id: DE_ID,
   label: DE_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.5,
   maxParallel: 1,
   timeoutMs: 45000,
@@ -501,7 +502,7 @@ function frCompanyOrders(docs, ctx, company) {
 export const federalRegisterActionsConnector = {
   id: FR_ID,
   label: FR_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.4,
   timeoutMs: 20000,
   plan(thread) {
@@ -675,7 +676,7 @@ function euFindings(rows, ctx, who, company) {
 export const euCourtsConnector = {
   id: EU_ID,
   label: EU_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.3,
   timeoutMs: 25000,
   plan(thread) {
@@ -787,7 +788,7 @@ function canadaFinding(item, ctx, who, company) {
 export const canadaFederalCourtsConnector = {
   id: CA_ID,
   label: CA_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.25,
   maxParallel: 1,
   timeoutMs: 20000,
@@ -820,5 +821,9 @@ export const canadaFederalCourtsConnector = {
     return { findings, threads: [], notes };
   },
 };
+
+// Another name of the person ('alias') is searched like their own; a record found only under a name read from a
+// record is 'likely' at most (alias.js).
+for (const c of [delawareCourtsConnector, federalRegisterActionsConnector, euCourtsConnector, canadaFederalCourtsConnector]) c.run = withAliasHold(c.run);
 
 export const MORE_COURT_CONNECTORS = [delawareCourtsConnector, federalRegisterActionsConnector, euCourtsConnector, canadaFederalCourtsConnector];

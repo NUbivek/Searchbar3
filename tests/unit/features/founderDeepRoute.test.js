@@ -3,7 +3,12 @@
  * limit. Sources, the model and the database are faked.
  */
 jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
-jest.mock('../../../src/server/auth', () => ({ getUserId: jest.fn(async () => 'user-1') }));
+jest.mock('../../../src/server/auth', () => {
+  const getUserId = jest.fn(async () => 'user-1');
+  // requireFounderUser answers 401 itself when signed out (and 403 for an account outside the allow-list)
+  const requireFounderUser = jest.fn(async (req, res) => { const id = await getUserId(req, res); if (!id) { res.status(401).json({ error: 'Sign in to use this feature.', signIn: true }); return null; } return id; });
+  return { getUserId, requireFounderUser };
+});
 jest.mock('../../../src/server/llm/providers', () => ({ chatComplete: jest.fn(async () => null), chatJson: jest.fn(async () => null), llmConfigured: () => false, PROVIDERS: [], providerEnabled: () => false }));
 jest.mock('../../../src/server/founder/sources', () => {
   const { makeFinding, makeThread } = jest.requireActual('../../../src/server/founder/finding');
@@ -200,7 +205,7 @@ describe('the report step always answers inside the 60s limit', () => {
     const r = await timed('POST', { body: { action: 'step', jobId } });
     expect(r.body.report.brief).toMatch(/on time/);
     expect(r.body.report.network).toEqual({ available: true, notes: [] });
-    expect(linkMod.networkForReport).toHaveBeenLastCalledWith('user-1', expect.anything(), expect.objectContaining({ investors: ['Omega Ventures'], investorsMissed: false }));
+    expect(linkMod.networkForReport).toHaveBeenLastCalledWith('user-1', expect.anything(), expect.objectContaining({ investors: [{ name: 'Omega Ventures', of: 'Acme' }], investorsMissed: false }));
   });
 
   test('the second try at the brief is cut off at the same share and stops offering more tries', async () => {

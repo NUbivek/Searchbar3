@@ -94,7 +94,8 @@ test('coverage names partial answers, disabled sources, missing court dockets an
   expect(report.coverage.notCovered).toContain('Most non-English press, and sources behind a login or paywall');
   expect(report.coverage.notCovered.some((x) => /not in English/.test(x))).toBe(false);
   const brief = quotedDeepBrief(report, 'test');
-  expect(brief).toMatch(/CourtListener: not enabled on this deployment\./);
+  // round 3: a screen source's state is given in the brief's screens section, once
+  expect(brief).toMatch(/• Courts and prosecutors: [^\n]*not enabled on this deployment: CourtListener/);
   expect(brief).not.toMatch(/CourtListener did not answer/);
   expect(brief).toMatch(/Web archive answered only in part: 17 of 30 lookups failed: HTTP 429/);
 });

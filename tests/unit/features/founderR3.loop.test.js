@@ -77,7 +77,9 @@ describe('anchor strength', () => {
     await runToEnd(state, sources, { review, limits: { ...LIMITS, maxReviews: 1 } });
     expect(state.findings.find((f) => f.title === 'Stanford event').match).toBe('possible');
     expect(state.threads['school|stanford university']).toMatchObject({ trusted: true, suggested: true });
-    expect(state.anchors.schools.find((a) => a.value === 'Stanford University').origin).toBe('reader');
+    // The reader's school is kept apart as a 'related' anchor (identity.js, needs-phase2 entry 1), never as one of their schools.
+    expect((state.anchors.schools || []).find((a) => a.value === 'Stanford University')).toBeUndefined();
+    expect(state.anchors.related.find((a) => a.value === 'Stanford University')).toMatchObject({ as: 'schools', origin: 'reader' });
   });
 
   test('a likely grade that rests only on an encyclopedia link does not make its threads trusted', async () => {

@@ -67,12 +67,18 @@ describe('legal names and domains (design decision 1)', () => {
     ]);
     expect(legalNames.map((n) => n.name)).toEqual(['Merge API, Inc.']);
   });
-  test('learnCompanyNames registers them through identity.js, with the record as origin', () => {
+  test('learnCompanyNames registers them through identity.js, with the record and its grade as origin', () => {
     const s = createSubject({ name: 'Eric Glyman', company: 'Ramp' });
     const f = formD();
     expect(learnCompanyNames(s, [f])).toEqual(['Ramp Business Corp']);
-    expect([...s.anchors.aliases.values()][0]).toEqual(expect.objectContaining({ value: 'Ramp Business Corp', origin: f.id }));
+    // 'found:<id>' for a confirmed record, so the record is never re-graded on the name it produced
+    expect([...s.anchors.aliases.values()][0]).toEqual(expect.objectContaining({ value: 'Ramp Business Corp', origin: `found:${f.id}` }));
     expect(learnCompanyNames(s, [f])).toEqual([]);
+    // a record graded likely (or tied only through an assumed company) gives a weak origin
+    const t = createSubject({ name: 'Eric Glyman', company: 'Ramp' });
+    const g = formD({ match: 'likely' });
+    expect(learnCompanyNames(t, [g])).toEqual(['Ramp Business Corp']);
+    expect([...t.anchors.aliases.values()][0].origin).toBe(`weak:${g.id}`);
   });
 });
 

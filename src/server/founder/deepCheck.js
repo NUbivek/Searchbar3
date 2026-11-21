@@ -27,6 +27,9 @@ import * as identityApi from './identity';
 import { connectorResult, THREAD_KINDS } from './finding';
 import { companyKeys, normalizePersonName } from '../founderCheck';
 import { loadStats, recordStats, rankByLearning } from '../learning';
+import * as companyFactsApi from './companyFacts';
+// Only its helper that lifts held register records once a legal name is known (no lookups run from here).
+import * as registriesApi from './sources/registries';
 
 export const LIMITS = {
   maxTasks: 420, // lookups per check, across all sources (a few minutes of work)
@@ -70,7 +73,13 @@ export const SCREEN_SOURCES = new Set([
 /** The screens that say whether a person is on a list: the ones a related party is screened against. */
 export const WATCHLIST_SOURCES = new Set(['sanctions-lists', 'us-exclusions', 'offshore-leaks', 'wanted-lists', 'mdb-debarment', 'us-bank-regulators', 'fincen-actions']);
 /** Sources asked again under a company's legal name once one is learned (design decision 1). */
-export const LEGAL_NAME_SOURCES = new Set(['us-state-registries', 'uk-companies-house', 'fr-companies', 'lei-register', 'sec-company', 'trademarks', 'us-lobbying', 'cfpb-complaints', 'us-federal-awards', 'nih-grants']);
+export const LEGAL_NAME_SOURCES = new Set(['us-state-registries', 'uk-companies-house', 'fr-companies', 'lei-register', 'sec-company', 'trademarks', 'us-lobbying', 'cfpb-complaints', 'us-federal-awards', 'nih-grants', 'leak-sites', 'breach-catalogue', 'breach-registers']);
+/**
+ * Court and enforcement sources asked about a company again once another of its names is known. They search
+ * every known name of the company when they run (design decision 1), so the company's own lookup is run once
+ * more, marked with the name that prompted it, rather than a lookup under the new name alone.
+ */
+export const ALIAS_COURT_SOURCES = new Set(['court-dockets', 'court-records-open', 'doj-press-releases', 'uk-gazette', 'uk-case-law', 'fr-bodacc', 'us-enforcement-actions', 'delaware-courts', 'us-agency-orders', 'eu-courts', 'canada-federal-courts']);
 // Screens may run past the lookup budget by this share of it, so the last companies found still get them.
 const SCREEN_RESERVE = 0.15;
 // Rounds past the round limit in which only screens still queued may run.
@@ -213,7 +222,7 @@ const wikiCopyOf = (f) => {
   return article ? `wiki|${article}` : null;
 };
 // A lookup made while a company was only an affiliate is made again in full once it is promoted to primary.
-const taskKey = (t) => `${t.connector}|${t.kind}|${t.kind === 'company' ? (companyKeys(t.value)[0] || norm(t.value)) : norm(t.value)}|${t.template || ''}${t.template === GAP_TEMPLATE ? `|${norm(t.params?.query)}` : ''}${t.tie === 'affiliate' ? '|affiliate' : ''}`;
+const taskKey = (t) => `${t.connector}|${t.kind}|${t.kind === 'company' ? (companyKeys(t.value)[0] || norm(t.value)) : norm(t.value)}|${t.template || ''}${t.template === GAP_TEMPLATE ? `|${norm(t.params?.query)}` : ''}${t.tie === 'affiliate' ? '|affiliate' : ''}${t.asAlias ? `|aka:${norm(t.asAlias)}` : ''}`;
 // Two quotes are the same passage when their words agree; short quotes ("Director") say too little to merge on.
 // Archive snapshots of one page are kept apart on purpose (they show how the page changed).
 function quoteKey(f) {
@@ -267,8 +276,10 @@ function urlKey(u) {
  * message (status codes, library errors, or text echoed from the remote page). The raw message goes to
  * the server log only.
  */
-export function plainFailure(message) {
+export function plainFailure(message, error = null) {
   const m = String(message || '');
+  // A host that answers only automated readers that declare a contact (the SEC's website), with none declared here
+  if (error?.code === 'not-declared') return 'asks for a declared contact before it answers';
   if (/timed out|out of time/i.test(m)) return 'did not respond in time';
   if (/rate limited|\b429\b|slower requests/i.test(m)) return 'was busy and turned the request away';
   if (/not json|larger than/i.test(m)) return 'returned something that could not be read';
@@ -489,7 +500,18 @@ function subjectFor({ name, company = '', otherNames = [], anchors = null }) {
     return anchors ? restoreSubject({ name, company, anchors }) : createSubject({ name, company });
   }
 }
-const restoreFrom = (state) => subjectFor({ name: state.name, company: state.company, otherNames: state.otherNames, anchors: state.anchors || {} });
+/**
+ * The subject for one step, with what the sources may read beside the anchors: the place the user typed and the
+ * countries of the person's tied register records (the open-web source picks its local-language pass from these),
+ * and the company's founding year once the records give one (the domain source flags a domain older than it).
+ */
+function restoreFrom(state) {
+  const subject = subjectFor({ name: state.name, company: state.company, otherNames: state.otherNames, anchors: state.anchors || {} });
+  if (state.given?.place) subject.place = state.given.place;
+  if (Array.isArray(state.countries) && state.countries.length) subject.countries = state.countries.slice();
+  if (Number.isInteger(state.companyFounded)) subject.foundedYear = state.companyFounded;
+  return subject;
+}
 
 const isHandleOnlyName = (subject, handle) => {
   const flat = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -574,6 +596,8 @@ const PRIMARY_TIE = /\b(found(?:ed|er|ing)|co-?found\w*|started|launched|ran|run
 const LOOSE_ROLE = /^\s*[\w&.' -]{1,40}?(?:\s*\((?:past|current)\))?\s*$/;
 const STATED = /\(|given|most sources name|earlier name|formerly|filing|register|form d|wikidata|littlesis|profile|insider|appointment|official/i;
 export const tieOf = (thread) => {
+  // The second reader's proposal is looked at only together with the person until a record states the tie.
+  if (thread.suggested) return 'affiliate';
   const why = String(thread.why || '');
   if (why === 'the company given' || why === ASSUMED_COMPANY || why.startsWith('the company most sources name') || why.startsWith('legal name of ')) return 'primary';
   if (!PRIMARY_TIE.test(`${why} ${thread.role || ''}`)) return 'affiliate';
@@ -625,6 +649,19 @@ function planFailed(state, c, error) {
  */
 const isVentureSource = (id) => SCREEN_SOURCES.has(id);
 
+/**
+ * The founding year of the company a domain thread belongs to (the given company's website or a domain learned as
+ * one of its names), so the domain source can say a domain was registered by an earlier holder. Null otherwise:
+ * another company's domain is never compared with this company's founding.
+ */
+function companyDomainYear(state, subject, thread) {
+  if (thread.kind !== 'domain' || !state || !Number.isInteger(state.companyFounded) || !subject?.company) return null;
+  const domain = String(thread.value || '').toLowerCase().replace(/^www\./, '');
+  const of = companyKeys(subject.company)[0] || subject.company.toLowerCase();
+  const alias = subject.anchors.aliases?.get(domain);
+  return (alias && alias.of === of) || String(state.given?.website || '').toLowerCase() === domain ? state.companyFounded : null;
+}
+
 function planTasks(thread, depth, connectors, subject, state = null) {
   const out = [];
   const affiliate = thread.kind === 'company' && thread.tie === 'affiliate';
@@ -651,11 +688,12 @@ function planTasks(thread, depth, connectors, subject, state = null) {
       if (state) planFailed(state, c, error);
       continue;
     }
+    const founded = companyDomainYear(state, subject, thread);
     for (const v of Array.isArray(variants) ? variants : []) {
       if (!v || typeof v !== 'object') continue;
       out.push({
         connector: c.id, kind: thread.kind, value: thread.value, depth,
-        template: v.template || null, params: v.params || null,
+        template: v.template || null, params: founded && !(v.params && 'foundedYear' in v.params) ? { ...(v.params || {}), foundedYear: founded } : v.params || null,
         prior: v.prior ?? c.prior ?? 0.5, why: v.why || thread.why || '', relation: thread.relation || null, platform: thread.platform || null, tie: thread.tie || null,
         ...(venture ? { venture: true } : {}),
       });
@@ -707,7 +745,9 @@ function anchorFor(subject, thread, value, origin) {
   const kind = ANCHOR_KIND[thread.kind];
   if (addAnchor(subject, kind, value, origin)) return;
   const existing = subject.anchors[kind]?.get(anchorKey(thread.kind, value));
-  if (existing && !isStrongOrigin(existing.origin) && isStrongOrigin(origin)) existing.origin = origin;
+  if (!existing) return;
+  // A record that bears out the second reader's clue makes it an ordinary anchor (weak or strong, as that record is)
+  if ((!isStrongOrigin(existing.origin) && isStrongOrigin(origin)) || (READER_ORIGIN.test(String(existing.origin || '')) && !READER_ORIGIN.test(String(origin || '')))) existing.origin = origin;
 }
 
 /**
@@ -721,7 +761,10 @@ function anchorFor(subject, thread, value, origin) {
  */
 function noteThread(state, subject, thread, depth, evidence = null, origin = null) {
   if (!thread || !THREAD_KINDS.includes(thread.kind)) return null;
-  const anchorOrigin = origin?.anchor || 'found';
+  // A thread the second reader proposed keeps the origin it names (the record it read, 'reader:<id>'): it may be
+  // followed, never confirm records on its own.
+  const readerOrigin = thread.suggested ? (READER_ORIGIN.test(String(thread.origin || '')) ? String(thread.origin) : 'reader') : null;
+  const anchorOrigin = readerOrigin || origin?.anchor || 'found';
   const key = threadKey(thread);
   let existing = state.threads[key];
   if (!existing && (thread.kind === 'company' || thread.kind === 'school')) {
@@ -740,14 +783,14 @@ function noteThread(state, subject, thread, depth, evidence = null, origin = nul
     // first seen deep (from an untrusted record), now seen closer to the person: it is pulled at the shallower depth
     existing.depth = Math.min(existing.depth ?? depth, depth);
     // A later record may show the person founded or ran a company first seen as a mere affiliation
-    const promoted = existing.kind === 'company' && existing.tie === 'affiliate' && thread.trusted && tieOf(thread) === 'primary';
+    const promoted = existing.kind === 'company' && existing.tie === 'affiliate' && thread.trusted && !thread.suggested && tieOf(thread) === 'primary';
     if (promoted) { existing.tie = 'primary'; existing.why = thread.why || existing.why; delete existing.venture; }
     // A tied record says the person founded or ran this earlier company: its own courts, enforcement,
     // insolvency and watchlist screens are asked too (it stays an affiliate otherwise).
     const venture = !promoted && existing.kind === 'company' && existing.tie === 'affiliate' && thread.trusted && origin?.venture && !existing.venture;
     if (venture) existing.venture = true;
     // seen again on a record (not only proposed by the second reader)
-    if (thread.trusted && existing.suggested && !READER_ORIGIN.test(anchorOrigin)) delete existing.suggested;
+    if (thread.trusted && existing.suggested && !READER_ORIGIN.test(anchorOrigin)) { delete existing.suggested; delete existing.origin; }
     if (thread.trusted && !existing.trusted) {
       existing.trusted = true;
       anchorFor(subject, thread, existing.value, anchorOrigin);
@@ -765,7 +808,7 @@ function noteThread(state, subject, thread, depth, evidence = null, origin = nul
     ...(tie === 'affiliate' && thread.trusted && origin?.venture ? { venture: true } : {}),
     ...(thread.relation ? { relation: thread.relation } : {}), ...(thread.role ? { role: thread.role } : {}), ...(thread.platform ? { platform: thread.platform } : {}),
     // proposed by the second reader, not yet seen on a record: the report labels it so
-    ...(READER_ORIGIN.test(anchorOrigin) ? { suggested: true } : {}),
+    ...(READER_ORIGIN.test(anchorOrigin) ? { suggested: true, origin: anchorOrigin, ...(thread.statedRole ? { statedRole: String(thread.statedRole).slice(0, 80) } : {}) } : {}),
   };
   addEvidence(record, evidence);
   state.threads[key] = record;
@@ -971,6 +1014,11 @@ const gradeDateOf = (f) => f.gradeDate || f.date || null;
 /** Records graded "possible" or "likely" are re-read whenever more is known about the subject. */
 function regrade(state, subject) {
   let upgraded = 0;
+  // Register entries held at "possible" because their company was not yet known to be the person's are looked at
+  // again with the names known now ("RAMP BUSINESS UK LTD" once "Ramp Business Corp" is learned); likely at most.
+  if (subject.anchors.aliases?.size && typeof registriesApi.retieHeldRecords === 'function') {
+    try { upgraded += registriesApi.retieHeldRecords(subject, state.findings) || 0; } catch { /* the held records stay as they were */ }
+  }
   for (const f of state.findings) {
     if (f.match === 'company' || f.matchFixed) continue;
     if (f.match === 'confirmed' && !f.assumedTie) continue;
@@ -1016,6 +1064,21 @@ function noteScreen(state, task, ok) {
   const list = ok ? entry.ok : entry.missed;
   if (!list.includes(task.connector)) list.push(task.connector);
 }
+/**
+ * Each watchlist lookup, by its task key: state.screenedOk lists those that answered in full, state.screenFailed
+ * those that failed, answered in part, waited out or did not run. The report screens a related party only on
+ * these, never on whether the source as a whole answered.
+ */
+function noteWatchlistLookup(state, task, ok) {
+  if (!WATCHLIST_SOURCES.has(task.connector)) return;
+  const key = taskKey(task);
+  const okList = state.screenedOk || (state.screenedOk = []);
+  const failed = state.screenFailed || (state.screenFailed = []);
+  if (ok) { if (!okList.includes(key) && !failed.includes(key)) okList.push(key); return; }
+  if (!failed.includes(key)) failed.push(key);
+  const at = okList.indexOf(key);
+  if (at >= 0) okList.splice(at, 1);
+}
 function addPartial(stat, text) {
   const v = String(text || '').trim().slice(0, 80);
   if (!v) return;
@@ -1038,6 +1101,7 @@ function markNotRun(state, tasks, byId, { waited = false } = {}) {
     const key = taskKey(t);
     if (!missed.includes(key)) missed.push(key);
     noteScreen(state, t, false);
+    noteWatchlistLookup(state, t, false);
   }
   state.dropped.tasks += tasks.length;
 }
@@ -1118,6 +1182,98 @@ function learnLegalNames(state, subject, connectors, kept, threads) {
     state.log.push({ step: state.step, text: `Learned the legal name ${String(name).trim()} for ${owner.value}${n ? `: registers, filings, trademarks, lobbying, complaints and awards are asked again under it (${n} lookups)` : ''}.` });
   }
   return queued;
+}
+
+const ORIGIN_PREFIX = /^(?:given|found|weak|reader|inferred|network)(?::|$)/;
+const IS_DOMAIN = (v) => /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(String(v || '')) && /\.[a-z]{2,}$/i.test(String(v || ''));
+
+/**
+ * Follow every name and domain a company of the person has gained since the last step, however it was learned:
+ * a filing (learnLegalNames), the company's own site footer read by a source (the page reader registers it
+ * itself), or the company facts read from the records (companyFacts.learnCompanyNames). Once each:
+ *   a legal name   the registers, SEC, trademarks, lobbying, complaints, awards, the entity register and the
+ *                  breach and leak sources are asked under it, and the court and enforcement sources are asked
+ *                  about the company once more (they search every known name when they run)
+ *   a domain       followed like a website the user gave: the domain sources look at it
+ * Never a clue the second reader proposed. Returns how many lookups were queued.
+ */
+function followCompanyNames(state, subject, connectors) {
+  if (typeof companyFactsApi.learnCompanyNames === 'function' && subject.company) {
+    try {
+      const before = new Set(subject.anchors.aliases ? subject.anchors.aliases.keys() : []);
+      companyFactsApi.learnCompanyNames(subject, state.findings, Object.values(state.threads));
+      // It names the record a name came from by its id alone: the origin says how strongly that record is tied,
+      // so the record is never later re-graded on the name it produced itself.
+      for (const [key, a] of subject.anchors.aliases || []) {
+        if (before.has(key) || ORIGIN_PREFIX.test(String(a.origin || ''))) continue;
+        const f = state.findings.find((x) => x.id === a.origin);
+        a.origin = f && f.match === 'confirmed' && !f.assumedTie ? `found:${a.origin}` : `weak:${a.origin}`;
+      }
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'test') console.warn(`[deep-check] company names not read: ${String(error?.message || error).slice(0, 200)}`);
+    }
+  }
+  const aliases = subject.anchors.aliases;
+  if (!aliases || !aliases.size) return 0;
+  const followed = state.aliasesFollowed || (state.aliasesFollowed = []);
+  const primaries = primaryCompanies(state, subject);
+  const legalSources = connectors.filter((c) => LEGAL_NAME_SOURCES.has(c.id));
+  const courtSources = connectors.filter((c) => ALIAS_COURT_SOURCES.has(c.id));
+  let queued = 0;
+  for (const [key, a] of aliases) {
+    if (followed.includes(key) || READER_ORIGIN.test(String(a.origin || ''))) continue;
+    const owner = primaries.find((p) => anchorKey('company', p.value) === a.of);
+    if (!owner) continue; // not (yet) a company the person founded or runs: looked at again next step
+    followed.push(key);
+    const depth = Math.min(owner.depth ?? 1, LIMITS.maxDepth);
+    if (IS_DOMAIN(a.value)) {
+      const origin = ORIGIN_PREFIX.test(String(a.origin || '')) ? a.origin : 'weak';
+      const record = noteThread(state, subject, { kind: 'domain', value: a.value, why: `website of ${owner.value}`, trusted: true }, depth, null, { anchor: origin });
+      const n = record ? pullThread(state, subject, record, connectors) : 0;
+      queued += n;
+      if (n) state.log.push({ step: state.step, text: `Learned the website ${a.value} for ${owner.value}: it is looked at too (${n} lookups).` });
+      continue;
+    }
+    let n = 0;
+    const legal = state.legalNames || (state.legalNames = {});
+    if (!legal[key]) {
+      legal[key] = { name: String(a.value).trim(), of: owner.value, origin: a.origin };
+      n += enqueue(state, planTasks({ kind: 'company', value: String(a.value).trim(), why: `legal name of ${owner.value}`, tie: 'primary' }, depth, legalSources, subject, state));
+    }
+    if (owner.pulled && courtSources.length) {
+      n += enqueue(state, planTasks(owner, depth, courtSources, subject, state).map((t) => ({ ...t, asAlias: String(a.value).trim() })));
+    }
+    queued += n;
+    if (n) state.log.push({ step: state.step, text: `${owner.value} is also known as ${String(a.value).trim()}: registers, filings, courts and enforcement sources are asked again with it (${n} lookups).` });
+  }
+  return queued;
+}
+
+/**
+ * Countries of the register entries tied to the person (a Norwegian or Finnish register, the entity register's
+ * jurisdiction). The open-web source chooses its local-language pass from these. Never a home or residence field.
+ */
+function noteCountries(state, kept) {
+  for (const f of kept) {
+    if ((f.match !== 'confirmed' && f.match !== 'likely') || f.assumedTie) continue;
+    if (!OFFICIAL_SOURCES.has(f.source) && !f.data?.registerNumber) continue;
+    const raw = typeof f.data?.country === 'string' ? f.data.country : typeof f.data?.jurisdiction === 'string' ? f.data.jurisdiction.split('-')[0] : '';
+    const country = raw.replace(/\s+/g, ' ').trim();
+    if (!country || country.length > 40 || /\d/.test(country)) continue;
+    const countries = state.countries || (state.countries = []);
+    if (!countries.some((c) => c.toLowerCase() === country.toLowerCase()) && countries.length < 5) countries.push(country);
+  }
+}
+
+/** The founding year of the company given, once the records state one (companyFacts). */
+function noteCompanyFounded(state, subject) {
+  if (!subject.company || typeof companyFactsApi.buildCompanyFacts !== 'function') return;
+  try {
+    const year = Number(companyFactsApi.buildCompanyFacts(subject, state.findings, Object.values(state.threads))?.founded?.year);
+    if (Number.isInteger(year) && year > 1800) { state.companyFounded = year; subject.foundedYear = year; }
+  } catch {
+    // the founding year only sharpens the domain check; without it the dates are shown side by side
+  }
 }
 
 /**
@@ -1328,6 +1484,10 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
       } catch (error) {
         const message = String(error?.message || error);
         const code = error?.code;
+        // A source that could not answer may say why in plain words (the SEC's website asks for a declared
+        // contact): the reader sees that once, rather than only "could not be reached".
+        const note = typeof error?.note === 'string' ? error.note.trim().slice(0, 400) : '';
+        if (note && !state.log.some((l) => l.text === note)) state.log.push({ step: state.step, text: note });
         // The step ran out of time before this lookup got its turn (it was queued behind others for the
         // same host, or the step's deadline cut it short). That is not the source failing: run it next step.
         const cutShort = taskDeadline >= deadline - 50 && (code === 'deadline' || /out of time|timed out/i.test(message));
@@ -1371,7 +1531,7 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
           continue;
         }
         stat.errors += 1;
-        stat.lastError = plainFailure(message);
+        stat.lastError = plainFailure(message, error);
         stat.lastErrorClass = failureClass(error);
         const classes = stat.errorClasses || (stat.errorClasses = {});
         classes[stat.lastErrorClass] = (classes[stat.lastErrorClass] || 0) + 1;
@@ -1386,6 +1546,7 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
       if (!result) {
         ran.set(key, 'missed');
         noteScreen(state, task, false);
+        noteWatchlistLookup(state, task, false);
         continue;
       }
       // Parts of a source that did not answer (state registers that timed out): listed, so the report does
@@ -1396,10 +1557,31 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
       const complete = !partial && !result.notes.some((n) => FAILED_NOTE.test(n));
       ran.set(key, isPersonScreen(task) && !complete ? 'missed' : 'ok');
       noteScreen(state, task, complete);
+      noteWatchlistLookup(state, task, complete);
+      // Another name read from a record (not typed by the user) ties a record to the person less surely than
+      // their own name: what a lookup under it finds is likely at most, and held there (sources/alias.js does
+      // the same; this holds for any source).
+      const foundAlias = task.kind === 'alias' && !(state.otherNames || []).some((n) => personKey(n) === personKey(task.value));
       // Each record is graded again on what each anchor may do: a record confirmed only through a company
       // that came from a likely record, or that was only inferred or assumed, is at most "likely"; a clue the
       // second reader proposed does not count on its own.
       for (const f of result.findings) {
+        if (foundAlias && f.match === 'confirmed') {
+          f.match = 'likely';
+          f.matchFixed = true;
+          f.matchReasons = [...new Set([...(f.matchReasons || []), `found under ${String(task.value).slice(0, 80)}, another name read from a linked record`])].slice(0, 4);
+          continue;
+        }
+        // A source never confirms a record by hand: a grade it fixed at "confirmed" stands only when the record
+        // confirms on its own against what is known; otherwise it is held at likely.
+        if (f.matchFixed && f.match === 'confirmed') {
+          const graded = gradeOf(subject, f.gradeText || `${f.title}\n${f.quote || ''}`, gradeDateOf(f), f.id);
+          if (graded.level !== 'confirmed') {
+            f.match = 'likely';
+            f.matchReasons = [...new Set([...(f.matchReasons || []), 'held at likely: a source\'s own grade never confirms a record'])].slice(0, 4);
+          }
+          continue;
+        }
         if (f.matchFixed || (f.match !== 'confirmed' && f.match !== 'likely')) continue;
         const graded = gradeOf(subject, f.gradeText || `${f.title}\n${f.quote || ''}`, gradeDateOf(f), f.id);
         if (matchRank(graded.level) <= matchRank(f.match)) applyGrade(f, graded);
@@ -1459,7 +1641,9 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
       for (const th of result.threads) newThreads.push({ th, depth: task.depth + 1, evidence: evidenceFor(task, result.findings, th), origin: threadOrigin(subject, task, result.findings, th) });
       for (const note of result.notes) if (!state.log.some((l) => l.text === note)) state.log.push({ step: state.step, text: note });
       // Screens are left out of query learning: "no match" is their normal answer, not a lookup that failed.
-      if (!isScreenTask(task)) outcomes.push({ key: learnKey(task), win: strong >= 1 ? 1 : strong > 0 ? 0.5 : weak > 0 ? 0.4 : result.threads.length ? 0.25 : 0, ms });
+      // A lookup answered only from headline feeds or the encyclopedia (raw.noLearn) says nothing about how well
+      // its query pattern works: it neither teaches nor penalises it.
+      if (!isScreenTask(task) && !raw?.noLearn) outcomes.push({ key: learnKey(task), win: strong >= 1 ? 1 : strong > 0 ? 0.5 : weak > 0 ? 0.4 : result.threads.length ? 0.25 : 0, ms });
     }
   };
   await Promise.all(Array.from({ length: Math.max(1, limits.concurrency) }, worker));
@@ -1499,6 +1683,9 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   for (const record of readNameAliases(state, subject, newlyKept)) pulled += pullThread(state, subject, record, connectors);
   pulled += resolveIdentity(state, subject, connectors);
   pulled += learnLegalNames(state, subject, connectors, newlyKept, newThreads);
+  noteCountries(state, newlyKept);
+  if (newlyKept.length) noteCompanyFounded(state, subject);
+  pulled += followCompanyNames(state, subject, connectors);
   const upgraded = regrade(state, subject);
   state.anchors = exportAnchors(subject);
 

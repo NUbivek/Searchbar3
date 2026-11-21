@@ -65,6 +65,7 @@ import { relativesFromText, associatesFromText, threadsFromResult } from '../ext
 import { mentionsMinor, isSensitive, cleanSentences } from '../guardrails';
 import { addRoleAnchor, addCompanyAlias } from '../identity';
 import { companyKeys, isOrdinaryWordCompany, nameCommonness } from '../names';
+import { withAliasHold } from './alias';
 
 const SEARCH_URL = 'https://efts.sec.gov/LATEST/search-index';
 const ARCHIVES_URL = 'https://www.sec.gov/Archives/edgar/data';
@@ -1161,7 +1162,7 @@ async function personFormD(ctx) {
       title: formDTitle(g.form, issuer.name, subject, on, `Form ${g.form} filed by ${issuer.name} mentions ${subject.name}`),
       quote: `${doc ? formDQuote(doc, on) : recordLine(g)}${span}`,
       url: g.url, date: g.date,
-      data: { form: g.form, accession: g.adsh, issuer: issuer.name, ...(on.person ? { roles: on.person.roles } : {}), filings: issuer.filings.slice(0, 12).map((f) => ({ form: f.form, date: f.date, url: f.url })) },
+      data: { form: g.form, accession: g.adsh, issuer: issuer.name, ...(doc?.jurisdiction ? { jurisdiction: doc.jurisdiction } : {}), ...(on.person ? { roles: on.person.roles } : {}), filings: issuer.filings.slice(0, 12).map((f) => ({ form: f.form, date: f.date, url: f.url })) },
     };
     let finding;
     if (!doc) {
@@ -1360,6 +1361,22 @@ export function parseOwnership(xml) {
   };
 }
 
+/**
+ * SEC filer numbers (CIKs) that earlier Wikidata records tied to the person give (data.secCik, ten digits). Only
+ * from an identity record graded above 'possible': knowledge.js sets secCik only on an entry resolved by context.
+ */
+function wikidataCiks(ctx) {
+  let list;
+  try { list = typeof ctx?.findings === 'function' ? ctx.findings() : ctx?.findings; } catch { list = []; }
+  const out = [];
+  for (const f of Array.isArray(list) ? list : []) {
+    if (!f || f.source !== 'wikidata' || f.category !== 'identity' || !f.match || f.match === 'possible') continue;
+    const cik = String(f.data?.secCik || '');
+    if (/^\d{10}$/.test(cik) && !out.includes(cik)) out.push(cik);
+  }
+  return out.slice(0, 2);
+}
+
 async function personInsider(ctx) {
   const { subject } = ctx;
   const want = subjectTokens(subject);
@@ -1372,6 +1389,11 @@ async function personInsider(ctx) {
     .map((h) => ({ cik: String(h?._id || '').padStart(10, '0'), entity: clean(h?._source?.entity) }))
     .filter((o) => /^\d{10}$/.test(o.cik) && o.entity && !looksLikeOrg({ name: o.entity }) && namesAgree(edgarPersonTokens(o.entity), want))
     .slice(0, 3);
+  // The filer number on the person's own Wikidata entry (one tied to them by context, not by the name alone) is
+  // asked for directly: EDGAR's name lookup misses a filer listed under a formal or older name.
+  for (const cik of wikidataCiks(ctx)) {
+    if (!owners.some((o) => o.cik === cik)) owners.push({ cik, entity: `SEC filer ${cik}`, fromWikidata: true });
+  }
   if (!owners.length) return { findings: [] };
 
   // Forms 3, 4 and 5, and the stakes the same filer reported: Schedules 13D and 13G (5% or more; filed as "SC 13D"
@@ -1434,7 +1456,11 @@ async function personInsider(ctx) {
     };
     // A report that was read states the person's relationship to the issuer: graded on the filer names. A group
     // that was not read rests on EDGAR's filer name alone (a namesake can share it): 'likely' at most.
-    const finding = stated.length
+    // A filer known only from the Wikidata entry is the person by that entry's word, not by anything the filing
+    // says: 'likely', the strongest a source may set.
+    const finding = g.owner.fromWikidata
+      ? makeFinding(subject, { ...fields, match: 'likely', matchReasons: [`filed under the SEC filer number ${g.owner.cik}, which the person's Wikidata entry gives (an entry tied to them by more than the name)`] })
+      : stated.length
       ? makeFinding(subject, { ...fields, matchText: [subject.name, g.owner.entity, g.issuer.name, ...vehicles].join('. ') })
       : unreadFinding(subject, fields, { exactKnown: exactKnownFiler(subject, g.issuer), why: `EDGAR lists ${g.owner.entity} as the reporting owner; ${insider ? 'the reports were not read' : 'the filings state no role'}` });
     if (!finding) continue;
@@ -2088,7 +2114,7 @@ async function companyFormD(task, ctx) {
       ...(isNamed
         ? { matchText: [subject.name, issuerName, company, doc.issuerName, ...doc.previousNames].join('. ') }
         : { match: 'company', matchReasons: [filers.exact ? `a filing by ${issuerName}, a company tied to the person` : `a filing by ${issuerName}, whose name matches ${company}, a company tied to the person`] }),
-      data: { form: h.form, accession: h.adsh, issuer: issuerName, ...(doc ? { yearOfIncorporation: doc.yearOfInc || null, firstSale: doc.firstSale || null, totalOffering: doc.totalOffering || null, totalSold: doc.totalSold || null, relatedPersons: doc.persons.slice(0, 20).map((p) => ({ name: p.name, roles: p.roles })) } : {}) },
+      data: { form: h.form, accession: h.adsh, issuer: issuerName, ...(doc?.jurisdiction ? { jurisdiction: doc.jurisdiction } : {}), ...(doc ? { yearOfIncorporation: doc.yearOfInc || null, firstSale: doc.firstSale || null, totalOffering: doc.totalOffering || null, totalSold: doc.totalSold || null, relatedPersons: doc.persons.slice(0, 20).map((p) => ({ name: p.name, roles: p.roles })) } : {}) },
     });
     if (!finding) continue;
     findings.push(finding);
@@ -2321,13 +2347,22 @@ async function companyJoint(task, ctx) {
 
 /* ------------------------------------------------------------------ the connectors */
 
+const ALIAS_PLANS = [
+  { template: 'enforcement', prior: 0.5, why: 'SEC litigation releases and administrative proceedings under another name of the person' },
+  { template: 'press', prior: 0.4, why: 'SEC press releases about charges or settlements under another name of the person' },
+];
+
 export const secPersonConnector = {
   id: PERSON_ID,
   label: PERSON_LABEL,
-  kinds: ['subject'],
+  // 'alias': another name of the person. Only the enforcement lookups run under it (litigation releases,
+  // administrative proceedings, press releases about charges): filings under a former name are read through the
+  // person's own name and companies.
+  kinds: ['subject', 'alias'],
   prior: 0.65,
   timeoutMs: 20000,
-  plan() {
+  plan(thread) {
+    if (thread?.kind === 'alias') return ALIAS_PLANS;
     return [
       { template: 'formd', prior: 0.75, why: 'private fundraises that name the person as an officer, director or promoter' },
       { template: 'all', prior: 0.7, why: 'every SEC filing whose text contains the name' },
@@ -2339,6 +2374,8 @@ export const secPersonConnector = {
     ];
   },
   async run(task, ctx) {
+    // Under another name only the enforcement lookups run (see ALIAS_PLANS)
+    if (task?.alias && !ALIAS_PLANS.some((p) => p.template === task.template)) return { findings: [], threads: [], notes: [] };
     switch (task?.template) {
       case 'formd': return personFormD(ctx);
       case 'insider': return personInsider(ctx);
@@ -2350,6 +2387,9 @@ export const secPersonConnector = {
     }
   },
 };
+
+// A record found only under another name of the person the user did not type is 'likely' at most (alias.js).
+secPersonConnector.run = withAliasHold(secPersonConnector.run);
 
 export const secCompanyConnector = {
   id: COMPANY_ID,

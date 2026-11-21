@@ -167,7 +167,9 @@ describe('the loop restarts on what the second reader finds', () => {
     const review = jest.fn(async () => { throw new Error('model down'); });
     for (let i = 0; i < 30 && failing.phase === 'collect'; i += 1) await stepDeepCheck(failing, { connectors: sources(calls), review, deadline: Date.now() + 5000 });
     expect(failing.phase).toBe('report');
-    expect(review).toHaveBeenCalledTimes(1);
+    // A failed reader is tried once more (it may have timed out), then the loop reports without it.
+    expect(review).toHaveBeenCalledTimes(2);
+    expect(failing.log.some((l) => /did not answer/.test(l.text))).toBe(true);
 
     const plain = startState({ name: 'Trevor Milton', company: 'Nikola' });
     for (let i = 0; i < 30 && plain.phase === 'collect'; i += 1) await stepDeepCheck(plain, { connectors: sources([]), deadline: Date.now() + 5000 });
