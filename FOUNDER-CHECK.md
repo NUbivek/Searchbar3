@@ -24,6 +24,7 @@ checked in code.
 | Pages about the person | Page reader (`sources/pages.js`) | Opens up to ten pages the check already tied to the person (team and bio pages, personal sites, profiles and interviews whose headline names them) and keeps the sentences about their career and education. One request per page, identified as an automated reader, only where the site's robots.txt allows. LinkedIn, X, Facebook and Instagram are never opened: their public profile lines come from search results |
 | More courts and agency orders | Delaware courts (Chancery, Superior, Supreme: opinions and orders, the last 12 years), EU courts and competition decisions, Canadian federal courts, US agency orders in the Federal Register (`sources/courtsMore.js`) | Company and shareholder disputes, competition cases, agency orders naming the person or company |
 | Bank regulators and FinCEN | Federal Reserve, OCC and NCUA enforcement actions and prohibition orders, FinCEN enforcement actions (`sources/debarment.js`) | Orders against a named person or firm; also screens associates and relatives |
+| Development banks | The EBRD list of barred firms and people, which also carries World Bank, ADB, IDB and AfDB debarments (`sources/debarment.js`) | Whether the person, a company, an associate or a relative is barred from development-bank contracts, by which bank, on what grounds and until when |
 | US federal records | Federal contracts, grants and loans (USAspending), lobbying registrations and activity (never contribution reports), CFPB consumer complaints, Federal Register documents, FDA recalls, NIH grants (`sources/government.js`) | What the company sells to or receives from government, who lobbies for it, complaints and recalls |
 | Professional footprint | Semantic Scholar, Stack Overflow, npm packages, Bluesky, Mastodon, the person's own writing feeds (`sources/presence.js`) | Research output, technical work and their own words; an account found by name alone stays a name match |
 | Earlier versions of pages | Web archive (Internet Archive) | Older captures of LinkedIn, Indeed resume, AngelList, Crunchbase, about.me, GitHub, X and company team pages; what a profile said in each year; **claims that changed** between versions (a degree, an employer, a title that was altered or removed) |
@@ -208,13 +209,13 @@ checked in full.
 
 ## Choices the owner should know about
 
-- **Development banks' debarment list (off).** `mdbDebarmentConnector` in
-  `sources/debarment.js` screens the EBRD's list of barred firms and people,
-  which carries World Bank, ADB, IDB and AfDB debarments too. It works and is
-  tested, but the publisher's terms allow "personal, non-commercial use"
-  only, so it is not in the source list. To turn it on, add it to
-  `CONNECTORS` in `sources/index.js` and to the screens in `report.js`.
-
+- **Development banks' debarment list (on since 2026-11-20).**
+  `mdbDebarmentConnector` in `sources/debarment.js` screens the EBRD's list of
+  barred firms and people, which carries World Bank, ADB, IDB and AfDB
+  debarments too. The publisher's terms allow "personal, non-commercial use"
+  only. The owner confirmed that this site is non-commercial and asked for the
+  list to be on. If the site is ever used commercially, switch it off with
+  `FOUNDER_SOURCES_OFF=mdb-debarment`.
 
 - **Google News feed.** Most open-web lookups are answered by Google's news
   search feed. The feed is published for programs to read, but the site's

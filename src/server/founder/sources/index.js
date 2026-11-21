@@ -35,7 +35,7 @@ import { archiveConnector } from './archive';
 import { webSearchConnector, newsArchiveConnector } from './web';
 import { pageReaderConnector } from './pages';
 import * as courtsMore from './courtsMore';
-import { usBankRegulatorsConnector, fincenActionsConnector } from './debarment';
+import { mdbDebarmentConnector, usBankRegulatorsConnector, fincenActionsConnector } from './debarment';
 import { usFederalAwardsConnector, usLobbyingConnector, cfpbComplaintsConnector, federalRegisterConnector, fdaRecallsConnector, nihGrantsConnector } from './government';
 import { semanticScholarConnector, stackOverflowConnector, npmPackagesConnector, blueskyConnector, mastodonConnector, writingFeedsConnector } from './presence';
 
@@ -65,10 +65,10 @@ export const CONNECTORS = [
   ...connectorsOf(courts),
   ...connectorsOf(courtsMore),
   sanctionsListsConnector, exclusionsConnector, offshoreLeaksConnector, wantedConnector,
-  // bank regulators' orders against people and firms, and FinCEN actions. (The development banks' debarment
-  // list, mdbDebarmentConnector in debarment.js, is written but not listed: the publisher's terms allow
-  // personal, non-commercial use only, so the owner decides. See FOUNDER-CHECK.md.)
-  usBankRegulatorsConnector, fincenActionsConnector,
+  // the development banks' debarment list (EBRD, carrying World Bank, ADB, IDB and AfDB cross-debarments). Its
+  // publisher's terms allow personal, non-commercial use; the owner confirmed on 2026-11-20 that this site is
+  // non-commercial and asked for it to be on. Then bank regulators' orders and FinCEN actions.
+  mdbDebarmentConnector, usBankRegulatorsConnector, fincenActionsConnector,
   // US federal records: awards, lobbying registrations, consumer complaints, Federal Register, FDA recalls, NIH grants
   usFederalAwardsConnector, usLobbyingConnector, cfpbComplaintsConnector, federalRegisterConnector, fdaRecallsConnector, nihGrantsConnector,
   // filings and company records

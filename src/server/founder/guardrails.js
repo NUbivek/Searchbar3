@@ -126,7 +126,7 @@ export function mentionsMinor(text) {
 // Records from these connectors are official court, regulator or sanctions records (courts.js, sec.js,
 // sanctions.js). Web, news and reference sources never get the public-record exemption, whatever category they carry.
 const OFFICIAL_SOURCES = new Set([
-  'delaware-courts', 'us-agency-orders', 'eu-courts', 'canada-federal-courts', 'federal-register', 'fda-recalls', 'cfpb-complaints', 'us-bank-regulators', 'fincen-actions',
+  'delaware-courts', 'us-agency-orders', 'eu-courts', 'canada-federal-courts', 'federal-register', 'fda-recalls', 'cfpb-complaints', 'us-bank-regulators', 'fincen-actions', 'mdb-debarment',
   'court-dockets', 'court-records-open', 'doj-press-releases', 'finra-brokercheck', 'uk-gazette', 'uk-case-law', 'fr-bodacc',
   'us-enforcement-actions', 'sec-filings', 'sec-company', 'sanctions-lists', 'us-exclusions', 'wanted-lists',
 ]);

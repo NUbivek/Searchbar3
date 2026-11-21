@@ -77,6 +77,7 @@ const TIMELINE_MAX = 60;
 const SCREENS = {
   'sanctions-lists': 'sanctions (US, UN, EU, UK, Canada)',
   'us-exclusions': 'US exclusion lists',
+  'mdb-debarment': 'development bank debarments',
   'wanted-lists': 'FBI/EU wanted lists',
   'finra-brokercheck': 'FINRA BrokerCheck',
   'court-records-open': 'open court records',
@@ -91,7 +92,7 @@ const SCREENS = {
 };
 // The checklist of public-record screens the report shows, so a clean screen is seen to have run.
 const SCREEN_GROUPS = [
-  ['Sanctions and watchlists', ['sanctions-lists', 'us-exclusions', 'wanted-lists', 'offshore-leaks']],
+  ['Sanctions and watchlists', ['sanctions-lists', 'us-exclusions', 'mdb-debarment', 'wanted-lists', 'offshore-leaks']],
   ['Courts and prosecutors', ['court-dockets', 'court-records-open', 'doj-press-releases', 'delaware-courts', 'uk-case-law', 'eu-courts', 'canada-federal-courts']],
   ['Regulators and filings', ['us-enforcement-actions', 'finra-brokercheck', 'us-bank-regulators', 'fincen-actions', 'us-agency-orders', 'sec-filings', 'sec-company', 'cfpb-complaints', 'federal-register', 'fda-recalls', 'uk-gazette', 'fr-bodacc']],
   ['US federal awards, lobbying and grants', ['us-federal-awards', 'us-lobbying', 'nih-grants']],
