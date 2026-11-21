@@ -84,13 +84,16 @@ async function countHit(owner, windows) {
 // write anything there, and would dodge the limit with a new made-up address on every call.
 const clientIp = (req) => callerAddress(req);
 
-/** The request's fields, from a JSON body (POST) or the query string (GET). */
+/**
+ * The request's fields, from a JSON body (POST) or the query string (GET). A body the framework did not parse as
+ * JSON is not read: only a text/plain or form post, which another site can send without asking, arrives as text.
+ */
 function input(req) {
-  const from = req.method === 'POST' ? (typeof req.body === 'string' ? safeJson(req.body) : req.body || {}) : req.query || {};
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const from = req.method === 'POST' ? body : req.query || {};
   const pick = (k) => (typeof from[k] === 'string' ? from[k] : Array.isArray(from[k]) ? String(from[k][0] || '') : from[k] == null ? '' : String(from[k]));
   return { name: pick('name'), company: pick('company'), model: pick('model') || 'auto', brief: pick('brief') };
 }
-function safeJson(s) { try { return JSON.parse(s) || {}; } catch { return {}; } }
 
 async function backchannelReferences(userId, result, typedCompany) {
   try {
@@ -126,10 +129,17 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'Method not allowed' });
   }
-  // A GET started by another site (an image tag, a link) would spend searches in the visitor's name: refused.
+  // A request started by another site (an image tag, a link, a script's no-cors POST) would spend searches and the
+  // visitor's allowance in their name: refused, whatever the method.
   const site = String(req.headers?.['sec-fetch-site'] || '').toLowerCase();
-  if (req.method === 'GET' && (site === 'cross-site' || ['image', 'script', 'style', 'iframe', 'embed', 'object'].includes(String(req.headers?.['sec-fetch-dest'] || '').toLowerCase()))) {
+  if (site === 'cross-site' || (req.method === 'GET' && ['image', 'script', 'style', 'iframe', 'embed', 'object'].includes(String(req.headers?.['sec-fetch-dest'] || '').toLowerCase()))) {
     return res.status(403).json({ error: 'Run the check from the Founder Check page.' });
+  }
+  // A POST must be JSON: a browser asks the server before sending JSON from another site (and this route does not
+  // agree), while a text/plain or form post goes out unasked. Older browsers send no Sec-Fetch-Site, so this holds
+  // where the check above cannot.
+  if (req.method === 'POST' && !/^application\/json\b/i.test(String(req.headers?.['content-type'] || ''))) {
+    return res.status(415).json({ error: 'Run the check from the Founder Check page.' });
   }
 
   const asked = input(req);
@@ -152,22 +162,36 @@ export default async function handler(req, res) {
   try { userId = await getUserId(req, res); } catch { userId = null; }
   const owner = userId ? `user:${userId}` : `anon:${clientLabel(clientIp(req))}`;
 
+  const count = async () => (await countHit(owner, userId ? QUICK_LIMITS.signedIn : QUICK_LIMITS.signedOut))
+    || (userId ? 0 : await countHit('everyone', QUICK_LIMITS.everyone));
+  const tooMany = (wait) => {
+    res.setHeader('Retry-After', String(wait));
+    return res.status(429).json({ error: WAIT_MESSAGE, retryAfter: wait });
+  };
   try {
-    // The brief for sources just found is part of the same check and is not counted again.
+    // The brief for sources just found is part of the same check and is not counted again (the held sources are
+    // used once, so one counted check gives one brief).
     if (mode !== 'only') {
-      const wait = (await countHit(owner, userId ? QUICK_LIMITS.signedIn : QUICK_LIMITS.signedOut))
-        || (userId ? 0 : await countHit('everyone', QUICK_LIMITS.everyone));
-      if (wait > 0) {
-        res.setHeader('Retry-After', String(wait));
-        return res.status(429).json({ error: WAIT_MESSAGE, retryAfter: wait });
-      }
+      const wait = await count();
+      if (wait > 0) return tooMany(wait);
     }
     const deadline = startedAt + 47000;
     if (mode === 'only') {
-      const out = await runFounderBrief({ name, company, model, deadline, cacheScope: owner });
+      let refused = 0;
+      // The sources are no longer held (or were used already), so the whole check runs again: it is counted like
+      // one, and refused like one, before any search or model call.
+      const onMiss = async () => {
+        const wait = await count();
+        if (wait > 0) { refused = wait; throw new Error('fair-use limit'); }
+      };
+      let out;
+      try {
+        out = await runFounderBrief({ name, company, model, deadline, cacheScope: owner, onMiss });
+      } catch (error) {
+        if (refused) return tooMany(refused);
+        throw error;
+      }
       if (!out.fromCache) {
-        // the sources were no longer held, so the whole check ran: it counts like one
-        await countHit(owner, userId ? QUICK_LIMITS.signedIn : QUICK_LIMITS.signedOut);
         const references = await referencesWithin(userId, out, company);
         return res.status(200).json({ ...out, references });
       }

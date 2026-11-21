@@ -158,6 +158,20 @@ export const checkHref = (c) => {
   if (c.id) q.set('job', String(c.id));
   return `/founder?${q}`;
 };
+/**
+ * The "Checked" chip for a finished check: { className, text, title }. Never green: the list does not say
+ * whether every court and watchlist screen answered, so 0 red flags is not a clean result. Serious records
+ * held "if this is the right person" (the check assumed the company) make it amber and are said.
+ */
+export function checkChip(check) {
+  const flags = Number(check?.redFlags) || 0;
+  const held = Number(check?.ifRightPerson) || 0;
+  return {
+    className: flags ? 'chip chip-bad' : held > 0 ? 'chip chip-warn' : 'chip',
+    text: `Checked${flags ? ` · ${flags} red flag${flags === 1 ? '' : 's'}` : ''}${held > 0 ? ` · ${held} serious if right person` : ''}`,
+    title: `Founder check finished ${formatDate(check?.date)}. Open the report to see which screens answered.${held > 0 ? ` ${held} serious matter${held === 1 ? ' holds' : 's hold'} if this is the right person.` : ''}`,
+  };
+}
 function CheckMark({ name, company }) {
   const ctx = React.useContext(ChecksContext);
   const check = findCheck(ctx?.checks, name, company, ctx?.nameCounts);
@@ -166,11 +180,9 @@ function CheckMark({ name, company }) {
     const running = findCheck(ctx?.running, name, company, ctx?.nameCounts);
     return running ? <Link href={checkHref(running)} className="chip" title="A founder check of this person is still running. Open it to follow it.">Running</Link> : null;
   }
+  const chip = checkChip(check);
   return (
-    // Never green: the list does not say whether every court and watchlist screen answered, so 0 red flags is not a clean result.
-    <Link href={checkHref(check)} className={check.redFlags ? 'chip chip-bad' : 'chip'} title={`Founder check finished ${formatDate(check.date)}. Open the report to see which screens answered.`}>
-      Checked{check.redFlags ? ` · ${check.redFlags} red flag${check.redFlags === 1 ? '' : 's'}` : ''}
-    </Link>
+    <Link href={checkHref(check)} className={chip.className} title={chip.title}>{chip.text}</Link>
   );
 }
 
@@ -1101,7 +1113,8 @@ export default function NetworkPage() {
                 <li key={`${c.name}|${c.company}`} className="flex flex-wrap items-center gap-2 py-2 text-sm">
                   <Link href={checkHref(c)} className="font-medium text-ink hover:text-brand-600 hover:underline">{c.name}</Link>
                   {c.company && <span className="chip">{c.company}</span>}
-                  {typeof c.redFlags === 'number' && <span className={c.redFlags ? 'chip chip-bad' : 'chip'}>{c.redFlags} red flag{c.redFlags === 1 ? '' : 's'}</span>}
+                  {/* Same rule as the Checked chip: matters held "if right person" are never shown as 0 red flags alone */}
+                  {typeof c.redFlags === 'number' && <span className={c.redFlags ? 'chip chip-bad' : Number(c.ifRightPerson) > 0 ? 'chip chip-warn' : 'chip'}>{c.redFlags} red flag{c.redFlags === 1 ? '' : 's'}{Number(c.ifRightPerson) > 0 ? ` · ${c.ifRightPerson} serious if right person` : ''}</span>}
                   {c.date && <span className="ml-auto text-xs text-muted">{formatDate(c.date)}</span>}
                 </li>
               ))}

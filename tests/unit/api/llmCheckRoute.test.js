@@ -71,9 +71,11 @@ describe('/api/debug/llm-check', () => {
   });
 
   // Changed in round 3 (security-debug-routes): a caller who may not use it gets a 404, not a 401 sign-in prompt.
+  // Changed in round 4 (network-security-debug-prod-open): production also needs the allow-list set, with the account on it.
   test('production needs a signed-in session (404 otherwise); a preview deployment does not', async () => {
     process.env.NODE_ENV = 'production';
     delete process.env.VERCEL_ENV;
+    process.env.FOUNDER_ALLOWED_EMAILS = 'owner@example.com';
     const res = createMockRes();
     await handler(createMockReq({ method: 'GET', query: {} }), res);
     expect(res.statusCode).toBe(404);

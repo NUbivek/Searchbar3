@@ -39,8 +39,28 @@ export function screenCounts(screens) {
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** The red-flag count as a chip: { text, tone, title }. */
+/** Serious records tied only through a company the check assumed: they hold if this is the right person. */
+export function ifRightCount(report) {
+  const listed = Array.isArray(report?.ifRightPerson) ? report.ifRightPerson.length : 0;
+  return Math.max(Number(report?.totals?.ifRightPerson) || 0, listed);
+}
+
+/**
+ * The red-flag count as a chip: { text, tone, title }. Serious records held "if this is the right person"
+ * are said in the chip and keep it amber: a zero there is not a clean result, it is an unsettled identity.
+ */
 export function redFlagChip(report) {
+  const chip = flagChipAlone(report);
+  const held = ifRightCount(report);
+  if (!held) return chip;
+  return {
+    text: `${chip.text} · ${held} serious if right person`,
+    tone: chip.tone === 'chip chip-bad' ? chip.tone : 'chip chip-warn',
+    title: `${plural(held, 'serious matter')} ${held === 1 ? 'is' : 'are'} tied to this person only through a company the check assumed; ${held === 1 ? 'it holds' : 'they hold'} if this is the right person.${chip.title ? ` ${chip.title}` : ''}`,
+  };
+}
+
+function flagChipAlone(report) {
   const n = Number(report?.totals?.redFlags ?? report?.redFlags?.length ?? 0) || 0;
   if (n > 0) {
     const serious = report?.totals?.seriousRecords;
@@ -78,12 +98,35 @@ export function summaryChips(report) {
   return chips;
 }
 
+const LISTS = ['sections', 'redFlags', 'ifRightPerson', 'companyMatters', 'possibleNamesake', 'claimChanges', 'relatedParties', 'timeline', 'ownStatements'];
+/**
+ * A report as the page draws it. A check saved before a field was added (checks are kept three days) lacks
+ * it: every list is filled in as empty, so the page does not break. Coverage is left missing when it is
+ * missing (`coverageListed` false), so the page says the saved report does not list what answered instead of
+ * claiming that nothing answered or that everything did.
+ */
+export function savedReport(report) {
+  if (!report || typeof report !== 'object') return report;
+  const out = { ...report };
+  for (const k of LISTS) if (!Array.isArray(out[k])) out[k] = [];
+  out.sections = out.sections.filter((s) => s && typeof s === 'object').map((s) => ({ ...s, items: Array.isArray(s.items) ? s.items : [] }));
+  const c = report.coverage;
+  out.coverageListed = Boolean(c && typeof c === 'object' && Array.isArray(c.searched));
+  if (out.coverageListed) {
+    out.coverage = { ...c, notSearched: Array.isArray(c.notSearched) ? c.notSearched : [], notCovered: Array.isArray(c.notCovered) ? c.notCovered : [], partlyAnswered: Array.isArray(c.partlyAnswered) ? c.partlyAnswered : [] };
+  } else {
+    out.coverage = null;
+  }
+  if (Array.isArray(out.screens)) out.screens = out.screens.filter((g) => g && typeof g === 'object').map((g) => ({ ...g, items: Array.isArray(g.items) ? g.items : [] }));
+  return out;
+}
+
 /** Records of a report by citation number, from every list that carries them. */
 export function recordsByNumber(report) {
   const map = new Map();
   const add = (f) => { if (f && Number.isFinite(f.n) && !map.has(f.n)) map.set(f.n, f); };
   for (const s of report?.sections || []) for (const f of s.items || []) add(f);
-  for (const k of ['redFlags', 'companyMatters', 'possibleNamesake', 'claimChanges']) for (const f of report?.[k] || []) add(f);
+  for (const k of ['redFlags', 'ifRightPerson', 'companyMatters', 'possibleNamesake', 'claimChanges']) for (const f of report?.[k] || []) add(f);
   return map;
 }
 

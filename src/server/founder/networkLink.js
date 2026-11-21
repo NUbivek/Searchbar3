@@ -124,7 +124,9 @@ const sameCompany = (a, b) => Boolean(companyMatch(normalizeCompanyKey(a), norma
 const FOUNDED = /\b(?:co-?found\w*|found(?:ed|er|ers|ing))\b/i;
 const PAST = /\(past\)|\bearlier company\b|\bformer(?:ly)?\b|\bpreviously\b/i;
 const BOARD = /\b(?:board|director|trustee|chair\w*|advis\w*)\b/i;
-const GIVEN = /^(?:the company given|the company most sources name)/i;
+// The company the check was told or found: typed by the user, named by most sources, or confirmed by the user
+// from their own network (deepCheck's ASSUMED_COMPANY). Each is their current company in the pairing.
+const GIVEN = /^(?:the company given|the company most sources name|the company assumed from your network)/i;
 // Company threads too loose to look for people at: name-only records, parents, holding vehicles, patents.
 const LOOSE = /name match only|registered under a name starting with|\bparent of\b|holding vehicle|earlier name|\bpatent\b/i;
 
@@ -179,6 +181,8 @@ export function companiesOf(report) {
   };
   add(r.company, 'current', { current: true });
   add(r.profile?.company, 'current', { current: true });
+  // No company typed: the one the check took as theirs (confirmed by the user from their network) stands in
+  if (!r.company && !r.profile?.company) add(r.assumedCompany, 'current', { current: true, why: 'the company assumed from your network' });
   // The company's known legal names (design decision 1): searched as the same company, never as another one.
   const current = out.find((c) => c.tie === 'current');
   if (current) {
@@ -196,6 +200,8 @@ export function companiesOf(report) {
   for (const t of r.threads || []) {
     if (t?.kind !== 'company' || LOOSE.test(t.why || '') || people.has(String(t.value || '').trim().toLowerCase())) continue;
     const why = String(t.why || '');
+    // a network seed the check later set aside (no longer trusted) is not their company
+    if (/^the company assumed from your network/i.test(why) && t.trusted === false) continue;
     if (GIVEN.test(why)) add(t.value, 'current', { why, current: true });
     else if (FOUNDED.test(why)) add(t.value, 'founded', { role: PAST.test(why) ? 'founder (earlier)' : 'founder', why });
     else if (PAST.test(why)) add(t.value, 'earlier', { role: roleFrom(why), why });
@@ -205,6 +211,17 @@ export function companiesOf(report) {
   for (const e of r.profile?.earlier || []) add(e?.org, 'earlier', { role: e?.role || null, why: 'earlier role', from: e?.from, to: e?.to });
   for (const x of r.profile?.investments || []) if (x?.org) add(x.org, 'portfolio', { why: 'invested in' });
   return out.slice(0, MAX_COMPANIES);
+}
+
+/**
+ * The companies whose investors are worth looking up: the current company (typed, found, or confirmed from the
+ * user's network) first, then up to two they founded. -> string[]
+ */
+export function investorLookupCompanies(report, max = 3) {
+  const companies = companiesOf(report);
+  const names = [...companies.filter((c) => c.tie === 'current'), ...companies.filter((c) => c.tie === 'founded')].map((c) => c.name);
+  for (const f of report?.profile?.founded || []) if (f?.org && !names.some((n) => sameCompany(n, f.org))) names.push(String(f.org).trim());
+  return names.slice(0, max);
 }
 
 /** Every name a company is searched under: its name and its known legal names. */
@@ -706,12 +723,15 @@ export async function networkForReport(userId, report, { store = networkStore, i
     const tried = keys.filter((k) => parts[k] !== skip && k !== 'titles');
     if (tried.length && tried.every((k) => failed[k])) return { available: false, reason: READ_FAILED };
     const extraNotes = [];
+    // A lookup that hit its row limit read only part of the contacts: say so, never let it pass as everyone
+    const incomplete = Boolean(got.companies?.incomplete || got.investors?.incomplete);
+    if (incomplete) extraNotes.push('Not every contact at their companies could be read, so some people you know there may be missing.');
     if (got.parties?.dropped) extraNotes.push(`${got.parties.dropped} ${got.parties.dropped === 1 ? 'name' : 'names'} named in this check ${got.parties.dropped === 1 ? 'is' : 'are'} shared by too many of your contacts to match, so ${got.parties.dropped === 1 ? 'it was' : 'they were'} left out.`);
     const atInvestors = asRows(got.investors).map((c) => {
       const t = investorTargets.find((i) => i.name === c.matchedCompany) || { name: c.matchedCompany, of: null };
       return { investor: t.name, of: t.of, contact: c };
     });
-    return buildNetworkLinks({
+    const net = buildNetworkLinks({
       report, total,
       nameMatches: asRows(got.self),
       atCompanies: asRows(got.companies),
@@ -722,6 +742,7 @@ export async function networkForReport(userId, report, { store = networkStore, i
       investorsChecked: investorTargets.map((i) => i.name),
       seededCompany, investorsMissed, failed, extraNotes,
     });
+    return incomplete ? { ...net, incomplete: true } : net;
   } catch {
     return { available: false, reason: READ_FAILED };
   }
@@ -789,6 +810,7 @@ async function listChecks(userId, status, { limit = 50, memory = globalThis.__fo
   if (persistenceMode() === 'neon') {
     rows = (await query(
       `SELECT id, name, company, status, updated_at, (state->'report'->'totals'->>'redFlags') AS red_flags,
+              (state->'report'->'totals'->>'ifRightPerson') AS if_right,
               (state->'networkSeed'->>'company') AS seeded
          FROM founder_jobs
         WHERE user_id = $1 AND status = '${status === 'done' ? 'done' : 'running'}'
@@ -806,7 +828,7 @@ async function listChecks(userId, status, { limit = 50, memory = globalThis.__fo
       .filter((j) => j && j.owner === userId && fresh(j) && (status === 'done' ? done(j) : j.status === 'running' && !done(j)))
       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
       .slice(0, cap)
-      .map((j) => ({ id: j.id, name: j.name, company: j.company, status: status, updated_at: j.updatedAt, red_flags: j.state?.report?.totals?.redFlags, seeded: j.state?.networkSeed?.company }));
+      .map((j) => ({ id: j.id, name: j.name, company: j.company, status: status, updated_at: j.updatedAt, red_flags: j.state?.report?.totals?.redFlags, if_right: j.state?.report?.totals?.ifRightPerson, seeded: j.state?.networkSeed?.company }));
   }
   const out = [];
   for (const r of rows) {
@@ -814,6 +836,7 @@ async function listChecks(userId, status, { limit = 50, memory = globalThis.__fo
     if (out.some((c) => c.key === key)) continue;
     const date = r.updated_at ? new Date(r.updated_at) : null;
     const flags = r.red_flags === null || r.red_flags === undefined ? NaN : Number(r.red_flags);
+    const held = r.if_right === null || r.if_right === undefined ? NaN : Number(r.if_right);
     out.push({
       key,
       id: r.id ? String(r.id) : null,
@@ -823,12 +846,14 @@ async function listChecks(userId, status, { limit = 50, memory = globalThis.__fo
       status: status === 'done' ? 'done' : 'running',
       date: date && !Number.isNaN(date.getTime()) ? date.toISOString() : null,
       redFlags: Number.isFinite(flags) ? flags : null,
+      // serious matters held "if this is the right person": the Checked chip turns amber on them
+      ifRightPerson: Number.isFinite(held) ? held : null,
     });
   }
   return out.map(({ key, ...c }) => c);
 }
 
-/** The user's own finished deep checks. -> [{ id, name, company, seededCompany, status: 'done', date, redFlags }] */
+/** The user's own finished deep checks. -> [{ id, name, company, seededCompany, status: 'done', date, redFlags, ifRightPerson }] */
 export async function listFinishedChecks(userId, opts = {}) {
   return listChecks(userId, 'done', opts);
 }

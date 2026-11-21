@@ -124,9 +124,18 @@ describe('Hugging Face', () => {
       ['/api/users/tmilton/overview', hfOverview('tmilton', 'Trevor Milton')],
       ['/api/users/tjones/overview', hfOverview('tjones', 'Tara Jones')],
     ]);
+    // The same handle on another service and the name only: 'possible' (review 2026-11-21, a handle like this is
+    // just the name). With the company among its organisations it is 'likely', and the handle is a reason.
+    const sameHandle = await huggingFaceConnector.run(task('handle', 'tmilton', { platform: 'github', why: 'github handle' }), ctxFor(subject));
+    expect(sameHandle.findings[0].match).toBe('possible');
+    network([['/api/users/tmilton/overview', hfOverview('tmilton', 'Trevor Milton', { orgs: [{ fullname: 'Nikola Corporation', name: 'nikola-corp' }] })]]);
     const tied = await huggingFaceConnector.run(task('handle', 'tmilton', { platform: 'github', why: 'github handle' }), ctxFor(subject));
     expect(tied.findings[0].match).toBe('likely');
     expect(tied.findings[0].matchReasons.join(' ')).toMatch(/same handle, tmilton, as a GitHub account/);
+    network([
+      ['/api/users/tmilton/overview', hfOverview('tmilton', 'Trevor Milton')],
+      ['/api/users/tjones/overview', hfOverview('tjones', 'Tara Jones')],
+    ]);
     const other = await huggingFaceConnector.run(task('handle', 'tjones', { platform: 'huggingface' }), ctxFor(subject));
     expect(other.findings).toEqual([]);
     expect(other.notes[0]).toMatch(/left out/);

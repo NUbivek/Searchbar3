@@ -39,7 +39,11 @@
  * named with one ordinary word (names.isOrdinaryWordCompany: Uber, Merge,
  * Ramp), or a party that adds a general word ("Summit Financial Group" for
  * Summit), is a possible namesake: 'possible', with "verify it is the same
- * company" in its title. No grade above 'company' is ever set here.
+ * company" in its title. Legal forms of every EU country are set aside first
+ * ("Avast Software s.r.o.", "Vinted UAB"), and a party that starts with the
+ * company's whole name and adds other words ("Klarna Bank AB", "Deliveroo
+ * Italy s.r.l.") is also kept as 'possible', so a fine against the company's
+ * own subsidiary is never dropped. No grade above 'company' is ever set here.
  */
 import { request } from '../http';
 import { makeFinding } from '../finding';
@@ -171,7 +175,7 @@ async function loadTracker(deadline) {
 /* Screening                                                           */
 /* ------------------------------------------------------------------ */
 
-const GRADE_RANK = { exact: 0, padded: 1, leading: 2, contains: 3 };
+const GRADE_RANK = { exact: 0, padded: 1, leading: 2, contains: 3, extended: 4 };
 const squash = (tokens) => tokens.join('');
 const dropThe = (tokens) => (tokens.length > 1 && tokens[0] === 'the' ? tokens.slice(1) : tokens);
 const containsRun = (tokens, want) => {
@@ -193,6 +197,36 @@ export function screenedNames(subject, company) {
 const distinctive = (key) => key.specific && (key.full.length >= 2 || !isOrdinaryWordCompany(key.full.join(' ')));
 
 /**
+ * A party's name without the legal forms written at its end ("Avast Software s.r.o." -> "Avast Software",
+ * "Vinted UAB" -> "Vinted"). The tracker lists firms from every EU country, and the shared matcher
+ * (exposure.js) knows only the common forms, so a firm written with its Czech, Lithuanian or Hungarian form
+ * would not be read as the company at all. Only forms at the end are removed: several short ones are also
+ * ordinary words ("Spa", "As") inside a name.
+ */
+export function withoutLegalForms(party) {
+  const tail = new RegExp(`(?:${LEGAL_FORM.source})[\\s,.]*$`, 'i');
+  let name = oneLine(party);
+  for (let i = 0; i < 4; i += 1) {
+    const next = oneLine(name.replace(tail, ' ').replace(/[\s,]+$/, ''));
+    if (next === name || !orgTokens(next).length) break;
+    name = next;
+  }
+  return name;
+}
+
+/**
+ * The party starts with the company's whole name and adds other words ("Klarna Bank AB", "Deliveroo Italy
+ * s.r.l." for Klarna and Deliveroo). The shared matcher does not count it, because the added word may belong to
+ * a different company, but dropping it would let the report say "no fine" when the company's own subsidiary was
+ * fined. Such a case is kept as a name match to verify, never as the company's.
+ */
+function extendsName(key, party) {
+  if (!key.specific || squash(key.full).length < 3) return false;
+  const tokens = dropThe(orgTokens(party));
+  return tokens.length > key.full.length && key.full.every((t, i) => tokens[i] === t);
+}
+
+/**
  * The best match of one case for the company, or null.
  * @returns {{ grade: string, party: string, via: object, strong: boolean } | null}
  */
@@ -204,11 +238,15 @@ export function matchCase(row, names) {
     if (!squashed.includes(want) && !squashed.includes(squash(via.key.full))) continue;
     const parts = partiesOf(row.p);
     for (const party of parts) {
-      const grade = matchOrgName(via.key, party);
+      const bare = withoutLegalForms(party);
+      let grade = matchOrgName(via.key, bare) || matchOrgName(via.key, party);
+      // The whole entry of a case with several parties is only looked at for a full match: the looser reading
+      // below is for one party's own name, never for a list of parties run together
+      if (!grade && (parts.length === 1 || party !== parts[0]) && extendsName(via.key, bare)) grade = 'extended';
       if (!grade) continue;
       // A learned legal name counts only when the party carries it whole ("Uber Technologies Inc."; the bare
-      // brand "Uber B.V." does not)
-      const strong = grade !== 'padded' && (via.learned
+      // brand "Uber B.V." does not). A padded or extended name is never the company's on the name alone.
+      const strong = grade !== 'padded' && grade !== 'extended' && (via.learned
         ? via.key.full.length >= 2 && containsRun(dropThe(orgTokens(party)), via.key.full)
         : distinctive(via.key));
       // the party itself rather than the whole entry, when a single party carries the same grade
@@ -232,6 +270,7 @@ const MATCH_REASON = {
   padded: (n) => `the fined organisation's name is ${n} followed by general words`,
   leading: (n) => `the fined organisation's name begins with ${n}`,
   contains: (n) => `the fined organisation's name contains ${n}`,
+  extended: (n) => `the fined organisation's name begins with ${n} and adds other words`,
 };
 
 function caseFinding(ctx, row, hit, copy) {
@@ -240,8 +279,8 @@ function caseFinding(ctx, row, hit, copy) {
   const parties = shownParties(row, hit.party);
   const company = hit.via.name;
   const possible = !hit.strong;
-  const why = hit.grade === 'padded'
-    ? `the fined organisation's name adds a general word to ${company}, so it may be another company`
+  const why = hit.grade === 'padded' || hit.grade === 'extended'
+    ? `the fined organisation's name adds ${hit.grade === 'padded' ? 'a general word' : 'other words'} to ${company}, so it may be another company or a part of this one; verify it is the same company`
     : `"${company}" is an ordinary word other organisations also use, so it may be another company`;
   const head = `${clip(hit.party, 90)}: ${amount ? `fined ${amount}` : 'fined'} by the ${row.a}${row.k ? ` (${row.k})` : ''}${row.d ? `, ${row.d}` : ''}`;
   return makeFinding(ctx.subject, {

@@ -194,7 +194,8 @@ function linkStretches(subject, text, name) {
         const [first, second] = p.start < at.start ? [p, at] : [at, p];
         const between = sentence.slice(first.end, second.start);
         if (between.length > MAX_GAP || anotherPersonIn(subject, between, name)) continue;
-        out.push({ text: between, targetAfter: first === p });
+        // what follows the proposed name, to see whether it opens a clause of its own ("Ford launched ...")
+        out.push({ text: between, targetAfter: first === p, next: first === p ? sentence.slice(at.end, at.end + 40) : '' });
         // a pair joined by "and"/"with": the clause around the pair speaks of both
         if (/^\s*,?\s*(?:and|&|as well as|along with|together with|with)\s+(?:(?:former|then|ex-?|fellow|co-?)[\s-]*)?[^,;:]{0,60}$/i.test(between)) {
           const before = sentence.slice(Math.max(0, first.start - 50), first.start);
@@ -208,24 +209,123 @@ function linkStretches(subject, text, name) {
   return out;
 }
 
+// A finite verb that is not a link word: a second clause, whose subject or object is someone else ("the CEO of
+// Nikola, criticised Ford", "founded Nikola and later acquired Ford"). Read on lower-case words only (a capital
+// word is a name). The -ed test skips three-letter words and nouns that only look like verbs ("speed", "hundred").
+const VERB_WORD = /^(?:said|says|say|told|tells|met|meets|made|makes|took|takes|gave|gives|got|gets|won|wins|lost|loses|went|goes|came|comes|saw|sees|wrote|writes|spoke|speaks|became|becomes|quit|quits|sold|sells|bought|buys|hit|hits|beat|beats|criticises|criticizes|praises|attacks|accuses|blames|calls|sues|launches|announces|claims|warns|denies|rejects|slams|watches|thinks|thought|knew|knows|bid|bids|tweeted|posted|replied)$/;
+const NOT_VERB = new Set(['hundred', 'united', 'limited', 'incorporated', 'based', 'listed', 'called', 'named', 'dubbed', 'renamed', 'headquartered', 'red', 'bed', 'shed', 'need', 'speed', 'seed', 'feed', 'breed', 'greed', 'indeed', 'unrelated', 'related', 'privately', 'publicly', 'advanced', 'detailed', 'interested', 'experienced', 'talented', 'skilled', 'self-funded', 'venture-backed', 'aged', 'bred', 'shred', 'sled']);
+// Words that open a new predicate when they follow the link word: "the CEO of Nikola, is a critic of Ford"
+const AUX_WORD = /^(?:is|are|was|were|has|have|had|will|would|can|could|may|might|must|shall|should|does|did|do)$/;
+// Words that join two clauses or two items: after one of these, the proposed name may be the subject of its own clause
+const COORDINATOR = /(?:^|[\s,;])(?:and|or|but|while|whereas|yet|so|nor)\b|[,;]/i;
+
+/** Is there a finite verb among these words (link words already taken out)? */
+function hasVerb(words, { aux = false } = {}) {
+  for (const m of String(words).matchAll(/(?<![A-Za-z'’-])[a-z][a-z'’-]*/g)) {
+    const w = m[0].toLowerCase();
+    if (NOT_VERB.has(w) || w.includes('-')) continue;
+    if (VERB_WORD.test(w) || (aux && AUX_WORD.test(w))) return true;
+    if (w.length >= 4 && /(?:ed|ised|ized)$/.test(w) && !/eed$/.test(w)) return true;
+  }
+  return false;
+}
+
+/** Does the proposed name, just where the sentence goes on after it, act as the subject of its own verb ("Ford launched", "Ford's")? */
+function startsOwnClause(next) {
+  const after = String(next || '');
+  if (/^['’]s\b/.test(after)) return true;
+  const word = (after.match(/^\s+([A-Za-z][A-Za-z'’-]*)/) || [])[1];
+  if (!word || /^[A-Z]/.test(word)) return false;
+  return hasVerb(word, { aux: true }) || /^(?:also|then|later|now|recently|soon|quickly)$/i.test(word);
+}
+
+// The title another person carries right before their own name: "Ford CEO Jim Farley", "former Ford chief
+// executive Jim Farley". Such words are that person's, not a tie to the subject, unless the subject owns them
+// ("Trevor Milton's co-founder Jim Farley", "his co-founder") or the company in them is the subject's own.
+const TITLE_BLOCK = /(?:(?:\b(?:former|then|ex-?|current|now|fellow|longtime|long-time)\s+)?(?:[A-Z][\w&'’.-]*|chief \w+|co-?founders?|founders?|CEO|CTO|CFO|COO|president|executive|director|chair\w*|partners?|investors?|board member|vice president|VP|head of)\s+)+$/;
+const OWNER_BEFORE = /(?:['’]s|\b(?:his|her|their))\s*$/i;
+
+/** The stretch less the other person's own title before their name, when that title is theirs alone. */
+function withoutOwnTitle(stretch, knownCompanies) {
+  const m = stretch.match(TITLE_BLOCK);
+  if (!m || !m[0].trim()) return stretch;
+  const before = stretch.slice(0, m.index);
+  if (OWNER_BEFORE.test(before)) return stretch;
+  // "Nikola co-founder Jim Farley": the company in the title is the subject's own, so the title ties them
+  if (knownCompanies.some((c) => nameRe(c).test(m[0]))) return stretch;
+  return before;
+}
+
+/**
+ * Does the link word govern the proposed name? Across the stretch there is no second verb (a second clause)
+ * beside the link words; after the link word nearest the name nothing opens a new predicate; and where the
+ * name comes first, the link word reaches the person without a new clause ("Ford launched a truck and Trevor
+ * Milton ..." is not his founding of Ford).
+ */
+function governs(st, hits, { person = false } = {}) {
+  const last = hits[hits.length - 1];
+  const first = hits[0];
+  // With the person first, a verb of an earlier, finished clause is theirs and harmless ("moved to Phoenix and
+  // founded Romeo Power"): read from the last joining word before the first link word on
+  let from = 0;
+  if (st.targetAfter) for (const m of st.text.slice(0, first.index).matchAll(/(?:^|\s)(?:and|then)\b|[,;]/gi)) from = m.index + m[0].length;
+  let rest = st.text;
+  for (const h of [...hits].reverse()) rest = `${rest.slice(0, h.index)} ${rest.slice(h.index + h[0].length)}`;
+  if (hasVerb(rest.slice(from))) return false;
+  if (st.targetAfter) {
+    const tail = st.text.slice(last.index + last[0].length);
+    if (hasVerb(tail, { aux: true })) return false;
+    // "founded Nikola and Ford launched a truck": after a joining word the name may open its own clause
+    if (COORDINATOR.test(tail) && startsOwnClause(st.next)) return false;
+  } else {
+    // from the link word to the person: only words that keep the person as its subject or agent
+    const tail = st.text.slice(last.index + last[0].length);
+    if (/(?:^|\s)(?:and|or|but|while|whereas|yet|so)\b|;/i.test(tail) || hasVerb(tail)) return false;
+    const head = st.text.slice(0, first.index);
+    // "Jim Farley, Ford CEO, praised ..." is covered by the verb test; "Mark Russell was hired by" keeps its aux
+    if (/(?:^|\s)(?:and|or|but)\b/i.test(head)) return false;
+  }
+  return true;
+}
+
+/** The part of the stretch that states the role: the link words nearest the proposed name and those joined to them by "and". */
+function roleText(st, hits) {
+  if (!hits.length) return st.text;
+  const joined = (a, b) => /^[\s,]*(?:and|&)?[\s,]*(?:then\s+|later\s+|former\s+)?$/i.test(st.text.slice(a.index + a[0].length, b.index));
+  if (st.targetAfter) {
+    let i = hits.length - 1;
+    while (i > 0 && joined(hits[i - 1], hits[i])) i -= 1;
+    return st.text.slice(hits[i].index);
+  }
+  let j = 0;
+  while (j < hits.length - 1 && joined(hits[j], hits[j + 1])) j += 1;
+  return st.text.slice(0, hits[j].index + hits[j][0].length);
+}
+
 /**
  * The first stretch in which `link` states the tie, or null. With `contrast`, the words between the link word
- * and the proposed name must not turn to something else ("founded Nikola to compete with Daimler").
+ * and the proposed name must not turn to something else ("founded Nikola to compete with Daimler"). The link
+ * word must also govern the name (see governs): a link word that belongs to another clause, another
+ * organisation or the other person's own title ("Ford CEO Jim Farley") is no tie. Returns the words that state
+ * the role, for statedRole.
  */
-function linkBetween(subject, text, name, link, contrast = null, { pairs = true } = {}) {
+function linkBetween(subject, text, name, link, contrast = null, { pairs = true, person = false, knownCompanies = [] } = {}) {
   const global = new RegExp(link.source, link.flags.includes('g') ? link.flags : `${link.flags}g`);
-  for (const st of linkStretches(subject, text, name)) {
+  for (const raw of linkStretches(subject, text, name)) {
     // the words around an "and" pair speak of two people ("were charged"), never of an organisation
     // ("Investors in Nikola included Trevor Milton and Daimler Truck" does not make Daimler his)
-    if (st.around && !pairs) continue;
+    if (raw.around && !pairs) continue;
+    const st = person && raw.targetAfter && !raw.around ? { ...raw, text: withoutOwnTitle(raw.text, knownCompanies) } : raw;
     const hits = [...st.text.matchAll(global)];
     if (!hits.length) continue;
-    if (contrast && !st.around) {
+    if (st.around) return st.text;
+    if (contrast) {
       // from the link word nearest the proposed name to the name itself
       const tail = st.targetAfter ? st.text.slice(hits[hits.length - 1].index + hits[hits.length - 1][0].length) : st.text.slice(0, hits[0].index);
       if (contrast.test(tail)) continue;
     }
-    return st.text;
+    if (!governs(st, hits, { person })) continue;
+    return roleText(st, hits);
   }
   return null;
 }
@@ -242,10 +342,10 @@ function kinBeside(text, name) {
 }
 
 /** How a record ties a proposed person to the subject: 'kin' when kinship is stated beside the name, 'stated' when the tie's own words join the two in a sentence about the person, else null. */
-function tieIn(subject, text, name, tie) {
+function tieIn(subject, text, name, tie, knownCompanies = []) {
   if (kinBeside(text, name)) return 'kin';
   const legal = tie === 'legal';
-  return linkBetween(subject, text, name, legal ? TIE_WORDS.legal : TIE_WORDS.business, legal ? null : PERSON_CONTRAST) !== null ? 'stated' : null;
+  return linkBetween(subject, text, name, legal ? TIE_WORDS.legal : TIE_WORDS.business, legal ? null : PERSON_CONTRAST, { person: true, knownCompanies }) !== null ? 'stated' : null;
 }
 
 /** The role the linking words state, in our words; never the reader's own wording. */
@@ -319,6 +419,9 @@ export function verifyGaps(state, records, data) {
   };
   const origin = (record) => `reader:${record.id || record.url || 'record'}`;
   const from = (record) => ({ trusted: true, suggested: true, origin: origin(record) });
+  // The person's own companies (given or tied): "Nikola co-founder Jim Farley" ties Farley to them through it
+  const ownCompanies = [state.company, ...Object.values(state.threads || {}).filter((t) => t.trusted && t.kind === 'company' && !t.suggested).map((t) => t.value)]
+    .map((c) => String(c || '').trim()).filter((c) => c.length >= 2);
 
   for (const kind of ['companies', 'schools']) {
     const threadKind = kind === 'companies' ? 'company' : 'school';
@@ -348,7 +451,7 @@ export function verifyGaps(state, records, data) {
     const name = plausiblePersonName(raw, subject);
     if (!name || !mentions(text, name) || mentionsMinor(text)) { dropped += 1; continue; }
     // a relative stays a relative whatever tie the reader gave: only a public role makes them followable
-    const how = x.tie === 'family' ? 'kin' : tieIn(subject, text, name, x.tie);
+    const how = x.tie === 'family' ? 'kin' : tieIn(subject, text, name, x.tie, ownCompanies);
     if (!how) { dropped += 1; continue; }
     if (how === 'kin') {
       // the kinship must be stated in a sentence about the person ("His brother, ..."), not about someone else

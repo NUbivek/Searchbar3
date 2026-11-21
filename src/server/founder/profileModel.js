@@ -22,7 +22,7 @@
  */
 import { chatJson, reportAnswerQuality } from '../llm/providers';
 import { restoreSubject } from './identity';
-import { sentencesOf, opensOnSubject, placeOnly, maskSubject, bringsInSomeoneElse, leadsToSomeoneElse as tiedToSomeoneElse, HANDOFF, RELATION, NAME_RUN, isPersonRun } from './profile';
+import { sentencesOf, opensOnSubject, placeOnly, maskSubject, bringsInSomeoneElse, leadsToSomeoneElse as tiedToSomeoneElse, HANDOFF, RELATION, NAME_RUN, isPersonRun, schoolRoot, pronounsAreTheirs } from './profile';
 import { privacyReason } from './guardrails';
 
 const str = { type: 'string' };
@@ -143,11 +143,13 @@ export function sentencesAboutThem(subject, f) {
   const titleNamesThem = subject.hasName(f.title || '');
   const out = [];
   let carry = 0;
+  // a page reader's bio record holds only sentences it already read as theirs (profile.pronounsAreTheirs)
+  const vetted = pronounsAreTheirs(subject, f);
   for (const s of sentencesOf(recordText(f))) {
     // a sentence on "She/He/They" (after an optional "Before that," lead-in) is theirs only right after one naming them
     const pronoun = /^["“'(]?(?:She|He|They|Her|His|Their)\b/i.test(s.replace(LEAD_IN, ''));
     const opens = !pronoun && opensOnSubject(subject, s, { firstName: bio });
-    const follows = pronoun && carry > 0;
+    const follows = pronoun && (carry > 0 || vetted);
     const field = titleNamesThem && /^(?:Experience|Education|Location|Current|Previous|Past|Headline)\s*:/i.test(s);
     // "Jane Roe and Bob Smith founded Acme. He previously ...", "She hired Bob Smith. He previously ...":
     // once someone else is in the text, the next "He/She" may be them, so nothing after it carries over
@@ -283,19 +285,21 @@ export function verifyProfile(subject, records, data) {
       const ok = check(x, kind, kind === 'education' ? 'school' : kind === 'recognition' ? 'title' : kind === 'basedIn' ? 'text' : 'org');
       const built = ok && build(x, ok);
       // what the model wrote must pass the same privacy rules as the quote it cites
-      const item = built && !privacyReason(Object.values(built).filter((v) => typeof v === 'string').join('. ')) ? built : null;
+      const item = built && !privacyReason(Object.entries(built).filter(([k, v]) => typeof v === 'string' && k !== 'date').map(([, v]) => v).join('. ')) ? built : null;
       if (!item || out[kind].length >= cap) { out.dropped += 1; continue; }
       out[kind].push({ ...item, ids: [ok.f.id], quote: ok.quote });
       out.kept += 1;
     }
   };
-  take('roles', data?.roles, (x, { quote, main }) => {
+  take('roles', data?.roles, (x, ok) => {
+    const { quote, main } = ok;
     const from = yearBeside(quote, main, x.from);
     const to = yearBeside(quote, main, x.to);
     // "is" counts only before the organisation ("Jane Roe is the CEO of Acme"), and never beside "former" or "was"
     const at = indexOfMain(quote, main);
     const current = Boolean(x.current) && !to && !FORMER.test(quote) && (PRESENT.test(quote) || (at > 0 && /\b(?:is|are)\b/i.test(quote.slice(0, at))));
-    return { org: main, title: stated(quote, x.title), from, to: from && to && to < from ? null : to, current };
+    // the record's date goes with the role, so a merge can tell an old "is the CEO" from a role that ended later
+    return { org: main, title: stated(quote, x.title), from, to: from && to && to < from ? null : to, current, date: ok.f.date ? String(ok.f.date) : null };
   }, 25);
   take('education', data?.education, (x, { quote, main }) => ({ school: main, degree: stated(quote, x.degree, 40), field: stated(quote, x.field, 60), from: yearBeside(quote, main, x.from), to: yearBeside(quote, main, x.to) }));
   take('boards', data?.boards, (x, { quote, main }) => ({ org: main, role: stated(quote, x.role, 40) }));
@@ -345,40 +349,57 @@ const startOf = (r) => (r.current ? 10000 : 0) + (r.from || r.to || 0);
 export function mergeProfile(base, verified) {
   const b = base || {};
   const v = verified || {};
-  const roles = mergeList(v.roles || [], b.roles || [], (r) => (r.org ? `${orgKey(r.org)}|${squash(r.title || '')}` : null), ['title', 'from', 'to']);
-  // a pattern-read role with no title merges into the model's role at the same organisation
+  // the model's rows first; a model row's current:false only means the quote did not say "now", while a
+  // pattern-read row's current:false means the records end it
+  const roles = [...(v.roles || []).map((r) => ({ ...r, model: true })), ...(b.roles || [])].filter((r) => r && r.org);
+  // One row per organisation: the model's "CEO" and the pattern-read "Founder, CEO, Executive Chairman" at Nikola
+  // are one role, its titles joined and its years the widest the rows give
   const byOrg = new Map();
   const merged = [];
   for (const r of roles) {
     const k = orgKey(r.org);
     const prior = byOrg.get(k);
-    if (prior && (!r.title || !prior.title)) {
-      prior.cites = union(prior.cites, r.cites);
-      for (const f of ['title', 'from', 'to']) if (prior[f] == null && r[f] != null) prior[f] = r[f];
-      prior.current = prior.current || r.current;
-      continue;
+    if (!prior) { const row = { ...r, cites: [...(r.cites || [])], rows: [r] }; byOrg.set(k, row); merged.push(row); continue; }
+    prior.rows.push(r);
+    prior.cites = union(prior.cites, r.cites);
+    if (r.title) {
+      if (!prior.title || flat(r.title).includes(flat(prior.title))) prior.title = r.title;
+      else if (!flat(prior.title).includes(flat(r.title))) prior.title = `${prior.title}; ${r.title}`;
     }
-    if (!prior) byOrg.set(k, r);
-    merged.push(r);
+    if (r.from != null && (prior.from == null || r.from < prior.from)) prior.from = r.from;
+    if (r.to != null && (prior.to == null || r.to > prior.to)) prior.to = r.to;
   }
-  merged.sort((x, y) => startOf(y) - startOf(x));
-  const education = mergeList(v.education || [], b.education || [], (e) => (e.school ? orgKey(e.school) : null), ['degree', 'field', 'from', 'to']);
+  // A role is current only when no row at that organisation ends it, or the record saying it is current is dated
+  // after that end: one undated "is the CEO" in an old article never revives a role a record ended
+  for (const row of merged) {
+    const ends = row.rows.filter((r) => r.to != null || (!r.model && r.current === false));
+    const endYear = Math.max(0, ...ends.map((r) => Number(r.to) || 0)) || null;
+    const nows = row.rows.filter((r) => r.current === true);
+    if (!nows.length) row.current = false;
+    else if (!ends.length) row.current = true;
+    else row.current = Boolean(endYear) && nows.some((r) => Number(String(r.date || '').slice(0, 4)) > endYear);
+    if (row.current) row.to = null;
+  }
+  const cleanRows = merged.map(({ rows, date, model, ...r }) => r);
+  cleanRows.sort((x, y) => startOf(y) - startOf(x));
+  // schools grouped the way profile.js groups them: "Harvard College" and "Harvard University" are one school
+  const education = mergeList(v.education || [], b.education || [], (e) => (e.school ? schoolRoot(e.school) : null), ['degree', 'field', 'from', 'to', 'note']);
   const boards = mergeList(v.boards || [], b.boards || [], (e) => (e.org ? orgKey(e.org) : null), ['role']);
   // the pattern-read items keep their fuller fields (co-founders, outcome); a model's item adds its citations
-  const founded = mergeList(b.founded || [], v.founded || [], (e) => (e.org ? orgKey(e.org) : null), ['year', 'with', 'outcome']);
+  const founded = mergeList(b.founded || [], v.founded || [], (e) => (e.org ? orgKey(e.org) : null), ['year', 'with', 'outcome', 'program']);
   const investments = mergeList(b.investments || [], (v.investments || []).map((x) => ({ text: x.text || (x.org ? `Investor in ${x.org}` : ''), ...x })), (e) => (e.org ? orgKey(e.org) : e.text ? flat(e.text).trim() : null));
   const recognition = mergeList(b.recognition || [], (v.recognition || []).map((x) => ({ text: x.text || x.title, title: x.title || x.text, ...x })), (e) => (e.text || e.title ? flat(e.text || e.title).trim() : null), ['year']);
   const basedIn = v.basedIn || b.basedIn || null;
-  const now = merged.find((r) => r.current && r.title);
+  const now = cleanRows.find((r) => r.current && r.title);
   const headline = b.headline || (now ? `${now.title}, ${now.org}` : null);
   return {
     ...b,
     headline,
     headlineCites: b.headline ? b.headlineCites || [] : now ? now.cites : [],
     company: b.company || null,
-    roles: merged.slice(0, 25),
+    roles: cleanRows.slice(0, 25),
     education: education.slice(0, 12),
-    earlier: merged.filter((r) => !r.current).map((r) => ({ org: r.org, role: r.title || null, cites: r.cites })).slice(0, 15),
+    earlier: cleanRows.filter((r) => !r.current).map((r) => ({ org: r.org, role: r.title || null, cites: r.cites })).slice(0, 15),
     boards: boards.slice(0, 12),
     founded: founded.map((x) => ({ with: [], outcome: null, ...x })).slice(0, 12),
     investments: investments.slice(0, 20),

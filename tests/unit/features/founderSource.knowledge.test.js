@@ -199,7 +199,7 @@ const ARTICLE = [
   'In 2022, a former employee filed a lawsuit against Roe over unpaid wages at the company. The case was settled in 2023.',
   '',
   '== Personal life ==',
-  'Roe married Sam Roe in 2010 and they live in Palo Alto. Her father, John Roe, is the chairman of Roe Industries.',
+  'Roe grew up in Ohio. Her father, John Roe, is the chairman of Roe Industries. Roe married Sam Roe in 2010 and they live in Palo Alto.',
   '',
   '== References ==',
 ].join('\n');

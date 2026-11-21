@@ -1,5 +1,5 @@
 import { getEnvDiagnostics } from '../../../utils/envValidation';
-import { debugAccess } from '../../../server/auth';
+import { debugAccess, parseAllowList, allowListActive } from '../../../server/auth';
 
 /**
  * GET /api/debug/env-check -> which groups of settings are set up (never values).
@@ -10,7 +10,8 @@ import { debugAccess } from '../../../server/auth';
  * for everyone else.
  *
  * In development the answer lists the names of the settings present and missing,
- * which helps set up a machine. On a deployment it says only whether each group
+ * which helps set up a machine, and how many entries of the sign-in allow-list
+ * were read or ignored (counts only). On a deployment it says only whether each group
  * is set up: the names would tell a stranger which outside services the site uses.
  */
 export default async function handler(req, res) {
@@ -23,7 +24,11 @@ export default async function handler(req, res) {
 
   const diagnostics = getEnvDiagnostics(process.env);
   if (process.env.NODE_ENV !== 'production') {
-    return res.status(200).json({ timestamp: new Date().toISOString(), diagnostics });
+    // Whether the sign-in allow-list is in force and how much of it could be read: counts only, never an address
+    const list = parseAllowList();
+    const ignored = list.warnings.filter((w) => !/^nothing in the list/.test(w)).length;
+    const allowList = { active: allowListActive(list), emails: list.emails.length, domains: list.domains.length, ignored };
+    return res.status(200).json({ timestamp: new Date().toISOString(), diagnostics, allowList });
   }
   const providers = Object.fromEntries(Object.entries(diagnostics.providers || {}).map(([group, p]) => [group, { configured: Boolean(p?.configured) }]));
   return res.status(200).json({

@@ -1334,27 +1334,38 @@ export function usStateCode(text) {
 }
 
 /**
- * The US state the company was formed in, when a record tied to it says so: a tied LEI record ("US-DE"), or a
- * Form D or company filing of a known name of the company naming its jurisdiction of incorporation. Null when
- * nothing tied says. Used only to tell the company's own state registrations from namesakes'.
+ * The US state `company` was formed in, when a record tied to that very company says so: a tied LEI record
+ * ("US-DE") whose legal name is the company, or a Form D or company filing whose issuer is a known name of the
+ * company, naming its jurisdiction of incorporation. A record of another of the person's companies never counts
+ * (a second company is not formed where the first one is). Null when nothing tied to this company says: no home
+ * state means no "another business" demotion. `company` defaults to the subject's company.
  */
-export function homeJurisdiction(ctx) {
+export function homeJurisdiction(ctx, company = '') {
   let findings = [];
   try { findings = typeof ctx?.findings === 'function' ? ctx.findings() || [] : []; } catch { findings = []; }
   const subject = ctx?.subject;
+  const wanted = clean(company || subject?.company || '');
+  if (!subject || !wanted) return null;
+  const target = knownCompanyFor(subject, wanted)?.company || companyKeys(wanted)[0] || '';
+  // The registered name is this company itself (its exact name or a learned legal name), not an arm or a namesake
+  const isThisCompany = (name) => {
+    const hit = clean(name) ? knownCompanyFor(subject, name) : null;
+    return Boolean(hit && hit.tie === 'exact' && target && hit.company === target);
+  };
   for (const f of findings) {
     if (!f || f.match === 'possible') continue;
     if (f.source === 'lei-register' && f.match === 'company') {
       const code = /^US-/i.test(String(f.data?.jurisdiction || '')) ? usStateCode(f.data.jurisdiction) : null;
-      if (code) return { code, from: 'the LEI register' };
+      const legalName = f.data?.legalName || (String(f.quote || '').match(/^(.+?) — LEI /) || [])[1] || '';
+      if (code && isThisCompany(legalName)) return { code, from: 'the LEI register' };
     }
     if (/^sec-/.test(String(f.source || ''))) {
       const stated = f.data?.jurisdiction || f.data?.stateOfIncorporation;
       const issuer = f.data?.issuer || '';
-      if (stated && usStateCode(stated) && (!issuer || knownCompanyFor(subject, issuer))) return { code: usStateCode(stated), from: 'an SEC filing' };
+      if (stated && usStateCode(stated) && issuer && isThisCompany(issuer)) return { code: usStateCode(stated), from: 'an SEC filing' };
       // "Issuer: Ramp Business Corp (Corporation, DELAWARE)" in a Form D record
       const m = String(f.quote || '').match(/Issuer:\s*([^(;]+?)\s*\(([^)]*)\)/);
-      if (m && subject && knownCompanyFor(subject, m[1])) {
+      if (m && isThisCompany(m[1])) {
         const code = m[2].split(',').map((p) => usStateCode(p)).find(Boolean);
         if (code) return { code, from: 'an SEC filing' };
       }
@@ -1421,7 +1432,7 @@ export const usStateRegistriesConnector = {
     // an entity formed there ties. Without it, a domestic entity of these states never ties on its name (the
     // company may be formed elsewhere and the local one a namesake); foreign registrations tie only when every
     // same-named entity with a known place of formation was formed in one and the same place.
-    const home = homeJurisdiction(ctx);
+    const home = homeJurisdiction(ctx, task.value);
     const places = new Set(all.map((e) => e.formedIn).filter(Boolean));
     const domesticHere = (e) => e.formedIn === e.state.code;
     const tiedRow = (e) => {
@@ -1570,7 +1581,7 @@ export const leiConnector = {
             : readInPart ? `same legal name as ${wanted}${place ? ` in ${place}` : ''}; the register holds more same-word entities than were read`
               : `same legal name as ${wanted}${place ? ` in ${place}` : ''}; "${wanted}" is an ordinary word other businesses also use, and the register lists no officers`],
         data: {
-          lei: d.id, jurisdiction: e.jurisdiction || null, status: e.status || null, created, registeredAs: e.registeredAs || null, registrationStatus: reg.status || null,
+          lei: d.id, legalName: name || null, jurisdiction: e.jurisdiction || null, status: e.status || null, created, registeredAs: e.registeredAs || null, registrationStatus: reg.status || null,
           ...(tied && i === 0 ? { parents: (parents || []).filter((p) => p?.reported).map((p) => ({ relation: p.rel, name: p.name, lei: p.lei })) } : {}),
         },
       });

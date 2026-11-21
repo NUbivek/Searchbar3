@@ -117,6 +117,44 @@ export function whichName(registered, names) {
     .find((n) => sameCompany(registered, n)) || '';
 }
 
+/**
+ * Words a firm's registered name adds to the brand without naming another business: "Rivian Automotive",
+ * "Lucid USA", "Fisker Group", "Peloton Interactive", "Proterra Operating Company". The legal form is already
+ * set aside by companyKeyStrict.
+ */
+const EXTENSION_WORDS = new Set(('technologies technology tech labs lab platforms holdings holding international global worldwide enterprises '
+  + 'enterprise companies ai usa us uk america americas north europe com io app online group financial services solutions trading markets '
+  + 'payments motor motors automotive auto vehicles vehicle network networks systems software digital interactive brands industries '
+  + 'operating operations products manufacturing robotics energy electric mobility bio biosciences therapeutics pharmaceuticals pharma '
+  + 'medical devices sciences science').split(' '));
+
+/**
+ * The known name a registered name extends, or ''. A firm registered as the company's whole name followed only
+ * by general words ("Rivian Automotive, LLC" for Rivian) is very often the company itself, but the added word
+ * can also belong to an unrelated firm, so sameCompany does not count it. Callers keep such a record as a name
+ * match to verify (extendedGrade), instead of dropping it and reporting that nothing was found. Names of fewer
+ * than three letters are never extended.
+ */
+export function extendedName(registered, names) {
+  const reg = companyKeyStrict(registered).split(' ').filter(Boolean);
+  const sorted = [...names].sort((a, b) => companyKeyStrict(b).split(' ').length - companyKeyStrict(a).split(' ').length);
+  for (const n of sorted) {
+    const key = companyKeyStrict(n).split(' ').filter(Boolean);
+    if (!key.length || key.join('').length < 3 || reg.length <= key.length) continue;
+    if (!key.every((w, i) => reg[i] === w)) continue;
+    if (reg.slice(key.length).every((w) => EXTENSION_WORDS.has(w))) return n;
+  }
+  return '';
+}
+
+/** The grade of a record whose firm extends a known name: always a name match to verify. */
+export function extendedGrade(company, registered, reason) {
+  return {
+    match: 'possible',
+    matchReasons: [`${reason}; the registered name ${clean(registered)} adds general words to ${clean(company)}, so verify it is the same company`],
+  };
+}
+
 export function companyGrade(company, reason) {
   if (companyKeyStrict(company).split(' ').filter(Boolean).length < 2) {
     return { match: 'possible', matchReasons: [`${reason}; but ${clean(company)} is a one-word name many unrelated companies share, so verify it is the same company`] };
@@ -203,22 +241,31 @@ async function awardRecipients(names, ctx) {
   for (const name of names) {
     const body = await fetchJson(`${AW_BASE}/autocomplete/recipient/`, ctx, { method: 'POST', body: { search_text: name, limit: 50 } });
     if (!body || !Array.isArray(body.results)) throw new HttpError('USAspending returned an unexpected answer to a recipient search', { url: `${AW_BASE}/autocomplete/recipient/` });
-    out.push(...body.results.map((r) => clean(r.recipient_name)).filter((n) => whichName(n, names)));
+    out.push(...body.results.map((r) => clean(r.recipient_name)).filter((n) => whichName(n, names) || extendedName(n, names)));
   }
   return uniq(out);
 }
 
-/** Rows grouped by the known name their registered name is: one finding each, graded by that name. */
+/**
+ * Rows grouped by the known name their registered name is: one finding each, graded by that name. A registered
+ * name that only extends a known name with general words is its own group, marked `extended` and graded with
+ * extendedGrade, so it is shown as a name match to verify rather than dropped.
+ */
 function byKnownName(rows, nameOf, names) {
   const groups = new Map();
   for (const r of rows) {
-    const known = whichName(nameOf(r), names);
+    const exact = whichName(nameOf(r), names);
+    const known = exact || extendedName(nameOf(r), names);
     if (!known) continue;
-    if (!groups.has(known)) groups.set(known, []);
-    groups.get(known).push(r);
+    const id = `${exact ? 'same' : 'extended'}\u0000${known}`;
+    if (!groups.has(id)) groups.set(id, { known, extended: !exact, rows: [] });
+    groups.get(id).rows.push(r);
   }
-  return [...groups.entries()].map(([known, list]) => ({ known, rows: list }));
+  return [...groups.values()];
 }
+
+/** The grade of one byKnownName group. */
+const groupGrade = (group, registered, reason) => (group.extended ? extendedGrade(group.known, registered, reason) : companyGrade(group.known, reason));
 
 export const usFederalAwardsConnector = {
   id: AW_ID,
@@ -256,7 +303,8 @@ export const usFederalAwardsConnector = {
       }
       // The search matches any recipient whose name contains the text: keep the company's own names only, one
       // finding per known name, so a legal-name record is the company's and a bare-word one stays possible.
-      for (const { known: as, rows: own } of byKnownName(rows, (r) => clean(r['Recipient Name']), known)) {
+      for (const group of byKnownName(rows, (r) => clean(r['Recipient Name']), known)) {
+        const { known: as, rows: own } = group;
         const total = own.reduce((sum, r) => sum + (Number(r[g.amount]) || 0), 0);
         const agencies = uniq(own.map((r) => clean(r['Awarding Agency'])));
         const states = uniq(own.map((r) => clean(r[g.place])));
@@ -270,7 +318,7 @@ export const usFederalAwardsConnector = {
           title: `${plural(own.length, g.one, g.many || g.what)} to ${recipient}, ${span(years)}`,
           quote: `${recipient}${states.length ? `, ${states.join(', ')}` : ''}: ${money(total)} in all from ${agencies.slice(0, 3).join(', ')}. ${lines.join('; ')}`,
           url, date: latest, severity: 'info',
-          ...companyGrade(as, `registered recipient name ${recipient} is ${as}`),
+          ...groupGrade(group, recipient, `registered recipient name ${recipient} ${group.extended ? 'begins with' : 'is'} ${as}`),
           data: { group: g.group, awards: own.length, total, agencies, states, recipients: names },
         });
         if (f) findings.push(f);
@@ -677,7 +725,8 @@ export const fdaRecallsConnector = {
       const answer = { url: answers[0].url };
       // The search matches any firm whose name contains the words: keep the company's own names only, one
       // finding per known name.
-      for (const { known: as, rows: own } of byKnownName(rows, (r) => clean(r.recalling_firm), known)) {
+      for (const group of byKnownName(rows, (r) => clean(r.recalling_firm), known)) {
+        const { known: as, rows: own } = group;
         own.sort((a, b) => String(b.report_date || '').localeCompare(String(a.report_date || '')));
         const firm = clean(own[0].recalling_firm);
         const states = uniq(own.map((r) => clean(r.state)));
@@ -694,7 +743,7 @@ export const fdaRecallsConnector = {
           quote: `${firm}${states.length ? ` (${states.join(', ')})` : ''}, FDA ${kind.what} enforcement reports ${span(years)}, ${classes.join(', ')}${seriousCount ? `, ${count(seriousCount)} Class I (the most serious)` : ''}. ${lines.join('; ')}`,
           url: answer.url, date: own[0].report_date || null,
           severity: seriousCount ? 'medium' : 'low',
-          ...companyGrade(as, `recalling firm ${firm} is ${as}`),
+          ...groupGrade(group, firm, `recalling firm ${firm} ${group.extended ? 'begins with' : 'is'} ${as}`),
           data: { products: kind.what, recalls: own.length, classes, states },
         });
         if (f) findings.push(f);
@@ -748,7 +797,8 @@ export const nihGrantsConnector = {
       const known = knownNames(ctx, company);
       const { rows, total: listed } = await nihProjects({ org_names: known }, ctx);
       const cut = listed > rows.length ? { partial: [`NIH grants (latest ${rows.length} of ${count(listed)} read)`] } : {};
-      for (const { known: as, rows: own } of byKnownName(rows, (r) => clean(r.organization?.org_name), known)) {
+      for (const group of byKnownName(rows, (r) => clean(r.organization?.org_name), known)) {
+        const { known: as, rows: own } = group;
         const grants = byGrant(own);
         const org = clean(own[0].organization?.org_name);
         const states = uniq(own.map((r) => clean(r.organization?.org_state)));
@@ -766,7 +816,7 @@ export const nihGrantsConnector = {
           title: `${plural(grants.length, 'NIH research grant')} to ${org}, ${span(own.map((r) => r.fiscal_year))}`,
           quote, url: nihUrl(grants[0][0]), date: grants[0][0].project_start_date || String(grants[0][0].fiscal_year || ''), severity: 'info',
           data: { grants: grants.length, total, states },
-          ...(subjectAs ? { matchText: gradeOn(who, subjectAs, quote) } : companyGrade(as, `grantee organisation ${org} is ${as}`)),
+          ...(subjectAs ? { matchText: gradeOn(who, subjectAs, quote) } : groupGrade(group, org, `grantee organisation ${org} ${group.extended ? 'begins with' : 'is'} ${as}`)),
         });
         if (f) findings.push(f);
       }

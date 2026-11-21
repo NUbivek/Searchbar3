@@ -38,7 +38,16 @@ export function sentencesOf(text) {
     .filter((s) => s.length >= 12);
 }
 
-const EDU_WORD = /\b(?:graduat\w*|studied|studying|educated|degrees?|bachelor'?s?|master'?s?|B\.?S\.?c?|B\.?A\.?|A\.?B\.?|M\.?S\.?c?|M\.?B\.?A\.?|Ph\.?D\.?|J\.?D\.?|doctorate|alum(?:na|nus|ni)?|attended|enrolled|dropped out|drop-?out|majored|major(?:ing)? in|computer science|CS|economics|engineering|classmates?|college|undergrad\w*|education|school)\b/i;
+// What says a sentence is about their schooling. Never the bare words "school", "college" or "education": they
+// are part of a school's own name ("spoke at Columbia Business School"), so they would make any mention a degree.
+const EDU_WORD = /\b(?:graduat\w*|studied|studying|educated|degrees?|bachelor'?s?|master'?s?|B\.?S\.?c?|B\.?A\.?|A\.?B\.?|M\.?S\.?c?|M\.?B\.?A\.?|Ph\.?D\.?|J\.?D\.?|doctorate|alum(?:na|nus|ni)?|attended|enrolled|dropped out|drop-?out|majored|major(?:ing)? in|computer science|CS|economics|engineering|classmates?|undergrad\w*|went to|class of)\b/i;
+// A school named for something other than their studies: a talk, a gift, a board seat, a visit
+const NOT_STUDY_BEFORE = /\b(?:spoke|speaking|speaks|talk|talks|lecture[sd]?|lecturing|keynote|address|addressed|presented|panel|visit(?:ed|s|ing)?|donat(?:ed|es|ing)|gave|gift|pledged|endowed|funded|board of|trustee of|advis(?:or|er|es|ed|ing) (?:to|at)|taught|teaches|teaching|guest|judge|mentor(?:ed|s)?|hosted|recruit(?:ed|ing|s)? (?:at|from))\b(?:\s+(?:at|to|in|of|the|a|an|for))*\s*$/i;
+const NOT_STUDY_AFTER = /^\s+(?:Club|Alumni Association|Foundation|Board|Fund|Press|Hospital)\b/;
+// Accelerators and incubators: a cohort they went through with a venture, never a school
+const ACCELERATOR = /^(?:Y\s?Combinator|YC|Techstars|500 (?:Startups|Global)|Entrepreneur First|Antler|Plug and Play|Seedcamp|Alchemist Accelerator|AngelPad|South Park Commons|MassChallenge|Founders Factory|Station F|Sequoia Arc|Pioneer\.app|HF0)\b|\b(?:accelerator|incubator)\b/i;
+// A sentence that opens on another person's pronoun: theirs only when it carries on from a sentence about them
+const PRONOUN_OPEN = /^["“'(]?(?:She|He|They|Her|His|Their)\b/i;
 const NAMED_SCHOOLS = 'MIT|Stanford|Harvard|Wharton|Yale|Princeton|Caltech|UC Berkeley|Berkeley|UCLA|UCSD|USC|NYU|Oxford|Cambridge|INSEAD|Columbia|Cornell|Dartmouth|Brown|UPenn|Penn|Duke|Carnegie Mellon|Georgia Tech|Waterloo|Northwestern|Kellogg|Booth|Sloan|Haas|McGill|IIT [A-Z][a-z]+|École Polytechnique|Ecole Polytechnique|HEC Paris|ENS|ESSEC|LSE|Imperial College(?: London)?|ETH Zurich|EPFL|Tsinghua|Technion';
 const SCHOOL_SRC = `(?:(?:The )?University of [A-Z][\\p{L}.'-]+(?:(?:,| at)? [A-Z][\\p{L}.'-]+){0,2}`
   + `|(?:[A-Z][\\p{L}.'&-]+ ){1,4}(?:University|College|Institute of Technology|Business School|Law School|School of (?:Business|Law|Management|Engineering|Medicine|Economics|Design))`
@@ -47,10 +56,21 @@ const SCHOOL = new RegExp(`(?<![\\p{L}\\p{N}])${SCHOOL_SRC}(?![\\p{L}\\p{N}])`, 
 
 const TITLE = '(?:co-?\\s?founder|founder|founding (?:partner|engineer)|co-?\\s?CEO|(?<![Cc]o[-\\s]?)CEO|CTO|COO|CFO|CPO|CRO|chief [a-z]+ officer|president|managing (?:partner|director)|general partner|executive chair(?:man|woman|person)?|chair(?:man|woman|person)?)';
 const TITLES = `${TITLE}(?:\\s*(?:and|&|,|/)\\s*${TITLE}){0,3}`;
+// What may stand between the person's name and a title that is theirs: apposition ("Jane Roe, CEO of"), a dash or
+// colon of a headline ("Jane Roe - CEO at", "Jane Roe: co-founder CEO at") or a copula ("Jane Roe is the CEO of")
+const COPULA = '(?:is|was|as|became|becomes|remains|remained|serves as|served as|has been|had been|named|appointed|took over as|stepped down as|steps down as|resigned as|left as|returned as|joined as)';
+const TITLE_MODS = `(?:(?:also|now|currently|still|later|then|the|a|an|its|their|his|her|former|founding|interim|acting|ex-|${TITLE})[\\s,&/]+)*`;
+const SUBJECT_TAIL = new RegExp(`^•\\s*(?:[,(:|–—-]\\s*|,?\\s*who\\s+(?:is|was|has been|had been)\\s+|\\s*${COPULA}\\s+)${TITLE_MODS}$`, 'iu');
+// the same where the sentence calls them by a pronoun, first name or surname ("He is the CEO of", "Holmes, CEO of")
+const UNNAMED_TAIL = new RegExp(`^(?:[A-Z][\\p{L}'’-]+|[Ss]he|[Hh]e|[Tt]hey)(?:\\s*[,(:–—-]\\s*|\\s+${COPULA}\\s+)${TITLE_MODS}$`, 'u');
 const ROLE = "[\\p{L}][\\p{L}\\s'’/&-]{2,48}?";
 const NOT_ORG = new Set(['the', 'a', 'an', 'she', 'he', 'they', 'her', 'his', 'their', 'i', 'we', 'it', 'this', 'that', 'in', 'on', 'at', 'as', 'ceo', 'cto', 'coo', 'cfo', 'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday', 'linkedin', 'twitter', 'series', 'forbes', 'today', 'now', 'home', 'ai', 'saas', 'api', 'b2b', 'new york', 'san francisco', 'london', 'silicon valley', 'us', 'usa', 'america', 'europe', 'previously', 'before', 'after', 'yc', 'some', 'one', 'two']);
-const trimOrg = (s) => tidy(String(s).replace(/(?:\s+(?:of|and|&|de|for|the))+$/i, '').replace(/[,'’]+$/, '').replace(/(?<!\b(?:Inc|Corp|Co|Ltd|Jr|Sr|St))\.$/, ''));
-const BIO_WORD = new RegExp(`${EDU_WORD.source}|\\b(?:previously|formerly|prior to|before (?:founding|starting|launching|co-?founding|joining)|worked|career|joined|co-?founded|founded|started|launched|led|built|investor|engineer|analyst|banker|consultant|product manager|${TITLE})\\b`, 'i');
+// "Lazard for 3", "Credit Suisse for two": a duration read into the name is cut off
+const NUMBER_WORD = '(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|several|many|a few|a couple of)';
+const trimOrg = (s) => tidy(String(s).replace(new RegExp(`\\s+(?:for|of)\\s+${NUMBER_WORD}\\b.*$`, 'i'), '').replace(/(?:\s+(?:of|and|&|de|for|the))+$/i, '').replace(/[,'’]+$/, '').replace(/(?<!\b(?:Inc|Corp|Co|Ltd|Jr|Sr|St))\.$/, ''));
+// a school name never ends on the sentence's own full stop ("University of California, Berkeley.")
+const trimSchool = (s) => tidy(String(s || '').replace(/(?<!\b(?:St|Jr|Sr|Inc|Co|Ltd|[A-Z]))\.$/, ''));
+const BIO_WORD = new RegExp(`${EDU_WORD.source}|\\b(?:school|college|education|previously|formerly|prior to|before (?:founding|starting|launching|co-?founding|joining)|worked|career|joined|co-?founded|founded|started|launched|led|built|investor|engineer|analyst|banker|consultant|product manager|${TITLE})\\b`, 'i');
 const CONTINUES = /^["“'(]?(?:She|He|They|Prior to|Before|Previously|Earlier|After)\b/;
 // Family and childhood are not part of a professional profile, and a relative's career is not the person's.
 const KIN = /\b(?:husband|wife|spouse|partner'?s|boyfriend|girlfriend|fianc[ée]e?|father|mother|dad|mom|parents?|son|daughter|brother|sister|sibling|uncle|aunt|cousin|grandfather|grandmother|children|kids?|childhood|grew up|born (?:in|on|to)|raised (?:in|by)|when (?:she|he|they) (?:was|were) (?:\d+|[a-z]+) years)\b/i;
@@ -133,22 +153,59 @@ export function bringsInSomeoneElse(subject, sentence) {
 
 // Words that bring another person in just before a claim: "met Karim, ...", "interviewed by Jane Doe", "investors
 // include Keith Rabois", "co-founded Ramp with Karim Atiyeh". The claim after them is that person's.
-const OTHER_LEAD = /\b(?:met|meets|meeting|interviewed by|investors? include|backed by|joined by|alongside|with|hired|recruited|told|according to|thanked|introduced)\s+(?:[a-z]+\s+){0,2}[A-Z]/;
+const OTHER_LEAD = /\b(?:met|meets|meeting|interviewed by|investors? include|backed by|joined by|alongside|with|hired|recruited|told|according to|thanked|introduced)\s+(?:[a-z]+\s+){0,2}(?=[A-Z])/g;
 const OTHER_WHO = /[A-Z][\p{L}'’-]+\s*,\s*(?:who|whose)\b/u;
+const LEAD_RUN = /^[A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}'’-]+){0,2}/u;
+/**
+ * Does a lead word bring in a person ("with Karim Atiyeh", "met Karim, a former engineer")? A publisher or a
+ * firm after it ("told Bloomberg", "with Goldman Sachs") is no person.
+ */
+function otherLead(seg) {
+  for (const m of seg.matchAll(OTHER_LEAD)) {
+    const rest = seg.slice(m.index + m[0].length);
+    const run = (rest.match(LEAD_RUN) || [''])[0];
+    if (!run || !isPersonRun(run)) continue;
+    // two or three capitalised words read as a name; one word only where a person stands ("Karim, a former")
+    if (/\s/.test(run) || /^\s*,\s*(?:a|an|the|who|whose|our|her|his|their|former|then|now|previously|formerly)\b/i.test(rest.slice(run.length))) return true;
+  }
+  return false;
+}
+// a verb the person's own clause can go on with after "and" ("and later joined", "and studied")
+const AND_VERB = /(?:,\s*|\s+)and\s+(?:(?:later|then|also|subsequently|eventually|afterwards|now)\s+)?(?=(?:[a-z]+ed|ran|led|went|took|became|spent|left|began|built|won|sold|sits|sat|serves|runs|leads|holds|is|was|has|had)\b)/g;
+/**
+ * The part of the segment after the person's last mention that is still the person's clause: a relative clause
+ * about them that closes ("• , who co-founded Ramp with Karim Atiyeh, graduated from") and "and (later) <verb>"
+ * with no other person's relative clause open ("• co-founded Paribus with Karim Atiyeh and later joined") both
+ * return to the person, so the words before them are no longer in the way.
+ */
+function backToSubject(seg) {
+  let out = seg;
+  const rel = out.match(/^•\s*,\s*(?:who|whose)\b[^,;]*,\s+(?=[a-z])/);
+  if (rel) out = out.slice(rel[0].length);
+  let last = -1;
+  for (const m of out.matchAll(AND_VERB)) {
+    // "with Karim Atiyeh, who worked at Goldman and later joined": the "and" is inside Karim's clause
+    if (/,\s*(?:who|whose|which|that)\b/.test(out.slice(0, m.index))) break;
+    last = m.index + m[0].length;
+  }
+  return last >= 0 ? out.slice(last) : out;
+}
 
 /**
  * Between the person's last mention and a claim, is the claim tied to somebody else? `before` is the text of the
  * sentence up to the organisation, school or award the claim names. "co-founded Ramp with Karim Atiyeh, who
  * previously worked at", "met Karim Atiyeh, a former engineer at", "hired Jane Doe, who graduated from",
  * "Jane Roe's co-founder Bob Smith studied at". A joint subject ("Jane Roe and Bob Smith worked at") is theirs too.
+ * Where the sentence returns to the person ("Jane Roe, who co-founded Acme with Bob Smith, graduated from";
+ * "co-founded Acme with Bob Smith and later joined") only the words after that return count.
  * Shared with profileModel.js, which checks a model's reading the same way.
  */
 export function leadsToSomeoneElse(subject, before) {
   const m = maskSubject(subject, before);
   // only the words after the person's last mention matter ("Bob Smith hired Jane Roe, who previously worked at")
   const cut = m.lastIndexOf('•');
-  const seg = cut >= 0 ? m.slice(cut) : m;
-  if (HANDOFF.test(seg) || RELATION.test(seg) || OTHER_LEAD.test(seg) || OTHER_WHO.test(seg)) return true;
+  const seg = cut >= 0 ? backToSubject(m.slice(cut)) : m;
+  if (HANDOFF.test(seg) || RELATION.test(seg) || otherLead(seg) || OTHER_WHO.test(seg)) return true;
   for (const x of seg.matchAll(NAME_RUN)) {
     if (!isPersonRun(x[0])) continue;
     // "Jane Roe and Bob Smith worked at Google": a joint subject, so the fact is hers too
@@ -158,15 +215,33 @@ export function leadsToSomeoneElse(subject, before) {
   return false;
 }
 
+const TITLE_LEAD = new RegExp(`^${TITLES}\\s+(?=[A-Z])`, 'iu');
+/** "Airwallex co-founder and CEO Jack Zhang ..." -> "Jack Zhang ...": one to three capitalised words, then titles. */
+function withoutTitleLead(s) {
+  let at = 0;
+  for (let n = 0; n < 3; n += 1) {
+    const w = s.slice(at).match(/^[A-Z][\p{L}\p{N}&.'’-]*\s+/u);
+    if (!w) break;
+    at += w[0].length;
+    const t = s.slice(at).match(TITLE_LEAD);
+    if (t) return s.slice(at + t[0].length);
+  }
+  return s;
+}
+
 /**
  * Is the person the one this sentence is about? It must open on them (after an optional "Before founding
  * Acme," lead-in): their full name, "She/He/They", or, where allowed, their first name not followed by
  * someone else's surname, or (in their own encyclopedia article) their surname alone.
  */
 export function opensOnSubject(subject, sentence, { firstName = false, surname = false } = {}) {
-  const s = String(sentence || '').replace(LEAD_IN, '');
+  // A "She/He/They" is never enough here: it may be someone the sentence before brought in ("Holmes hired
+  // Balwani. He had previously worked at ..."). The callers take a pronoun only as a follow-on (carry).
+  // A label ("The news: ") and the person's title at a company ("Airwallex co-founder and CEO Jack Zhang
+  // launched ...") may stand before the name.
+  const s = withoutTitleLead(String(sentence || '').replace(LEAD_IN, '').replace(/^(?:The news|News|Update|Summary|Bio|About|Background|Profile|Overview|In brief|Context)\s*:\s+/i, ''));
   const head = s.slice(0, 80);
-  if (/^(?:She|He|They)\b/i.test(s)) return true;
+  if (PRONOUN_OPEN.test(s)) return false;
   const full = String(subject.name || '').trim();
   const parts = full.split(/\s+/);
   const first = parts[0] || '';
@@ -244,10 +319,12 @@ const ROLE_WORD = /\b(?:partner|founder|ceo|cto|coo|cfo|president|director|manag
 /* ----------------------------------------------------------------------- reading organisations */
 
 const ORG_TOKEN = "(?:[A-Z0-9][\\p{L}\\p{N}&.'’-]*|[a-z][A-Z][\\p{L}\\p{N}-]*)";
-const ORG_JOIN = "(?:\\s+(?:of|and|&|de|for|the)\\s+|\\s+)";
+// "of", "for", "and" join two parts of one name only before a capital ("Bank of America"), never "Lazard for 3"
+const ORG_JOIN = "(?:\\s+(?:of|and|&|de|for|the)\\s+(?=[A-Z])|\\s+)";
 const ORG_RE = new RegExp(`${ORG_TOKEN}(?:${ORG_JOIN}${ORG_TOKEN}){0,5}(?:,?\\s+(?:Inc|LLC|Ltd|Corp|Co|PBC|GmbH)\\.?)?`, 'uy');
 // what may stand before the name: "the Genome Institute", "a startup called Expanse", "an alarm sales company called X"
-const ORG_LEAD = /^(?:(?:the|an?|her|his|their|its)\s+(?:[\p{L}$\d.,-]+\s+){0,5}?(?:company|startup|start-up|business|firm|bank|fund|venture|brand|app|agency|nonprofit|organi[sz]ation|lab|studio|platform)\s+(?:called|named)\s+|the\s+(?=[A-Z]))/iu;
+// ... or by apposition, the way press writes it: "a new blockchain infrastructure startup, Alta,"
+const ORG_LEAD = /^(?:(?:the|an?|her|his|their|its)\s+(?:[\p{L}$\d.,-]+\s+){0,5}?(?:company|startup|start-up|business|firm|bank|fund|venture|brand|app|agency|nonprofit|organi[sz]ation|lab|studio|platform)(?:\s+(?:called|named)\s+|,\s+(?=[A-Z]))|the\s+(?=[A-Z]))/iu;
 
 /** The organisation that starts at `at` in `s` (after an optional "a startup called"), or null. */
 function orgAt(s, at) {
@@ -300,8 +377,9 @@ function schoolDetails(s, school, at) {
     || before.match(new RegExp(`(${DEGREE})(?:\\s+degree)?\\s*(?:from|at)\\s*(?:the\\s+)?$`, 'u'));
   if (m) { out.degree = normDegree(m[1]); if (m[2]) out.field = tidy(m[2].replace(/,$/, '')); }
   if (!out.degree) {
-    m = after.match(new RegExp(`^\\s*(?:with|,)\\s+(?:an?\\s+)?(${DEGREE})(?:\\s+degree)?(?:\\s+in\\s+(${FIELD}))?(?=\\s*(?:,|\\.|;|$|\\s+and\\s+(?:was|is|has|later|then)|\\s+in\\s+\\d{4}))`, 'u'));
-    if (m) { out.degree = normDegree(m[1]); if (m[2]) out.field = tidy(m[2]); }
+    // "Harvard with a BA in Economics", and "Harvard in 2012 with a BA in Economics" (the year then is the graduation)
+    m = after.match(new RegExp(`^\\s*(?:in\\s+((?:19|20)\\d\\d)\\s*,?\\s+)?(?:with|,)\\s+(?:an?\\s+)?(${DEGREE})(?:\\s+degree)?(?:\\s+in\\s+(${FIELD}))?(?=\\s*(?:,|\\.|;|$|\\s+and\\s+(?:was|is|has|later|then)|\\s+in\\s+\\d{4}))`, 'u'));
+    if (m) { out.degree = normDegree(m[2]); if (m[3]) out.field = tidy(m[3]); if (m[1]) out.to = year(m[1]); }
   }
   if (!out.field) {
     m = before.match(new RegExp(`\\b(?:studied|studying|majored in|major in|degree in)\\s+(${FIELD})\\s+at\\s+(?:the\\s+)?$`, 'u'));
@@ -339,6 +417,18 @@ export function isOwnPage(subject, url) {
   return Boolean(m && handleFitsSubject(subject, m[1]));
 }
 
+/**
+ * May a "She/He/They" sentence of this record be read as the person's with no sentence about them before it? Only
+ * in a page reader's bio record: the reader keeps such a sentence only right after one about the person
+ * (bioSentences) but files career and education sentences apart, so the follow-on may stand alone. Even then the
+ * record must name the person and nobody else a pronoun could be about. Shared with profileModel.js.
+ */
+export function pronounsAreTheirs(subject, f) {
+  if (f?.source !== 'page-reader' || f?.data?.kind !== 'bio') return false;
+  const quote = String(f.quote || '');
+  return subject.hasName(`${f.title || ''} ${quote}`) && !sentencesOf(quote).some((s) => bringsInSomeoneElse(subject, s));
+}
+
 /** Pieces of a record to read, each with its date and how the person may be named in it. */
 function unitsOf(subject, f) {
   const d = f.data || {};
@@ -358,7 +448,10 @@ function unitsOf(subject, f) {
     const own = isOwnPage(subject, d.page || f.url);
     return [{ text: String(f.quote || '').replace(/^[^|]{2,80}\s\|\s/, ''), date, own, firstName: own }];
   }
-  if (d.kind === 'bio') return [{ text: String(f.quote || ''), date, own: false, firstName: true }];
+  if (d.kind === 'bio') {
+    // a lone "She/He" follow-on the page reader kept (see pronounsAreTheirs)
+    return [{ text: String(f.quote || ''), date, own: false, firstName: true, vetted: pronounsAreTheirs(subject, f) }];
+  }
   if (f.source === 'wikipedia' || f.source === 'wikidata') {
     const title = String(f.title || '');
     const theirArticle = subject.hasName(title.split(/\s*[(:]/)[0]);
@@ -401,6 +494,17 @@ export function wikidataStatements(quote) {
 }
 
 /* ----------------------------------------------------------------------- the profile */
+
+/**
+ * One key per school however it is written: "Harvard", "Harvard College" and "Harvard University" are one school
+ * (but Boston College and Boston University are two). Shared with profileModel.js, which merges a model's schools.
+ */
+export function schoolRoot(school) {
+  const s = trimSchool(String(school || '')).replace(/^The /, '');
+  const m = s.match(/^University of (.+)$/) || s.match(/^(.+?)\s+(?:University|College)$/);
+  const r = (m ? m[1] : s).toLowerCase();
+  return /^(?:boston|miami|washington|columbia|georgetown)$/.test(r) && m && !/^University of/.test(s) ? `${r}|${/College$/.test(s) ? 'c' : 'u'}` : r;
+}
 
 const TIED = new Set(['confirmed', 'likely']);
 const BANKING = /\b(?:investment bank(?:ing|er)|banker|banking|financial analyst|finance|trader|trading desk|broker|wealth management)\b/i;
@@ -463,6 +567,8 @@ export function buildProfile(subject, findings, threads = []) {
     const o = trimOrg(org || '');
     const key = o.toLowerCase();
     if (o.length < 2 || o.length > 70 || NOT_ORG.has(key) || URLISH.test(o)) return null;
+    // a number or a duration is never an organisation ("2", "20", "Lazard for three")
+    if (/^[\d.,\s]+$/.test(o) || new RegExp(`\\b(?:for|of)\\s+${NUMBER_WORD}$`, 'i').test(o)) return null;
     if (key.split(/\s+/).every((w) => nameWords.has(w)) || subject.hasName(o)) return null;
     return o;
   };
@@ -488,9 +594,11 @@ export function buildProfile(subject, findings, threads = []) {
     if (!org) return;
     founded.push({ ...x, org, with: (x.with || []).filter((n) => !subject.hasName(n)) });
   };
+  const accelerators = []; // { name, year, id }: a cohort is never a school; it goes with the venture
   const addEdu = (x) => {
-    const school = tidy(String(x.school || '').replace(/^The /, ''));
+    const school = trimSchool(String(x.school || '').replace(/^The /, ''));
     if (school.length < 2 || school.length > 90) return;
+    if (ACCELERATOR.test(school)) { accelerators.push({ name: school, year: year(x.to) || year(x.from), id: x.id }); return; }
     edu.push({ ...x, school });
   };
   const addPlace = (raw, id) => {
@@ -514,10 +622,40 @@ export function buildProfile(subject, findings, threads = []) {
   };
 
   /* ---- 1. structured fields */
+  const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') : []);
+  const ys = (v) => (v == null ? null : String(v));
   for (const f of tied) {
     const d = f.data || {};
     const fdate = String(f.date || '') || null;
-    if (f.source === 'wikidata' && f.match === 'confirmed') {
+    // The fields the sources write for the profile (Wikidata, ORCID, defended theses, OpenAlex dissertations,
+    // LittleSis): education, employers, positions, founded, boards, memberships, awards, each with years. Read
+    // from any record tied to the person, before (and in place of) parsing the record's quote.
+    const hasData = ['education', 'employers', 'positions', 'founded', 'boards', 'memberships', 'awards'].some((k) => list(d[k]).length);
+    if (hasData) {
+      for (const e of list(d.education).slice(0, 12)) {
+        if (e.school) addEdu({ school: e.school, degree: e.degree || null, field: e.field || null, from: year(e.from), to: year(e.to), id: f.id, basis: 'record' });
+      }
+      const roleFrom = (org, title, from, to) => {
+        const ended = to != null;
+        addRole({ org, title: title || null, from: year(from), to: year(to), current: ended ? false : null, id: f.id, date: ys(to) || ys(from) || fdate, basis: 'record' });
+        if (isCompany(org)) {
+          for (const label of titlesIn(title || '')) {
+            addVote(label, f.id, ys(from) || fdate, true);
+            if (ended) addVote(label, f.id, ys(to), true, 'at');
+          }
+          if (!ended) presence.push({ id: f.id, date: ys(from) || fdate || '' });
+        }
+      };
+      for (const e of list(d.employers).slice(0, 12)) if (e.org) roleFrom(e.org, e.title, e.from, e.to);
+      for (const p of list(d.positions).slice(0, 12)) if (p.of && p.title) roleFrom(p.of, p.title, p.from, p.to);
+      for (const x of list(d.founded).slice(0, 12)) if (x.org) addFounded({ org: x.org, year: year(x.year), id: f.id });
+      for (const b of list(d.boards).slice(0, 12)) if (b.org) boards.push({ org: b.org, role: /advis/i.test(b.role || '') ? 'Advisor' : /chair/i.test(b.role || '') ? 'Chair of the board' : 'Board member', from: year(b.from), to: year(b.to), id: f.id });
+      for (const m of list(d.memberships).slice(0, 12)) if (m.org && !/\b(?:party|parti|partei)\b/i.test(m.org)) boards.push({ org: m.org, role: 'Member', from: year(m.from), to: year(m.to), id: f.id });
+      for (const a of list(d.awards).slice(0, 12)) if (a.text) recog.push({ text: tidy(a.text), year: year(a.year), id: f.id });
+    }
+    // a Wikidata record from before the sources wrote these fields: its statements, parsed from the quote
+    if (f.source === 'wikidata' && (hasData || f.match !== 'confirmed')) continue;
+    if (f.source === 'wikidata') {
       for (const st of wikidataStatements(f.quote)) {
         const mine = subject.hasName(st.a);
         const inverse = subject.hasName(st.b);
@@ -619,14 +757,16 @@ export function buildProfile(subject, findings, threads = []) {
         addRole({ org, title: null, from: year(d.priorityDate), to: null, current: null, id: f.id, date: d.priorityDate || fdate, basis: 'record', via: 'patent' });
       }
     }
-    // ORCID entries and theses
-    if (f.source === 'academic-record') {
+    // ORCID entries saved before the sources wrote data.education and data.employers. A thesis is read only from
+    // data.education, which the source writes for a defended thesis alone: a thesis in preparation is no degree.
+    if (f.source === 'academic-record' && !hasData) {
       for (const e of d.entries || []) {
         if (!e.organisation) continue;
         if (f.category === 'education') addEdu({ school: e.organisation, degree: e.role || null, field: e.department || null, from: year(e.start), to: year(e.end), id: f.id, basis: 'record' });
         else addRole({ org: e.organisation, title: e.role || null, from: year(e.start), to: year(e.end), current: e.end ? false : null, id: f.id, date: e.end || e.start || fdate, basis: 'record' });
       }
-      if (d.institution && d.degree) addEdu({ school: d.institution, degree: d.degree, to: d.defended === false ? null : year(f.date), id: f.id, basis: 'record' });
+      // a saved thesis record of the older shape: only one the registry marks as defended
+      if (d.institution && d.degree && d.defended === true) addEdu({ school: d.institution, degree: d.degree, to: year(f.date), id: f.id, basis: 'record' });
     }
     // an accelerator's founder list naming them
     if (f.source === 'yc-directory' && f.category === 'career' && d.company) {
@@ -709,19 +849,25 @@ export function buildProfile(subject, findings, threads = []) {
       for (const raw of sentences) {
         if (raw.length > 600) { carry = 0; continue; }
         const named = subject.hasName(raw);
-        const follows = !named && carry > 0 && CONTINUES.test(raw);
-        const firstNamed = !named && unit.firstName && opensOnSubject(subject, raw, { firstName: true });
-        const surnamed = !named && unit.surname && opensOnSubject(subject, raw, { surname: true });
+        const opening = raw.replace(LEAD_IN, '');
+        const pronoun = PRONOUN_OPEN.test(opening);
+        // "She/He/They" (or "Previously he ...") is theirs only as a follow-on of a sentence about them that
+        // brought in nobody else (carry); never because the sentence opens on a pronoun
+        const follows = !named && ((carry > 0 && CONTINUES.test(raw)) || Boolean(unit.vetted && pronoun));
+        const followsThem = follows && (pronoun ||/^(?:Previously|Formerly|Earlier|Before that|Prior to that|After that|Later)\s*,?\s+(?:she|he|they)\b/i.test(opening));
+        const firstNamed = !named && !pronoun && unit.firstName && opensOnSubject(subject, raw, { firstName: true });
+        const surnamed = !named && !pronoun && unit.surname && opensOnSubject(subject, raw, { surname: true });
         const another = bringsInSomeoneElse(subject, raw);
-        // On their own profile page, a fragment that names nobody else is about them ("BA in Economics, Harvard University")
-        const fragment = unit.own && !named && !another && !/^[A-Z][\p{L}'’-]+\s+[A-Z][\p{L}'’-]+\s+(?:is|was|has|joined|said)\b/u.test(raw);
+        // On their own profile page, a fragment that names nobody else is about them ("BA in Economics, Harvard
+        // University"); a pronoun sentence there may be about a colleague whose bio the page also holds
+        const fragment = unit.own && !named && !another && !pronoun && !/^[A-Z][\p{L}'’-]+\s+[A-Z][\p{L}'’-]+\s+(?:is|was|has|joined|said)\b/u.test(raw);
         carry = (named || firstNamed || surnamed || follows) && another ? 0 : named || firstNamed || surnamed ? 2 : follows ? carry - 1 : 0;
         const who = `(?:${esc(String(subject.name).trim())}${unit.firstName && String(subject.name).trim().split(/\s+/)[0].length >= 4 ? `|${esc(String(subject.name).trim().split(/\s+/)[0])}` : ''})`;
         const doing = new RegExp(`(?<![\\p{L}\\p{N}])${who}(?:\\s+and\\s+[A-Z][\\p{L}'’-]+(?:\\s+[A-Z][\\p{L}'’-]+)?)?\\s+(?:both\\s+|also\\s+|then\\s+|later\\s+)?(?:graduated|studied|attended|earned|received|majored|worked|joined|served|spent|interned|started (?:her|his|their) career|began (?:her|his|their) career)\\b`, 'u').test(raw);
         if (!(named || follows || firstNamed || surnamed || doing || fragment)) continue;
         const s = withoutPrivateClauses(raw);
         if (!s) continue;
-        const theirs = doing || fragment || surnamed || opensOnSubject(subject, s, { firstName: unit.firstName });
+        const theirs = doing || fragment || surnamed || followsThem || opensOnSubject(subject, s, { firstName: unit.firstName });
         const strong = Boolean(unit.own) || liOwn || f.data?.structured;
         // the claim at `at` is the person's: the sentence is theirs, and nobody else is named on the way to it
         const mine = (at) => theirs && !leadsToSomeoneElse(subject, s.slice(0, at));
@@ -736,7 +882,16 @@ export function buildProfile(subject, findings, threads = []) {
             for (const m of s.matchAll(re)) {
               const after = s.slice(m.index + m[0].length);
               const nameNext = (subject.hasName.positions?.(after) || []).some((p) => p.start <= 3);
-              const owned = re === b ? nameNext || (!leadsToSomeoneElse(subject, s.slice(0, m.index)) && (theirs || named)) : !leadsToSomeoneElse(subject, s.slice(0, m.index));
+              // "Ramp CTO Karim Atiyeh": the title is the name's that follows it
+              const next = after.match(/^\s*,?\s*([A-Z][\p{L}'’-]+(?:\s+[A-Z][\p{L}'’-]+){1,2})/u);
+              const otherNext = Boolean(next && isPersonRun(next[1]) && !subject.hasName(next[1]));
+              // Otherwise the title is theirs only where it stands beside them: "Jane Roe, CEO of Acme", "Jane Roe
+              // is the CEO of Acme", "Jane Roe - CEO at Acme"; never "Jane Roe and Bob Smith, CTO of Acme"
+              const masked = maskSubject(subject, s.slice(0, m.index)).replace(LEAD_IN, '');
+              const lastMention = masked.lastIndexOf('•');
+              const beside = lastMention >= 0 ? SUBJECT_TAIL.test(masked.slice(lastMention))
+                : (fragment && !masked.trim()) || (liOwn && !named && !masked.trim()) || ((followsThem || firstNamed || surnamed) && UNNAMED_TAIL.test(masked));
+              const owned = nameNext || (!otherNext && beside && !leadsToSomeoneElse(subject, s.slice(0, m.index)));
               if (!owned) continue;
               // "former CEO of Merge" is not their role now
               const former = /\b(?:former|ex-?|then-?|onetime|one-time|past)\s*$/i.test(s.slice(0, m.index));
@@ -755,12 +910,17 @@ export function buildProfile(subject, findings, threads = []) {
 
         // --- education
         SCHOOL.lastIndex = 0;
-        if ((theirs && (EDU_WORD.test(s) || /['’]\d{2}\b/.test(s))) || (liOwn && fragment)) {
+        // the word that says it is their schooling must stand outside the school's own name ("Columbia Business School")
+        const eduSaid = EDU_WORD.test(s.replace(SCHOOL, ' ')) || /['’]\d{2}\b/.test(s);
+        SCHOOL.lastIndex = 0;
+        if ((theirs && eduSaid) || (liOwn && fragment)) {
           for (const m of s.matchAll(SCHOOL)) {
             if (!mine(m.index) && !(liOwn && fragment)) continue;
+            // a talk, a gift or a board seat at a school is not a degree ("spoke at", "donated to", "... Club")
+            if (NOT_STUDY_BEFORE.test(s.slice(Math.max(0, m.index - 40), m.index)) || NOT_STUDY_AFTER.test(s.slice(m.index + m[0].length))) continue;
             // "Ramp Harvard University" in a compact snippet: the company before the school is not part of it
             const lead = company ? m[0].match(new RegExp(`^(?:${coAlt})\\s+(?=[A-Z])`, 'i')) : null;
-            const school = lead ? m[0].slice(lead[0].length) : m[0];
+            const school = trimSchool(lead ? m[0].slice(lead[0].length) : m[0]);
             const details = schoolDetails(s, school, m.index + (lead ? lead[0].length : 0));
             addEdu({ school, ...details, id: f.id, basis: 'text' });
           }
@@ -782,7 +942,8 @@ export function buildProfile(subject, findings, threads = []) {
         for (const m of s.matchAll(foundedRe)) {
           const at = m.index + m[0].length;
           const rest = s.slice(at);
-          if (!/^(?:(?:an?|the|her|his|their)\s+(?:[\p{L}$\d.,-]+\s+){0,5}?(?:company|startup|start-up|business|firm|venture|fund|brand|app|nonprofit|organi[sz]ation|lab|studio|platform)\s+(?:called|named)\s+)?(?:[A-Z0-9]|[a-z][A-Z])/u.test(rest)) continue;
+          // "founded Acme", "started a company called Acme", "launched a new blockchain startup, Alta,"
+          if (!/^(?:(?:an?|the|her|his|their)\s+(?:[\p{L}$\d.,-]+\s+){0,5}?(?:company|startup|start-up|business|firm|venture|fund|brand|app|nonprofit|organi[sz]ation|lab|studio|platform)(?:\s+(?:called|named)\s+|,\s+))?(?:[A-Z0-9]|[a-z][A-Z])/u.test(rest)) continue;
           if (/^(?:her|his|their)\s+career\b/i.test(rest)) continue;
           const o = orgAt(s, at);
           if (!o || !mine(o.start)) continue;
@@ -812,8 +973,11 @@ export function buildProfile(subject, findings, threads = []) {
         // --- earlier and other roles
         const rolePatterns = [
           { re: /\b(?:[Pp]reviously|[Ff]ormerly|[Ee]arlier|[Bb]efore (?:that|founding|starting|launching|co-?founding|joining)[^.;]{0,50}?,|[Pp]rior to [^.;]{0,50}?,)([^.;]{0,70}?)\b(?:at|for|with|joined)\s+/g, current: false, list: true, skipIf: /\b(?:co-?founded|founded|started|launched|built|created)\b/i },
-          { re: /\b(?:worked|working|work|stints?|interned|internships?|career|spent\s+(?:[\w-]+\s+){0,3}(?:years?|months?))\s+(?:[\p{L}\s'’-]{0,40}?\s)?(?:at|for)\s+/gu, current: null, list: true },
+          // the words between the verb and "at" never cross another "at" or "for": "worked at Credit Suisse for 2 years"
+          { re: /\b(?:worked|working|work|stints?|interned|internships?|career|spent\s+(?:[\w-]+\s+){0,3}(?:years?|months?))\s+(?:(?!(?:at|for)\b)[\p{L}'’-]+\s+){0,6}?(?:at|for)\s+/gu, current: null, list: true },
           { re: new RegExp(`\\b(?:was|been|served as|worked as|started (?:out|her career|his career|their career) as)\\s+(?:an?|the)\\s+(?<role>${ROLE})\\s+(?:at|for|of|with)\\s+`, 'gu'), current: false },
+          // a title written without an article, the way profile pages print it: "was Financial Analyst at Millstein & Co."
+          { re: /\b(?:was|been|served as|worked as)\s+(?<role>[A-Z][\p{L}'’/&-]*(?:\s+(?:of\s+)?[A-Z][\p{L}'’/&-]*){0,4})\s+(?:at|for|with)\s+/gu, current: false, titled: true },
           { re: new RegExp(`\\b(?:is|serves as|currently)\\s+(?:also\\s+|now\\s+|currently\\s+)*(?:an?|the)\\s+(?<role>${ROLE})\\s+(?:at|of|for)\\s+`, 'gu'), current: true },
           { re: new RegExp(`\\b[Ff]ormer(?:ly)?\\s+(?:an?\\s+|the\\s+)?(?<role>${ROLE})\\s+(?:at|of)\\s+`, 'gu'), current: false },
           { re: /\b(?:alum(?:na|nus|ni)? of|veteran of)\s+/g, current: false },
@@ -825,12 +989,15 @@ export function buildProfile(subject, findings, threads = []) {
             let role = m.groups?.role ? tidy(m.groups.role) : null;
             if (role && /\b(?:who|which|that|is|was|the|board)\b/i.test(role)) continue;
             if (role && /found/i.test(role)) continue; // a founder of X is read as founded
+            // with no article, only a real title ("was Financial Analyst at"), never "was Part of"
+            if (p.titled && !(ROLE_WORD.test(role || '') || titlesIn(role || '').length)) continue;
             const list = p.list ? orgListAt(s, m.index + m[0].length) : [orgAt(s, m.index + m[0].length)].filter(Boolean);
             // after "joined" or "with" a person may stand ("joined Erik Torenberg", "worked with Bob Smith")
             const personMayStand = /^joined|with\s*$/i.test(m[0].trim()) || /\bwith\s+$/i.test(m[0]);
             for (const o of list) {
               if (!mine(o.start)) continue;
-              if (personMayStand && looksLikePerson(o.org)) continue;
+              // "joined Erik Torenberg and Jack Altman on their podcast": people, however many are listed
+              if (personMayStand && o.org.split(/\s*(?:,|\band\b|&)\s*/).some((part) => looksLikePerson(part))) continue;
               if (isCompany(o.org)) {
                 if (role) for (const label of titlesIn(role)) addVote(label, f.id, unit.date, p.current === true, p.current === false ? 'former' : false);
                 continue;
@@ -838,6 +1005,9 @@ export function buildProfile(subject, findings, threads = []) {
               if (okSchool(o.org)) continue;
               const span = spanAfter(s, o.org);
               const joinedIn = /^joined/.test(m[0]) ? (s.slice(o.end).match(/^\s+in\s+(?:[A-Z][a-z]+\s+)?((?:19|20)\d\d)\b/) || [])[1] : null;
+              // "worked at Capital One as a Senior Director": the title after the organisation
+              const asTitle = !role && list.length === 1 ? (s.slice(o.end).match(/^\s*,?\s+as\s+(?:an?\s+|the\s+|its\s+)?([A-Za-z][\p{L}.'’/&-]*(?:\s+(?:of\s+)?[A-Za-z][\p{L}.'’/&-]*){0,4}?)(?=\s*(?:[.,;]|$)|\s+(?:from|in|until|before|and|for|where|when)\b)/u) || [])[1] : null;
+              if (asTitle && (ROLE_WORD.test(asTitle) || titlesIn(asTitle).length)) role = tidy(asTitle.replace(/\.+$/, ''));
               addRole({ org: o.org, title: list.length === 1 ? role : null, from: span?.from ?? year(joinedIn), to: span?.to ?? null, current: span?.current ? true : span?.to ? false : p.current, id: f.id, date: unit.date, basis: 'text' });
             }
           }
@@ -1036,12 +1206,7 @@ export function buildProfile(subject, findings, threads = []) {
   resumeRoles.sort((a, b) => (Number(b.current) - Number(a.current)) || ((b.from || b.to || 0) - (a.from || a.to || 0)));
 
   /* ---- education grouped by school ("Harvard", "Harvard College" and "Harvard University" are one school) */
-  const rootOf = (school) => {
-    const s = school.replace(/^The /, '');
-    const m = s.match(/^University of (.+)$/) || s.match(/^(.+?)\s+(?:University|College)$/);
-    const r = (m ? m[1] : s).toLowerCase();
-    return /^(?:boston|miami|washington|columbia|georgetown)$/.test(r) && m && !/^University of/.test(s) ? `${r}|${/College$/.test(s) ? 'c' : 'u'}` : r;
-  };
+  const rootOf = schoolRoot;
   const eduMap = new Map();
   const eduSorted = [...edu].sort((a, b) => Number(b.basis === 'record') - Number(a.basis === 'record'));
   for (const x of eduSorted) {
@@ -1064,6 +1229,14 @@ export function buildProfile(subject, findings, threads = []) {
   if (company && companyFounded) {
     const ids = [...new Set(kept.filter((e) => FOUNDER_LABELS.has(e.label)).flatMap((e) => [...e.ids]))];
     founded.push({ org: company, year: foundedYearOfCompany, with: [], id: ids[0], ids });
+  }
+  // An accelerator read as a school ("Y Combinator" among schools in a knowledge-graph entry) goes with the
+  // venture that went through it, or, with none to hang it on, under recognition
+  for (const a of accelerators) {
+    const key = a.name.toLowerCase().replace(/^yc$/, 'y combinator').replace(/\s+/g, '');
+    const venture = founded.find((x) => x.program && x.program.toLowerCase().replace(/\s+/g, '').includes(key));
+    if (venture) founded.push({ org: venture.org, program: venture.program, id: a.id });
+    else recog.push({ text: `${/^yc$/i.test(a.name) ? 'Y Combinator' : a.name} (accelerator)`, year: a.year, id: a.id });
   }
   const fMap = new Map();
   for (const x of founded) {

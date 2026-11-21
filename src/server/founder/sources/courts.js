@@ -35,7 +35,7 @@ import { makeFinding, makeThread, severityFromText } from '../finding';
 import { matchSubject, companyKeyStrict } from '../identity';
 import { threadsFromResult } from '../extract';
 import { companyKeys } from '../../founderCheck';
-import { companyMention, isOrdinaryWordCompany } from '../names';
+import { companyMention, isOrdinaryWordCompany, NICKNAME_LIST } from '../names';
 import { mentionsMinor, isSensitive } from '../guardrails';
 import { withAliasHold } from './alias';
 
@@ -66,20 +66,9 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 /* ------------------------------------------------------------------ people's names */
 
 const NAME_SUFFIX = new Set(['jr', 'sr', 'ii', 'iii', 'iv', 'esq', 'md', 'phd', 'cpa']);
-// The formal name first, then what people go by. Used both ways.
-const NICKNAME_GROUPS = [
-  ['samuel', 'sam'], ['michael', 'mike'], ['william', 'bill', 'will'], ['robert', 'bob', 'rob'], ['james', 'jim', 'jimmy'],
-  ['joseph', 'joe'], ['thomas', 'tom'], ['daniel', 'dan'], ['david', 'dave'], ['steven', 'stephen', 'steve'],
-  ['christopher', 'chris'], ['matthew', 'matt'], ['nicholas', 'nick'], ['anthony', 'tony'], ['benjamin', 'ben'],
-  ['alexander', 'alex'], ['andrew', 'andy', 'drew'], ['gregory', 'greg'], ['jeffrey', 'jeff'], ['kenneth', 'ken'],
-  ['lawrence', 'larry'], ['peter', 'pete'], ['richard', 'rick', 'rich', 'dick'], ['ronald', 'ron'], ['timothy', 'tim'],
-  ['edward', 'ed', 'eddie'], ['frederick', 'fred'], ['charles', 'charlie', 'chuck'], ['jonathan', 'jon'], ['joshua', 'josh'],
-  ['zachary', 'zach', 'zack'], ['nathaniel', 'nathan', 'nate'], ['philip', 'phillip', 'phil'], ['douglas', 'doug'],
-  ['donald', 'don'], ['raymond', 'ray'], ['walter', 'walt'], ['gabriel', 'gabe'], ['maxwell', 'max'], ['patrick', 'pat'],
-  ['elizabeth', 'liz', 'beth'], ['katherine', 'catherine', 'kate', 'katie', 'kathy'], ['jennifer', 'jen', 'jenny'],
-  ['susan', 'sue'], ['margaret', 'meg', 'maggie', 'peggy'], ['rebecca', 'becky'], ['abigail', 'abby'], ['deborah', 'debbie', 'deb'],
-  ['victoria', 'vicky'], ['christine', 'christina', 'chris', 'tina'], ['jacqueline', 'jackie'], ['pamela', 'pam'], ['cynthia', 'cindy'],
-];
+// The formal name first, then what people go by. Used both ways. The one shared table in names.js, so every
+// source reads the same diminutives.
+const NICKNAME_GROUPS = NICKNAME_LIST;
 const NICK = new Map();
 for (const group of NICKNAME_GROUPS) for (const n of group) NICK.set(n, uniq([...(NICK.get(n) || []), ...group]));
 const sameGiven = (a, b) => a === b || Boolean(NICK.get(a)?.includes(b));
@@ -105,11 +94,11 @@ const inOrder = (small, big) => {
 /** "bankman fried" written as two parts is the same surname as "bankman-fried". */
 const joinSurname = (c, surname) => (surname.includes('-') && c.length >= 3 && `${c[c.length - 2]}-${c[c.length - 1]}` === surname ? [...c.slice(0, -2), surname] : c);
 
-function tokensMatch(candidate, subject) {
+function tokensMatch(candidate, subject, { strict = false } = {}) {
   const c = joinSurname(candidate, subject[subject.length - 1]);
   const s = joinSurname(subject, c[c.length - 1] || '');
   if (c.length < 2 || s.length < 2) return false;
-  if (!sameGiven(c[0], s[0]) || c[c.length - 1] !== s[s.length - 1]) return false;
+  if (!(strict ? c[0] === s[0] : sameGiven(c[0], s[0])) || c[c.length - 1] !== s[s.length - 1]) return false;
   const cm = c.slice(1, -1);
   const sm = s.slice(1, -1);
   return cm.length >= sm.length ? inOrder(sm, cm) : inOrder(cm, sm);
@@ -133,10 +122,32 @@ export function person(subjectOrName) {
   return { name, variants, forms, given, surname, queryNames: uniq([name, formal]) };
 }
 
-/** Is this structured name (a party, a registrant) the person's own name, part for part? */
-export function sameName(candidate, who) {
+/**
+ * Is this structured name (a party, a registrant) the person's own name, part
+ * for part? A diminutive of the first name ("Samuel" for "Sam") counts here, so
+ * the record is found; `strict` asks for the first name as given.
+ */
+export function sameName(candidate, who, { strict = false } = {}) {
   const c = personTokens(candidate);
-  return c.length >= 2 && who.forms.some((s) => tokensMatch(c, s));
+  return c.length >= 2 && who.forms.some((s) => tokensMatch(c, s, { strict }));
+}
+
+/**
+ * A record found through a diminutive of the first name only (the party is
+ * "Samuel Lowell", the person "Sam Lowell") may be a relative or a namesake:
+ * the court sources grade it with the person's own name in the text, so a
+ * confirmed grade is held at likely here. `evidence` is what named the person
+ * (the matching party, the sentence); when any of it gives the full name the
+ * grade stands. Shared by courts.js and courtsMore.js.
+ */
+export function namedInFull(subject, who, evidence) {
+  const texts = (Array.isArray(evidence) ? evidence : [evidence]).map((t) => clean(t)).filter(Boolean);
+  return !texts.length || texts.some((t) => sameName(t, who, { strict: true }) || (typeof subject?.hasName === 'function' && subject.hasName(t)));
+}
+export function holdDiminutive(finding, subject, who, evidence) {
+  if (!finding || finding.match !== 'confirmed') return finding;
+  if (namedInFull(subject, who, evidence)) return finding;
+  return { ...finding, match: 'likely', matchFixed: true, matchReasons: [...(finding.matchReasons || []), 'the record gives the person only under another form of the first name'] };
 }
 
 const casings = (w) => uniq([w, w.toUpperCase(), cap(w.toLowerCase()), stripAccents(w), stripAccents(w).toUpperCase()]).map(escapeRe).join('|');
@@ -318,7 +329,10 @@ const textNamesCompanyStrongly = (text, company, subject = null) => {
  * immigration and asylum, health and disability benefits, prisoners' own petitions.
  * Shared by courts.js and courtsMore.js so every court path uses one list.
  */
-export const PRIVATE_MATTER = /\b(?:family court|custody|guardianship|guardian ad litem|adult protective|disabled person|incapacitat\w*|minor child|juvenile|adoption|divorce|name change|estate of|in re (?:the )?(?:estate|trust|will|guardianship)|immigration|citizenship|refugee|asylum|international protection|residence permit|third-country national|family reunification|deport\w*|removal order|expulsion|visa|permanent resident|public safety and emergency preparedness|mental health|psychiatric|sickness|invalidity|disability benefits?|commissioner of social security|social security (?:administration|disability|benefits?|income)|supplemental security income|DIW[CW]|SSID|black lung|prisoner petitions?|prison conditions|civil detainee|medical malpractice)\b/i;
+// Words that are also business names are tied to their private sense: "custody" only of a child ("Coinbase Custody
+// Trust" is a bank), "visa" only as a petition or an immigrant visa ("Visa U.S.A. Inc." is a company), "estate of"
+// only as a whole side of a case ("Real Estate of Texas LLC" is a company, "Estate of John Smith v. ..." is private).
+export const PRIVATE_MATTER = /(?:(?:^|\bv\.?\s+|\bvs\.?\s+|[.;|]\s+|[;|(]\s*)(?:in re:?\s+)?(?:the\s+)?estate of\b)|\b(?:family court|child custody|custody of (?:the |a |an |his |her |their )?(?:minor|child|children|infant|son|daughter)s?|custody (?:dispute|petition|proceeding|order|of minors?)|guardianship|guardian ad litem|adult protective|disabled person|incapacitat\w*|minor child|juvenile|adoption|divorce|name change|in re (?:the )?(?:estate|trust|will|guardianship)|immigration|citizenship|refugee|asylum|international protection|residence permit|third-country national|family reunification|deport\w*|removal order|expulsion|(?:immigrant|nonimmigrant|student|work|tourist|spousal|fianc[eé]e?) visas?|visa (?:petition|application|denial|refusal|revocation|overstay)s?|permanent resident|public safety and emergency preparedness|mental health|psychiatric|sickness|invalidity|disability benefits?|commissioner of social security|social security (?:administration|disability|benefits?|income)|supplemental security income|DIW[CW]|SSID|black lung|prisoner petitions?|prison conditions|civil detainee|medical malpractice)\b/i;
 /**
  * A US federal nature of suit about a person's benefits, health or custody:
  * Social Security (861-865), prisoner petitions (510-560), medical malpractice (362).
@@ -328,7 +342,10 @@ const PRIVATE_SUIT = /^\s*(?:86[1-5]|5[1-6]\d|362)\b|social security|\bDIW[CW]\b
 const PERSONAL_ONLY_SUIT = /^\s*362\b|medical malpractice/i;
 /** Is a case about a private matter, or does its caption name a minor? */
 function privateCase(caption, suitNature = '', { personal = true } = {}) {
-  if (PRIVATE_MATTER.test(caption) || mentionsMinor(caption)) return true;
+  if (mentionsMinor(caption)) return true;
+  // On the company path the person is not a party: a family, estate or immigration word in a company's case is
+  // about the company's business, never about the person's private life.
+  if (personal && PRIVATE_MATTER.test(caption)) return true;
   const suit = clean(suitNature);
   if (suit && PRIVATE_SUIT.test(suit) && (personal || !PERSONAL_ONLY_SUIT.test(suit))) return true;
   return personal && isSensitive(caption);
@@ -521,8 +538,11 @@ function docketFinding(d, ctx, who, { company = '' } = {}) {
   const companyParty = company ? [...parties, ...title.sides, ...title.asides, ...fullTitle.sides].find((p) => partyIsKnownCompany(p, company, ctx.subject)) || '' : '';
   if (company ? !companyParty : !(partyHit || textHit)) return { skip: 'not-named' };
   // Disability benefits, prisoners' petitions, a person's malpractice suit, a minor's initials: never reported.
-  const captionText = `${caseName}. ${clean(d.case_name_full)}. ${parties.join('; ')}`;
-  if (privateCase(captionText, d.suitNature, { personal: Boolean(partyHit || textHit) })) return { skip: 'private' };
+  // The caption only, never the whole party list: an "Estate of John Q Investor" among a class action's plaintiffs
+  // or "Visa U.S.A. Inc." as a defendant does not make the case private. A minor among the parties still does.
+  const captionText = `${caseName}. ${clean(d.case_name_full)}`;
+  const personal = Boolean(partyHit || textHit);
+  if (privateCase(captionText, d.suitNature, { personal }) || (personal && parties.some((p) => mentionsMinor(p)))) return { skip: 'private' };
 
   const court = clean(d.court) || federalCourtName(d.court_id);
   const docketNumber = clean(d.docketNumber);
@@ -543,9 +563,10 @@ function docketFinding(d, ctx, who, { company = '' } = {}) {
   const gradeParties = parties.filter((p) => sameName(p, who) || uniq([company, ...knownCompanies(ctx.subject)]).some((c) => partyIsKnownCompany(p, c, ctx.subject)));
   const matchText = named ? [who.name, caseName, gradeParties.join('; '), title.asides.join('; '), textHit].filter(Boolean).join(' | ') : '';
   // A personal bankruptcy is private unless the docket itself ties it to the subject.
-  const personal = bankruptcy && named && titlePeople.some((p) => sameName(p, who));
-  if (personal && matchSubject(ctx.subject, matchText).level !== 'confirmed') return { skip: 'personal-bankruptcy' };
-  const finding = makeFinding(ctx.subject, {
+  const personalBankruptcy = bankruptcy && named && titlePeople.some((p) => sameName(p, who));
+  // Under a diminutive of the first name only, a personal bankruptcy is never tied to them.
+  if (personalBankruptcy && (matchSubject(ctx.subject, matchText).level !== 'confirmed' || !namedInFull(ctx.subject, who, [partyHit, textHit]))) return { skip: 'personal-bankruptcy' };
+  const graded = makeFinding(ctx.subject, {
     source: CL_ID,
     sourceLabel: CL_LABEL,
     category: 'litigation',
@@ -557,6 +578,7 @@ function docketFinding(d, ctx, who, { company = '' } = {}) {
     data: { caseNumber: docketNumber || null, court, ...(isoDay(d.dateTerminated) ? { closed: isoDay(d.dateTerminated) } : {}), ...(d.chapter ? { chapter: clean(d.chapter) } : {}) },
     ...(named ? { matchText } : { match: 'company', matchReasons: [`${companyParty} is a party to the case`] }),
   });
+  const finding = named ? holdDiminutive(graded, ctx.subject, who, [partyHit, textHit]) : graded;
   return finding ? { finding } : { skip: 'not-named' };
 }
 
@@ -575,7 +597,7 @@ function opinionFinding(o, ctx, who) {
   const filed = isoDay(o.dateFiled);
   const citation = arr(o.citation).map(clean).filter(Boolean)[0] || '';
   const surnameSide = title.sides.some((side) => plainKey(side) === plainKey(who.surname));
-  return makeFinding(ctx.subject, {
+  return holdDiminutive(makeFinding(ctx.subject, {
     source: CL_ID,
     sourceLabel: CL_LABEL,
     category: 'litigation',
@@ -586,7 +608,7 @@ function opinionFinding(o, ctx, who) {
     severity: isCriminalCase(caseName, docketNumber) && (partyHit || surnameSide) ? 'high' : 'medium',
     data: { caseNumber: docketNumber || null, court, kind: 'opinion', ...(citation ? { citation } : {}) },
     matchText: [who.name, caseName, clean(o.caseNameFull), title.asides.join('; '), snippet].filter(Boolean).join(' | '),
-  });
+  }), ctx.subject, who, [partyHit, snippet]);
 }
 
 export const courtDocketsConnector = {
@@ -704,7 +726,7 @@ function iaFinding(doc, ctx, who, { company = '', tie = null, charges = [] } = {
   if (company ? !companyParty : !partyHit) return { skip: 'not-named' };
   if (privateCase(caseName, '', { personal: Boolean(partyHit) })) return { skip: 'private' };
   const matchText = partyHit ? `${who.name} | ${caseName}` : '';
-  if (partyHit && isBankruptcyCourt(code) && matchSubject(ctx.subject, matchText).level !== 'confirmed') return { skip: 'personal-bankruptcy' };
+  if (partyHit && isBankruptcyCourt(code) && (matchSubject(ctx.subject, matchText).level !== 'confirmed' || !namedInFull(ctx.subject, who, partyHit))) return { skip: 'personal-bankruptcy' };
   const surnameSide = title.sides.find((side) => plainKey(side) === plainKey(who.surname)) || '';
   // The company the person founded or runs on one side and exactly their surname on the other: likely them, never confirmed.
   const origin = !partyHit && surnameSide && title.sides.length === 2 && title.sides.includes(companyParty) && companyParty !== surnameSide
@@ -734,7 +756,8 @@ function iaFinding(doc, ctx, who, { company = '', tie = null, charges = [] } = {
       matchReasons: [`${companyParty} is a party to the case`, ...(surnameSide ? [`the other side is named ${surnameSide}; the case title gives no first name`] : [])],
     }),
   });
-  return finding ? { finding, surnameSide: Boolean(surnameSide) } : { skip: 'not-named' };
+  const held = partyHit ? holdDiminutive(finding, ctx.subject, who, partyHit) : finding;
+  return held ? { finding: held, surnameSide: Boolean(surnameSide) } : { skip: 'not-named' };
 }
 
 const CHARGE_SOURCES = new Set(['doj-press-releases', 'sec-filings']);
@@ -1039,7 +1062,8 @@ export const dojConnector = {
     };
     const done = (out) => (partial.length ? { ...out, partial: uniq(partial) } : out);
     /** A release that names the subject: graded on the headline, the quoted passage and the sentences that name them. */
-    const aboutSubject = (rel, naming, extra = {}) => makeFinding(ctx.subject, {
+    // Named only under a diminutive of the first name, a release is held at likely (holdDiminutive).
+    const aboutSubject = (rel, naming, extra = {}) => holdDiminutive(makeFinding(ctx.subject, {
       ...base,
       title: rel.title,
       quote: naming.quote,
@@ -1049,7 +1073,7 @@ export const dojConnector = {
       data: rel.data,
       matchText: `${who.name} | ${rel.title} | ${naming.quote} | ${naming.context}`,
       ...extra,
-    });
+    }), ctx.subject, who, [rel.title, naming.quote, naming.context]);
 
     if (template === 'title.associate') {
       const other = person(task.value);
@@ -1198,7 +1222,7 @@ function brokerFinding(hit, detail, ctx, who) {
     data: { crd, firms: firms.map(titleCase), disclosures: count, ...(detail ? { disclosureTypes: byType } : {}), bar },
     matchText: [who.name, name, firms.join('; '), allegations].filter(Boolean).join(' | '),
   });
-  return { finding, firms };
+  return { finding: holdDiminutive(finding, ctx.subject, who, name), firms };
 }
 
 const IAPD_FIRM_SEARCH = 'https://api.adviserinfo.sec.gov/search/firm';
@@ -1494,7 +1518,7 @@ export const ukCaseLawConnector = {
           severity: isUkCriminal(j.title) ? 'high' : 'medium',
           ...(named ? { matchText: `${who.name} | ${j.title} | ${company}` } : { match: 'company', matchReasons: [`${party} is a party`] }),
         });
-        if (f) findings.push(f);
+        if (f) findings.push(named ? holdDiminutive(f, ctx.subject, who, named) : f);
       }
       }
       return done({ findings: findings.slice(0, 10), threads: [], notes });
@@ -1508,12 +1532,13 @@ export const ukCaseLawConnector = {
         const parties = caseParties(j.title);
         if (!parties.people.some((p) => sameName(p, who))) continue;
         seen.add(j.url);
+        const hits = parties.people.filter((p) => sameName(p, who));
         const f = judgmentFinding(j, ctx, {
           severity: isUkCriminal(j.title) ? 'high' : 'medium',
           matchText: `${who.name} | ${j.title} | ${company}`,
           // The company is in the judgment, not the feed: say so.
         });
-        if (f) findings.push({ ...f, matchReasons: [...f.matchReasons, `the judgment text names ${company} (Find Case Law search)`] });
+        if (f) findings.push(holdDiminutive({ ...f, matchReasons: [...f.matchReasons, `the judgment text names ${company} (Find Case Law search)`] }, ctx.subject, who, hits));
       }
     }
     let privateSkipped = 0;
@@ -1524,7 +1549,7 @@ export const ukCaseLawConnector = {
       const company = namesKnownCompany(ctx.subject, j.title);
       if (!company && (PRIVATE_COURTS.test(j.court) || privateCase(j.title))) { privateSkipped += 1; continue; }
       const f = judgmentFinding(j, ctx, { severity: isUkCriminal(j.title) ? 'high' : 'medium', matchText: `${who.name} | ${j.title}` });
-      if (f) findings.push(f);
+      if (f) findings.push(holdDiminutive(f, ctx.subject, who, parties.people.filter((p) => sameName(p, who))));
     }
     if (privateSkipped) notes.push(`${plural(privateSkipped, 'family, immigration or employment judgment')} under the same name ${privateSkipped === 1 ? 'was' : 'were'} left out: nothing in ${privateSkipped === 1 ? 'it' : 'them'} ties ${privateSkipped === 1 ? 'it' : 'them'} to ${who.name}'s companies.`);
     return done({ findings: findings.slice(0, 12), threads: [], notes });

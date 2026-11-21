@@ -21,14 +21,14 @@ import {
 } from 'react-icons/hi2';
 import { skippedNote } from '../../utils/skippedNote';
 import NetworkLinks from './NetworkLinks';
-import { Block, Cites, ExternalLink, PrintContext, openBlockAround } from './parts';
+import { Block, Cites, ExternalLink, PrintContext, openBlockAround, usePrinting } from './parts';
 import { briefHtml } from './briefHtml';
 import { ProfileCard, CompanyCard, yearsOf } from './Resume';
 import { Records, RecordFilters, CitationCard, filterRecords, isFiltered, NO_FILTER } from './RecordList';
-import { summaryChips, redFlagChip, recordsByNumber, compareReports, formatWhen } from './summary';
+import { summaryChips, redFlagChip, recordsByNumber, compareReports, formatWhen, savedReport } from './summary';
 import { reportAsText } from './reportText';
 import {
-  step, startJob, readJob, latestJob, patiently, savedJob, rememberJob, forgetJob, wait, detailsBody,
+  step, startJob, readJob, latestJob, patiently, savedJob, rememberJob, forgetJob, wait, detailsBody, detailsUse,
 } from './jobs';
 
 export { step, yearsOf };
@@ -322,6 +322,12 @@ function Coverage({ report }) {
           <ul className="space-y-1 text-sm text-muted">{coverage.notSearched.filter((s) => s.off).map((s) => <li key={s.label}><span className="font-medium text-ink">{s.label}</span></li>)}</ul>
         </div>
       )}
+      {(coverage.givenCompanies || []).length > 0 && (
+        <div className="mt-4" data-testid="given-companies">
+          <p className="eyebrow mb-1">Earlier companies you gave</p>
+          <ul className="space-y-1 text-sm text-muted">{coverage.givenCompanies.map((c) => <li key={c.name}><span className="font-medium text-ink">{c.name}</span>: {c.screened ? 'screened' : 'checked only for ties to the person'}</li>)}</ul>
+        </div>
+      )}
       <div className="mt-4">
         <p className="eyebrow mb-1">Not covered by the sources this check uses</p>
         <ul className="list-disc space-y-1 pl-5 text-sm text-muted">{(coverage.notCovered || []).map((s) => <li key={s}>{s}</li>)}</ul>
@@ -400,6 +406,9 @@ function Report({ report, fresh = null, children = null }) {
   const [cite, setCite] = useState(null); // { n, at }
   const [back, setBack] = useState(null); // { y, at }
   const [filter, setFilter] = useState(NO_FILTER);
+  const printing = usePrinting();
+  // A printed or saved PDF is a memo: it holds every record, never a search the reader forgot was on.
+  const view = printing ? NO_FILTER : filter;
   const root = useRef(null);
   const byNumber = useMemo(() => recordsByNumber(report), [report]);
 
@@ -453,14 +462,17 @@ function Report({ report, fresh = null, children = null }) {
 
   const { coverage, briefInfo } = report;
   const confidence = briefInfo?.confidence;
-  const flagChip = redFlagChip(report);
+  const held = report.ifRightPerson.length;
+  // the chip's caveat about the screens alone: the block below says what is held "if this is the right person"
+  const flagChip = redFlagChip({ ...report, ifRightPerson: [], totals: { ...(report.totals || {}), ifRightPerson: 0 } });
+  const heldNote = held ? ` ${held} serious matter${held === 1 ? ' is' : 's are'} listed below under “If this is the right person”.` : '';
   // a record is listed once, even when two sections carry it
   const nameOnly = [...new Map(report.sections.flatMap((s) => s.items.filter((f) => f.match === 'possible')).map((f) => [f.id || f.n, f])).values()];
   const tiedSections = report.sections
     .map((s) => ({ ...s, items: s.items.filter((f) => f.match !== 'possible').map((f, i) => ({ f, i })).sort((a, b) => (MATCH_ORDER[a.f.match] ?? 3) - (MATCH_ORDER[b.f.match] ?? 3) || a.i - b.i).map(({ f }) => f) }))
     .filter((s) => s.items.length > 0);
   const allTied = [...new Map(tiedSections.flatMap((s) => s.items).map((f) => [f.n, f])).values()];
-  const shownSections = tiedSections.map((s) => ({ ...s, items: filterRecords(s.items, filter) })).filter((s) => s.items.length > 0);
+  const shownSections = tiedSections.map((s) => ({ ...s, items: filterRecords(s.items, view) })).filter((s) => s.items.length > 0);
   const shownCount = new Set(shownSections.flatMap((s) => s.items.map((f) => f.n))).size;
 
   return (
@@ -499,15 +511,17 @@ function Report({ report, fresh = null, children = null }) {
         {report.redFlags.length === 0
           ? (
             <p className="muted">
-              {coverage.searched.length === 0
-                ? 'No source answered, so nothing was checked. This says nothing about the person: run the check again.'
-                : `No serious record is tied to this person in the sources searched.${flagChip.tone === 'chip chip-good' ? '' : ` ${flagChip.title || ''}`} That is not proof of a clean record; see what was not covered below.`}
+              {!coverage
+                ? `This saved report does not list which sources answered, so it cannot say that nothing was found.${heldNote} Run the check again for a full report.`
+                : coverage.searched.length === 0
+                  ? `No source answered, so nothing was checked. This says nothing about the person: run the check again.${heldNote}`
+                  : `No serious record is tied to this person in the sources searched.${heldNote}${flagChip.tone === 'chip chip-good' ? '' : ` ${flagChip.title || ''}`} That is not proof of a clean record; see what was not covered below.`}
             </p>
           )
           : <Records items={report.redFlags} withId={false} fresh={fresh} />}
       </Block>
 
-      {report.ifRightPerson?.length > 0 && (
+      {held > 0 && (
         <Block
           title="If this is the right person"
           count={report.ifRightPerson.length}
@@ -557,11 +571,11 @@ function Report({ report, fresh = null, children = null }) {
       {allTied.length > 0 && <RecordFilters value={filter} onChange={setFilter} items={allTied} shown={shownCount} />}
       {/* Records tied to the person or their company, by kind. Name-only matches are kept apart, below. */}
       {shownSections.map((s) => (
-        <Block key={s.key} title={s.title} count={s.items.length} open={isFiltered(filter)}>
+        <Block key={s.key} title={s.title} count={s.items.length} open={isFiltered(view)}>
           <Records items={s.items} first={15} reveal={revealN} fresh={fresh} />
         </Block>
       ))}
-      {isFiltered(filter) && shownSections.length === 0 && <p className="muted px-1 text-sm">No record matches these filters.</p>}
+      {isFiltered(view) && shownSections.length === 0 && <p className="muted px-1 text-sm">No record matches these filters.</p>}
 
       {report.possibleNamesake.length > 0 && (
         <Block
@@ -575,7 +589,12 @@ function Report({ report, fresh = null, children = null }) {
       )}
       <NameOnly items={nameOnly} wordOnly={report.wordOnly} company={report.company} reveal={revealN} />
 
-      <Coverage report={report} />
+      {coverage ? <Coverage report={report} /> : (
+        <Block title="What was searched" id="coverage">
+          <p className="muted text-sm">This saved report does not list which sources answered. Run the check again for a full account of what was searched.</p>
+          {report.notice && <p className="mt-4 rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs text-muted">{report.notice}</p>}
+        </Block>
+      )}
 
       {cite && typeof document !== 'undefined' && createPortal(
         <CitationCard record={byNumber.get(cite.n) || null} n={cite.n} at={cite.at} onClose={closeCite} onShow={showRecord} />,
@@ -591,7 +610,7 @@ function Report({ report, fresh = null, children = null }) {
 }
 
 // ------------------------------------------------------------ the check
-const IDLE = { phase: 'idle', progress: null, report: null, error: '', errorKind: '', needSignIn: false, note: '', assumed: null, confirm: null, changes: null };
+const IDLE = { phase: 'idle', progress: null, report: null, error: '', errorKind: '', needSignIn: false, note: '', assumed: null, confirm: null, changes: null, detailsUnused: '', replaced: false };
 
 function copyText(text) {
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
@@ -619,14 +638,22 @@ function copyText(text) {
  * @param {string} [props.jobId] a check to reopen (a link from Recent checks or the Network Map)
  * @param {object} [props.details] optional start fields { website, profileUrl, place, otherCompanies, school, otherNames }
  * @param {(report: object|null) => void} [props.onReport] told when a report is on the page
+ * @param {(jobId: string) => void} [props.onJob] told the id of the check on the page when it is not `jobId`
+ *   (a new run, or the saved check picked up), so the page can put it in its address: a reload then opens
+ *   this check, not the one the link named
  */
-export default function DeepCheck({ name, company = '', runKey = 0, jobId = null, details = null, onReport = null }) {
+export default function DeepCheck({ name, company = '', runKey = 0, jobId = null, details = null, onReport = null, onJob = null }) {
   const { status } = useSession();
   const [state, setState] = useState(IDLE);
   const [printing, setPrinting] = useState(false);
   const [copied, setCopied] = useState(false);
   const active = useRef(0);
-  const last = useRef({ name, company, runKey });
+  const last = useRef({ name, company, runKey, jobId, status: undefined });
+  const jobIdRef = useRef(jobId);
+  jobIdRef.current = jobId;
+  const following = useRef(null); // the check this page is showing or following
+  const onJobRef = useRef(onJob);
+  onJobRef.current = onJob;
   const reportRef = useRef(null);
   const detailsRef = useRef(details);
   detailsRef.current = details;
@@ -644,10 +671,12 @@ export default function DeepCheck({ name, company = '', runKey = 0, jobId = null
     const onRetry = () => { if (alive()) setState((s) => ({ ...s, note: 'The connection dropped. The check is saved; trying again…' })); };
     try {
       let data = null;
+      let reopened = false;
       if (!fresh) {
         // The check this page already has for the person: the link's, this browser's, then the account's latest.
         // Each read is tried patiently: a page reopened while offline must not start a second check.
-        if (jobId) data = await patiently(() => readJob(jobId), { onRetry }).catch((e) => { if (e.status === 401) throw e; return null; });
+        const linked = jobIdRef.current;
+        if (linked) data = await patiently(() => readJob(linked), { onRetry }).catch((e) => { if (e.status === 401) throw e; return null; });
         const saved = !data && savedJob(name, company);
         if (saved) {
           data = await patiently(() => readJob(saved), { onRetry }).catch((e) => { if (e.status === 401) throw e; return null; });
@@ -657,6 +686,7 @@ export default function DeepCheck({ name, company = '', runKey = 0, jobId = null
           data = await patiently(() => latestJob(name, company), { onRetry }).catch((e) => { if (e.status === 401 || e.status === 400) throw e; return null; });
         }
         if (!alive()) return;
+        reopened = Boolean(data);
       }
       if (!data) {
         // With no company typed, the server may know one contact with this name: it asks first (needsConfirm)
@@ -668,8 +698,21 @@ export default function DeepCheck({ name, company = '', runKey = 0, jobId = null
           setState((s) => ({ ...s, phase: 'confirm', confirm: data.needsConfirm }));
           return;
         }
+        // The server stopped a check of this person that was still running with other details and started this
+        // one with the new details. Say so, and forget the earlier check's saved id so it is never reopened here.
+        if (data.replaced) {
+          forgetJob(name, company);
+          setState((s) => ({ ...s, replaced: true }));
+        }
       }
       const id = data.jobId;
+      if (id) {
+        following.current = id;
+        if (id !== jobIdRef.current) onJobRef.current?.(id);
+      }
+      // A saved check reopened while details are typed: say whether they went into it, never silently drop them.
+      const unused = reopened && id ? detailsUse(id, detailsRef.current) : '';
+      const detailsUnused = unused === 'unused' || unused === 'unknown' ? unused : '';
       if (data.assumed?.company) setState((s) => ({ ...s, assumed: data.assumed.company }));
       // A check may wait minutes for a source's allowance: give up after a time limit, not a number of steps
       const until = Date.now() + 25 * 60 * 1000;
@@ -697,7 +740,7 @@ export default function DeepCheck({ name, company = '', runKey = 0, jobId = null
       }
       if (data.done) {
         const changes = before ? { ...compareReports(before, data.report), since: before.generatedAt } : null;
-        setState((s) => ({ ...IDLE, phase: 'done', progress: data.progress, report: data.report, assumed: s.assumed, changes }));
+        setState((s) => ({ ...IDLE, phase: 'done', progress: data.progress, report: data.report, assumed: s.assumed, changes, detailsUnused, replaced: s.replaced }));
         onReportRef.current?.(data.report);
       } else {
         setState((s) => ({ ...s, phase: 'error', errorKind: 'resume', error: 'The check is still running on the server. Open this page again later to see it, or pick it up now.' }));
@@ -714,19 +757,23 @@ export default function DeepCheck({ name, company = '', runKey = 0, jobId = null
           : error.message || 'The deep check failed.';
       setState((s) => ({ ...s, phase: s.report ? 'done' : 'error', errorKind: kind, error: message, needSignIn: kind === 'signin', note: '' }));
     }
-  }, [name, company, jobId]);
+  }, [name, company]);
 
   // A new name starts a check (or picks up the one saved for it); the same name and company submitted
   // again start a new one. A visitor who is not signed in is asked to sign in when the server says so
   // (a site can let anyone run checks).
+  // A check id put in the address for the check already on the page (onJob) changes nothing: the page keeps
+  // following it, and the report on screen stays.
   useEffect(() => {
-    active.current += 1; // stop any check still running for the previous name
-    if ((!name && !jobId) || status === 'loading') return undefined;
+    if ((!name && !jobId) || status === 'loading') { active.current += 1; return; }
     const before = last.current;
-    last.current = { name, company, runKey };
+    last.current = { name, company, runKey, jobId, status };
+    const onlyTheId = before.name === name && before.company === company && before.runKey === runKey && before.status === status && before.jobId !== jobId;
+    if (onlyTheId && jobId && jobId === following.current) return;
+    active.current += 1; // stop any check still running for the previous name
     run({ fresh: before.name === name && before.company === company && before.runKey !== runKey });
-    return () => { active.current += 1; };
   }, [name, company, runKey, jobId, status, run]);
+  useEffect(() => () => { active.current += 1; }, []); // leaving the page stops following
 
   // When the report arrives, take keyboard focus to it unless the visitor is busy elsewhere on the page.
   useEffect(() => {
@@ -754,7 +801,7 @@ export default function DeepCheck({ name, company = '', runKey = 0, jobId = null
 
   if (!name && !jobId) return null;
   const announce = state.phase === 'done' && state.report && !state.error
-    ? `Deep check finished: ${state.report.totals?.records ?? 0} records, ${state.report.totals?.redFlags ?? 0} red flag${state.report.totals?.redFlags === 1 ? '' : 's'}.`
+    ? `Deep check finished: ${state.report.totals?.records ?? 0} records, ${redFlagChip(state.report).text}.`
     : '';
   // The status line stays on the page through every phase, so the end of a check is announced.
   return (
@@ -763,6 +810,15 @@ export default function DeepCheck({ name, company = '', runKey = 0, jobId = null
       {body()}
     </PrintContext.Provider>
   );
+
+  function replacedNote() {
+    if (!state.replaced) return null;
+    return (
+      <p className="founder-no-print rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs text-muted" data-testid="check-replaced">
+        A check of {name || 'this person'} was already running with other details. It was stopped, and this new check uses the details you gave now.
+      </p>
+    );
+  }
 
   function errorCard() {
     const kind = state.errorKind;
@@ -810,17 +866,30 @@ export default function DeepCheck({ name, company = '', runKey = 0, jobId = null
         </section>
       );
     }
-    const report = state.report;
+    const report = savedReport(state.report); // a report saved before a field was added renders too
     if (!report) {
-      if (state.phase === 'running') return <Progress progress={state.progress} name={name} note={state.note} />;
+      if (state.phase === 'running') return <div className="space-y-4">{replacedNote()}<Progress progress={state.progress} name={name} note={state.note} /></div>;
       if (state.phase === 'error') return errorCard();
       return null;
     }
     const running = state.phase === 'running';
     return (
       <div className="space-y-4">
+        {replacedNote()}
         {running && <Progress progress={state.progress} name={name} note={state.note} compact />}
         {state.error && errorCard()}
+        {state.detailsUnused && !running && (
+          <section className="founder-no-print card card-pad" data-testid="details-unused">
+            <p className="text-sm text-ink">
+              {state.detailsUnused === 'unused'
+                ? `This is the check from ${formatWhen(report.generatedAt) || 'earlier'}; the details you added were not used in it.`
+                : `This is the check from ${formatWhen(report.generatedAt) || 'earlier'}, opened as it was saved; the details you added may not have been used in it.`}
+            </p>
+            <button type="button" className="btn-secondary mt-3" onClick={() => run({ fresh: true })}>
+              <HiOutlineArrowPath style={{ width: 14, height: 14 }} /> Run again with them
+            </button>
+          </section>
+        )}
         <Report report={report} fresh={state.changes?.fresh || null}>
           <Summary
             report={report}

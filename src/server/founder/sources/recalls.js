@@ -39,15 +39,21 @@
  * a list of recalls, or whose records have lost the fields this file reads,
  * throws: the lookup is reported as failed, never as "no recall". A lookup
  * that answered for one known name and failed for another returns `partial`.
- * Each search is cached for a day.
+ * Each search is cached for a day; when a search fails and an older answer
+ * stands in for it, the lookup is marked partial with that answer's date.
+ *
+ * A firm registered as the company's whole name plus general words
+ * ("Rivian Automotive, LLC", "Lucid USA, Inc." for Rivian and Lucid) is kept
+ * as 'possible' with "verify it is the same company": dropping it would report
+ * "no recall" for a company whose legal name the check has not learned.
  */
 import { getJson, HttpError } from '../http';
 import { makeFinding } from '../finding';
-import { cached } from '../cache';
+import { cachedEntry } from '../cache';
 import { companyKeyStrict, isOrdinaryWordCompany } from '../names';
 import { isSensitive } from '../guardrails';
 import { companyNames } from './sanctions';
-import { whichName } from './government';
+import { whichName, extendedName, extendedGrade } from './government';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -91,8 +97,13 @@ export function recallGrade(name, reason) {
   return { match: 'company', matchReasons: [reason] };
 }
 
-/** Records grouped by the known name their firm is (each firm tried in turn): one finding per known name. */
-function byKnownName(rows, firmsOf, names) {
+/**
+ * Records grouped by the known name their firm is (each firm tried in turn): one finding per known name. A firm
+ * registered as the company's whole name plus general words ("Rivian Automotive, LLC" for Rivian, the usual case
+ * for a young company whose legal name the check has not learned) is kept in its own group marked `extended`,
+ * graded as a name match to verify, and never listed among other manufacturers.
+ */
+export function byKnownName(rows, firmsOf, names) {
   const groups = new Map();
   const others = new Set();
   for (const r of rows) {
@@ -100,14 +111,30 @@ function byKnownName(rows, firmsOf, names) {
     let hit = null;
     for (const firm of firms) {
       const known = whichName(firm, names);
-      if (known) { hit = { known, firm }; break; }
+      if (known) { hit = { known, firm, extended: false }; break; }
+    }
+    if (!hit) {
+      for (const firm of firms) {
+        const known = extendedName(firm, names);
+        if (known) { hit = { known, firm, extended: true }; break; }
+      }
     }
     if (!hit) { if (firms[0]) others.add(firms[0]); continue; }
-    if (!groups.has(hit.known)) groups.set(hit.known, []);
-    groups.get(hit.known).push({ row: r, firm: hit.firm });
+    const id = `${hit.extended ? 'extended' : 'same'}\u0000${hit.known}`;
+    if (!groups.has(id)) groups.set(id, { known: hit.known, extended: hit.extended, rows: [] });
+    groups.get(id).rows.push({ row: r, firm: hit.firm });
   }
-  return { groups: [...groups.entries()].map(([known, list]) => ({ known, rows: list })), others: [...others] };
+  return { groups: [...groups.values()], others: [...others] };
 }
+
+/** The grade of one group: the company's own name (recallGrade), or a longer firm name to verify. */
+const groupGrade = (group, firm, reason) => (group.extended ? extendedGrade(group.known, firm, reason) : recallGrade(group.known, reason));
+
+/**
+ * The date of a cached answer that stands in for a search that failed today, or '' when the answer is fresh. A
+ * stale "no recall" must never read as today's answer.
+ */
+const staleDate = (entry) => (entry && entry.fresh === false ? new Date(entry.at).toISOString().slice(0, 10) : '');
 
 /**
  * The open-data host publishes "Crawl-delay: 1"; the shared client's default spacing is shorter, so each request
@@ -184,7 +211,7 @@ async function nhtsaSearch(name, deadline) {
     $limit: String(NH_LIMIT),
   }).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
   const url = `${NH_BASE}?${params}`;
-  return cached(`recalls:nhtsa:v1:${like}`, DAY_MS, async ({ deadline: d }) => {
+  const entry = await cachedEntry(`recalls:nhtsa:v1:${like}`, DAY_MS, async ({ deadline: d }) => {
     const body = await fetchJson(url, d);
     if (!Array.isArray(body)) throw new HttpError('The NHTSA recalls data returned an unexpected answer', { url });
     if (body.length && !body.some((r) => r && r.nhtsa_id && r.manufacturer)) throw new HttpError('The NHTSA recalls data has changed format (no recall numbers or manufacturers)', { url });
@@ -204,6 +231,7 @@ async function nhtsaSearch(name, deadline) {
     }));
     return { rows, cut: body.length >= NH_LIMIT };
   }, { deadline });
+  return { ...entry.value, stale: staleDate(entry) };
 }
 
 const nhtsaUrl = (r) => (/^https:\/\/www\.nhtsa\.gov\//.test(r.link) ? r.link : `${NH_SITE}?nhtsaId=${encodeURIComponent(r.id)}`);
@@ -223,7 +251,8 @@ export const nhtsaRecallsConnector = {
     for (const a of answers) for (const r of a.rows.rows) if (!seen.has(r.id)) { seen.add(r.id); rows.push(r); }
     const { groups, others } = byKnownName(rows, (r) => [r.manufacturer], known);
     const findings = [];
-    for (const { known: as, rows: own } of groups) {
+    for (const group of groups) {
+      const { known: as, rows: own } = group;
       const list = own.map((x) => x.row).sort((a, b) => String(b.date).localeCompare(String(a.date)));
       const firm = list[0].manufacturer;
       const units = list.reduce((sum, r) => sum + r.units, 0);
@@ -243,18 +272,21 @@ export const nhtsaRecallsConnector = {
         title: `${plural(list.length, 'vehicle safety recall')} by ${firm}, ${span(years)}`,
         quote: clean(quote), url: nhtsaUrl(list[0]), date: list[0].date || null,
         severity: urgent.length ? 'high' : (fire.length ? 'medium' : 'low'),
-        ...recallGrade(as, `recall manufacturer ${firm} is ${as}`),
+        ...groupGrade(group, firm, `recall manufacturer ${firm} ${group.extended ? 'begins with' : 'is'} ${as}`),
         data: { manufacturer: firm, recalls: list.length, units, recallNumbers: list.slice(0, 10).map((r) => r.id), urgent: urgent.length },
       });
       if (f) findings.push(f);
     }
     const notes = [];
     const cut = answers.filter((a) => a.rows.cut).map((a) => a.name);
+    const stale = answers.filter((a) => a.rows.stale);
+    for (const a of stale) notes.push(`NHTSA's vehicle recall records could not be searched again for ${a.name}, so the answer of ${a.rows.stale} was used.`);
     if (!findings.length) notes.push(`NHTSA's vehicle recall records were searched for a manufacturer named ${known.join(' or ')}; no recall filed under that name was found.`);
     if (others.length) notes.push(`Recalls by other manufacturers whose names contain the same words (${others.slice(0, 3).join(', ')}${others.length > 3 ? ', and others' : ''}) were left out.`);
     const partial = [
       ...failed.map((n) => `NHTSA vehicle recalls (the search for ${n} did not answer)`),
       ...cut.map((n) => `NHTSA vehicle recalls (the latest ${NH_LIMIT} recalls by manufacturers named like ${n} were read)`),
+      ...stale.map((a) => `NHTSA vehicle recalls (the search for ${a.name} as of ${a.rows.stale})`),
     ];
     return partial.length ? { findings, threads: [], notes, partial } : { findings, threads: [], notes };
   },
@@ -324,13 +356,17 @@ const CP_SEARCHES = [{ param: 'RecallTitle', what: 'recall title search' }, { pa
  */
 async function cpscSearch(name, deadline) {
   const term = searchName(name);
-  if (term.length < 2) return { rows: [], failed: [] };
+  if (term.length < 2) return { rows: [], failed: [], stale: [] };
   const rows = [];
   const failed = [];
+  const stale = [];
   let lastError = null;
   for (const s of CP_SEARCHES) {
     try {
-      rows.push(...await cached(`recalls:cpsc:v1:${s.param}:${term.toLowerCase()}`, DAY_MS, ({ deadline: d }) => cpscQuery(s.param, term, d), { deadline, loadMs: 40000 }));
+      const entry = await cachedEntry(`recalls:cpsc:v1:${s.param}:${term.toLowerCase()}`, DAY_MS, ({ deadline: d }) => cpscQuery(s.param, term, d), { deadline, loadMs: 40000 });
+      rows.push(...entry.value);
+      const when = staleDate(entry);
+      if (when) stale.push({ what: s.what, when });
     } catch (error) {
       failed.push(s.what);
       lastError = error;
@@ -338,7 +374,7 @@ async function cpscSearch(name, deadline) {
   }
   if (failed.length === CP_SEARCHES.length) throw lastError;
   const seen = new Set();
-  return { rows: rows.filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true))), failed };
+  return { rows: rows.filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true))), failed, stale };
 }
 
 const cpscUrl = (r) => (/^https:\/\/(?:www\.)?cpsc\.gov\//.test(r.url) ? r.url : CP_SITE);
@@ -359,7 +395,8 @@ export const cpscRecallsConnector = {
     for (const a of answers) for (const r of a.rows.rows) if (!seen.has(r.id)) { seen.add(r.id); rows.push(r); }
     const { groups, others } = byKnownName(rows, cpscFirms, known);
     const findings = [];
-    for (const { known: as, rows: own } of groups) {
+    for (const group of groups) {
+      const { known: as, rows: own } = group;
       own.sort((a, b) => String(b.row.date).localeCompare(String(a.row.date)));
       const list = own.map((x) => x.row);
       const firm = own[0].firm;
@@ -377,7 +414,7 @@ export const cpscRecallsConnector = {
         title: `${plural(list.length, 'consumer product recall')} by ${firm}, ${span(years)}`,
         quote: clean(quote), url: cpscUrl(list[0]), date: list[0].date || null,
         severity: serious.length ? 'medium' : 'low',
-        ...recallGrade(as, `recalling firm ${firm} is ${as}`),
+        ...groupGrade(group, firm, `recalling firm ${firm} ${group.extended ? 'begins with' : 'is'} ${as}`),
         data: { firm, recalls: list.length, recallNumbers: list.slice(0, 10).map((r) => r.id) },
       });
       if (f) findings.push(f);
@@ -388,7 +425,9 @@ export const cpscRecallsConnector = {
     const partial = [
       ...failed.map((n) => `CPSC product recalls (the search for ${n} did not answer)`),
       ...answers.flatMap((a) => a.rows.failed.map((what) => `CPSC product recalls (the ${what} for ${a.name} did not answer)`)),
+      ...answers.flatMap((a) => (a.rows.stale || []).map((x) => `CPSC product recalls (the ${x.what} for ${a.name} as of ${x.when})`)),
     ];
+    for (const a of answers) for (const x of a.rows.stale || []) notes.push(`The CPSC ${x.what} for ${a.name} could not be run again, so its answer of ${x.when} was used.`);
     return partial.length ? { findings, threads: [], notes, partial } : { findings, threads: [], notes };
   },
 };

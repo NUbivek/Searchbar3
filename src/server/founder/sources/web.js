@@ -82,42 +82,55 @@ const ADVERSE = {
   ja: any('訴訟', '詐欺', '逮捕', '起訴', '破産', '不正'),
   ko: any('소송', '사기', '체포', '기소', '파산', '횡령'),
   zh: any('诉讼', '欺诈', '诈骗', '调查', '逮捕', '破产'),
+  // Taiwan and Hong Kong: Traditional characters, their own news edition
+  zt: any('訴訟', '欺詐', '詐騙', '調查', '逮捕', '破產'),
   he: any('תביעה', 'הונאה', 'חקירה', '"כתב אישום"', 'הורשע', '"פשיטת רגל"'),
   hi: any('मुकदमा', 'धोखाधड़ी', 'जांच', 'गिरफ्तार', 'दिवालिया'),
   id: any('gugatan', 'penipuan', 'penyelidikan', 'ditangkap', 'divonis', 'pailit'),
   tr: any('dava', 'dolandırıcılık', 'soruşturma', 'tutuklandı', 'mahkum', 'iflas'),
+  fi: any('oikeusjuttu', 'petos', 'tutkinta', 'tuomittu', 'konkurssi', 'syyte'),
 };
-const LANGUAGE_LABEL = { fr: 'French', de: 'German', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch', sv: 'Swedish', pl: 'Polish', ja: 'Japanese', ko: 'Korean', zh: 'Chinese', he: 'Hebrew', hi: 'Hindi', id: 'Indonesian', tr: 'Turkish' };
+const LANGUAGE_LABEL = { fr: 'French', de: 'German', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch', sv: 'Swedish', pl: 'Polish', ja: 'Japanese', ko: 'Korean', zh: 'Chinese', zt: 'Chinese', he: 'Hebrew', hi: 'Hindi', id: 'Indonesian', tr: 'Turkish', fi: 'Finnish' };
 
 const FIRST_NAMES = {
   fr: 'jean pierre françois francois benoît benoit guillaume thibault thibaut timothée timothee antoine mathieu matthieu étienne etienne yann loïc loic cédric cedric aurélien aurelien jérôme jerome rémi remi hervé herve thierry pascal olivier stéphane stephane frédéric frederic ludovic gaël gael maxime clément clement hélène helene amélie amelie céline celine margaux océane'.split(' '),
-  de: 'jürgen juergen hans klaus wolfgang matthias günther gunther jörg joerg dieter heinz uwe rainer lutz detlef holger torsten thorsten björn bjoern friedrich ulrich manfred helmut heike ute anke silke'.split(' '),
+  de: 'jürgen juergen hans klaus wolfgang matthias günther gunther jörg joerg dieter heinz uwe rainer lutz detlef holger torsten thorsten friedrich ulrich manfred helmut heike ute anke silke'.split(' '),
+  // Nordic and Turkish first names: an ö or ü in such a name is Swedish, Finnish or Turkish, not German.
+  sv: 'björn bjorn anders lars nils niklas sven gustav gustaf johan mikael magnus fredrik henrik oskar axel ingrid astrid sigrid linnea ebba frida maja agneta birgitta'.split(' '),
+  fi: 'mikko jukka pekka juha jari timo antti matti heikki ilkka kimmo tuomas teemu sami ville ari jaakko risto aino tiina päivi paivi sanna satu riikka minna'.split(' '),
+  tr: 'gökhan gokhan mehmet ahmet mustafa emre burak murat hakan serkan cem can kerem selim oğuz oguz özgür ozgur ümit umit ayşe ayse fatma zeynep elif özge ozge şule sule ebru ece'.split(' '),
   es: 'josé jose juan carlos javier pablo diego alejandro santiago jorge luis miguel sergio andrés andres fernando rafael enrique ignacio álvaro alvaro gonzalo joaquín joaquin maría lucía mercedes pilar inés'.split(' '),
 };
 const LANGUAGE_SIGNS = {
   fr: { letters: /[çèêëàâùûîïôœ]/i, org: /\b(SAS|SASU|SARL|S\.A\.S\.?|S\.A\.R\.L\.?|France|Paris|Lyon|École|Ecole|Université|Sorbonne|HEC|ESSEC|Polytechnique|Sciences Po|INSEAD)\b/, tld: /\.fr$/ },
-  de: { letters: /[äöüß]/i, org: /\b(GmbH|mbH|AG|UG|KG|e\.V\.|Deutschland|Berlin|München|Hamburg|Universität|Hochschule|RWTH|WHU)\b/, tld: /\.(de|at)$/ },
+  // ä, ö and ü are also Swedish, Finnish and Turkish letters: they count for German only when nothing else spoke
+  // (languageHints), as é does for French. ß is German alone.
+  de: { letters: /ß/i, org: /\b(GmbH|mbH|AG|UG|KG|e\.V\.|Deutschland|Berlin|München|Hamburg|Universität|Hochschule|RWTH|WHU)\b/, tld: /\.(de|at)$/ },
   es: { letters: /[ñ¿¡]/i, org: /\b(S\.L\.U?\.?|S\.A\. de C\.V\.|España|Madrid|Barcelona|México|Universidad|IESE|ESADE|Tecnológico)\b/, tld: /\.(es|mx|ar|cl|pe)$/ },
   // The other languages are judged from places and domains only: a first name says little about where someone works.
   pt: { letters: /[ãõ]/i, org: /\b(Ltda\.?|Brasil|São Paulo|Rio de Janeiro|Lisboa|Portugal|Universidade)\b/, tld: /\.(br|pt)$/ },
   it: { org: /\b(S\.r\.l\.?|S\.p\.A\.?|Srl|SpA|Italia|Milano|Roma|Torino|Bocconi|Politecnico di)\b/, tld: /\.it$/ },
   nl: { org: /\b(B\.V\.|BV|N\.V\.|Nederland|Amsterdam|Rotterdam|Utrecht|Eindhoven|Universiteit)\b/, tld: /\.nl$/ },
-  sv: { letters: /[å]/i, org: /\b(Aktiebolag|Sverige|Stockholm|Göteborg|Uppsala|KTH)\b/, tld: /\.se$/ },
+  // a Swedish surname ending (Zennström, Lindqvist) speaks as clearly as å
+  sv: { letters: /[å]|(?:ström|strom|qvist|kvist)(?:\s|$)/i, org: /\b(Aktiebolag|Sverige|Stockholm|Göteborg|Uppsala|KTH)\b/, tld: /\.se$/ },
+  fi: { org: /\b(Oyj?|Suomi|Finland|Helsinki|Espoo|Tampere|Aalto)\b/, tld: /\.fi$/ },
   pl: { letters: /[ąęłńśźż]/i, org: /\b(Sp\. z o\.o\.|Polska|Warszawa|Kraków|Wrocław|Politechnika)\b/, tld: /\.pl$/ },
   ja: { letters: /[぀-ヿ]/, org: /\b(K\.K\.|Kabushiki Kaisha|Japan|Tokyo|Osaka|Kyoto)\b|株式会社/, tld: /\.(jp)$/ },
   ko: { letters: /[가-힯]/, org: /\b(Korea|Seoul|KAIST|Yonsei)\b|주식회사/, tld: /\.(kr)$/ },
-  zh: { letters: /[一-鿿]/, org: /\b(Beijing|Shanghai|Shenzhen|Hangzhou|Tsinghua|Peking University|Hong Kong|Taiwan|Taipei)\b|有限公司/, tld: /\.(cn|tw|hk)$/ },
+  zh: { letters: /[一-鿿]/, org: /\b(Beijing|Shanghai|Shenzhen|Hangzhou|Tsinghua|Peking University)\b|有限公司/, tld: /\.cn$/ },
+  zt: { org: /\b(Hong Kong|Taiwan|Taipei|Kowloon|Hsinchu)\b/, tld: /\.(tw|hk)$/ },
   he: { letters: /[֐-׿]/, org: /\b(Israel|Tel Aviv|Jerusalem|Haifa|Technion)\b/, tld: /\.il$/ },
   hi: { letters: /[ऀ-ॿ]/, org: /\b(Pvt\.? Ltd\.?|Private Limited|Bengaluru|Bangalore|Mumbai|New Delhi|Gurugram|IIM)\b/, tld: /\.in$/ },
   id: { org: /\b(Tbk|Indonesia|Jakarta|Bandung|Surabaya)\b/, tld: /\.(id)$/ },
-  tr: { letters: /[ğış]/, org: /\b(A\.Ş\.|Türkiye|Turkey|Istanbul|İstanbul|Ankara|Boğaziçi)\b/, tld: /\.(tr)$/ },
+  tr: { letters: /[ğışİ]/, org: /\b(A\.Ş\.|Türkiye|Turkey|Istanbul|İstanbul|Ankara|Boğaziçi)\b/, tld: /\.(tr)$/ },
 };
 /** Countries (as names or two-letter codes) a user or a register may give, and the language worth searching in. */
 const COUNTRY_LANG = {
   fr: 'fr', france: 'fr', de: 'de', germany: 'de', deutschland: 'de', at: 'de', austria: 'de', es: 'es', spain: 'es', mx: 'es', mexico: 'es', ar: 'es', argentina: 'es', cl: 'es', chile: 'es', co: 'es', colombia: 'es',
   br: 'pt', brazil: 'pt', brasil: 'pt', pt: 'pt', portugal: 'pt', it: 'it', italy: 'it', nl: 'nl', netherlands: 'nl', 'the netherlands': 'nl', se: 'sv', sweden: 'sv',
-  pl: 'pl', poland: 'pl', jp: 'ja', japan: 'ja', kr: 'ko', 'south korea': 'ko', korea: 'ko', cn: 'zh', china: 'zh', tw: 'zh', taiwan: 'zh', hk: 'zh', 'hong kong': 'zh',
+  pl: 'pl', poland: 'pl', jp: 'ja', japan: 'ja', kr: 'ko', 'south korea': 'ko', korea: 'ko', cn: 'zh', china: 'zh', tw: 'zt', taiwan: 'zt', hk: 'zt', 'hong kong': 'zt',
   il: 'he', israel: 'he', in: 'hi', india: 'hi', id: 'id', indonesia: 'id', tr: 'tr', turkey: 'tr', 'türkiye': 'tr', turkiye: 'tr',
+  fi: 'fi', finland: 'fi', suomi: 'fi',
 };
 /** The languages of the countries the subject carries (a place the user gave, a register's country), in order. */
 function countryLanguages(subject) {
@@ -164,10 +177,40 @@ export function languageHints(subject) {
   for (const [lang, sign] of Object.entries(LANGUAGE_SIGNS)) {
     if ((FIRST_NAMES[lang] || []).includes(first) || (sign.letters && sign.letters.test(subject?.name || '')) || sign.org.test(orgs)) push(lang);
   }
-  // "é" alone is as French as it is Spanish: only count it when nothing else spoke.
+  // "é" alone is as French as it is Spanish, and ä, ö, ü as German as they are Swedish, Finnish or Turkish: each
+  // counts only when nothing else spoke (an ç or ü with no Turkish name is not enough for Turkish).
+  if (!out.length && /[äöü]/i.test(subject?.name || '')) out.push('de');
   if (!out.length && /é/i.test(subject?.name || '')) out.push('fr');
   return out.slice(0, 2);
 }
+
+/** The script local press writes names in, for the languages not written in Latin letters. */
+const NATIVE_SCRIPT = {
+  ja: /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u,
+  ko: /\p{Script=Hangul}/u,
+  zh: /\p{Script=Han}/u,
+  zt: /\p{Script=Han}/u,
+  he: /\p{Script=Hebrew}/u,
+  hi: /\p{Script=Devanagari}/u,
+};
+/**
+ * How the person is named in a question for the local press. Japanese, Korean, Chinese, Hebrew and Hindi
+ * papers print the name in their own script (孫正義, not Masayoshi Son): a name of the person in that script
+ * (typed by the user, or learned from a record tied to them) is searched beside the Latin one. Without one,
+ * the question still runs on the Latin name, but it is marked latinOnly: the caller reports the local press as
+ * not really searched, never as searched with nothing found.
+ * @returns {{ ref: string, latinOnly: boolean }}
+ */
+export function localNameRef(subject, lang) {
+  const latin = phrase(subject.name);
+  const script = NATIVE_SCRIPT[lang];
+  if (!script) return { ref: latin, latinOnly: false };
+  const names = [...(subject.otherNames || []), ...[...(subject.anchors?.otherNames?.values?.() || [])].map((a) => a.value)]
+    .map((n) => tidy(n)).filter((n) => n && script.test(n) && !/[A-Za-z]/.test(n));
+  const native = [...new Set(names)].slice(0, 2);
+  return native.length ? { ref: any(...native.map(phrase), latin), latinOnly: false } : { ref: latin, latinOnly: true };
+}
+const latinOnlyPartial = (lang) => `${LANGUAGE_LABEL[lang] || 'local'}-language press: the person's name is known only in Latin letters, which that press rarely prints`;
 
 /* ------------------------------------------------------------------ the company's names */
 
@@ -259,7 +302,8 @@ function subjectTemplates(subject) {
   add('related-party', `${name} ${any('"family office"', '"related party"', 'trust', 'nominee')}`, 0.35, 'family offices, trusts and related parties');
   for (const lang of languageHints(subject)) {
     if (!ADVERSE[lang]) continue;
-    add(`adverse-${lang}`, `${name} ${ADVERSE[lang]}`, 0.4, `lawsuits and fraud allegations reported in ${LANGUAGE_LABEL[lang]}`, { lang });
+    const { ref, latinOnly } = localNameRef(subject, lang);
+    add(`adverse-${lang}`, `${ref} ${ADVERSE[lang]}`, 0.4, `lawsuits and fraud allegations reported in ${LANGUAGE_LABEL[lang]}`, { lang, ...(latinOnly ? { latinOnly: true } : {}) });
   }
   return out;
 }
@@ -802,6 +846,9 @@ export const webSearchConnector = {
         // the metered services are kept for the lookups that matter most: the seed first
         allowMetered: meteredAllowed(task, subject, planned),
         lang: planned.lang, prefer: planned.prefer, accept: acceptFor(subject, task), needGeneral,
+        // how long the check may still wait for a general search (deepCheck gives it, when it does): a wait the
+        // check would not take is not asked for, and a wait it would take is not refused
+        ...(typeof ctx.waitLeftMs === 'function' && Number.isFinite(ctx.waitLeftMs()) ? { maxWaitMs: Math.max(0, ctx.waitLeftMs()) } : {}),
       });
     } catch (error) {
       if (error?.code !== 'SEARCH_RESTING') tally(ctx, 'none');
@@ -819,6 +866,7 @@ export const webSearchConnector = {
       return { findings, threads, notes, partial: [`open web: ${planned.why || task.template || 'a question'} (news headlines or the encyclopedia only)`], noLearn: true, headlinesOnly: true };
     }
     tally(ctx, search.general ? 'general' : 'none');
+    if (planned.latinOnly) return { findings, threads, notes, partial: [latinOnlyPartial(planned.lang)], noLearn: true };
     return { findings, threads, notes };
   },
 };
@@ -875,7 +923,8 @@ export function newsTemplates(thread, subject) {
     out.push({ template: 'n.recognition', params: { query: `${name} ${any('"joins board"', '"board of directors"', 'trustee', '"angel investor"', '"invested in"', '"30 Under 30"', '"40 Under 40"', 'award', '"named to"', 'honoree')}`, news: true }, prior: 0.35, why: 'board seats, investments, awards and lists reported in the press' });
     for (const lang of languageHints(subject)) {
       if (!ADVERSE[lang]) continue;
-      out.push({ template: `n.adverse-${lang}`, params: { query: `${name} ${ADVERSE[lang]}`, news: true, lang }, prior: 0.4, why: `lawsuits and fraud allegations in the ${LANGUAGE_LABEL[lang]}-language press` });
+      const { ref, latinOnly } = localNameRef(subject, lang);
+      out.push({ template: `n.adverse-${lang}`, params: { query: `${ref} ${ADVERSE[lang]}`, news: true, lang, ...(latinOnly ? { latinOnly: true } : {}) }, prior: 0.4, why: `lawsuits and fraud allegations in the ${LANGUAGE_LABEL[lang]}-language press` });
     }
     return out;
   }
@@ -910,6 +959,8 @@ export const newsArchiveConnector = {
     const { findings, threads } = collect(subject, task, results, { source: NEWS_ID, sourceLabel: NEWS_LABEL, category: 'press', companyOnlyMax: COMPANY_ONLY_MAX.news, knownWiki: knownWikiPages(ctx), backgroundKept: backgroundWikiCount(ctx) });
     // Google News gives no snippet and a forwarding link: find the article itself for the page reader
     threads.push(...await articleThreads(subject, results, findings, ctx));
+    // The local press asked with the Latin name only: not counted as searched (latinOnly, localNameRef).
+    if (planned.latinOnly) return { findings, threads, notes: pauseNotes(tried), partial: [latinOnlyPartial(planned.lang)], noLearn: true };
     return { findings, threads, notes: pauseNotes(tried) };
   },
 };

@@ -30,7 +30,7 @@ import { searchWeb, webSearchConfigured } from './search/retrieve';
 import { chatComplete, PROVIDERS, providerEnabled, prepareChain, reportAnswerQuality } from './llm/providers';
 import { validateAnswer, checkClaims } from './search/answer';
 import { tierInfo } from '../utils/sourceTiers';
-import { isBlockedUrl, safeHref, cleanSentences, cleanModelText } from './founder/guardrails';
+import { isBlockedUrl, safeHref, cleanSentences, cleanModelText, privacyReason, WEDDING_TITLE } from './founder/guardrails';
 import { cleanText, formatDate, sourceLabel, sourceType, sentencesOf } from '../utils/evidence';
 import { personNameMatcher, cleanPersonName, companyKeys, companyMentionMatcher, cooccurrences, personNameVariants, isBroadOrganisation, nameCommonness } from './founder/names';
 // One validator for both founder routes (the deep check's). deepCheck.js imports this file too; the two only call
@@ -51,6 +51,8 @@ const BRIEF_CACHE_MAX = 100;
 /** With no company typed, the largest group of pages is one person only when it is at least this much larger. */
 const DOMINANT_MIN = 3;
 const DOMINANT_RATIO = 3;
+/** ...and only when it holds at least this share of all the pages kept: one profile among fifteen name-only pages is not "the" person. */
+const DOMINANT_SHARE = 0.4;
 const MAX_SOURCES = 20;
 const MAX_TIMELINE = 25;
 const MAX_COMPANIES = 20;
@@ -697,6 +699,10 @@ export function checkFounderBrief(text, sources, { maxSource = null, personWords
     // or it invents more than one legal matter.
     inherit: true,
     elsewhere: true,
+    // ...but a legal or regulatory matter, in any section, must be stated by a source it cites that is tied to the
+    // person by more than the name: a made-up conviction with any valid citation, or a namesake's charge put in the
+    // SUMMARY, is removed, and two such lines refuse the answer.
+    legalTerms: true,
     failAfter: 2,
     maxDropShare: 0.5,
     emptySection: 'Not found in the available sources.',
@@ -706,6 +712,56 @@ export function checkFounderBrief(text, sources, { maxSource = null, personWords
   let content = completeBriefSections(c.content);
   if (identityNote) content = content.replace('## SUMMARY\n', `## SUMMARY\n*${identityNote}*\n\n`);
   return { ok: true, content, confidence: v.confidence, checked: c.checked, dropped: c.dropped };
+}
+
+// Redaction markers ("[email removed]") and a social page's image captions ("May be an image of text") are not
+// part of what the source says about the person: a quote never starts with them.
+const tidyQuote = (q) => cleanText(String(q || '')
+  .replace(/\[[A-Za-z ]{1,24} removed\]\s*[,;:]?\s*/g, ' ')
+  .replace(/\bMay be an? (?:image|photo|graphic|video|illustration|screenshot)\b[^.\]]*[.\]]?\s*/gi, ' '))
+  .replace(/^[\s,;:.\]-]+/, '').trim();
+
+// Headline words that the company patterns can take for a company ("Who Is Canva", "Top Companies", "Founding
+// Story The", "Stealth"): a company named only so is not one the person worked at.
+const NOT_COMPANY_WORD = /^(?:who|what|why|how|when|where|which|is|are|was|meet|inside|exclusive|top|best|new|latest|nearly|almost|about|here|this|these|those|companies|company|startups?|founding|story|stealth|stealth mode|stealth startup|interview|podcast|episode|watch|video|photos?|news|report|update|breaking|opinion|profile|biography|bio|net worth|everything|all)$/i;
+function plausibleCompany(name) {
+  const words = cleanText(name).split(/\s+/).filter(Boolean);
+  if (!words.length) return false;
+  if (NOT_COMPANY_WORD.test(words[0]) || NOT_COMPANY_WORD.test(words.join(' '))) return false;
+  if (/^(?:the|of|and|a|an)$/i.test(words[words.length - 1])) return false;
+  return !words.every((w) => NOT_COMPANY_WORD.test(w));
+}
+// "co-founders at Ramp" (a sentence about several founders) is shown as the person's own role, in the singular.
+const singularRole = (role) => String(role || '').replace(/\b(co-?founder|founder|partner|executive|director|investor)s\b/gi, '$1');
+
+/**
+ * What the brief must say about court records beyond the items it lists: dockets that name the person but not the
+ * company (left out, never "none found"), and a court search that did not run.
+ */
+function litigationNotes(state) {
+  const notes = [];
+  const court = state.namesakeCourtRecords;
+  if (court?.count) {
+    notes.push(`${court.count} court record${court.count === 1 ? ' names' : 's name'} a ${state.displayName} without ${state.co}; ${court.count === 1 ? 'it was' : 'they were'} left out and may or may not be this person.`);
+  }
+  const notRun = (state.unavailableSources || []).find((u) => u.source === 'CourtListener');
+  if (notRun) notes.push(`Court records were not searched in this check: ${String(notRun.reason || 'the search did not run').replace(/\.+$/, '')}.`);
+  return notes;
+}
+
+/** Put the court notes into a model's brief, under LITIGATION AND REGULATORY. */
+function withLitigationNotes(content, state) {
+  const notes = litigationNotes(state);
+  if (!notes.length) return content;
+  const h = '## LITIGATION AND REGULATORY';
+  const at = content.indexOf(h);
+  if (at < 0) return content;
+  const next = content.indexOf('\n## ', at + h.length);
+  const end = next < 0 ? content.length : next;
+  // a plain "not found" is not the whole story when court records were left out or not searched
+  const body = content.slice(at + h.length, end).replace(/^\s*Not found in the available sources\.\s*$/m, '').trim();
+  const section = [body, ...notes.map((n) => `*${n}*`)].filter(Boolean).join('\n');
+  return `${content.slice(0, at + h.length)}\n${section}\n${content.slice(end)}`.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 // A sentence about the company that an investor wants in the summary: money raised, founding, size, a sale.
@@ -719,11 +775,18 @@ const COMPANY_FACT = /\b(?:raised|raises|raising|funding round|Series [A-H]\b|se
  */
 function quotedBrief(state, profile, reason, bio = null) {
   const { displayName: person, evidence, profiles, effectiveCompany: company, other } = state;
+  const weak = state.weak || new Set();
   // a source index, or an extracted item carrying one
   const cite = (x) => `[Source ${(typeof x === 'number' ? x : x.sourceIndex) + 1}]`;
   const idIndex = (id) => { const m = String(id).match(/^s(\d+)$/); return m ? Number(m[1]) : null; };
   const citeIds = (ids) => [...new Set((ids || []).map(idIndex).filter((i) => i !== null && !other.has(i)))].slice(0, 2).map(cite).join(' ');
   const mine = (x) => !other.has(x.sourceIndex);
+  // Beside a group of pages that is the person, a page tied by the name alone may be anyone of that name: its items
+  // are listed as such, never as the person's own record. When no page is tied by more than the name, every item
+  // is name-only and the summary says so once.
+  const someTied = weak.size < state.ranked.length;
+  const nameOnly = (x) => someTied && weak.has(x.sourceIndex);
+  const flagNameOnly = (x) => (nameOnly(x) ? ' (name only; may be someone else)' : '');
   const bullets = (items, fmt, empty = 'Not found in the available sources.') => (items.length ? items.map(fmt).join('\n') : empty);
 
   // Education: the profile's own field first (it says where it comes from), then sentences, then the profile reader
@@ -735,7 +798,7 @@ function quotedBrief(state, profile, reason, bio = null) {
     schools.set(key, { school: cleanText(school), line, cite: citeText });
   };
   for (const p of profiles) if (p.education && !other.has(p.sourceIndex)) addSchool(p.education, `• **${p.education}** (${p.platform} profile, as shown in search results) ${cite(p.sourceIndex)}`, cite(p.sourceIndex));
-  for (const x of evidence.education.filter(mine)) addSchool(x.school, `• **${x.school}**: ${x.quote} ${cite(x.sourceIndex)}`, cite(x.sourceIndex));
+  for (const x of evidence.education.filter((e) => mine(e) && !nameOnly(e))) addSchool(x.school, `• **${x.school}**: ${tidyQuote(x.quote)} ${cite(x.sourceIndex)}`, cite(x.sourceIndex));
   const profileSchools = [...(profile?.resume?.education || []).map((e) => ({ school: e.school, ids: e.ids, extra: [e.degree, e.field].filter(Boolean).join(', ') })), ...(profile?.education || [])];
   for (const e of profileSchools) {
     const c = citeIds(e.ids);
@@ -750,8 +813,10 @@ function quotedBrief(state, profile, reason, bio = null) {
     companies.set(key, { company: cleanText(name), line });
   };
   for (const p of profiles) if (p.company && !other.has(p.sourceIndex)) addCompany(p.company, `• **${p.company}**${p.role ? ` (${p.role})` : ''}: ${p.platform} profile, as shown in search results ${cite(p.sourceIndex)}`);
-  for (const x of evidence.pastCompanies.filter(mine)) {
-    addCompany(x.company, `• **${x.company}**${x.role ? ` (${x.role}${x.status === 'past' ? ', past' : ''})` : x.status === 'past' ? ' (past)' : ''}: ${x.quote} ${cite(x.sourceIndex)}`);
+  // A company read from a sentence about the person, never from a headline's capitalised words, and never a word
+  // that only looks like a name ("Top Companies", "Who Is Canva").
+  for (const x of evidence.pastCompanies.filter((c) => mine(c) && !nameOnly(c) && !c.headline && plausibleCompany(c.company))) {
+    addCompany(x.company, `• **${x.company}**${x.role ? ` (${singularRole(x.role)}${x.status === 'past' ? ', past' : ''})` : x.status === 'past' ? ' (past)' : ''}: ${tidyQuote(x.quote)} ${cite(x.sourceIndex)}`);
   }
   const years = (from, to, current) => (from ? `, ${from}–${current ? 'present' : to || ''}` : '');
   for (const r of profile?.resume?.roles || []) {
@@ -764,15 +829,24 @@ function quotedBrief(state, profile, reason, bio = null) {
   }
 
   const timeline = evidence.timeline.filter(mine);
-  const litigation = evidence.litigation.filter(mine);
+  // A legal matter is the worst thing to pin on the wrong person: one from a page tied by the name alone is always
+  // listed apart, even when no page is tied by more.
+  const litigation = evidence.litigation.filter((x) => mine(x) && !weak.has(x.sourceIndex));
+  const litigationNameOnly = evidence.litigation.filter((x) => mine(x) && weak.has(x.sourceIndex));
   const press = evidence.press.filter(mine);
 
   // SUMMARY: who they are, then the facts an investor reads first
   const n = state.ranked.length - other.size;
+  const tiedCount = n - [...weak].filter((i) => !other.has(i)).length;
   const summary = [];
-  if (!state.co) summary.push(`No company was given, so these sources are matched on the full name only${company ? `; most of them place ${person} at ${company}` : ''}.`);
+  if (!state.co) summary.push(`No company was given, so these sources are matched on the full name only${company && tiedCount > 0 ? `; ${tiedCount} of the ${n} place ${person} at ${company}` : ''}.`);
   if (profile?.headline && citeIds(profile.headlineIds)) summary.push(`${person}: ${profile.headline} ${citeIds(profile.headlineIds)}.`);
-  if (evidence.currentRole && mine(evidence.currentRole)) summary.push(`Most recent role found: ${evidence.currentRole.role} at ${evidence.currentRole.company} ${cite(evidence.currentRole)}.`);
+  // A role is named only at a company the person is known by: the one typed or the pages' own, or a profile field.
+  const cr = evidence.currentRole;
+  const sameCo = (a, b) => Boolean(a && b && (companyKeys(a)[0] || '') === (companyKeys(b)[0] || '') && companyKeys(a)[0]);
+  if (cr && mine(cr) && !nameOnly(cr) && !cr.nameOnly && plausibleCompany(cr.company) && (cr.fromProfile || sameCo(cr.company, company))) {
+    summary.push(`Most recent role found: ${singularRole(cr.role)} at ${cr.company} ${cite(cr)}.`);
+  }
   if (schools.size) summary.push(`Education: ${[...schools.values()].slice(0, 3).map((s) => `${s.school} ${s.cite}`).join('; ')}.`);
   if (companies.size) {
     // only a year a sentence gives counts as a career date, never the date a page was published
@@ -780,8 +854,8 @@ function quotedBrief(state, profile, reason, bio = null) {
     summary.push(`Career: ${companies.size} ${companies.size === 1 ? 'company' : 'companies'} named in the sources (${[...companies.values()].slice(0, 4).map((c) => c.company).join(', ')})${earliest ? `, the earliest dated mention from ${earliest}` : ''}.`);
   }
   const about = (profile?.about || []).find((a) => citeIds([a.id]));
-  if (about) summary.push(`"${about.text}" ${citeIds([about.id])}`);
-  else if (bio) summary.push(`"${bio.text}" ${cite(bio.index)}`);
+  if (about && tidyQuote(about.text)) summary.push(`"${tidyQuote(about.text)}" ${citeIds([about.id])}`);
+  else if (bio && tidyQuote(bio.text)) summary.push(`"${tidyQuote(bio.text)}" ${cite(bio.index)}`);
   // Company facts: the profile reader's when it has them, otherwise sentences naming the company
   const facts = [];
   const cf = profile?.companyFacts;
@@ -800,7 +874,7 @@ function quotedBrief(state, profile, reason, bio = null) {
         if (facts.length >= 3) break;
         if (!COMPANY_FACT.test(s) || !hasCo(s) || seen.has(s.toLowerCase())) continue;
         seen.add(s.toLowerCase());
-        facts.push(`${s} ${cite(i)}`);
+        facts.push(`${tidyQuote(s)} ${cite(i)}`);
       }
     });
   }
@@ -813,16 +887,18 @@ function quotedBrief(state, profile, reason, bio = null) {
     kinds.set(kind, (kinds.get(kind) || 0) + 1);
   });
   summary.push(`${n} source${n === 1 ? '' : 's'} name ${person}${state.co ? ` (checked against ${state.co})` : ''}: ${[...kinds].map(([k, c]) => `${c} ${k}${c === 1 ? '' : 's'}`).join(', ')}.`);
-  const strongest = state.ranked.map((r, i) => ({ r, i })).filter(({ i }) => !other.has(i)).slice(0, 3);
+  // pages tied by more than the name come first: a namesake's headline is not this person's strongest source
+  const strongest = state.ranked.map((r, i) => ({ r, i })).filter(({ i }) => !other.has(i))
+    .sort((a, b) => Number(weak.has(a.i)) - Number(weak.has(b.i)) || a.i - b.i).slice(0, 3);
   if (strongest.length) summary.push(`Strongest sources: ${strongest.map(({ r, i }) => `"${cleanText(r.title) || sourceLabel(r)}" (${sourceLabel(r)}${resultDate(r) ? `, ${resultDate(r)}` : ''}) ${cite(i)}`).join('; ')}.`);
-  const latest = [...press].sort((a, b) => String(evidence.sources[b.sourceIndex]?.date || '').localeCompare(String(evidence.sources[a.sourceIndex]?.date || '')))[0];
+  const latest = press.filter((x) => !nameOnly(x)).sort((a, b) => String(evidence.sources[b.sourceIndex]?.date || '').localeCompare(String(evidence.sources[a.sourceIndex]?.date || '')))[0];
   if (latest) {
     const s = evidence.sources[latest.sourceIndex];
     summary.push(`Most recent coverage: "${latest.title}" (${s.sourceName}${s.date ? `, ${s.date}` : ''}) ${cite(latest)}.`);
   }
 
   // Red flags, from the merged lists (the profile's employer and school count as found)
-  const flagged = [...timeline, ...evidence.pastCompanies.filter(mine), ...litigation, ...press].filter((x) => x.possibleDifferentPerson).length;
+  const flagged = [...timeline, ...evidence.pastCompanies.filter(mine), ...litigation, ...press].filter((x) => x.possibleDifferentPerson && !nameOnly(x)).length;
   const redFlags = ['• Confirm identity: sources are matched by full name only; check that each describes the same person.'];
   if (flagged && state.co) redFlags.push(`• ${flagged} item(s) come from sources that do not mention ${state.co}; confirm they describe the same person.`);
   if (other.size) redFlags.push(`• ${other.size} source(s) describe a different ${person} (another company) and are left out of this brief.`);
@@ -831,15 +907,24 @@ function quotedBrief(state, profile, reason, bio = null) {
   else if (companyNames.length === 1) redFlags.push(`• Only one company was found (${companyNames[0]}); ask for a full CV and verify earlier roles directly.`);
   else redFlags.push('• No employer could be extracted from the sources; ask for a CV and verify each role directly.');
   if (litigation.length) redFlags.push(`• Review the ${litigation.length} litigation or regulatory mention(s) above with counsel.`);
+  if (litigationNameOnly.length) redFlags.push(`• ${litigationNameOnly.length} legal mention(s) come from pages that match the name only; confirm whether they are about this person before relying on them.`);
+  if (state.namesakeCourtRecords?.count) redFlags.push(`• ${state.namesakeCourtRecords.count} court record(s) name a ${person} but not ${state.co}; check them directly.`);
   if (!schools.size) redFlags.push('• Education not found in the sources; verify degrees with the institution.');
-  const yearLine = (x) => `• ${x.year}${x.yearFrom === 'source' ? ' (date of source)' : ''}: ${x.quote} ${cite(x)}`;
+  const yearLine = (x) => `• ${x.year}${x.yearFrom === 'source' ? ' (date of source)' : ''}: ${tidyQuote(x.quote)}${flagNameOnly(x)} ${cite(x)}`;
+  const notes = litigationNotes(state);
+  const litigationBody = [
+    litigation.length ? bullets(litigation, (x) => `• ${tidyQuote(x.quote)} ${cite(x)}`)
+      : notes.length || litigationNameOnly.length ? '' : 'No litigation or regulatory mentions found in the available sources.',
+    litigationNameOnly.length ? `*Name only, may be someone else (these pages give no company or role for ${person}):*\n${bullets(litigationNameOnly, (x) => `• ${tidyQuote(x.quote)} ${cite(x)}`)}` : '',
+    ...notes.map((x) => `*${x}*`),
+  ].filter(Boolean).join('\n');
   const text = [
     '## SUMMARY', summary.join(' '),
     '', '## CAREER TIMELINE', bullets(timeline, yearLine),
     '', '## PAST COMPANIES AND ROLES', bullets([...companies.values()], (c) => c.line),
     '', '## EDUCATION', bullets([...schools.values()], (s) => s.line),
-    '', '## LITIGATION AND REGULATORY', bullets(litigation, (x) => `• ${x.quote} ${cite(x)}`, 'No litigation or regulatory mentions found in the available sources.'), `\n*${LITIGATION_DISCLAIMER}*`,
-    '', '## PRESS AND PUBLIC STATEMENTS', bullets(press.slice(0, 8), (x) => `• ${x.quote} ${cite(x)}`),
+    '', '## LITIGATION AND REGULATORY', litigationBody, `\n*${LITIGATION_DISCLAIMER}*`,
+    '', '## PRESS AND PUBLIC STATEMENTS', bullets(press.slice(0, 8), (x) => `• ${tidyQuote(x.quote)}${flagNameOnly(x)} ${cite(x)}`),
     '', '## RED FLAGS AND OPEN QUESTIONS', ...redFlags,
     '', `*Note: ${reason}, so every statement above is quoted from the cited source.*`,
   ].join('\n');
@@ -930,6 +1015,10 @@ export function validateFounderInput({ name, company } = {}) {
   return { ok: true, name: person.name, company: co.value };
 }
 
+// A headline about a marriage, an engagement or a spouse is about private family life: the same rule the deep
+// check applies (guardrails.js WEDDING_TITLE, sanitizeFinding).
+const FAMILY_TITLE = WEDDING_TITLE;
+
 /**
  * The privacy rules applied to one search result, before it is ranked, quoted or given to a model: the title and
  * every text field go through the sentence cleaner (founder/guardrails.js), so an infobox birth line, a spouse or
@@ -943,6 +1032,8 @@ export function cleanSearchResult(r) {
   if (!url || !safeHref(url) || isBlockedUrl(url)) return null;
   const out = { ...r };
   const title = cleanText(r.title);
+  // the headline is the page's subject: a family notice or spouse headline takes the whole result with it
+  if (title && (FAMILY_TITLE.test(title) || privacyReason(title, { kin: 'notices' }))) return null;
   if (title) {
     out.title = cleanSentences(title, { kin: false }).text;
     if (!out.title) return null;
@@ -1039,9 +1130,11 @@ function rememberState(key, state) {
   while (briefCache.size >= BRIEF_CACHE_MAX) briefCache.delete(briefCache.keys().next().value);
   briefCache.set(key, { at: Date.now(), state });
 }
-function recallState(key) {
+/** The held sources, taken out of the cache: one counted check gives exactly one model brief. */
+function takeState(key) {
   const held = briefCache.get(key);
-  if (!held || Date.now() - held.at > BRIEF_CACHE_MS) { briefCache.delete(key); return null; }
+  briefCache.delete(key);
+  if (!held || Date.now() - held.at > BRIEF_CACHE_MS) return null;
   return held.state;
 }
 /** For tests. */
@@ -1154,6 +1247,9 @@ async function gatherSources({ name, company, useLLM, brief }, deps = {}) {
   const tiedByCompany = (r) => Boolean(hasCo && (namesBoth(r) || (profileOf(r) && theirs.has(profileOf(r)))));
   const named = candidates.filter((r) => !hasCo || tiedByCompany(r));
   const leftOutPages = hasCo ? candidates.filter((r) => !tiedByCompany(r)) : [];
+  // Court dockets rarely name the employer beside the person, so most are left out above. Leaving them out is right
+  // (a namesake's case is the worst thing to pin on someone), but the brief must say they exist, never "none found".
+  const leftOutCourt = leftOutPages.filter((r) => r.source === 'courtlistener');
   const scoreOf = (r) => {
     let sc = 0;
     if (hasCo && namesBoth(r)) sc += 3;
@@ -1193,8 +1289,9 @@ async function gatherSources({ name, company, useLLM, brief }, deps = {}) {
   }
 
   // Which person? With a company typed every page kept is tied to it. Without one, the pages are grouped by the
-  // organisation they place the person at: one group (or one far larger than the rest) is briefed, and the other
-  // groups' pages are someone else's; several groups of similar size are returned for the page to ask about.
+  // organisation they place the person at: one group (or one far larger than the rest) that holds a real share of
+  // the pages is briefed, and the other groups' pages are someone else's; several groups of similar size are
+  // returned for the page to ask about; a lone small group among name-only pages makes every page name-only.
   let other = new Set();
   let weak = new Set();
   let people = null;
@@ -1202,15 +1299,37 @@ async function gatherSources({ name, company, useLLM, brief }, deps = {}) {
   if (!co) {
     const { groups, groupOf } = groupPeople(ranked, hasName, displayName);
     const [top, second] = groups;
-    const dominant = top && (!second || (top.members.length >= DOMINANT_MIN && top.members.length >= DOMINANT_RATIO * second.members.length));
-    if (top && !dominant) {
+    // One group is the person only when it is large enough on its own and holds a real share of the pages: a single
+    // profile beside many name-only pages (anyone of that name) is not "most of them". When every page kept is in
+    // the one group, its size does not matter.
+    const size = top ? top.members.length : 0;
+    const share = ranked.length ? size / ranked.length : 0;
+    const dominant = top && share >= DOMINANT_SHARE && (second
+      ? size >= DOMINANT_MIN && size >= DOMINANT_RATIO * second.members.length
+      : size >= DOMINANT_MIN || size === ranked.length);
+    if (top && !dominant && second) {
       people = groups.slice(0, 6).map((g) => {
         const i = g.members[0];
         const r = ranked[i];
         return { company: g.name, role: g.role, sources: g.members.length, source: { n: i + 1, title: cleanText(r.title) || sourceLabel(r), url: r.url || r.link, sourceName: sourceLabel(r) } };
       });
       warnings.push(`Several people named ${displayName} were found (${people.slice(0, 4).map((p) => p.company).join('; ')}). Choose the one you mean, or add a company, to write the brief.`);
-    } else if (top) {
+      // Until a person is chosen nothing is theirs: every item says which group of pages it comes from and that it
+      // may be someone else, and no "current role" is claimed (each person in the list carries their own).
+      const all = [evidence.timeline, evidence.pastCompanies, evidence.litigation, evidence.press, evidence.mentions, evidence.education];
+      for (const list of all) {
+        for (const x of list) {
+          x.possibleDifferentPerson = true;
+          x.group = groupOf.has(x.sourceIndex) ? groupOf.get(x.sourceIndex) : null;
+          if (x.group === null) x.nameOnly = true;
+        }
+      }
+      for (const p of profiles) {
+        p.possibleDifferentPerson = true;
+        p.group = groupOf.has(p.sourceIndex) ? groupOf.get(p.sourceIndex) : null;
+      }
+      evidence.currentRole = null;
+    } else if (top && dominant) {
       effectiveCompany = top.name;
       ranked.forEach((_, i) => {
         if (!groupOf.has(i)) weak.add(i);
@@ -1220,13 +1339,20 @@ async function gatherSources({ name, company, useLLM, brief }, deps = {}) {
     } else {
       ranked.forEach((_, i) => weak.add(i));
     }
-    // items from another person's pages are flagged wherever they are listed
+    // Items from another person's pages are flagged wherever they are listed. Beside a group that is the person, a
+    // page tied by the name alone may be anyone of that name, so its items are flagged the same way; when no page is
+    // tied by more than the name, every item says so (nameOnly).
+    const tiedGroup = !people && weak.size < ranked.length;
     for (const list of [evidence.timeline, evidence.pastCompanies, evidence.litigation, evidence.press, evidence.mentions, evidence.education]) {
       for (const x of list) {
         if (other.has(x.sourceIndex)) x.possibleDifferentPerson = true;
-        else if (weak.has(x.sourceIndex)) x.nameOnly = true;
+        else if (weak.has(x.sourceIndex)) {
+          x.nameOnly = true;
+          if (tiedGroup) x.possibleDifferentPerson = true;
+        }
       }
     }
+    if (evidence.currentRole && weak.has(evidence.currentRole.sourceIndex)) evidence.currentRole.nameOnly = true;
   } else {
     const flagged = [...evidence.timeline, ...evidence.pastCompanies, ...evidence.litigation, ...evidence.press, ...evidence.mentions].filter((x) => x.possibleDifferentPerson).length;
     if (flagged) warnings.push(`${flagged} item(s) come from sources that do not mention "${co}". They may describe the same person at another company, or a different person with the same name.`);
@@ -1242,6 +1368,9 @@ async function gatherSources({ name, company, useLLM, brief }, deps = {}) {
     person, co, variants, hasName, displayName, ranked, evidence, profiles, people, other, weak, effectiveCompany,
     warnings, unavailableSources, searchedSources, index,
     namesakePages: leftOutPages.slice(0, 20).map((r) => ({ title: cleanText(r.title) || sourceLabel(r), url: r.url || r.link })),
+    namesakeCourtRecords: leftOutCourt.length
+      ? { count: leftOutCourt.length, records: leftOutCourt.slice(0, 10).map((r) => ({ title: cleanText(r.title) || sourceLabel(r), url: r.url || r.link })) }
+      : null,
   };
 }
 
@@ -1324,7 +1453,7 @@ async function writeBrief(state, { model = 'auto', useLLM = true, deadline = nul
           Promise.resolve(reportAnswerQuality(out, share, 'chat')).catch(() => {});
         }
         return {
-          brief: checked.content,
+          brief: withLitigationNotes(checked.content, state),
           briefInfo: { mode: 'ai', provider: out.providerLabel, model: out.model, confidence: checked.confidence, skipped: out.skipped || [], removedLines: checked.dropped || 0 },
         };
       }
@@ -1349,6 +1478,7 @@ function resultOf(state, { brief, briefInfo }) {
     profiles,
     people: state.people || null,
     namesakePages: state.namesakePages,
+    namesakeCourtRecords: state.namesakeCourtRecords || null,
     brief,
     briefInfo,
     litigationDisclaimer: LITIGATION_DISCLAIMER,
@@ -1383,19 +1513,23 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
 }
 
 /**
- * The brief for the sources a sources-first call (brief 'none') just found, with the same name and company. When
- * they are no longer held (another server instance, or after ten minutes) the whole check runs again.
+ * The brief for the sources a sources-first call (brief 'none') just found, with the same name and company. The held
+ * sources are used once: a second call, or one after they are gone (another server instance, or after ten
+ * minutes), runs the whole check again. `onMiss` is awaited before that happens, so the caller can count it as a
+ * new check or refuse it (by throwing) before any search or model call.
+ * @param {{ onMiss?: () => Promise<void> }} input and the same fields as runFounderCheck
  * @returns {Promise<object>} { brief, briefInfo, fromCache } (and the full result when it ran again)
  */
-export async function runFounderBrief({ name, company, model = 'auto', useLLM = true, deadline = null, cacheScope = '' } = {}, deps = {}) {
+export async function runFounderBrief({ name, company, model = 'auto', useLLM = true, deadline = null, cacheScope = '', onMiss = null } = {}, deps = {}) {
   const person = normalizePersonName(name);
   const co = String(company || '').trim().replace(/\s+/g, ' ');
   if (!person) throw new Error('name is required');
-  const state = recallState(cacheKeyOf(cacheScope, person, co));
+  const state = takeState(cacheKeyOf(cacheScope, person, co));
   if (state) {
     const written = await writeBrief(state, { model, useLLM, deadline });
     return { name: state.displayName, company: state.co || null, ...written, fromCache: true };
   }
+  if (typeof onMiss === 'function') await onMiss();
   const full = await runFounderCheck({ name, company, model, useLLM, deadline, brief: 'auto', cacheScope }, deps);
   return { ...full, fromCache: false };
 }

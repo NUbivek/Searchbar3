@@ -16,7 +16,7 @@ const { runFounderCheck } = require('../../../src/server/founderCheck');
 
 function call({ body, headers = {} }) {
   const res = { statusCode: 200, body: null, headers: {}, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; }, setHeader(k, v) { this.headers[k] = v; } };
-  return route.default({ method: 'POST', query: {}, body, headers, socket: { remoteAddress: '10.0.0.1' } }, res).then(() => res);
+  return route.default({ method: 'POST', query: {}, body, headers: { 'content-type': 'application/json', ...headers }, socket: { remoteAddress: '10.0.0.1' } }, res).then(() => res);
 }
 
 beforeEach(() => {

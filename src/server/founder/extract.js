@@ -52,7 +52,15 @@ function sentencesAbout(subject, text) {
   const out = [];
   let named = false;
   for (const sentence of sentencesOf(text)) {
-    if (subject.hasName(sentence)) { named = true; out.push(sentence); } else if (named && /^(She|He|They|Her|His|Their)\b/.test(sentence)) out.push(sentence);
+    if (subject.hasName(sentence)) {
+      out.push(sentence);
+      // "Jane Roe hired Bob Smith. He previously founded Initech.": once someone else is in the sentence, the
+      // next "He/She" may be them, so nothing carries over
+      const pos = typeof subject.hasName.positions === 'function' ? subject.hasName.positions(sentence) : [];
+      let rest = sentence;
+      for (const p of [...pos].reverse()) rest = `${rest.slice(0, p.start)} , ${rest.slice(p.end)}`;
+      named = !otherPersonIn(subject, rest) && !/\b(?:hired|hires|recruited|recruits|appointed|appoints|married|introduced|mentored)\b/i.test(rest);
+    } else if (named && /^(She|He|They|Her|His|Their)\b/.test(sentence)) out.push(sentence);
     else if (!/^(She|He|They|Her|His|Their)\b/.test(sentence)) named = false;
   }
   return out;
@@ -357,6 +365,8 @@ export function companiesFromText(subject, text) {
     for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?founded|founded|started|launched|created)\\s+(${CAMEL})`, 'g'))) add(m[1], 'company the person started');
     for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?founded|founded)\\s+(${CO_NAME})`, 'g'))) addVenture(m[1], 'company the person started');
     for (const m of sentence.matchAll(new RegExp(`\\ban?\\s+(?:online\\s+)?(?:marketplace|company|startup|start-up),\\s+(${CO_NAME})`, 'g'))) addVenture(m[1], 'company named with the person');
+    // the press form of a new venture: "has launched a new blockchain infrastructure startup, Alta, which ..."
+    for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?founded|founded|started|launched|created|set up)\\s+(?:an?|the|her|his|their)\\s+(?:[a-z][\\w-]*\\s+){0,5}?(?:company|startup|start-up|venture|firm|fund|business),\\s+(${CO_NAME})`, 'g'))) addVenture(m[1], 'company the person started');
   }
   return [...out.values()];
 }

@@ -64,7 +64,7 @@ import { makeFinding, makeThread, severityFromText } from '../finding';
 import { relativesFromText, associatesFromText, threadsFromResult } from '../extract';
 import { mentionsMinor, isSensitive, cleanSentences } from '../guardrails';
 import { addRoleAnchor, addCompanyAlias } from '../identity';
-import { companyKeys, isOrdinaryWordCompany, nameCommonness } from '../names';
+import { companyKeys, isOrdinaryWordCompany, nameCommonness, givenNamesAgree } from '../names';
 import { withAliasHold } from './alias';
 
 const SEARCH_URL = 'https://efts.sec.gov/LATEST/search-index';
@@ -122,14 +122,25 @@ function personTokens(name) {
 }
 
 /**
+ * Is one given name a diminutive of the other ("Sam" and "Samuel", "Bill" and
+ * "William")? Only the shared table in names.js decides: a longer name that
+ * merely starts with the other ("Paula" for "Paul", "Erica" for "Eric") is
+ * another person, often a relative.
+ */
+function diminutiveOf(x, y) {
+  return Boolean(x && y && x !== y && givenNamesAgree(x, y));
+}
+
+/**
  * Do two names (tokens in given-name-first order) describe the same name?
  * First and last must be equal; where both give a middle name or initial
- * they must agree. `nickname` also lets "Sam" stand for "Samuel".
+ * they must agree. `nickname` also lets "Sam" stand for "Samuel" (the shared
+ * diminutive table only, never a prefix).
  */
 function namesAgree(a, b, { nickname = false } = {}) {
   if (a.length < 2 || b.length < 2 || a[a.length - 1] !== b[b.length - 1]) return false;
   const [x, y] = [a[0], b[0]];
-  const firstOk = x === y || (nickname && Math.min(x.length, y.length) >= 3 && (x.startsWith(y) || y.startsWith(x)));
+  const firstOk = x === y || (nickname && diminutiveOf(x, y));
   if (!firstOk) return false;
   const [ma, mb] = [a.slice(1, -1), b.slice(1, -1)];
   for (let i = 0; i < Math.min(ma.length, mb.length); i += 1) {
@@ -1022,6 +1033,18 @@ function subjectOnFormD(doc, subject, { nickname = false } = {}) {
   return lookalike ? { namesake: true } : {};
 }
 
+/**
+ * Does the notice list the person under their own full name (a middle name or
+ * initial allowed), not only under a diminutive ("Samuel" for "Sam")? Only
+ * then may the subject's name be put in the text the record is graded on: a
+ * diminutive is a weaker kind of match and is held below confirmed.
+ */
+function listedInFull(subject, on) {
+  const listed = (on.person || on.signer)?.name;
+  return Boolean(listed) && (subject.hasName(listed) || namesAgree(personTokens(listed), subjectTokens(subject)));
+}
+const diminutiveReason = (listed) => `the notice lists the person as ${listed}, another form of the first name`;
+
 const rolesText = (roles) => (roles.length ? joinAnd(roles) : 'a related person');
 
 const CEO_TITLE = /\b(?:chief executive(?: officer)?|CEO)\b/i;
@@ -1169,6 +1192,10 @@ async function personFormD(ctx) {
       // Not read: the index line never names the person, so it is graded by the issuer alone, 'likely' at most.
       unread += 1;
       finding = unreadFinding(subject, fields, { tie: cikTie(subject, g), exactKnown, why: 'the SEC index lists the name; the notice was not read' });
+    } else if ((on.person || on.signer) && !listedInFull(subject, on)) {
+      // Listed only under a diminutive of the first name, on a notice of a known company: likely at most, and never
+      // graded on text holding the subject's own name (that would read as the full name and confirm it).
+      finding = makeFinding(subject, { ...fields, match: 'likely', matchReasons: [diminutiveReason((on.person || on.signer).name), 'filed by a company tied to the person'] });
     } else if (on.person || on.signer) {
       // The notice lists the person: graded on its own fields (the person as listed, the issuer and the others on it).
       finding = makeFinding(subject, { ...fields, matchText: [subject.name, ...issuer.names, doc.issuerName, ...doc.previousNames, ...doc.persons.map((p) => p.name)].join('. ') });
@@ -1871,8 +1898,16 @@ async function personEnforcement(ctx) {
     throw error;
   }
   const notes = [];
-  if (court.status === 'rejected' || admin.status === 'rejected') notes.push(`SEC ${court.status === 'rejected' ? 'litigation releases' : 'administrative proceedings'} could not be searched this time.`);
+  // One of the two lists failing leaves the screen half done: it is reported as partial, never as a clean answer.
+  const partial = [];
+  if (court.status === 'rejected' || admin.status === 'rejected') {
+    const which = court.status === 'rejected' ? 'litigation releases' : 'administrative proceedings';
+    notes.push(`SEC ${which} could not be searched this time.`);
+    partial.push(`SEC ${which} (did not answer)`);
+  }
   const named = (row) => namesPerson(row.respondents, subject, { nickname: true });
+  // The full name, a middle name or initial allowed; a diminutive of the first name ("Samuel" for "Sam") is not.
+  const inFull = (text) => subject.hasName(text) || namesPerson(text, subject);
   let courtRows = court.status === 'fulfilled' ? court.value.rows.filter(named) : [];
   if (court.status === 'fulfilled' && court.value.total > court.value.rows.length) {
     // A common surname fills more than one page: ask again for the exact name.
@@ -1894,7 +1929,7 @@ async function personEnforcement(ctx) {
   const build = (row, kind, release) => {
     const label = kind === 'court' ? 'SEC litigation release' : 'SEC administrative proceeding';
     const exact = subject.hasName(row.respondents);
-    const title = `${label}${row.number ? ` ${row.number}` : ''}: ${row.respondents.length > 150 ? `${row.respondents.slice(0, 149).trimEnd()}…` : row.respondents}${exact ? '' : ` (${subject.name})`}`;
+    const title = `${label}${row.number ? ` ${row.number}` : ''}: ${row.respondents.length > 150 ? `${row.respondents.slice(0, 149).trimEnd()}…` : row.respondents}${exact ? '' : inFull(row.respondents) ? ` (${subject.name})` : ` (possibly ${subject.name})`}`;
     const quote = release ? flat(release.passage) : [`Respondents: ${row.respondents}`, row.number ? `Release No. ${row.number}` : '', row.fileNumber ? `File No. ${row.fileNumber}` : ''].filter(Boolean).join('; ');
     const finding = makeFinding(subject, {
       source: PERSON_ID, sourceLabel: kind === 'court' ? 'SEC litigation releases' : 'SEC administrative proceedings', category: 'regulatory',
@@ -1908,7 +1943,7 @@ async function personEnforcement(ctx) {
       source: PERSON_ID, sourceLabel: kind === 'court' ? 'SEC litigation releases' : 'SEC administrative proceedings', category: 'regulatory',
       title, quote, url: row.url, date: row.date,
       severity: atLeast('medium', severityFromText(`${title} ${quote}`)),
-      match: 'possible', matchReasons: ['the respondents listed match the name with a middle name or initial'],
+      match: 'possible', matchReasons: [inFull(row.respondents) ? 'the respondents listed match the name with a middle name or initial' : 'the respondents listed match the name only under another form of the first name'],
       data: { release: row.number || null, respondents: row.respondents, ...(row.fileNumber ? { fileNumber: row.fileNumber } : {}) },
     });
     if (!finding) return;
@@ -1922,18 +1957,22 @@ async function personEnforcement(ctx) {
     const c = release?.complaint;
     if (!c || complaints.has(c.number) || !namesPerson(c.defendants, subject, { nickname: true })) return;
     complaints.add(c.number);
+    // The subject's own name goes into the grade text only when the defendants list them in full: under a
+    // diminutive of the first name the complaint stays possible.
     const finding = makeFinding(subject, {
       source: PERSON_ID, sourceLabel: 'SEC litigation releases', category: 'regulatory', severity: 'high',
       title: `SEC complaint filed in ${c.court}: SEC v. ${c.defendants}, No. ${c.number}`,
       quote: c.caption, url: row.url, date: c.filed,
-      matchText: [subject.name, row.respondents, release.text].join('. '),
+      ...(inFull(c.defendants)
+        ? { matchText: [subject.name, row.respondents, release.text].join('. ') }
+        : { match: 'possible', matchReasons: ['the complaint names the person only under another form of the first name'] }),
       data: { caseNumber: c.number, court: c.court, filed: c.filed, citedIn: row.number || null },
     });
     if (finding) findings.push(finding);
   };
   courtRows.forEach((row, i) => { build(row, 'court', releases[i] || null); buildComplaint(row, releases[i] || null); });
   adminShown.forEach((row, i) => build(row, 'admin', orders[i] || null));
-  return { findings, threads: dedupeThreads(threads), notes };
+  return { findings, threads: dedupeThreads(threads), notes, ...(partial.length ? { partial } : {}) };
 }
 
 /* ------------------------------------------------------------------ person: SEC press releases */
@@ -2021,12 +2060,17 @@ async function personPress(ctx) {
     if (release === false) return; // read, and it does not name the person
     if (!release && !row.named) return; // found by the company and not read: nothing ties it to the person
     const quote = release ? flat(release.passage) : row.title;
+    // The subject's own name joins the grade text only when the release names them in full (a middle name or
+    // initial allowed). Named only under a diminutive of the first name, the release stays possible.
+    const full = subject.hasName(row.title) || namesPerson(row.title, subject) || Boolean(release && (subject.hasName(release.text) || namesPerson(release.text, subject)));
     const finding = makeFinding(subject, {
       source: PERSON_ID, sourceLabel: 'SEC press releases', category: 'regulatory',
-      title: `SEC press release${row.number ? ` ${row.number}` : ''}: ${row.title}${row.named ? '' : ` (names ${subject.name})`}`,
+      title: `SEC press release${row.number ? ` ${row.number}` : ''}: ${row.title}${row.named || !full ? '' : ` (names ${subject.name})`}`,
       quote, url: row.url, date: row.date,
       severity: atLeast('medium', severityFromText(`${row.title} ${quote}`)),
-      matchText: [subject.name, row.title, release ? release.text : ''].join('. '),
+      ...(full
+        ? { matchText: [subject.name, row.title, release ? release.text : ''].join('. ') }
+        : { match: 'possible', matchReasons: ['the release names the person only under another form of the first name'] }),
       data: { release: row.number || null },
     });
     if (!finding) return;
@@ -2111,7 +2155,11 @@ async function companyFormD(task, ctx) {
       source: COMPANY_ID, sourceLabel: 'SEC Form D notices (private fundraises)', category: 'corporate', severity: 'info',
       title: formDTitle(h.form, issuerName, subject, on, `Form ${h.form} filed by ${issuerName}: private fundraise${facts ? ` (${facts})` : ''}`),
       quote: doc ? formDQuote(doc, { ...on, others }) : recordLine(g), url: h.url, date: h.date,
-      ...(isNamed
+      ...(isNamed && !listedInFull(subject, on)
+        // Listed only under a diminutive of the first name ("Samuel" for "Sam"): held below confirmed, and at
+        // possible for a company the person was only an affiliate of, or an issuer found by a bare shared word.
+        ? { match: affiliate || h.bareWord ? 'possible' : 'likely', matchReasons: [diminutiveReason((on.person || on.signer).name), `filed by ${issuerName}, a company tied to the person`] }
+        : isNamed
         ? { matchText: [subject.name, issuerName, company, doc.issuerName, ...doc.previousNames].join('. ') }
         : { match: 'company', matchReasons: [filers.exact ? `a filing by ${issuerName}, a company tied to the person` : `a filing by ${issuerName}, whose name matches ${company}, a company tied to the person`] }),
       data: { form: h.form, accession: h.adsh, issuer: issuerName, ...(doc?.jurisdiction ? { jurisdiction: doc.jurisdiction } : {}), ...(doc ? { yearOfIncorporation: doc.yearOfInc || null, firstSale: doc.firstSale || null, totalOffering: doc.totalOffering || null, totalSold: doc.totalSold || null, relatedPersons: doc.persons.slice(0, 20).map((p) => ({ name: p.name, roles: p.roles })) } : {}) },
@@ -2255,7 +2303,8 @@ async function companyEvents(task, ctx) {
     }
   }
   // Trading suspensions are listed on www.sec.gov, under the company's legal name.
-  const legal = knownNamesOf(subject, company).filter((n) => !(isOrdinaryWordCompany(company) && n === company));
+  let suspensionsFailed = false;
+  const legal =knownNamesOf(subject, company).filter((n) => !(isOrdinaryWordCompany(company) && n === company));
   if (legal.length) {
     if (!siteReady()) notes.push(`SEC trading suspensions of ${company} were not checked. ${siteNote()}`);
     else {
@@ -2274,10 +2323,13 @@ async function companyEvents(task, ctx) {
         }
       } catch {
         notes.push(`SEC trading suspensions of ${company} could not be searched this time.`);
+        // A failed search is not a clean one: the lookup is reported as partial.
+        suspensionsFailed = true;
       }
     }
   }
-  return { findings, notes, partial: legal.length && !siteReady() ? ['SEC trading suspensions (the SEC website did not answer)'] : [] };
+  const partial = legal.length && !siteReady() ? ['SEC trading suspensions (the SEC website did not answer)'] : suspensionsFailed ? ['SEC trading suspensions (did not answer)'] : [];
+  return { findings, notes, partial };
 }
 
 /* ------------------------------------------------------------------ company: filings naming the person with it */

@@ -372,7 +372,7 @@ describe('history: reopen a check instead of starting a new one', () => {
     const [sql, params] = db.query.mock.calls[0];
     expect(sql).toMatch(/updated_at > now\(\) - interval '72 hours'/);
     expect(params[0]).toBe('user-1');
-    expect(checks).toEqual([{ id: 'job-1', name: 'Trevor Milton', company: 'Nikola', seededCompany: 'Nikola', status: 'done', date: '2026-11-19T10:00:00.000Z', redFlags: 2 }]);
+    expect(checks).toEqual([{ id: 'job-1', name: 'Trevor Milton', company: 'Nikola', seededCompany: 'Nikola', status: 'done', date: '2026-11-19T10:00:00.000Z', redFlags: 2, ifRightPerson: null }]);
   });
   test('running checks are listed apart, never another user\'s', async () => {
     const memory = new Map([

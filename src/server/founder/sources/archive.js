@@ -574,7 +574,10 @@ function changeFindings(subject, base, what, page, versions) {
       for (const raw of adjustRoleChanges(compareClaims(older, cur.claims), older, cur.claims)) {
         // A bio on a page that is not a profile (a blog post's author box, a company's about page) is told about the
         // person only when it names them: another employee's bio beside their name is not their claim.
-        if (raw.field === 'bio' && cur.claims.format === 'page' && !namesThem(subject, raw.before) && !namesThem(subject, raw.after)) continue;
+        // A bio read from the lines under the person's own name line (extractClaims bioAnchored) is theirs even when
+        // it says only "she" or "I": kept when both copies are anchored so.
+        if (raw.field === 'bio' && cur.claims.format === 'page' && !namesThem(subject, raw.before) && !namesThem(subject, raw.after)
+          && !(cur.claims.bioAnchored && from('bio').claims.bioAnchored)) continue;
         // Words only added to a bio or a profile tagline say more, not something different: noted, not flagged.
         const expanded = raw.change === 'changed' && (raw.field === 'bio' || (raw.field === 'headline' && raw.aspect !== 'title')) && onlyAdds(raw.before, raw.after);
         let d = expanded ? { ...raw, severity: 'info', expanded: true } : raw;
@@ -582,6 +585,9 @@ function changeFindings(subject, base, what, page, versions) {
         if (cur.claims.masked && d.aspect === 'degree' && d.change === 'added') d = { ...d, severity: 'low' };
         // a copy with lines hidden behind asterisks cannot show that something is gone or was reworded, only what was added
         if (cur.claims.masked && d.change !== 'added') continue;
+        // and an older copy with hidden lines cannot show what was not there yet: a degree, school or job that only
+        // appears once the lines are shown was hidden, not added (it is never compared as a new claim)
+        if (from(d.field).claims.masked && d.change === 'added' && (d.field === 'education' || d.field === 'role')) continue;
         const source = from(d.field);
         changes.push({ d, before: source.lastSeen || source, after: cur });
       }

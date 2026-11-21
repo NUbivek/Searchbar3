@@ -41,7 +41,8 @@ describe('funding rounds, investors and standing', () => {
       rec({ title: 'Eric Glyman, co-founder of Ramp', quote: 'Eric Glyman is the co-founder of Ramp, valued at $44 billion and used by over 70,000 businesses. Ramp has about 1,200 employees.' }),
       rec({ title: 'Ramp (company) - Wikipedia', quote: 'Ramp was founded in March 2019 by Eric Glyman, Karim Atiyeh, and Gene Lee.' }),
     ]);
-    expect(facts.standing.map((x) => x.kind).sort()).toEqual(['customers', 'headcount', 'valuation']);
+    // one line per sentence (round 4: a sentence giving two figures is listed once), with every figure's kind
+    expect(facts.standing.flatMap((x) => x.kinds).sort()).toEqual(['customers', 'headcount', 'valuation']);
     for (const x of facts.standing) expect(x.ids.length).toBeGreaterThan(0);
     expect(facts.founded).toEqual(expect.objectContaining({ year: 2019 }));
   });

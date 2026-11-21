@@ -129,20 +129,41 @@ const REDACTIONS = [
   [new RegExp(`\\b\\d{1,3}[- ]years?[- ]old\\s+(?!${BUSINESS_NOUN}\\b)(?=[a-z])`, 'g'), '', 'age'],
   [new RegExp(`\\b\\d{1,3}[- ]years?[- ]old\\b(?![- ]?${BUSINESS_NOUN}\\b)`, 'gi'), '[age removed]', 'age'],
   [/(\b[A-Z][a-z'’-]+),\s(?:1[89]|[2-9]\d),(?=\s)/g, '$1,', 'age'],
+  // a bare age in brackets right after a name, as UK and German press write it: "Doe (44) founded" (not a year
+  // "(2019)", nor a footnote "(4)")
+  [/(?<=\b[A-Z][\w'’.-]*[a-z][\w'’.-]*)\s*\(\s*(?:1[89]|[2-9]\d)\s*\)(?!\s*[-–\d])/g, '', 'age'],
+  // "turned 40", "turning fifty" (not "turned 40 stores into", "turned 10 percent")
+  [/\bturn(?:ed|s|ing)\s+(?:\d{2}|thirty|forty|fifty|sixty|seventy|eighty)\b(?!\s*(?:%|percent|per cent|million|billion|thousand|[a-z]+s\b|[a-z]+\s+(?:into|in)\b))/gi, '[age removed]', 'age'],
+  // "his 40th birthday", "her fortieth birthday": the birthday may stay, the age goes
+  [/\b(?:\d{1,3}(?:st|nd|rd|th)|(?:twent|thirt|fort|fift|sixt|sevent|eight|ninet)ieth|(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)-\w+(?:st|nd|rd|th))\s+(birthday)\b/gi, '$1', 'age'],
   // email addresses, and the spelled-out kind: "jane [at] gmail [dot] com"
   [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[email removed]', 'email'],
   [/[\w.%+-]+\s*[[({]\s*at\s*[\])}]\s*[\w-]+(?:\s*(?:[[({]\s*dot\s*[\])}]|\.)\s*[\w-]+)+/gi, '[email removed]', 'email'],
+  // spelled out without brackets: "jane dot doe at gmail dot com". Only when the name part has a "dot" or the text
+  // before says it is an address, so "worked at Acme dot com" is not read as an email.
+  [/\b[\w%+-]+(?:\s+dot\s+[\w%+-]+)*\s+at\s+[\w-]+(?:\s+dot\s+[\w-]+)*\s+dot\s+(?:com|org|net|io|co|edu|gov|ai|me|uk|fr|de|in|us|ca|au|info|biz)\b/gi,
+    (m, offset, text) => (/^\S+\s+dot\s/i.test(m) || /\b(?:e-?mail|mail|contact|write to|reach (?:him|her|them)|address)\b[^.;\n]{0,20}$/i.test(text.slice(Math.max(0, offset - 30), offset)) ? '[email removed]' : m), 'email'],
   // US social security numbers and similar national identifiers
   [/\b\d{3}-\d{2}-\d{4}\b/g, '[ID number removed]', 'id'],
   [/\b(?:SSN|social security(?: number)?|national insurance(?: number)?|passport(?: number| no\.?)?|driver['’]?s? licen[cs]e(?: number| no\.?)?|national (?:ID|identity)(?: card)?(?: number| no\.?)?|ID card(?: number| no\.?)?|tax ID(?: number)?|Aadhaar(?: number)?|NI (?:number|no\.?)|NINO)\s*[:#]?\s*(?=[A-Z0-9 -]{0,15}\d)[A-Z0-9][A-Z0-9-]{3,}(?:[ ]\d[A-Z0-9-]*){0,3}/gi, '[ID number removed]', 'id'],
   // UK national insurance number: "QQ 12 34 56 C"
   // (spaced form only: unspaced it is indistinguishable from a patent or product number such as "MX387190B")
   [/\b[A-CEGHJ-PR-TW-Z][A-CEGHJ-NPR-TW-Z] \d{2} \d{2} \d{2} [A-D]\b/g, '[ID number removed]', 'id'],
+  // international numbers: "+33 1 42 68 53 00", "+49 30 12345678", "+91 98765 43210": a country code, then 7 to 14 more
+  // digits in groups of 1 to 8
+  [/(?<![\w/.+-])\+\d{1,3}(?:[\s.-]?\(?\d{1,8}\)?){1,6}(?![\w/-])/g, (m) => { const n = (m.match(/\d/g) || []).length; return n >= 8 && n <= 15 ? '[phone removed]' : m; }, 'phone'],
+  // French national numbers: "06 12 34 56 78", "01.42.68.53.00"
+  [/(?<![\w/.+-])0[1-9](?:[\s.-]\d{2}){4}(?![\w/-])/g, '[phone removed]', 'phone'],
+  // any spaced run of 8 or more digits when the text just before says it is a phone: "mobile: 4155 5501 00"
+  [/(\b(?:call|calls|phone|tel|telephone|mobile|cell|line|whatsapp|fax|reach (?:him|her|them) (?:at|on))\b[^\d\n+]{0,15})(\+?\d[\d\s().-]{6,}\d)/gi,
+    (m, lead, num) => ((num.match(/\d/g) || []).length >= 8 && !/^(?:(?:1[89]|20)\d{2}[\s.-]*)+$/.test(num) ? `${lead}[phone removed]` : m), 'phone'],
   // UK phone numbers: "07700 900123", "+44 7700 900123", "+44 (0)20 7946 0958". The 0 form needs a space or dash,
   // so a company number ("0412345678") is not read as a phone.
   [/(?<![\w/.+-])(?:\+44\s?(?:\(0\)\s?)?\d{2,4}[\s.-]?\d{3,4}[\s.-]?\d{3,4}|\(?0\d{2,4}\)?[\s.-]\d{3,4}[\s.-]?\d{3,4})(?![\w/-])/g, '[phone removed]', 'phone'],
   // phone numbers: +1 (415) 555-0100, 415-555-0100, +44 20 7946 0958. A run of years ("2021 2020 2021") is not a phone.
-  [/(?<![\w/.-])(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)[\s.-]?|\d{2,4}[\s.-])\d{3,4}[\s.-]\d{3,4}(?![\w/-])/g, (m) => (/^(?:(?:1[89]|20)\d{2}[\s.-]){2}(?:1[89]|20)\d{2}$/.test(m) ? m : '[phone removed]'), 'phone'],
+  // Without a + or brackets the last group has four digits, so a register number ("SIREN 123 456 789") or a share
+  // count ("12 345 678 shares") is not read as a phone.
+  [/(?<![\w/.-])(?:\+\d{1,3}[\s.-]?(?:\(\d{2,4}\)[\s.-]?|\d{2,4}[\s.-])\d{3,4}[\s.-]\d{3,4}|\(\d{2,4}\)[\s.-]?\d{3,4}[\s.-]\d{3,4}|\d{2,4}[\s.-]\d{3,4}[\s.-]\d{4})(?![\w/-])/g, (m) => (/^(?:(?:1[89]|20)\d{2}[\s.-]){2}(?:1[89]|20)\d{2}$/.test(m) ? m : '[phone removed]'), 'phone'],
   // phone numbers written as one run of digits, when the text around them says it is a phone: "call 4155550100"
   [/(?<![\w/.+-])\+?\d{10,12}(?![\w/-])/g, (m, offset, text) => (/\b(?:call|phone|tel|telephone|mobile|cell|whatsapp)\b/i.test(text.slice(Math.max(0, offset - 40), offset)) ? '[phone removed]' : m), 'phone'],
   // a phone number cut off where the text was clipped ("call 415-555-01…"): the digits left are still a phone
@@ -160,6 +181,14 @@ const REDACTIONS = [
   [/(?<![\wÀ-ÿ-])[A-ZÄÖÜ][a-zäöüß-]*(?:straße|strasse|gasse|allee)\s+\d{1,4}[a-z]?\b/g, '[address removed]', 'address', { street: true }],
   // where someone lives: "lives in Palo Alto", "resides at ..."
   [/\b(?:lives|resides)\s+(?:at|in|on)\s+[^.;\n]+/gi, '[location removed]', 'location'],
+  // "a 1984-born entrepreneur": the year goes and the article is mended
+  [new RegExp(`\\b(?:(an?)\\s+)?${YEAR}-born\\s+(?=\\S)`, 'gi'), (m, art, offset, text) => {
+    if (!art) return '';
+    const an = /^[aeiou]/i.test(text.slice(offset + m.length)) ? 'an' : 'a';
+    return `${art[0] === 'A' ? an[0].toUpperCase() + an.slice(1) : an} `;
+  }, 'dob'],
+  // "born in the spring of 1984", "born in late 1984", "born during the summer of 1984": the time goes, a place stays
+  [new RegExp(`\\b([Bb]orn)\\s+(?:in|during)\\s+(?:the\\s+)?(?:(?:spring|summer|autumn|fall|winter|early|late|middle|mid|first half|second half|beginning|end|start)(?:\\s+(?:months|part|days))?\\s+of\\s+|(?:early|late|mid)[- ]?)${YEAR}s?\\b`, 'g'), (m, lead, offset, text) => (/^\s*,?\s+(?:in|at)\s+[A-Z]/.test(text.slice(offset + m.length)) ? lead : `${lead} [date removed]`), 'dob'],
   // "born in Ohio in 1984": the place may stay, the year goes
   [new RegExp(`\\b([Bb]orn\\s+(?:in|at)\\s+[A-Z][^.;\\n\\d]{0,40}?)\\s*,?\\s+(?:in|on)\\s+${DATE}`, 'g'), '$1', 'dob'],
   // dates of birth after "born", in every shape, the year alone included ("born 1995", "Born Trevor Milton April 6, 1982",
@@ -209,36 +238,139 @@ export function redactPII(text, opts = {}) {
 // Conditions a person has. Used only together with a person-tying verb or a possessive pronoun.
 const HEALTH_TERM = "(?:cancer|tumou?rs?|leuka?emia|lymphoma|melanoma|diabetes|depression|anxiety|bipolar(?: disorder)?|schizophrenia|autism|ADHD|dyslexia|disabilit(?:y|ies)|illness|diseases?|pregnancy|miscarriage|abortion|addiction|alcoholism|surgery|(?:a |mild |minor |major )?stroke(?! of)|heart attack|heart condition|seizures?|epilepsy|Parkinson['’]?s(?: disease)?|Alzheimer['’]?s(?: disease)?|dementia|diagnosis|mental health|mental illness|eating disorder|anorexia|bulimia|PTSD|OCD|chemotherapy|radiation therapy|infertility|IVF|(?:multiple )?sclerosis|ALS|lupus|long COVID|COVID(?:-19)?|concussion|burnout|insomnia|obesity|transplant|hepatitis|tuberculosis|coma|overdose|sobriety|rehab|HIV|AIDS)";
 // What a health word is followed by when it names a company's business, not a person's condition
-const HEALTH_BUSINESS = '(?![-–]|\\s+(?:startups?|compan(?:y|ies)|care|tech|apps?|platforms?|benefits|insurance|business(?:es)?|products?|services?|ventures?|funds?|clinics?|portfolio|investments?|sector|industry|research|space|market|tests?|testing|screening|drugs?|therap(?:y|ies)|treatments?|diagnostics?|devices?|patients|charit(?:y|ies)|non-?profits?|foundation|awareness|prevention|cent(?:er|re)s?|hospitals?|programs?|programmes?|coverage|data|records|systems?|solutions?|software|management|providers?|network|organi[sz]ations?|initiatives?|trials?|stud(?:y|ies)|medications?|medicines?|vaccines?|detection|monitoring|outcomes|polic(?:y|ies)|support|teams?|units?|advocacy|groups?|communit(?:y|ies)|ward|wing|space|experts?|specialists?|sufferers|survivors|outbreaks?|pandemic|epidemic|crisis|scare|cure|robots?|tools?|kits?)\\b)';
-const HEALTH_VERB = "(?:diagnos(?:ed|is) (?:with|of)|(?:cit(?:ed|es|ing)|blam(?:ed|es|ing)|disclos(?:ed|es|ing)|reveal(?:ed|s|ing)|(?:spoke|speaks|spoken|talked|talks|opened up|wrote|writes|written) (?:publicly )?about|pointed to)(?:\\s+(?:his|her|their))?|treated for|treatment for (?:his|her|their)|suffer(?:s|ed|ing)? (?:from|an?)|had|has|have|having|underwent|undergoing|undergone|recover(?:ing|ed|s)? from|struggl(?:e|es|ed|ing) with|(?:he|she|I) (?:is |was )?(?:living|lives|lived) with|battl(?:e|es|ed|ing) (?:with )?(?:his|her|their)|died (?:of|from|after)|dies (?:of|from|after)|succumbed to|complications (?:of|from)|hospitali[sz]ed (?:for|with|after)|leave (?:for|after)|after (?:a|an|his|her|their))";
-const HEALTH_MOD = "(?:an?\\s+|the\\s+|stage\\s+\\w+\\s+|(?:advanced|severe|chronic|mild|minor|major|early[- ]onset|breast|lung|brain|prostate|pancreatic|colon|skin|ovarian|clinical|postpartum|terminal|rare|serious|recurring|undisclosed|unspecified|heart|knee|back|emergency)\\s+)*";
+// (also the people a company serves, "diabetes customers", and a company's pandemic, "a COVID-19 lockdown")
+const HEALTH_BUSINESS = '(?![-–]|\\s+(?:startups?|compan(?:y|ies)|care|tech|apps?|platforms?|benefits|insurance|business(?:es)?|products?|services?|ventures?|funds?|clinics?|portfolio|investments?|sector|industry|research|space|market|tests?|testing|screening|drugs?|therap(?:y|ies)|treatments?|diagnostics?|devices?|patients|customers|clients|members|users|consumers|employees|workers|charit(?:y|ies)|non-?profits?|foundation|awareness|prevention|cent(?:er|re)s?|hospitals?|programs?|programmes?|coverage|data|records|systems?|solutions?|software|management|providers?|network|organi[sz]ations?|initiatives?|trials?|stud(?:y|ies)|medications?|medicines?|vaccines?|detection|monitoring|outcomes|polic(?:y|ies)|support|teams?|units?|advocacy|groups?|communit(?:y|ies)|ward|wing|space|experts?|specialists?|sufferers|survivors|outbreaks?|pandemic|epidemic|crisis|scare|cure|robots?|tools?|kits?|lockdowns?|restrictions|response|rules|mandates?|relief|loans?|era|shutdowns?|closures?|guidelines|protocols?|precautions|disruptions?|impact|downturn|slump|boom|surge|waves?|cases|deaths|rates?|costs?)\\b)';
+// A health word whose subject is other people (patients, women, members, customers) is about a company's business or
+// a matter it is accused of, not the person's own health: "Three patients were hospitalized", "patients were
+// diagnosed with conditions they did not have", "led some patients to be wrongly diagnosed". The guard reads back to
+// the nearest such noun in the same clause; a pronoun, a possessive or "and" in between gives the verb another
+// subject ("she treated patients and was diagnosed with cancer" is still about her).
+const THIRD_PARTY = '(?:patients|women|men|mothers|people|persons|customers|clients|members|users|consumers|employees|workers|veterans|adults|individuals|residents|participants|subjects|victims|families|students|babies|infants|seniors)';
+const NOT_THIRD = `(?<!\\b${THIRD_PARTY}\\b(?:(?!\\b(?:he|she|I|his|her|and|but|about|told|tells|telling|informed)\\b)[^,.;:\\n]){0,40})`;
+const HEALTH_VERB = "(?:diagnos(?:ed|is) (?:with|of)|(?:cit(?:ed|es|ing)|blam(?:ed|es|ing)|disclos(?:ed|es|ing)|reveal(?:ed|s|ing)|(?:spoke|speaks|spoken|talked|talks|opened up|wrote|writes|written) (?:publicly )?about|pointed to)(?:\\s+(?:his|her|their))?|treated for|(?:treatment|treated|hospitali[sz]ed|surgery|care) for(?:\\s+(?:his|her|their))?|suffer(?:s|ed|ing)? (?:from|an?)|had|has|have|having|underwent|undergoing|undergone|recover(?:ing|ed|s)? from|struggl(?:e|es|ed|ing) with|(?:he|she|I) (?:is |was )?(?:living|lives|lived) with|(?:battl(?:e|es|ed|ing)|fight(?:s|ing)?|fought|bout|bouts) (?:with|against)(?:\\s+(?:his|her|their))?|battl(?:e|es|ed|ing) (?:his|her|their)|died (?:of|from|after)|dies (?:of|from|after)|succumbed to|complications (?:of|from)|hospitali[sz]ed (?:for|with|after)|leave (?:for|after)|after (?:a|an|his|her|their))";
+const HEALTH_MOD = "(?:an?\\s+|the\\s+|stage\\s+\\w+\\s+|(?:advanced|severe|chronic|mild|minor|major|early[- ]onset|breast|lung|brain|prostate|pancreatic|colon|skin|ovarian|clinical|postpartum|terminal|rare|serious|recurring|undisclosed|unspecified|heart|knee|back|emergency|long|lengthy|lifelong|years-long|ongoing|private|public|recent|second|first)\\s+)*";
 const HEALTH_PERSON = new RegExp(
-  `\\b${HEALTH_VERB}\\s+${HEALTH_MOD}${HEALTH_TERM}\\b${HEALTH_BUSINESS}`
+  `${NOT_THIRD}\\b${HEALTH_VERB}\\s+${HEALTH_MOD}${HEALTH_TERM}\\b${HEALTH_BUSINESS}`
   // "his cancer", "her depression", "their mental health": a possessive pronoun, then up to two words that are not
   // a company's ("her company's diabetes product" stays)
-  + `|\\b(?:his|her|their|my)\\s+(?:(?!compan|startup|firm|business|team|employee|customer|patient|user|client|product|app\\b|platform|investor|portfolio|fund\\b)[a-z'’-]+\\s+){0,2}${HEALTH_TERM}\\b${HEALTH_BUSINESS}`,
+  + `|\\b(?:his|her|their|my)\\s+(?:(?!compan|startup|firm|business|team|employee|customer|patient|user|client|product|app\\b|platform|investor|portfolio|fund\\b)[a-z'’-]+\\s+){0,2}${HEALTH_TERM}\\b${HEALTH_BUSINESS}`
+  // "his long battle with depression": a possessive, then up to four words that include a fight or a struggle
+  + `|\\b(?:his|her|their|my)\\s+(?:[a-z'’-]+\\s+){0,3}(?:battle|fight|struggle|bout)s?\\s+(?:with|against)\\s+${HEALTH_MOD}${HEALTH_TERM}\\b${HEALTH_BUSINESS}`,
   'i',
 );
-// Health phrasings that are about a person on their own
-const HEALTH_ALWAYS = /\bdiagnosed\b|\btreated for\b(?!\s+(?:free|less|nothing))|\bhospitali[sz](?:ed|ation)\b(?!\s+(?:rates?|costs?|data))|\bmedical leave\b(?!\s+(?:polic\w*|act|law|benefits?))|\bsick leave\b(?!\s+(?:polic\w*|act|law|benefits?))|\brehab\b(?![-\s]+(?:startups?|compan\w*|clinics?|cent(?:er|re)s?|apps?|platforms?|facilit\w+|chains?|business\w*|providers?|services|robots?|devices?|tech\w*|market|industry))|\bsober (?:since|for|living)\b|\bsobriety\b|\b(?:got|stayed|stay|getting) sober\b|\boverdos(?:ed|ing)\b|\bpregnant\b|\bmiscarriage\b(?!\s+of\s+justice)|\b(?:entered|checked into|went to|time in|stint in) (?:a )?(?:treatment|detox)|\bdetox\b(?![-\s]+(?:startups?|compan\w*|products?|drinks?|tea|juices?|apps?))|\bterminal(?:ly)? ill\w*|\b(?:died by|committed|attempted|contemplated) suicide\b|\bsuicide attempt|\bsuicidal\b|\btook (?:his|her|their) own life\b|\b(?:nervous|mental) breakdown\b|\b(?:addicted to|struggled with addiction)\b|drug (?:ab)?use|substance (?:ab)?use|(?:us(?:e|ed|es|ing)|snort\w*|smok\w*)\s+(?:of\s+)?(?:cocaine|marijuana|cannabis|ketamine|heroin|meth\w*)|(?:cocaine|marijuana|cannabis|ketamine|heroin)\s+(?:use|habit|binges?|abuse)|alcoholism|alcoholics?\b(?!\s+(?:beverages?|drinks?|brands?|spirits|products?|content|sales))|drinking problem|(?:heavy|binge|problem) drinking|\b(?:he|she|I|they)\s+(?:is|was|are|were|has been|had been|became)\s+(?:clinically\s+|severely\s+|deeply\s+)?(?:depressed|disabled|ill|sick)\b|\b(?:is|was|been|became)\s+(?:clinically\s+)?(?:bipolar|autistic|schizophrenic|anorexic|bulimic|diabetic|HIV[- ]positive|paraly[sz]ed)\b/i;
+// Health phrasings that are about a person on their own. The ones that can also describe the people a company
+// serves (diagnosed, treated for, hospitalized, pregnant, drug use) are tied to a person: never after a plural
+// third-party noun in the same clause, and "pregnant" never before the people a company serves ("pregnant women").
+const HEALTH_ALWAYS = new RegExp(
+  `${NOT_THIRD}\\bdiagnosed\\b(?!\\s+(?:patients|cases|conditions))`
+  + `|${NOT_THIRD}\\btreated for\\b(?!\\s+(?:free|less|nothing))`
+  + `|${NOT_THIRD}\\b(?:undergo(?:es|ing|ne)?|underwent|(?:seek|sought|seeking|receiv(?:e|ed|es|ing)|get(?:s|ting)?|got|enter(?:ed|s|ing)?|began|begin|start(?:ed|ing)?)\\s+(?:medical\\s+)?treatment)\\s+(?:for\\b|in\\b|at\\b|after\\b)`
+  + `|${NOT_THIRD}\\bundergo(?:es|ing|ne)?\\s+(?:medical\\s+)?treatment\\b|${NOT_THIRD}\\bunderwent\\s+(?:medical\\s+)?treatment\\b`
+  + `|${NOT_THIRD}\\bhospitali[sz](?:ed|ation)\\b(?!\\s+(?:rates?|costs?|data))`
+  + '|\\bpsychiatric (?:hospital|ward|facility|unit|clinic|care|treatment|evaluation|hold)\\b(?!\\s+(?:startups?|compan\\w*|software|platforms?|apps?|providers?|services|beds|market|industry|chains?|operators?|systems?|staff|workers))|\\bmental (?:health )?(?:facility|institution|hospital|asylum)\\b(?!\\s+(?:startups?|compan\\w*|software|platforms?|operators?|chains?))'
+  + '|\\bmedical leave\\b(?!\\s+(?:polic\\w*|act|law|benefits?))|\\bsick leave\\b(?!\\s+(?:polic\\w*|act|law|benefits?))'
+  + '|\\brehab\\b(?![-\\s]+(?:startups?|compan\\w*|clinics?|cent(?:er|re)s?|apps?|platforms?|facilit\\w+|chains?|business\\w*|providers?|services|robots?|devices?|tech\\w*|market|industry))'
+  + '|\\bsober (?:since|for|living)\\b|\\bsobriety\\b|\\b(?:got|stayed|stay|getting) sober\\b|\\boverdos(?:ed|ing)\\b'
+  // pregnant: whoever it describes, unless it describes the people a company serves ("pregnant women", "pregnant patients")
+  + `|${NOT_THIRD}\\bpregnant\\b(?!\\s+(?:${THIRD_PARTY}|wom[ae]n|mothers?|people|workers?|employees?|patients?|customers?|users?|members?|individuals?|persons?|teens|mice|rats|animals|cows|ewes)\\b)`
+  + '|\\bmiscarriage\\b(?!\\s+of\\s+justice)|\\b(?:entered|checked into|went to|time in|stint in) (?:a )?(?:treatment|detox)|\\bdetox\\b(?![-\\s]+(?:startups?|compan\\w*|products?|drinks?|tea|juices?|apps?))'
+  + '|\\bterminal(?:ly)? ill\\w*|\\b(?:died by|committed|attempted|contemplated) suicide\\b|\\bsuicide attempt|\\bsuicidal\\b|\\btook (?:his|her|their) own life\\b|\\b(?:nervous|mental) breakdown\\b|\\b(?:addicted to|struggled with addiction)\\b'
+  // drug use only when it is a person's: "his drug use", "she admitted to drug use", "a history of drug use"
+  + '|\\b(?:his|her|their|my)\\s+(?:[a-z\'’-]+\\s+){0,2}(?:drug|substance|alcohol) (?:ab)?use\\b|\\b(?:he|she|I)\\b(?:(?!\\b(?:patients|customers|users|members)\\b)[^,.;:\\n]){0,40}\\b(?:drug|substance) (?:ab)?use\\b|\\b(?:history of|recreational|past|admitted|admits|alleged|reported) (?:to )?(?:drug|substance) (?:ab)?use\\b|\\b(?:drug|substance) (?:ab)?use by (?:him|her|the (?:founder|CEO|executive|defendant|accused|respondent|plaintiff))\\b'
+  + '|(?:us(?:e|ed|es|ing)|snort\\w*|smok\\w*)\\s+(?:of\\s+)?(?:cocaine|marijuana|cannabis|ketamine|heroin|meth\\w*)|(?:cocaine|marijuana|cannabis|ketamine|heroin)\\s+(?:use|habit|binges?|abuse)|alcoholism|alcoholics?\\b(?!\\s+(?:beverages?|drinks?|brands?|spirits|products?|content|sales))|drinking problem|(?:heavy|binge|problem) drinking'
+  + '|\\b(?:he|she|I|they)\\s+(?:is|was|are|were|has been|had been|became)\\s+(?:clinically\\s+|severely\\s+|deeply\\s+)?(?:depressed|disabled|ill|sick)\\b|\\b(?:is|was|been|became)\\s+(?:clinically\\s+)?(?:bipolar|autistic|schizophrenic|anorexic|bulimic|diabetic|HIV[- ]positive|paraly[sz]ed)\\b',
+  'i',
+);
+// A named person's own drug use ("Jane Doe's drug use": a capitalised name, so case matters here), and a person
+// speaking or writing of it ("has spoken about substance abuse").
+const HEALTH_NAMED = /(?<![\p{L}\p{N}])\p{Lu}[\p{L}'’-]+['’]s\s+(?:[a-z'’-]+\s+){0,2}(?:drug|substance|alcohol) (?:ab)?use\b(?!\s+(?:polic\w*|trends?|data|rates?|statistics|research|stud(?:y|ies)|prevention|programs?|testing|screening|treatment|market|crisis|epidemic))|\b(?:spoke|spoken|speaks|speaking|talked|talks|talking|written|wrote|writes|writing|opened up|opens up)\s+(?:openly\s+|publicly\s+|candidly\s+)?about\s+(?:(?:his|her|their|my)\s+(?:past\s+|own\s+)?)?(?:drug|substance|alcohol) (?:ab)?use\b/u;
 // HIV and AIDS only in capitals, so "hearing aids" or "visual aids" are not read as a disease
 const HIV_AIDS = /\b(?:HIV[- ]positive|(?:living with|lives with|has|had|have|diagnosed with|died of|dies of|contracted|tested positive for)\s+(?:HIV|AIDS))\b/;
 
-const SEXUALITY = /\b(?:sexual orientation|gay|lesbian|bisexual|transgender|came out as|coming out as|openly (?:gay|lesbian|bisexual|queer|trans\w*)|queer|same-sex (?:partner|spouse|husband|wife|marriage|relationship)|non-binary)\b/i;
+// A person's own sexuality or gender identity, never a bare word: "Gay" is also a given name (Gay Gaddis) and the
+// first word of names ("Gay Area Youth Coalition"), and a company may serve "queer and transgender people". So the
+// word counts only after a person verb or descriptor ("is gay", "came out as lesbian", "openly gay"), before a person
+// noun in the singular ("a gay founder"), or as the person's own ("his sexual orientation", "her same-sex partner").
+const SEX_WORD = '(?:gay|lesbian|bisexual|bi|queer|transgender|trans|non-?binary|pansexual|asexual|homosexual)';
+const SEXUALITY = new RegExp(
+  `\\b(?:is|was|are|were|am|be|been|being|identifies as|identified as|identify as|(?:came|comes|coming|come) out (?:publicly )?(?:as|to be)|openly|out as|proudly|publicly)\\s+(?:an?\\s+)?(?:openly\\s+)?(?<w>${SEX_WORD})\\b(?!-)`
+  + `|\\b(?<w2>${SEX_WORD})\\s+(?:man|woman|person|founder|co-?founder|CEO|entrepreneur|executive|investor|couple|husband|wife|partner|icon|activist)\\b(?![-'’])`
+  + '|\\b(?:his|her|their|my)\\s+(?:own\\s+)?(?:sexual orientation|sexuality|gender identity|transition|coming out)\\b'
+  + '|\\bsame-sex (?:partner|spouse|husband|wife|marriage|relationship)\\b'
+  + '|\\b(?:came|comes|coming|come) out (?:publicly )?(?:as|to be) (?:gay|lesbian|bi\\w*|queer|trans\\w*|non-?binary)',
+  'gid',
+);
+/** True when a sentence names a person's own sexuality. A capitalised "Gay" before another capitalised word is a name. */
+function sexualityMatch(s) {
+  SEXUALITY.lastIndex = 0;
+  let m;
+  while ((m = SEXUALITY.exec(s))) {
+    const w = m.groups?.w || m.groups?.w2;
+    if (w) {
+      const [at] = m.indices.groups.w || m.indices.groups.w2;
+      const word = s.slice(at, at + w.length);
+      // the word in its private sense is lower case ("is gay"); a capitalised one is a name or a title-case
+      // headline. A name is followed by another capitalised word ("Gay Gaddis", "Gay Area"); a headline's word is not.
+      if (/^[A-Z]/.test(word) && /^\s+[A-Z]/.test(s.slice(at + w.length))) continue;
+      // "bi" and "trans" are words only with the person verb and at the end of the phrase ("she is trans."),
+      // never "trans fats" or "is bi-weekly"
+      if (/^(?:bi|trans)$/i.test(w) && !(m.groups?.w && /^(?:\s*[,.;:!?)]|\s*$|\s+(?:and|woman|man|person)\b)/i.test(s.slice(at + w.length)))) continue;
+    }
+    return true;
+  }
+  return false;
+}
 
 // Religion named as a person's own faith: "Jane Doe, a Mormon, founded ...", "is a devout Catholic who".
 // Case-sensitive so that "the Catholic University" or "a Christian charity" are not caught.
-const RELIGION = /\b(?:[Aa]n?|[Ii]s|[Ww]as|[Aa]s)\s+(?:(?:devout|practi[sc]ing|observant|born-again|lifelong)\s+)?(?:Hindu|Muslim|Mormon|Catholic|Jew|Jewish|Evangelical|Sikh|Buddhist|Christian|Baptist|Methodist|[Aa]theist)\b(?=\s*(?:[,.;:)!?]|$)|\s+(?:and|who|whose|by|from|since|himself|herself|man|woman|convert|family|faith|household|upbringing)\b)/;
-const RELIGION_PRACTICE = /\b(?:devout|practi[sc]ing (?:muslim|catholic|jew|christian|hindu|mormon|buddhist)|converted to (?:islam|christianity|judaism|hinduism|buddhism|catholicism)|(?:LDS|Mormon)\s+mission\w*|served (?:an? )?(?:LDS |Mormon |church )?mission\b|(?<!mercenar(?:y|ies),?\s+(?:vs\.?|versus|not|or|and|over)\s+(?:a\s+)?)missionar(?:y|ies)\b(?![\s,]+(?:vs\.?|versus|not|or|and|over)\s+(?:a\s+)?mercenar)|Shabbat|Sabbath observ\w*|keeps? kosher|synagogues?|Kabbalah|Scientologists?|(?:members?|adherents?) of the (?:[\w-]+\s+){0,6}?(?:Latter[- ]day Saints|LDS Church|Mormon Church|Church of Scientology))\b/i;
+const RELIGION = /\b(?:[Aa]n?|[Ii]s|[Ww]as|[Aa]s)\s+(?:(?:devout|practi[sc]ing|observant|born-again|lifelong)\s+)?(?:Hindu|Muslim|Mormon|Catholic|Jew|Jewish|Evangelical|Sikh|Buddhist|Christian|Baptist|Methodist|[Aa]theist)\b(?=\s*(?:[,.;:)!?]|$)|\s+(?:and|who|whose|by|from|since|himself|herself|man|woman|convert|family(?!\s+(?:foundations?|offices?|trusts?|funds?|business(?:es)?|compan\w*|charit\w*|philanthrop\w*))|faith|household|upbringing)\b)/;
+const RELIGION_PRACTICE = /\b(?:devout|practi[sc]ing (?:muslim|catholic|jew|christian|hindu|mormon|buddhist)|converted to (?:islam|christianity|judaism|hinduism|buddhism|catholicism)|(?:LDS|Mormon)\s+mission\w*|served (?:an? )?(?:LDS |Mormon |church )?mission\b(?!-)|(?<!mercenar(?:y|ies),?\s+(?:vs\.?|versus|not|or|and|over)\s+(?:a\s+)?)missionar(?:y|ies)\b(?![\s,]+(?:vs\.?|versus|not|or|and|over)\s+(?:a\s+)?mercenar)|Shabbat|Sabbath observ\w*|keeps? kosher|synagogues?|Kabbalah|Scientologists?|(?:members?|adherents?) of the (?:[\w-]+\s+){0,6}?(?:Latter[- ]day Saints|LDS Church|Mormon Church|Church of Scientology))\b/i;
 // Attending a place of worship. Case-sensitive, so "went to Temple University" is a school, not a faith.
 const RELIGION_ATTEND = /\b(?:[Aa]ttends?|[Aa]ttended|[Aa]ttending|[Gg]oes to|[Ww]ent to)\s+(?:church|Mass|mass|mosque|synagogue|temple|(?:Sunday )?services|Friday prayers)\b/;
 
-const IMMIGRATION = /\b(?:undocumented|immigration status|asylum seeker|green card|visa overstay|(?<!corporate |global )citizenship|naturali[sz](?:ed|ation)|H-?1B|work visa|residency permit|deport\w*|(?:student|tourist|investor|O-?1|EB-?5|E-?2|L-?1|F-?1|J-?1)\s+visas?|DACA|(?:as|was|were|an?|former)\s+refugees?\b(?!\s+(?:charit\w*|camps?|organi[sz]ations?|non-?profits?|programmes?|programs?|funds?|agenc\w*|council|crisis|resettlement|services|support|aid|relief|startups?|apps?|platforms?)\b))\b/i;
+// A person's own immigration status, never a company's visa sponsorship, a government contract, a program or a fraud
+// scheme ("sponsored H-1B visas for 300 engineers", "deportation operations", "a path to a green card through the
+// EB-5 program", "H-1B visa fraud"). A visa or green card counts only as the person's: after a possessive, or after a
+// person verb with a singular article ("came on a student visa", "obtained a green card").
+const VISA = '(?:(?:H-?1B|O-?1|EB-?5|E-?2|L-?1|F-?1|J-?1|TN|student|tourist|investor|work|business|spousal|fianc[ée]e?|K-?1|golden|startup|skilled worker|global talent)\\s+visa|visa|green card|work permit|residen(?:cy|ce) permit|permanent residen(?:cy|ce)|residency|immigration status|citizenship|naturali[sz]ation|asylum (?:claim|application|case|status)|refugee status|DACA status|visa status)';
+const IMMIGRATION = new RegExp(
+  `\\b(?:his|her|their|my)\\s+(?:[a-z'’-]+\\s+){0,2}${VISA}\\b(?!\\s+(?:program\\w*|polic\\w*|fraud|scheme|sponsorship program))`
+  + `|\\b(?:on|holds?|held|holding|obtain(?:ed|s|ing)?|got|gets|getting|receiv(?:ed|es|ing|e)|granted|denied|refused|revoked|lost|los(?:es|ing)|awaiting|waiting for|appl(?:y|ied|ies|ying) for|sponsored for|renew(?:ed|s|ing)?|overstay(?:ed|s|ing)?|secur(?:ed|es|ing)|won|wins)\\s+(?:an?|his|her|their)\\s+(?:new\\s+|temporary\\s+|permanent\\s+)?(?:(?:H-?1B|O-?1|EB-?5|E-?2|L-?1|F-?1|J-?1|K-?1)(?:\\s+visa)?|(?:TN|student|tourist|investor|work|business|spousal|golden|startup)\\s+visa|visa|green card|work permit|residen(?:cy|ce) permit)\\b(?!-)`
+  + '|\\b(?:is|was|were|been|being|became|become|remained|lived)\\s+(?:an?\\s+)?(?:undocumented|illegal immigrant|unauthori[sz]ed immigrant|asylum seeker|green card holder|permanent resident|DACA recipient|Dreamer|naturali[sz]ed)\\b'
+  + '|\\b(?:an?|as|former)\\s+(?:undocumented immigrant|asylum seeker|green card holder|DACA recipient)\\b(?!s)'
+  + '|\\b(?:sought|seeking|seeks|applied for|granted|claimed|claiming|received|requested|was given) (?:political )?asylum\\b'
+  + '|\\b(?:holds?|held|has|had|obtained|acquired|renounced|gave up|was granted|granted|applied for|received|took|takes|dual)\\s+(?:\\w+\\s+){0,2}citizenship\\b|\\bdual (?:citizen|national)\\b'
+  + '|\\b(?:became|become|becoming|becomes)\\s+an?\\s+(?:naturali[sz]ed\\s+)?(?:[A-Z][\\w.]*\\s+)?citizen\\b|\\b(?:was|were|got|been|being|is) naturali[sz]ed\\b'
+  + '|\\b(?:was|is|had been|has been|been|being|be|were nearly|was nearly)\\s+deported\\b|\\b(?:fac(?:es|ed|ing|e)|fought|fighting|avoided|escaped|risk(?:ed|s)? of|threat(?:ened)? (?:of|with)|ordered|order of|proceedings against (?:him|her))\\s+(?:\\w+\\s+){0,2}deportation\\b(?!\\s+(?:operations?|contracts?|flights?|programs?|centers?|centres?|facilit\\w+|services))|\\b(?:his|her|their|my)\\s+(?:\\w+\\s+)?deportation\\b'
+  + '|\\boverst(?:ayed|ays|aying) (?:a|his|her|their) visa\\b|\\bvisa overstay\\b(?!\\s+rates?)'
+  + '|\\b(?:as|was|were|an?|former)\\s+refugees?\\b(?!\\s+(?:charit\\w*|camps?|organi[sz]ations?|non-?profits?|programmes?|programs?|funds?|agenc\\w*|council|crisis|resettlement|services|support|aid|relief|startups?|apps?|platforms?)\\b)'
+  + '|\\bimmigration status\\b(?!\\s+(?:of|checks?|verification|data|polic\\w*))|\\bundocumented\\b(?!\\s+(?:workers|immigrants|migrants|employees|people|labou?r|labou?rers|families|students))',
+  'i',
+);
 // "a Dreamer" (a DACA recipient) only with the capital: "a dreamer and a builder" is not immigration status
 const DREAMER = /\b(?:[Aa]n?|[Tt]he) Dreamers?\b/;
 
 // Political donations are excluded by rule, whatever the source says about them.
 const POLITICS = /\b(?:[Dd]onat\w*|[Gg]ave|[Gg]iving|[Cc]ontribut\w*|[Bb]undl\w*|[Mm]axed out|[Ww]rote checks?)\b[^.;\n]{0,80}?\b(?:PACs?|super ?PAC|political action committee|(?:re-?election|presidential|senate|congressional|mayoral|gubernatorial|leadership) (?:campaign|bid|run|fund)|[A-Z][a-z]+(?:['’]s)? (?:presidential |senate |congressional |re-?election )?campaign|(?:political|presidential|[Ss]enate|congressional|mayoral|Republican|Democratic) candidates?|GOP|DNC|RNC|ActBlue|WinRed|Republicans?|Democrats?|Democratic (?:Party|candidates?|National)|Republican (?:Party|candidates?|National)|Labour Party|Conservative Party|Tory|Tories)\b|\bFEC (?:records?|filings?|data|reports?|disclosures?)\b|\b(?:political|campaign) (?:donations?|contributions?|donors?|giving)\b|\b(?:major|mega|top|big|prominent|longtime|leading) (?:GOP|Republican|Democratic|Democrat|Tory|Labour|political) (?:donor|fundraiser|bundler|megadonor)s?\b/;
+
+// What makes campaign money a crime rather than a donation record: "illegal political contributions", "straw donors",
+// "conspiracy to make ... contributions", "campaign finance violations". A crime is diligence and stays; the rule
+// excludes donation records. The word must be inside the matched phrase or just before it in the same clause, so a
+// separate charge elsewhere in the sentence does not keep a lawful donation ("donated to the DNC and was later charged
+// with fraud" still goes).
+const POLITICS_CRIME = /\b(?:illegal(?:ly)?|unlawful(?:ly)?|straw|conduits?|excessive|disguised|reimburs\w*|falsely|in the name of another|conspir\w*|scheme|funnel\w*)\b/i;
+const POLITICS_G = new RegExp(POLITICS.source, 'g');
+function politicalDonation(s) {
+  POLITICS_G.lastIndex = 0;
+  let m;
+  while ((m = POLITICS_G.exec(s))) {
+    const before = s.slice(Math.max(0, m.index - 50), m.index).split(/[,;:]/).pop();
+    const after = s.slice(m.index + m[0].length, m.index + m[0].length + 60);
+    if (POLITICS_CRIME.test(m[0]) || POLITICS_CRIME.test(before) || /^\s*(?:through|via|using|by)\s+(?:\w+\s+){0,2}(?:straw|conduit)|^\s*(?:violations?|fraud|charges?|crimes?|offen[cs]es?|scheme)\b/i.test(after)) continue;
+    return true;
+  }
+  return false;
+}
 
 /** True when a sentence is about a protected or intimate matter (health, religion, sexuality, immigration, political donations). */
 export function isSensitive(text) {
@@ -246,16 +378,26 @@ export function isSensitive(text) {
 }
 
 function protectedReason(s) {
-  if (HEALTH_ALWAYS.test(s) || HEALTH_PERSON.test(s) || HIV_AIDS.test(s)) return 'health';
+  if (HEALTH_ALWAYS.test(s) || HEALTH_PERSON.test(s) || HEALTH_NAMED.test(s) || HIV_AIDS.test(s)) return 'health';
   if (RELIGION.test(s) || RELIGION_PRACTICE.test(s) || RELIGION_ATTEND.test(s)) return 'religion';
-  if (SEXUALITY.test(s)) return 'sexuality';
+  if (sexualityMatch(s)) return 'sexuality';
   if (IMMIGRATION.test(s) || DREAMER.test(s)) return 'immigration';
-  if (POLITICS.test(s)) return 'politics';
+  if (politicalDonation(s)) return 'politics';
   return null;
 }
 
 // Children and minors are never part of a report.
-const MINOR = /\b(?:(?:his|her|their)\s+(?:\w+\s+)?(?:son|daughter|child|children|kids?|baby|toddler|newborn|infant|grand(?:son|daughter|child(?:ren)?))\b|(?:\d{1,2})[- ]year[- ]old\s+(?:son|daughter|child|boy|girl)|(?:son|daughter|child),?\s+(?:aged?\s+)?(?:\d|1[0-7])\b|kindergarten|elementary school|middle school|(?:in|at)\s+high school|minor child(?:ren)?|custody (?:battle|dispute|of)|birth of (?:his|her|their)|gave birth|gives? birth|giving birth|welcom(?:ed|es|ing)\s+(?:a\s+|their\s+|her\s+|his\s+)?(?:baby|son|daughter|child|twins)|baby (?:boy|girl)|newborn|stepchild(?:ren)?|expecting (?:a|their) (?:baby|child|first|second)|born to (?:him|her|them|the couple)|(?:father|mother|dad|mom|mum|parent)\s+(?:of|to)\s+(?:@\w+|\d+|two|three|four|five|six|twins|triplets|a\s+(?:boy|girl|son|daughter))\b(?!\s+(?:companies|startups|businesses|ventures|firms|brands|funds|products|patents|unicorns)\b)|(?:has|have|had|with|raising)\s+(?:\w+\s+)?(?:two|three|four|five|six|seven|\d{1,2})\s+(?:young\s+|adult\s+|grown\s+|small\s+)?(?:children|kids|sons|daughters)\b|guardian ad litem|next friend of|by and through (?:his|her|their) (?:parents?|guardians?|mother|father|next friend)|on behalf of (?:his|her|their) minor|\(\s*a minor\s*\)|,\s*a minor\s*,)/i;
+// The kin nouns are matched in lower case only, so "Son" the surname (Masayoshi Son, Son Heung-min: "their chairman
+// Son", "Son, 12 years after founding SoftBank") and "Child" the surname are not read as a child. "Daughter(s)" and
+// "Children" are not names, so a title-case headline ("Her Daughter") still counts.
+const KID_NOUN = '(?:son|sons|daughter|daughters|Daughters?|child|children|Children|kids?|Kids|baby|toddler|newborn|infant|grand(?:son|daughter|child(?:ren)?))';
+const MINOR_KIN = new RegExp(
+  `\\b(?:[Hh]is|[Hh]er|[Tt]heir|HIS|HER|THEIR)\\s+(?:\\w+\\s+)?${KID_NOUN}\\b`
+  + '|\\b\\d{1,2}[- ][Yy]ear[- ][Oo]ld\\s+(?:son|daughter|Daughter|child|Child|boy|girl|Boy|Girl)\\b'
+  + '|\\b(?:son|daughter|child),?\\s+(?:aged?\\s+)?(?:\\d|1[0-7])\\b'
+  + '|\\b[Ww]elcom(?:ed|es|ing)\\s+(?:a\\s+|their\\s+|her\\s+|his\\s+)?(?:baby|son|daughter|child|twins|[Bb]aby|Daughter|Twins)\\b',
+);
+const MINOR = /\b(?:kindergarten|elementary school|middle school|(?:in|at)\s+high school|minor child(?:ren)?|custody (?:battle|dispute|of)|birth of (?:his|her|their)|gave birth|gives? birth|giving birth|baby (?:boy|girl)|newborn|stepchild(?:ren)?|expecting (?:a|their) (?:baby|child|first|second)|born to (?:him|her|them|the couple)|(?:father|mother|dad|mom|mum|parent)\s+(?:of|to)\s+(?:@\w+|\d+|two|three|four|five|six|twins|triplets|a\s+(?:boy|girl|son|daughter))\b(?!\s+(?:companies|startups|businesses|ventures|firms|brands|funds|products|patents|unicorns)\b)|(?:has|have|had|with|raising)\s+(?:\w+\s+)?(?:two|three|four|five|six|seven|\d{1,2})\s+(?:young\s+|adult\s+|grown\s+|small\s+)?(?:children|kids|sons|daughters)\b|guardian ad litem|next friend of|by and through (?:his|her|their) (?:parents?|guardians?|mother|father|next friend)|on behalf of (?:his|her|their) minor|\(\s*a minor\s*\)|,\s*a minor\s*,)/i;
 // A named child: "Elizabeth Holmes' son William", "a son, William". Case-sensitive: the name must be capitalised.
 const NAMED_CHILD = /[A-Z][\w’'-]*[’']s?\s+(?:son|daughter|child|children|kids)\b(?![’'-]|\s+(?:safety|privacy|data|products?|apps?|services?|accounts?|online|protection|content)\b)|\b(?:[Aa]|[Tt]heir|[Oo]ne)\s+(?:son|daughter|child),?\s+[A-Z][a-z]+/;
 // A minor's initials in a court caption: "J.D., a minor, by and through her mother", "A.B. (a minor)"
@@ -266,7 +408,7 @@ const CHILD_COUNT = /\bChildren\s*:?\s*\d/;
 /** True when a sentence is about a child or minor. */
 export function mentionsMinor(text) {
   const s = String(text || '');
-  return MINOR.test(s) || NAMED_CHILD.test(s) || MINOR_CAPTION.test(s) || CHILD_COUNT.test(s);
+  return MINOR_KIN.test(s) || MINOR.test(s) || NAMED_CHILD.test(s) || MINOR_CAPTION.test(s) || CHILD_COUNT.test(s);
 }
 
 // Infobox-style personal fields that search snippets copy from encyclopedia pages:
@@ -283,10 +425,20 @@ const KIN_BUSINESS_BEFORE = /\b(?:founding|god|big|foster)\s*$/i;
 const PUBLIC_ROLE = /\b(?:CEO|CFO|COO|CTO|chief (?:\w+ ){0,2}officer|chief executive|chair(?:man|woman|person)?|(?:vice[- ])?president|co-?founder|founder|(?:co-?)?found(?:ed|s|ing)|executive|director|managing (?:director|partner)|general partner|partner (?:at|in|of)|investor|venture capitalist|financier|banker|billionaire|millionaire|businessman|businesswoman|businessperson|business (?:executive|leader|owner)|entrepreneur|developer|industrialist|magnate|tycoon|mogul|owner|owns|runs|ran|heads|headed|board member|on the board|board of directors|trustee|philanthropist|foundation|senator|congress(?:man|woman)|representative|governor|mayor|minister|ambassador|diplomat|judge|politician|lawmaker|member of parliament|commissioner|secretary of|council(?:or|lor|man|woman|member)|candidate|(?:works?|worked|working) (?:at|for) [A-Z])\b|\bMP\b/i;
 // Wedding, engagement and death notices are about private family life, whatever roles they mention.
 const FAMILY_NOTICE = /\b(?:wedding|weddings|bride|bridegroom|nuptials|honeymoon|engaged to|engagement to|survived by|is survived|predeceased|funeral|obituary|memorial service|laid to rest)\b/i;
-// A wedding or engagement announcement by its headline (obituary headlines have their own rule, isObituary)
-const WEDDING_TITLE = /\b(?:wedding|weds|bride|nuptials|engaged to|engagement to)\b/i;
+// A wedding or engagement announcement by its headline: always private family life.
+const WEDDING_NOTICE_TITLE = /\b(?:weddings?|weds|bride|bridegroom|nuptials|honeymoon|engaged to|engagement to)\b/i;
+// A headline about a marriage, an engagement, a divorce or a spouse ("marries", "and his wife") is about private
+// family life (obituary headlines have their own rule, isObituary). Shared with the quick brief (founderCheck.js).
+export const WEDDING_TITLE = /\b(?:weddings?|weds|bride|bridegroom|nuptials|honeymoon|engaged to|engagement to|marr(?:y|ies|ied|ying)|divorc(?:e|es|ed|ing))\b|\b(?:and|with)\s+(?:his|her|their)?\s*(?:new\s+|late\s+|former\s+|ex-)?(?:wife|husband|spouse|fianc[ée]e?)(?![A-Za-z])/i;
 // Where a role after the kin word stops belonging to the relative
-const CLAUSE_END = /;|\band\s+(?:he|she|they|later|then|went|founded|started|launched)\b|\bbut\b|\bwhile\b|\bbefore\b|\bafter\b|\bthen\b|\bwhen\b/i;
+// (a new subject: "he"/"she" as the subject of a verb, ", where he founded"; a new clause after a comma: ", is the
+// founder" when the relative sat inside a "whose" clause about the subject)
+const CLAUSE_END = /;|\band\s+(?:he|she|they|later|then|went|founded|started|launched)\b|\bbut\b|\bwhile\b|\bbefore\b|\bafter\b|\bthen\b|\bwhen\b|,\s*(?:where|when|since|although|though|as)\b|\b(?:he|she)\b/i;
+// A relative clause about someone else that opens later in the stretch after the kin word (", who", ", which"). Right
+// after the kin word or the relative's name it describes the relative ("her father, who is CEO of Acme") and counts.
+const LATER_RELATIVE = /,\s*(?:who|whom|which|whose)\b/i;
+// The relative named in apposition right after the kin word: "wife Carrie", "father, John Roe,"
+const KIN_NAME = /^(?:,?\s+[A-Z][\w'’.-]*(?:\s+[A-Z][\w'’.-]*){0,2})?/;
 // A role in apposition before: "Bob Doe, a former Enron CEO, is her father"; or a joint venture: "co-founded Nikola with his brother"
 const ROLE_BEFORE_KIN = /(?:\b(?:is|was|are|were)\s+(?:his|her|their|the)\s+(?:\w+\s+)?$)/i;
 const JOINT_VENTURE_BEFORE = /\b(?:co-?found\w*|found(?:ed|ing)|started|launched|runs?|ran|built|invested|partnered|serv\w+ on the board|own(?:s|ed)?|manag\w+)\b[^.;]{0,60}\b(?:with|alongside|and)\s+(?:his|her|their)\s+(?:\w+\s+)?$/i;
@@ -302,8 +454,16 @@ function privateRelative(s) {
     const after = s.slice(m.index + word.length);
     if (KIN_BUSINESS_AFTER.test(after) || KIN_BUSINESS_BEFORE.test(before)) continue;
     // children and kids are kin only with a possessive or a count ("his children", "two kids"); "an app for kids" is a product
-    if (/^(?:children|kids)$/.test(word) && !/\b(?:his|her|their|my|two|three|four|five|six|\d+|no|young|adult|grown)\s+(?:\w+\s+)?$/i.test(before)) continue;
-    const clause = after.slice(0, 140).split(CLAUSE_END)[0];
+    // ("new parents" are a company's customers too; "Doe's parents" and "her parents" are kin)
+    if (/^(?:children|kids|parents)$/.test(word) && !/(?:\b(?:his|her|their|my|two|three|four|five|six|\d+|no|young|adult|grown)|[’']s?)\s+(?:\w+\s+)?$/i.test(before)) continue;
+    let clause = after.slice(0, 140).split(CLAUSE_END)[0];
+    // a later ", who/which" belongs to someone else; one right after the kin word or the name is the relative's own
+    const lead = clause.match(KIN_NAME)[0].length;
+    const later = clause.slice(lead).replace(/^\s*,\s*(?:who|whom|which|whose)\b/i, (x) => ' '.repeat(x.length)).search(LATER_RELATIVE);
+    if (later >= 0) clause = clause.slice(0, lead + later);
+    // the kin word inside a "whose" clause about the subject ("Milton, whose wife Carrie is often at his side, is the
+    // founder of Nikola"): the clause closes at the next comma, and the verb after it is the subject's
+    if (/\bwhose\s+(?:\w+\s+)?$/i.test(before)) clause = clause.slice(0, lead) + clause.slice(lead).split(',')[0];
     if (PUBLIC_ROLE.test(clause)) continue;
     if (ROLE_BEFORE_KIN.test(before) && PUBLIC_ROLE.test(before)) continue;
     if (JOINT_VENTURE_BEFORE.test(before)) continue;
@@ -365,6 +525,32 @@ function splitSentences(text) {
 
 const bump = (removed, reason, n = 1) => { removed[reason] = (removed[reason] || 0) + n; };
 
+// Reasons a clause cannot be cut out of: a sentence about a child or an infobox personal line goes whole, even in an
+// official record (a minor's initials or a birth line can sit in any clause of it).
+const WHOLE_SENTENCE_REASONS = new Set(['minor', 'personal-details']);
+// Where a sentence splits into clauses: commas, semicolons, dashes and brackets, and the joining words that open a
+// new clause. The separator stays with the clause after it, so the kept clauses read as they were written.
+const CLAUSE_SPLIT = /(?=,\s|;\s|\s[–—-]\s|\s\()|(?=\s(?:and|but|while|after|because|although|though|whereas|who|which|where)\s)/i;
+
+/**
+ * An official record's sentence with only its private clauses taken out ("Doe, who was diagnosed with cancer in 2019,
+ * was sentenced for wire fraud" keeps "Doe, was sentenced for wire fraud"), or '' when nothing clean is left.
+ */
+function withoutPrivateClauses(sentence, opts) {
+  const parts = sentence.split(CLAUSE_SPLIT);
+  if (parts.length < 2) return '';
+  const kept = parts.filter((p) => !privacyReason(p.replace(/^[\s,;([–—-]+/, ''), opts));
+  if (!kept.length || kept.length === parts.length) return '';
+  let out = kept.join('').replace(/^[\s,;–—-]+/, '').replace(/,\s*,/g, ',').replace(/\s+([,.;])/g, '$1');
+  // a bracket the cut left open
+  if ((out.match(/\(/g) || []).length > (out.match(/\)/g) || []).length) out = out.replace(/\s*\([^()]*$/, '');
+  out = out.trim();
+  if (!/[A-Za-z]{2}/.test(out) || privacyReason(out, opts)) return '';
+  // the sentence keeps its full stop if the cut took it
+  if (/[.!?;]$/.test(sentence.trim()) && !/[.!?;]$/.test(out)) out += sentence.trim().slice(-1);
+  return out;
+}
+
 /**
  * The sentence-level cleaner every caller uses (the quick brief's snippets, makeFinding, the profile, model
  * output). Each sentence or line that is about a protected matter, a child, a birth or family infobox field or a
@@ -372,8 +558,9 @@ const bump = (removed, reason, n = 1) => { removed[reason] = (removed[reason] ||
  * Only the offending sentence goes, never the whole text.
  *
  * @param {string} text
- * @param {{ keepStreets?: boolean, kin?: boolean }} [opts] keepStreets: an official company register entry keeps
- *   its office street line; kin: false skips the relatives rule (short labels)
+ * @param {{ keepStreets?: boolean, kin?: boolean, clauses?: boolean }} [opts] keepStreets: an official company register
+ *   entry keeps its office street line; kin: false skips the relatives rule (short labels); clauses: an official
+ *   record's sentence loses only its private clauses (not for a child or an infobox personal line, which go whole)
  * @returns {{ text: string, removed: Record<string, number>, dropped: number }} the cleaned text, a count of what
  *   was removed or redacted by reason, and how many sentences were dropped
  */
@@ -389,8 +576,13 @@ export function cleanSentences(text, opts = {}) {
     const reason = privacyReason(s, opts);
     if (reason) {
       bump(removed, reason);
-      dropped += 1;
-      continue;
+      // an official court, prosecutor or regulator record loses only the private clause, so its charge stays
+      const rest = opts.clauses && !WHOLE_SENTENCE_REASONS.has(reason) ? withoutPrivateClauses(s, opts) : '';
+      if (!rest) {
+        dropped += 1;
+        continue;
+      }
+      s = rest;
     }
     s = redactCounted(s, opts, removed);
     if (!s) continue;
@@ -433,7 +625,9 @@ export function cleanModelText(text, opts = {}) {
 }
 
 // Fields that hold personal details whatever their value: they are dropped from data outright.
-const PERSONAL_KEY = /^(?:dob|dateOfBirth|date_of_birth|birth(?:Date|_date|day|Year|_year|Month|place|Place)?|age|phone\w*|tel|telephone|mobile|fax|e?mail|emails?|personalEmail|homeAddress|home_address|residentialAddress|ssn|nationalId|national_id|passport\w*|driversLicen[cs]e|spouse|spouses|children|kids|religion|ethnicity|gender|sexuality|immigrationStatus|donations?|politicalDonations?)$/i;
+// (birth and death fields in every spelling, a person's nationality, citizenship and country of residence: a
+// register's officer rows carry them, and a value such as "March 1984" has no "born" lead for the text rules to see)
+const PERSONAL_KEY = /^(?:dob|dateOfBirth|date_of_birth|birth(?:Date|_date|day|Year|_year|Month|_month|place|Place|_place|Country|_country)?|born|(?:year|month|date|day|place|country|city)_?of_?(?:birth|death)|death(?:Date|_date|Year|_year|place|Place)|nationalit(?:y|ies)|citizenships?|countryOfResidence|country_of_residence|residenceCountry|usualResidence|residence|age|phone\w*|tel|telephone|mobile|fax|e?mail|emails?|personalEmail|homeAddress|home_address|residentialAddress|ssn|nationalId|national_id|passport\w*|driversLicen[cs]e|spouse|spouses|children|kids|religion|ethnicity|gender|sexuality|immigrationStatus|donations?|politicalDonations?)$/i;
 // Identifiers: not prose, so they are not read for sentences or phones ("1:18-cr-00258", an SEC accession number)
 const ID_KEY = /^(?:id|ids|caseNumber|accession|documentNumber|siren|siret|serial|wikidataId|docket|relationshipId|register|registry|form|noticeCode|noticeType|lei|cik|companyNumber|number|crd|ein|fileNumber|hash|kind|type|status|category|source|match)$/i;
 // Link fields: kept only when they are http(s) and not a blocked site
@@ -526,12 +720,28 @@ export function sanitizeFinding(finding) {
   // member of Acme"; "Jane Roe: father John Roe. John Roe: occupation businessperson"). The role stated anywhere in
   // the record counts, so its kin sentences stay; wedding and death notices still go.
   if (finding.category === 'related' && PUBLIC_ROLE.test(`${finding.title || ''} ${finding.quote || ''}`)) opts.kin = 'notices';
+  // An official court, prosecutor or regulator record is never dropped whole for a sensitive word: only the private
+  // clause goes and the charge stays. A child or an infobox personal line still drops the sentence, and a title
+  // about a child still drops the record.
+  const official = isOfficialRecord(finding);
+  if (official) opts.clauses = true;
   // the title is one line: if it is private the record is about a private matter, so it goes
-  if (privacyReason(finding.title, { kin: false }) || WEDDING_TITLE.test(String(finding.title || ''))) return null;
-  const title = redactPII(finding.title, opts);
+  let rawTitle = String(finding.title ?? '');
+  // A related-party record that states the relative's public role keeps its "(married to)" title (a relative with a
+  // stated role may be named); a wedding or engagement notice still goes.
+  if (WEDDING_NOTICE_TITLE.test(rawTitle) || (opts.kin !== 'notices' && WEDDING_TITLE.test(rawTitle))) return null;
+  const titleReason = privacyReason(rawTitle, { kin: false });
+  if (titleReason) {
+    if (!official || WHOLE_SENTENCE_REASONS.has(titleReason)) return null;
+    rawTitle = withoutPrivateClauses(rawTitle, { kin: false });
+    // what is left must still say what the record is ("charged with securities fraud"), not a scrap ("court told")
+    if (!rawTitle || rawTitle.split(/\s+/).filter((w) => /[A-Za-z]/.test(w)).length < 3) return null;
+  }
+  const title = redactPII(rawTitle, opts);
   const rawQuote = String(finding.quote ?? '');
   const quote = cleanSentences(rawQuote, opts).text;
-  if (rawQuote.trim() && !quote) return null;
+  // an official record whose every quoted sentence was private still stands on its title
+  if (rawQuote.trim() && !quote && !official) return null;
   const out = { ...finding, title, quote };
   if (finding.data !== undefined) {
     const { data } = cleanData(finding.data, opts);

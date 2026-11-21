@@ -306,7 +306,8 @@ export async function findLatestJob(owner, { name, company = '', status = null, 
 
 /**
  * The owner's recent unexpired jobs, newest first, without their reports:
- * [{ id, name, company, status, createdAt, updatedAt, redFlags }].
+ * [{ id, name, company, status, createdAt, updatedAt, redFlags, ifRightPerson }]. ifRightPerson counts the serious
+ * matters held "if this is the right person", so a list never shows such a check as 0 red flags and nothing else.
  */
 export async function listJobs(owner, { limit = 20 } = {}) {
   if (!owner) return [];
@@ -318,18 +319,19 @@ export async function listJobs(owner, { limit = 20 } = {}) {
       .filter((j) => j.owner === owner)
       .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
       .slice(0, cap)
-      .map((j) => ({ id: j.id, name: j.name, company: j.company || '', status: j.status, createdAt: j.createdAt, updatedAt: j.updatedAt, redFlags: flagsOf(j.state?.report?.totals?.redFlags) }));
+      .map((j) => ({ id: j.id, name: j.name, company: j.company || '', status: j.status, createdAt: j.createdAt, updatedAt: j.updatedAt, redFlags: flagsOf(j.state?.report?.totals?.redFlags), ifRightPerson: flagsOf(j.state?.report?.totals?.ifRightPerson) }));
   }
   purgeExpired();
   try {
     const rows = await query(
-      `SELECT id, name, company, status, created_at, updated_at, (state->'report'->'totals'->>'redFlags') AS red_flags
+      `SELECT id, name, company, status, created_at, updated_at, (state->'report'->'totals'->>'redFlags') AS red_flags,
+              (state->'report'->'totals'->>'ifRightPerson') AS if_right
          FROM founder_jobs
         WHERE user_id = $1 AND updated_at > now() - interval '${RETENTION_HOURS} hours'
         ORDER BY updated_at DESC LIMIT $2`,
       [owner, cap],
     );
-    return (rows || []).map((r) => ({ id: r.id, name: r.name, company: r.company || '', status: r.status, createdAt: new Date(r.created_at).getTime(), updatedAt: new Date(r.updated_at).getTime(), redFlags: flagsOf(r.red_flags) }));
+    return (rows || []).map((r) => ({ id: r.id, name: r.name, company: r.company || '', status: r.status, createdAt: new Date(r.created_at).getTime(), updatedAt: new Date(r.updated_at).getTime(), redFlags: flagsOf(r.red_flags), ifRightPerson: flagsOf(r.if_right) }));
   } catch (error) {
     console.warn('founder jobs not listed:', error.message);
     throw unavailable('not loaded', error);

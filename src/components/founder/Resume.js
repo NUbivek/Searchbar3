@@ -83,7 +83,8 @@ export function ProfileCard({ profile }) {
         {education.length > 0 && (
           <Row label="Education" id="profile-education">
             {list(education, (e, i) => (
-              <Line key={`${e.school}-${i}`} main={e.school} detail={[e.degree, e.field].filter(Boolean).join(', ') || null} when={yearsOf(e)} cites={e.cites} />
+              // "left without a degree" is shown: a school alone reads as a degree earned
+              <Line key={`${e.school}-${i}`} main={e.school} detail={[e.degree, e.field, e.note].filter(Boolean).join(', ') || null} when={yearsOf(e)} cites={e.cites} />
             ))}
           </Row>
         )}
@@ -93,7 +94,7 @@ export function ProfileCard({ profile }) {
               <Line
                 key={`${e.org}-${i}`}
                 main={e.org}
-                detail={[has(e.with) ? `with ${e.with.join(', ')}` : null, e.outcome].filter(Boolean).join(' · ') || null}
+                detail={[e.program, has(e.with) ? `with ${e.with.join(', ')}` : null, e.outcome].filter(Boolean).join(' · ') || null}
                 when={e.year ? String(e.year) : ''}
                 cites={e.cites}
               />

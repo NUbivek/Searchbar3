@@ -352,7 +352,7 @@ describe('listFinishedChecks', () => {
     const [sql, params] = db.query.mock.calls[0];
     expect(sql).toMatch(/WHERE user_id = \$1 AND status = 'done'/);
     expect(params[0]).toBe('user-1');
-    expect(checks).toEqual([{ id: null, name: 'Jane Doe', company: 'Acme', seededCompany: null, status: 'done', date: '2026-11-19T10:00:00.000Z', redFlags: 2 }]);
+    expect(checks).toEqual([{ id: null, name: 'Jane Doe', company: 'Acme', seededCompany: null, status: 'done', date: '2026-11-19T10:00:00.000Z', redFlags: 2, ifRightPerson: null }]);
   });
   test('kept in memory: another user\'s checks are never listed', async () => {
     // Recent times: a check older than the job store's retention (72 hours) is not listed (needs-phase2 entry 47).

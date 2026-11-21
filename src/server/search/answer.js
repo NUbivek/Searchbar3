@@ -163,6 +163,51 @@ function supports(src, sentence, ignore) {
   return null;
 }
 
+/**
+ * Legal and regulatory matters, each with the words a source may use for it. A sentence that states one of these
+ * ("convicted", "sued", "fined", "fraud") is kept only when a source it cites, tied to the person by more than the
+ * name, uses a word of the same matter: a paraphrase ("charged" for "indicted") passes, an invented conviction does
+ * not. The claim side is narrow on purpose ("charged with", not "charges a fee"), so ordinary lines are untouched.
+ */
+const LEGAL_MATTERS = [
+  { claim: /\b(?:convict(?:ed|ion|ions)?|found guilty|pleaded guilty|pleads guilty|guilty plea|sentenced|imprisoned|jailed)\b/, source: /\b(?:convict\w*|guilty|sentenc\w*|prison|imprison\w*|jail\w*|plea)\b/ },
+  { claim: /\b(?:charged (?:with|by|over|in)|(?:criminal|fraud|federal|civil) charges|charges (?:of|against|over|filed)|indict(?:ed|ment|ments)?|prosecuted|prosecution)\b/, source: /\b(?:charg\w*|indict\w*|accus\w*|prosecut\w*)\b/ },
+  { claim: /\b(?:su(?:ed|es|ing)|lawsuits?|litigation|class[- ]action|plaintiffs?|defendants?)\b/, source: /\b(?:su(?:e|ed|es|ing|it|its)|lawsuits?|litigat\w*|plaintiffs?|defendants?|class[- ]action|complaint|court)\b/ },
+  { claim: /\b(?:fraud\w*|ponzi|embezzl\w*|misappropriat\w*)\b/, source: /\b(?:fraud\w*|ponzi|embezzl\w*|misappropriat\w*|scam\w*|deceiv\w*|decept\w*)\b/ },
+  { claim: /\b(?:fined|fines? (?:of|by|from)|penalt(?:y|ies)|sanctioned)\b/, source: /\b(?:fine[sd]?|penalt\w*|sanction\w*)\b/ },
+  { claim: /\b(?:settled (?:a |the )?(?:lawsuit|suit|case|charges|claims|allegations|with)|settlement)\b/, source: /\b(?:settl\w*)\b/ },
+  { claim: /\b(?:investigat(?:ed|ion|ions|ing)|probe[ds]?|subpoena(?:ed|s)?|inquiry)\b/, source: /\b(?:investigat\w*|probe[ds]?|subpoena\w*|inquir\w*)\b/ },
+  { claim: /\b(?:arrest(?:ed)?|detained)\b/, source: /\b(?:arrest\w*|detain\w*|custody)\b/ },
+  { claim: /\b(?:bankrupt(?:cy|cies)?|insolven(?:t|cy))\b/, source: /\b(?:bankrupt\w*|insolven\w*|chapter (?:7|11)|liquidat\w*)\b/ },
+  { claim: /\b(?:misconduct|harass(?:ed|ment)|wrongdoing)\b/, source: /\b(?:misconduct|harass\w*|wrongdoing)\b/ },
+  { claim: /\b(?:alleg(?:ed|ations?|es|edly)|accused)\b/, source: /\b(?:alleg\w*|accus\w*|charg\w*|claim\w*)\b/ },
+  { claim: /\b(?:injunction|restraining order)\b/, source: /\b(?:injunct\w*|restrain\w*)\b/ },
+  { claim: /\b(?:enforcement action|regulatory action|cease[- ]and[- ]desist|consent (?:order|decree))\b/, source: /\b(?:enforcement|regulat\w*|cease|consent|order)\b/ },
+];
+// Regulators named by their initials: case-sensitive, so "sec" (a second) is not one.
+const LEGAL_AGENCY = /\b(?:SEC|FTC|DOJ|CFTC|FCA|FBI|FINRA|OFAC|CMA|CNIL|ICO|AMF)\b/g;
+// A yes/no reference question states nothing ("Ask whether she has ever been sued?"); "Why was she convicted?" does.
+const YES_NO_QUESTION = /^(?:(?:ask|confirm|verify|check|request|review)\s+(?:\w+\s+){0,3}?(?:whether|if)\b|(?:is|are|has|have|had|was|were|did|does|do)\b|whether\b)[^?]*\?\s*$/i;
+
+/**
+ * Why a sentence's legal matter is not stated by its cited, tied sources, or null (no matter, or it is stated). A
+ * string is an unsupported legal matter; `{ minor }` is a regulator's initials alone, missing like any other name.
+ */
+function legalUnsupported(claim, citedTied) {
+  if (YES_NO_QUESTION.test(claim)) return null;
+  const c = fold(claim);
+  const matters = LEGAL_MATTERS.filter((m) => m.claim.test(c));
+  const agencies = [...new Set(claim.match(LEGAL_AGENCY) || [])];
+  if (!matters.length && !agencies.length) return null;
+  if (!citedTied) return matters.length ? 'states a legal matter that no cited source tied to the person gives' : { minor: 'names a regulator, with no cited source tied to the person' };
+  const src = fold(citedTied);
+  for (const m of matters) if (!m.source.test(src)) return 'states a legal matter that its cited source does not give';
+  // a regulator named without a legal matter ("filed with the SEC") is checked like any name: removed when its
+  // source lacks it, but not counted as an invented legal matter
+  for (const a of agencies) if (!new RegExp(`\\b${a}\\b`).test(citedTied)) return matters.length ? `names ${a}, which its cited source does not` : { minor: `"${a}" is not in the source` };
+  return null;
+}
+
 /** Split a line into sentences, each keeping its own citations ("x. [Source 1] y" -> "x [Source 1].", "y"). */
 function lineSentences(body) {
   const moved = body.replace(/([.!?])((?:\s*\[Source \d+\])+)/g, '$2$1');
@@ -190,19 +235,24 @@ function lineSentences(body) {
  * default), and when more than `maxDropShare` of the checked sentences go, or fewer than `minKept` stay, the answer
  * fails too, so the caller can ask another model. `inherit`: a sentence without a marker rests on the nearest
  * cited sentence of its own line. `elsewhere`: a fact the cited source lacks but another source tied to the subject
- * gives is kept (a loose citation); only what no such source gives is removed.
+ * gives is kept (a loose citation); only what no such source gives is removed. `legalTerms`: a sentence in any
+ * section that states a legal or regulatory matter (charged, convicted, sued, fined, fraud, a regulator) is kept only
+ * when a source it cites, tied to the subject by more than the name, uses words of that matter; `elsewhere` never
+ * rescues it. Each such removal counts toward `failAfter` wherever it sits, since an invented legal matter is the
+ * worst thing a brief can say.
  *
  * @param {string} content an answer that passed validateAnswer (sections and [Source n] markers normalised)
  * @param {Map<number, {text: string, weak?: boolean}>|Object} sources the text each source number stands for;
  *   `weak`: tied to the subject by name only
  * @param {{ failSections?: string[], advisorySections?: string[], weakDropSections?: string[], ignoreWords?: string[],
- *   maxDropShare?: number, emptySection?: string|null, inherit?: boolean, elsewhere?: boolean, failAfter?: number, minKept?: number }} [opts]
+ *   maxDropShare?: number, emptySection?: string|null, inherit?: boolean, elsewhere?: boolean, failAfter?: number, minKept?: number,
+ *   legalTerms?: boolean }} [opts]
  * @returns {{ ok: boolean, content: string, checked: number, dropped: number, reasons: string[], reason?: string }}
  */
 export function checkClaims(content, sources, opts = {}) {
   const {
     failSections = [], advisorySections = [], weakDropSections = [], ignoreWords = [], maxDropShare = 0.2, emptySection = null,
-    inherit = false, elsewhere = false, failAfter = 1, minKept = 0,
+    inherit = false, elsewhere = false, failAfter = 1, minKept = 0, legalTerms = false,
   } = opts;
   const map = sources instanceof Map ? sources : new Map(Object.entries(sources || {}).map(([k, v]) => [Number(k), v]));
   const prepared = new Map([...map].map(([n, v]) => [n, prepareSource(v?.text || '')]));
@@ -243,7 +293,17 @@ export function checkClaims(content, sources, opts = {}) {
       checked += 1;
       const inFail = failSections.includes(section);
       let why = null;
-      if (!valid.length) {
+      let legal = false;
+      if (legalTerms && !NEGATIVE.test(claim)) {
+        // only sources tied to the subject by more than the name may carry a legal matter
+        const tied = valid.filter((n) => !map.get(n)?.weak).map((n) => map.get(n)?.text || '').join(' \n ');
+        why = legalUnsupported(claim, tied);
+        legal = typeof why === 'string';
+        if (why && !legal) why = why.minor;
+      }
+      if (why) {
+        // removed below; never rescued by another source
+      } else if (!valid.length) {
         why = advisorySections.includes(section) ? supports(everything, claim, ignore) : 'no citation';
       } else if (weakDropSections.includes(section) && valid.every((n) => map.get(n)?.weak)) {
         why = 'cites only sources that match the name alone';
@@ -257,9 +317,13 @@ export function checkClaims(content, sources, opts = {}) {
         dropped += 1;
         reasons.push(`${why}: ${claim.slice(0, 80)}`);
         // a legal line that cites only name-only sources is dropped quietly; unsupported ones count against the answer
-        if (inFail && why !== 'cites only sources that match the name alone') {
+        if (legal || (inFail && why !== 'cites only sources that match the name alone')) {
           failedLines += 1;
-          if (failedLines >= failAfter && !failed) failed = `${failedLines === 1 ? 'an unsupported line' : `${failedLines} unsupported lines`} under ${section.replace(/^#+\s*/, '')}`;
+          if (failedLines >= failAfter && !failed) {
+            failed = legal && !inFail
+              ? `${failedLines === 1 ? 'an unsupported legal line' : `${failedLines} unsupported legal lines`} (the last under ${section.replace(/^#+\s*/, '')})`
+              : `${failedLines === 1 ? 'an unsupported line' : `${failedLines} unsupported lines`} under ${section.replace(/^#+\s*/, '')}`;
+          }
         }
         return;
       }

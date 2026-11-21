@@ -433,7 +433,8 @@ describe('exclusionsConnector', () => {
   test('SAM.gov: nothing found is a note; a broken answer throws', async () => {
     serve({ 'sam.gov': () => json({ page: { totalElements: 0 } }) });
     const out = await exclusionsConnector.run(subjectTask('Patrick Collison', 'excl.sam'), ctxFor('Patrick Collison'));
-    expect(out.notes).toEqual(['SAM.gov exclusion list: no match for Patrick Collison']);
+    // A clean SAM.gov screen says it covered only exclusions in force (the public search shows no ended ones)
+    expect(out.notes).toEqual(['SAM.gov shows the public only exclusions currently in force; ended exclusions were not screened.', 'SAM.gov exclusion list: no match for Patrick Collison among exclusions in force']);
     serve({ 'sam.gov': () => ({ status: 503, body: 'down' }) });
     await expect(exclusionsConnector.run(subjectTask('Patrick Collison', 'excl.sam'), ctxFor('Patrick Collison'))).rejects.toThrow();
   });
@@ -581,7 +582,7 @@ describe('review fixes: name order and Offshore Leaks scope', () => {
     serve({ 'sam.gov': () => json({ page: { totalElements: 1 }, _embedded: { results: [samResult({ id: 'x1', title: 'RACHAEL ELIZABETH HOLMES' })] } }) });
     const out = await exclusionsConnector.run(subjectTask('Elizabeth Holmes', 'excl.sam'), ctxFor('Elizabeth Holmes'));
     expect(out.findings).toEqual([]);
-    expect(out.notes).toContain('SAM.gov exclusion list: no match for Elizabeth Holmes');
+    expect(out.notes).toContain('SAM.gov exclusion list: no match for Elizabeth Holmes among exclusions in force');
   });
 
   test('Offshore Leaks is never searched for an associate or relative', async () => {

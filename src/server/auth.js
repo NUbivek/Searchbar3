@@ -16,7 +16,8 @@
  * ("@example.com" or "example.com"), separated by commas, spaces or
  * semicolons. Empty (the default), everyone may sign in, as before. Set, an
  * account outside it is refused at sign-in, and a session issued before the
- * list was set stops counting as signed in.
+ * list was set stops counting as signed in. Set but unreadable (nothing in it
+ * is a whole address or domain), it refuses everyone: it fails closed.
  */
 import crypto from 'crypto';
 import GoogleProvider from 'next-auth/providers/google';
@@ -57,31 +58,56 @@ if (devLoginAllowed) {
 }
 
 /**
- * Read an allow-list: whole addresses and domains, lower-cased. Anything that is
- * neither (a stray word, "name@") is ignored rather than widening the list.
- * @returns {{ emails: string[], domains: string[] }}
+ * Read an allow-list: whole addresses and domains, lower-cased. Quotes, angle brackets and a "mailto:" prefix
+ * pasted along with an address are read through ('"owner@example.com"', 'Owner <owner@example.com>').
+ * Anything that is still neither an address nor a domain (a stray word, "name@", "owner@gmail") is ignored
+ * rather than widening the list, and named in `warnings` (never the item itself, which may be an address).
+ * `set` is true when the raw value is not blank: a list that was set but in which nothing could be read is
+ * still a list, an empty one (see allowListActive), so a mistyped value never opens the site to everyone.
+ * @returns {{ emails: string[], domains: string[], set: boolean, warnings: string[] }}
  */
 export function parseAllowList(raw = process.env.FOUNDER_ALLOWED_EMAILS) {
   const emails = [];
   const domains = [];
+  const warnings = [];
   const DOMAIN = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/;
-  for (const part of String(raw || '').toLowerCase().split(/[\s,;]+/)) {
-    const item = part.trim();
+  const text = String(raw || '');
+  for (const part of text.toLowerCase().split(/[\s,;]+/)) {
+    const item = part.trim().replace(/^["'`<(\[]+|["'`>)\].]+$/g, '').replace(/^mailto:/, '').replace(/^["'`<]+/, '');
     if (!item) continue;
     const at = item.lastIndexOf('@');
+    let ok = false;
     if (at > 0) {
-      if (DOMAIN.test(item.slice(at + 1)) && !item.slice(0, at).includes('@')) emails.push(item);
+      if (DOMAIN.test(item.slice(at + 1)) && !item.slice(0, at).includes('@')) { emails.push(item); ok = true; }
     } else {
       const domain = at === 0 ? item.slice(1) : item;
-      if (DOMAIN.test(domain)) domains.push(domain);
+      if (DOMAIN.test(domain)) { domains.push(domain); ok = true; }
     }
+    if (!ok) warnings.push(at >= 0 ? 'an entry that is not a whole address or domain was ignored' : 'a word that is not an address or domain was ignored');
   }
-  return { emails, domains };
+  const set = text.trim().length > 0;
+  if (set && !emails.length && !domains.length) warnings.push('nothing in the list could be read, so every account is refused');
+  return { emails, domains, set, warnings };
 }
 
-/** Whether an allow-list is set at all. With none, nothing is restricted. */
+/**
+ * Whether an allow-list is in force. With none (blank), nothing is restricted. A list that was set but in which
+ * nothing valid could be read is in force and empty: it fails closed, refusing every account but the local
+ * test user, rather than silently letting every account in.
+ */
 export function allowListActive(list = parseAllowList()) {
-  return Boolean(list.emails.length || list.domains.length);
+  return Boolean(list.emails.length || list.domains.length || list.set);
+}
+
+// Say once, at start, when the list is set but unreadable: the owner believes the site is restricted, and it
+// now refuses everyone, so the reason must be easy to find in the logs. No entry is printed (it may be an address).
+{
+  const startList = parseAllowList();
+  if (startList.set && !startList.emails.length && !startList.domains.length) {
+    console.error('FOUNDER_ALLOWED_EMAILS is set but holds no whole address or domain, so every account is refused. Write it as owner@example.com or @example.com, separated by commas.');
+  } else if (startList.warnings.length) {
+    console.warn(`FOUNDER_ALLOWED_EMAILS: ${startList.warnings.length} ${startList.warnings.length === 1 ? 'entry was' : 'entries were'} ignored.`);
+  }
 }
 
 /**
@@ -303,9 +329,10 @@ export function callerAddress(req) {
  * - A preview deployment (VERCEL_ENV=preview): open without the site's own sign-in,
  *   since the host's sign-in sits in front of previews, but limited per caller
  *   and per deployment each hour.
- * - Production: only a signed-in account, and when FOUNDER_ALLOWED_EMAILS is set
- *   only one on it; everyone else gets a 404, as if the route did not exist.
- *   Still limited per account each hour.
+ * - Production: only a signed-in account on FOUNDER_ALLOWED_EMAILS, which must be
+ *   set; everyone else (everyone, when it is not set) gets a 404, as if the route
+ *   did not exist. Still limited per account each hour, and model runs share one
+ *   hourly allowance across accounts.
  * `costly` marks a request that calls a model (a tighter limit).
  * Sends the refusal itself and returns false, or returns true.
  */
@@ -317,7 +344,9 @@ export async function debugAccess(req, res, { route = 'debug', costly = false } 
     const userId = await getUserId(req, res);
     who = userId ? `user:${userId}` : `ip:${callerAddress(req)}`;
   } else {
-    const userId = await getUserId(req, res);
+    // Production: the owner sets the allow-list to use these routes. With none set, every Google account could
+    // sign in, so the routes stay hidden; with one, getUserId already refuses an account outside it.
+    const userId = allowListActive() ? await getUserId(req, res) : null;
     if (!userId) {
       res.status(404).json({ error: 'Not found' });
       return false;
@@ -326,8 +355,9 @@ export async function debugAccess(req, res, { route = 'debug', costly = false } 
   }
   const hour = 3600000;
   const mine = await takeSlot(`${route}${costly ? ':run' : ''}`, who, { max: costly ? 10 : 30, windowMs: hour });
-  // On a preview anyone behind the host's sign-in counts against one shared allowance too.
-  const shared = mine.ok && preview && costly ? await takeSlot(`${route}:run:all`, 'all', { max: 40, windowMs: hour }) : { ok: true };
+  // Every model run, on a preview or in production, also counts against one shared allowance, so several
+  // accounts (or callers behind the host's sign-in) cannot use up the models' allowance between them.
+  const shared = mine.ok && costly ? await takeSlot(`${route}:run:all`, 'all', { max: 40, windowMs: hour }) : { ok: true };
   if (!mine.ok || !shared.ok) {
     res.setHeader('Retry-After', String(mine.ok ? shared.retryAfter : mine.retryAfter));
     res.status(429).json({ error: 'Too many checks in the last hour. Try again later.' });

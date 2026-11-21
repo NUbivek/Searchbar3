@@ -217,8 +217,9 @@ const MATCH_REASON = {
   padded: (company) => `the organisation's name is ${company} followed by general words: check it is the same company`,
   leading: (company) => `the entry begins with the name ${company}`,
   contains: (company) => `the entry names ${company}`,
+  partial: (company) => `the entry contains a legal name of ${company} inside a longer name`,
 };
-const MATCH_RANK = { exact: 0, padded: 1, leading: 2, contains: 3 };
+const MATCH_RANK = { exact: 0, padded: 1, leading: 2, contains: 3, partial: 4 };
 
 /** What to type into a source's search box: the brand without legal forms and generic words. */
 function searchTerm(name) {
@@ -269,18 +270,42 @@ function targetOf(task, ctx, kinds) {
 }
 
 /**
- * The company's own registrable domains the check knows (domain anchors and learned domains of the company),
- * when their name part is the company's name. Used to tell the company's own breach from a namesake's.
+ * The company's own registrable domains the check knows. A domain counts when the check has learned it for this
+ * company (identity.addCompanyAlias: { of } names the company, whatever the label), or when it is one of the
+ * subject's own domains and its name part is the company's name or begins with it ("nikolamotor.com" for Nikola).
+ * Used to tell the company's own breach from a namesake's, and a listing on another website from one on its own.
+ * @param {{ name: string, full: string[], core: string[], specific: boolean }} key from companyKey
+ * @returns {string[]}
  */
-function ownDomainsOf(key, ctx) {
+export function companyOwnDomains(key, ctx) {
   const out = new Set();
+  if (!key || !key.full.length) return [];
   const subject = ctx?.subject;
-  const values = [...(subject?.anchors?.domains?.values?.() || []), ...[...(subject?.anchors?.aliases?.values?.() || [])].filter((a) => /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(String(a.value || '')))].map((a) => a.value);
-  for (const value of values) {
-    const d = registrableDomain(value);
-    if (d && !SHARED_DOMAINS.has(d) && matchOrgName(key, d) === 'exact') out.add(d);
+  const isDomainText = (v) => /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(String(v || ''));
+  const of = companyKeys(key.name)[0] || key.name.toLowerCase();
+  // Learned for this very company: its own whatever the label says ("block.xyz" for Square).
+  for (const a of subject?.anchors?.aliases?.values?.() || []) {
+    if (a?.of !== of || !isDomainText(a.value)) continue;
+    const d = registrableDomain(a.value);
+    if (d && !SHARED_DOMAINS.has(d)) out.add(d);
   }
-  return out;
+  // One of the subject's domains, of any company: only when its name part is this company's name, or begins with
+  // its distinctive name ("nikolamotor" for Nikola; never a three-letter prefix, which too many words begin with).
+  const stems = [squash(key.full), squash(key.core)].filter((s, i, all) => s.length >= 4 && all.indexOf(s) === i);
+  // The person's own site ("nikolatesla.com" for Nikola Tesla) is about the person, never the company's website.
+  const slugs = new Set((subject?.slugs || []).map((slug) => String(slug).replace(/[^a-z0-9]/g, '')));
+  for (const a of [...(subject?.anchors?.domains?.values?.() || []), ...[...(subject?.anchors?.aliases?.values?.() || [])].filter((x) => isDomainText(x?.value))]) {
+    const d = registrableDomain(a?.value);
+    if (!d || SHARED_DOMAINS.has(d)) continue;
+    const label = d.split('.')[0].replace(/-/g, '');
+    if (slugs.has(label)) continue;
+    if (matchOrgName(key, d) === 'exact' || (key.specific && stems.some((s) => label.startsWith(s)))) out.add(d);
+  }
+  return [...out];
+}
+
+function ownDomainsOf(key, ctx) {
+  return new Set(companyOwnDomains(key, ctx));
 }
 
 /** Fuller legal names the check has learned for this company (identity.addCompanyAlias), of two words or more. */
@@ -291,24 +316,64 @@ function legalNamesOf(key, ctx) {
     .map((a) => a.value);
 }
 
-/** Is the company named distinctively enough for its exact name alone to stand for it? */
-const distinctiveName = (key) => key.specific && (key.full.length >= 2 || !isOrdinaryWordCompany(key.full.join(' ')));
+/** A key matched only whole: its bare brand alone ("Harvey" of "Harvey AI") does not count as the name. */
+const wholeKey = (key) => ({ ...key, core: key.full });
+
+/**
+ * Did a record match the company only through its bare brand: "Harvey" (or harvey.com) for "Harvey AI",
+ * "Mistral, Inc." for "Mistral AI"? The bare brand is a shorter name than the one given, so whether it alone
+ * may stand for the company is judged on the brand, not on the longer name.
+ */
+export function bareBrandOnly(key, recordName) {
+  if (!key || !key.full.length || key.core.length >= key.full.length) return false;
+  return Boolean(matchOrgName(key, recordName)) && !matchOrgName(wholeKey(key), recordName);
+}
+
+/**
+ * Is the company named distinctively enough for this record's match on its name alone to stand for it? Judged on
+ * the form that matched: the full name given ("Harvey AI", two words) or, when only the bare brand matched, the
+ * brand ("Harvey", an ordinary first name: not enough).
+ */
+export function distinctiveMatch(key, recordName = '', bareOnly = undefined) {
+  if (!key || !key.specific) return false;
+  const bare = bareOnly === undefined ? bareBrandOnly(key, recordName) : Boolean(bareOnly);
+  const words = bare ? key.core : key.full;
+  return words.length >= 2 || !isOrdinaryWordCompany(words.join(' '));
+}
+
+/**
+ * How a learned legal name ("Bolt Financial, Inc.") matches a record: 'exact' when one part of the entry is that
+ * name (legal forms and empty words such as "Technologies" aside), 'partial' when the name only appears inside a
+ * longer one ("Lightning Bolt Financial Advisors LLC": another firm), else null. Only 'exact' may tie a record.
+ */
+export function legalNameMatch(legalName, recordName) {
+  const k = wholeKey(companyKey(legalName));
+  if (k.full.length < 2) return null;
+  if (matchOrgName(k, recordName) === 'exact') return 'exact';
+  return containsRun(dropThe(orgTokens(recordName)), k.full) ? 'partial' : null;
+}
+
+/** Is the distinctive name the company's: ordinary or bare-brand names (see distinctiveMatch) are not. */
+const distinctiveName = (key, recordName = '', bareOnly = undefined) => distinctiveMatch(key, recordName, bareOnly);
 
 /**
  * The grade of a record matched by name: the company's when the match is on its own domain or on its exact,
  * distinctive name; otherwise a possible namesake. `domainNote` says that the company's own domain was looked
- * up and named nowhere.
+ * up and named nowhere. `bareOnly` says the record matched only through the company's bare brand (worked out
+ * from `recordName` when not given).
  */
-function gradeMatch(target, grade, { onOwnDomain = false, domainNote = '', recordName = '', ctx = null } = {}) {
+function gradeMatch(target, grade, { onOwnDomain = false, domainNote = '', recordName = '', ctx = null, bareOnly = undefined } = {}) {
   if (target.kind === 'domain' || onOwnDomain) return { match: 'company', severity: 'medium', extra: {} };
-  // A legal name learned for the company ("Uber Technologies, Inc.", "Merge API, Inc.") written in the entry is the company
-  // (whole: the bare brand of "Uber Technologies" alone does not count)
-  const byLegalName = Boolean(recordName) && legalNamesOf(target.key, ctx).some((n) => containsRun(dropThe(orgTokens(recordName)), companyKey(n).full));
-  const strong = byLegalName || ((grade === 'exact' || grade === 'leading' || grade === 'contains') && distinctiveName(target.key));
+  // A legal name learned for the company ("Uber Technologies, Inc.", "Merge API, Inc.") that is the entry's name is the company
+  // (whole and on its own: the bare brand of "Uber Technologies" alone does not count, nor the name inside a longer one)
+  const byLegalName = Boolean(recordName) && legalNamesOf(target.key, ctx).some((n) => legalNameMatch(n, recordName) === 'exact');
+  const strong = byLegalName || ((grade === 'exact' || grade === 'leading' || grade === 'contains') && distinctiveName(target.key, recordName, bareOnly));
   if (strong) return { match: 'company', severity: 'medium', extra: {} };
   const why = grade === 'padded'
     ? `the name adds a general word to ${target.key.name}, so it may be another company`
-    : `"${target.key.name}" is an ordinary word other organisations also use, so it may be another company`;
+    : grade === 'partial'
+      ? `the company's legal name appears inside a longer name, so it may be another company`
+      : `"${target.key.name}" is an ordinary word other organisations also use, so it may be another company`;
   return { match: 'possible', severity: 'low', why, extra: { excludeFromTimeline: true, companyNamesake: true, ...(domainNote ? { ownDomainChecked: domainNote } : {}) } };
 }
 
@@ -316,14 +381,14 @@ function gradeMatch(target, grade, { onOwnDomain = false, domainNote = '', recor
 function nameGradeOf(target, name, ctx) {
   const grade = matchOrgName(target.key, name);
   if (grade === 'exact') return grade;
-  const tokens = dropThe(orgTokens(name));
-  return legalNamesOf(target.key, ctx).some((n) => containsRun(tokens, companyKey(n).full)) ? 'exact' : grade;
+  const legal = legalNamesOf(target.key, ctx).map((n) => legalNameMatch(n, name));
+  if (legal.includes('exact')) return 'exact';
+  return grade || (legal.includes('partial') ? 'partial' : null);
 }
 
-/** The learned legal name of the company written in a text, as learned ("Merge API, Inc."), or ''. */
+/** The learned legal name of the company that a text is named (as learned: "Merge API, Inc."), or ''. */
 function legalNameIn(target, text, ctx) {
-  const tokens = dropThe(orgTokens(text));
-  return legalNamesOf(target.key, ctx).find((n) => containsRun(tokens, companyKey(n).full)) || '';
+  return legalNamesOf(target.key, ctx).find((n) => legalNameMatch(n, text) === 'exact') || '';
 }
 
 /** The grade fields of a regulator notice matched by name (notices carry no website). */
@@ -443,12 +508,13 @@ export const leakSiteConnector = {
     // The name and the domain reach different records, so a multi-word name is also searched joined up ("mgmresorts"),
     // and the company's own website, when known, is searched too: a listing that names it is the company's, and when
     // none does, a listing that matches only the name says so.
-    const own = target.kind === 'company' ? [...ownDomainsOf(target.key, ctx)].slice(0, 2) : [];
+    // Every website known to be the company's decides what is its own; at most two are searched.
+    const own = target.kind === 'company' ? [...ownDomainsOf(target.key, ctx)] : [];
     const queries = [{ q: target.kind === 'domain' ? target.domain : target.term }];
     if (target.kind === 'company') {
       const joined = squash(target.key.core);
       if (joined.length >= 5 && joined !== target.term.toLowerCase()) queries.push({ q: joined });
-      for (const d of own) if (!queries.some((x) => x.q === d)) queries.push({ q: d, domain: d });
+      for (const d of own.slice(0, 2)) if (!queries.some((x) => x.q === d)) queries.push({ q: d, domain: d });
     }
     const posts = [];
     const leaks = [];
@@ -482,9 +548,11 @@ export const leakSiteConnector = {
       const grade = gradeOf(post.title);
       if (!grade) continue;
       const group = groupName(post.group);
-      const entry = listings.get(group.toLowerCase()) || { group, page: groupPage(post.group), grade, names: [], days: new Set(), onOwn: false };
+      const entry = listings.get(group.toLowerCase()) || { group, page: groupPage(post.group), grade, names: [], days: new Set(), onOwn: false, whole: false };
       if ((MATCH_RANK[grade] ?? 9) < (MATCH_RANK[entry.grade] ?? 9)) entry.grade = grade;
       if (target.kind === 'company' && namesOwn(post.title)) entry.onOwn = true;
+      // A post that names the company by more than its bare brand ("Harvey AI", not only "Harvey")
+      if (target.kind !== 'company' || !bareBrandOnly(target.key, post.title)) entry.whole = true;
       const shown = target.kind === 'company' ? (ownNameIn(target.key, post.title) || legalNameIn(target, post.title, ctx) || (namesOwn(post.title) ? domainsIn(post.title).find((d) => own.includes(d)) : '')) : '';
       if (shown) entry.names.push(shown);
       if (post.seen) entry.days.add(post.seen);
@@ -498,7 +566,7 @@ export const leakSiteConnector = {
       const first = days[0] || null;
       const last = days[days.length - 1] || null;
       const by = entry.group || 'an extortion group';
-      const g = gradeMatch(target, entry.grade, { onOwnDomain: entry.onOwn, domainNote, recordName: organisation, ctx });
+      const g = gradeMatch(target, entry.grade, { onOwnDomain: entry.onOwn, domainNote, recordName: organisation, ctx, bareOnly: !entry.whole });
       return {
         grade: entry.grade, date: first,
         finding: makeFinding(ctx.subject, {
@@ -533,7 +601,8 @@ export const leakSiteConnector = {
       const [top] = shown;
       const describe = (e) => [field('Records', e.records), field('Data fields', e.labels.join(', ')), field('Indexed', e.indexed)].filter(Boolean).join(' ');
       const names = [...new Set(entries.map((e) => e.name))];
-      const g = gradeMatch(target, 'exact', { onOwnDomain: own.length > 0 });
+      // Matched by name only: a catalogue of bare-brand domains ("harvey.com" for Harvey AI) is judged on the brand
+      const g = gradeMatch(target, 'exact', { onOwnDomain: own.length > 0, bareOnly: target.kind === 'company' && entries.every((e) => bareBrandOnly(target.key, e.name)) });
       leakFindings.push(makeFinding(ctx.subject, {
         source: LEAK_SITES_ID, sourceLabel: RANSOMLOOK_LABEL, category: CATEGORY,
         title: entries.length === 1
@@ -644,19 +713,21 @@ export const breachCatalogueConnector = {
       }
       const byName = nameGradeOf(target, entry.title, ctx);
       const byDomain = entry.domain && matchOrgName(target.key, entry.domain) === 'exact';
-      if (byName) hits.push({ entry, grade: byName, reason: MATCH_REASON[byName](target.key.name), date: entry.breachDate });
-      else if (byDomain) hits.push({ entry, grade: 'exact', reason: `the domain ${entry.domain} matches the name ${target.key.name}`, date: entry.breachDate });
+      // A bare-brand title ("Harvey") on a website named by the full name ("harveyai.com") is not bare-brand only
+      const wholeDomain = byDomain && !bareBrandOnly(target.key, entry.domain);
+      if (byName) hits.push({ entry, grade: byName, bareOnly: bareBrandOnly(target.key, entry.title) && !wholeDomain, reason: MATCH_REASON[byName](target.key.name), date: entry.breachDate });
+      else if (byDomain) hits.push({ entry, grade: 'exact', bareOnly: bareBrandOnly(target.key, entry.domain), reason: `the domain ${entry.domain} matches the name ${target.key.name}`, date: entry.breachDate });
     }
     // Where the company's own website is known and no entry is on it, a name-only entry says so
     const domainNote = ownDomains.size && !hits.some((h) => h.onOwn) ? `No entry in the catalogue is for ${[...ownDomains].join(' or ')}.` : '';
 
-    const findings = hits.sort(bestFirst).slice(0, MAX_PER_SOURCE).map(({ entry, grade, reason, onOwn }) => {
+    const findings = hits.sort(bestFirst).slice(0, MAX_PER_SOURCE).map(({ entry, grade, reason, onOwn, bareOnly }) => {
       // Labels of the kinds of data, generalised where a label names a protected matter.
       const classes = [...new Set(entry.classes.map((c) => (PROTECTED_CLASS.test(c) || isSensitive(c) ? 'Sensitive personal details' : c)))];
       const summary = publishable(entry.summary);
       const accounts = count(entry.count);
       const when = longDate(entry.breachDate);
-      const g = gradeMatch(target, grade, { onOwnDomain: Boolean(onOwn), domainNote, recordName: entry.title, ctx });
+      const g = gradeMatch(target, grade, { onOwnDomain: Boolean(onOwn), domainNote, recordName: entry.title, ctx, bareOnly });
       return makeFinding(ctx.subject, {
         source: CATALOGUE_ID, sourceLabel: HIBP_LABEL, category: CATEGORY,
         title: `${entry.title} data breach${when ? `, ${when}` : ''}${accounts ? `: ${accounts} accounts` : ''}`,

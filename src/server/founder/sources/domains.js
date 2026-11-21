@@ -138,13 +138,15 @@ async function registrationRecord(domain, deadline) {
 }
 
 /**
- * The founding year of the company behind this domain, when known: given with the task or the subject, or read
- * from a tied record that names this very domain (the Y Combinator directory lists each company's website). A
- * founding year of another company of the person (an earlier start-up) must never be compared, so records that do
- * not name the domain are not used. Null when unknown.
+ * The founding year of the company behind this domain, when known: given with the task (the deep check passes it
+ * only for the given company's own domain), or read from a tied record that names this very domain (the Y
+ * Combinator directory lists each company's website). A founding year of another company of the person (an earlier
+ * start-up) must never be compared, so the subject's own founding year is not used for a domain on its own (it is
+ * the given company's year, and this may be another company's domain), nor records that do not name the domain.
+ * Null when unknown.
  */
 export function foundingYearFor(domain, task, ctx) {
-  const given = Number(task?.params?.foundedYear ?? ctx?.subject?.foundedYear);
+  const given = Number(task?.params?.foundedYear);
   if (Number.isInteger(given) && given > 1800) return { year: given, from: 'given' };
   let findings = [];
   try { findings = typeof ctx?.findings === 'function' ? ctx.findings() || [] : []; } catch { findings = []; }

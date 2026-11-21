@@ -57,8 +57,11 @@ describe('the public-record exemption', () => {
     });
     expect(out.quote).toBe('Elizabeth Holmes was convicted of wire fraud.');
   });
-  test('an official record with nothing but sensitive text, or a sensitive title, is dropped', () => {
-    expect(sanitizeFinding({ source: 'court-dockets', category: 'litigation', title: 'United States v. Holmes', quote: 'She is pregnant.', url: 'https://example.com/d' })).toBeNull();
+  // Round 4 (2026-11-21): an official record is never dropped whole for a sensitive word. Its private sentences go and
+  // the case itself stays on its title; a title that is nothing but a private matter still drops it.
+  test('an official record with nothing but sensitive text keeps its title; a sensitive title with no case left is dropped', () => {
+    const kept = sanitizeFinding({ source: 'court-dockets', category: 'litigation', title: 'United States v. Holmes', quote: 'She is pregnant.', url: 'https://example.com/d' });
+    expect(kept).toEqual(expect.objectContaining({ title: 'United States v. Holmes', quote: '' }));
     expect(sanitizeFinding({ source: 'court-dockets', category: 'litigation', title: 'Holmes pregnant, court told', quote: 'Sentencing was delayed.', url: 'https://example.com/d' })).toBeNull();
   });
 });

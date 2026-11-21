@@ -78,10 +78,19 @@ const NOT_A_GIVEN = words(`monday tuesday wednesday thursday friday saturday sun
 august september october november december senator governor representative rep mayor ambassador secretary minister
 officer detective agent attorney prosecutor defendant plaintiff witness justice commissioner chancellor congressman
 congresswoman councilman councilwoman sheriff general captain colonel lieutenant sergeant inventor author editor
-reporter host speaker partner trustee dean coach saint san santa`);
+reporter host speaker partner trustee dean coach saint san santa
+admiral commander commodore marshal major corporal private pastor rabbi bishop imam cardinal pope father sister brother
+sheikh sheikha prince princess king queen emir sultan baron baroness duke duchess count countess laureate
+billionaire millionaire entrepreneur founder cofounder co-founder co-ceo executive investor chairman chairwoman
+navy army police marine marines airman soldier veteran fraudster convicted accused`);
+// Given names that are also common English words. In a Title Case headline ("Investors Mark Elizabeth Holmes
+// Release") such a word says nothing about another given name.
+const WORDLIKE_GIVEN = words('mark grace frank young christian long bill max will rose hope joy chase hunter');
 const GENERATIONAL = words('jr sr ii iii iv');
 const DEGREE_SUFFIX = words('phd md esq mba cpa jd dds qc kc obe cbe mbe frs');
 const SURNAME_PARTICLES = words('van von der den de del della di da dos das du la le bin binti ibn al el ben ter ten');
+// Particles that are also given names: attached to the surname only when typed in lower case.
+const PARTICLE_NAMES = words('ben al el di');
 
 // Very common given names across US, Chinese, Indian, Korean, Hispanic and Arabic naming.
 const COMMON_GIVEN = words(`
@@ -129,9 +138,28 @@ const NICKNAME_GROUPS = [
   'susan sue suzy', 'deborah deb debbie', 'patricia pat patty trish', 'kenneth ken kenny', 'ronald ron ronnie', 'donald don donnie',
   'lawrence larry', 'gerald jerry', 'jeffrey jeff', 'frederick fred freddie', 'harold harry', 'henry harry hank',
   'theodore ted teddy theo', 'zachary zach zack', 'victoria vicky tori', 'jessica jess jessie', 'abigail abby', 'samantha sam',
-  'alexandra alex sasha', 'joshua josh', 'nathaniel nate nat', 'nathan nate', 'raymond ray', 'leonard leo len lenny', 'vincent vince',
+  'alexandra alex sasha', 'joshua josh', 'nathaniel nate nat nathan', 'nathan nate', 'raymond ray', 'leonard leo len lenny', 'vincent vince',
+  // from the court sources' former table, so one table serves every source
+  'steven stephen', 'katherine catherine', 'philip phil', 'phillip phil', 'douglas doug', 'walter walt', 'gabriel gabe',
+  'maxwell max', 'christine chris tina', 'christina chris tina', 'jacqueline jackie', 'pamela pam', 'cynthia cindy',
 ];
+/** The shared nickname table as groups, the formal name first (courts.js builds its search forms from it). */
+export const NICKNAME_LIST = NICKNAME_GROUPS.map((g) => g.split(' '));
 const NICKNAMES = new Map();
+/**
+ * Whether two given names are the same name or one is a known diminutive of the other ("William" / "Bill"),
+ * from the one shared table every source uses. Case and accents do not matter. Never true for an empty name.
+ */
+export function givenNamesAgree(a, b) {
+  const x = lowerFold(String(a || '').trim());
+  const y = lowerFold(String(b || '').trim());
+  if (!x || !y) return false;
+  return x === y || Boolean(NICKNAMES.get(x)?.has(y));
+}
+/** The known diminutives and formal forms of a given name (lower case), from the shared table. */
+export function nicknamesOf(given) {
+  return [...(NICKNAMES.get(lowerFold(String(given || '').trim())) || [])];
+}
 for (const g of NICKNAME_GROUPS) {
   const [formal, ...short] = g.split(' ');
   for (const s of short) {
@@ -208,7 +236,9 @@ general west east north south western eastern northern southern central city sta
 boston chicago seattle miami dallas austin denver atlanta toronto canada uk us usa england british`);
 
 const LEGAL_FORMS = words('inc incorporated llc llp lp ltd limited corp corporation co company plc gmbh ag sa sas sarl nv bv se pty ab oy spa srl kk lda');
-const ROLE_WORDS = words('ceo ceos cto cfo coo cpo cmo cro founder founders cofounder cofounders co-founder co-founders chief president chairman chairwoman chair head director vp boss owner executive executives investor investors backers backer');
+const ROLE_WORDS = words(`ceo ceos cto cfo coo cpo cmo cro founder founders cofounder cofounders co-founder co-founders chief president
+chairman chairwoman chair head director vp boss owner executive executives investor investors backers backer
+co-ceo co-ceos coceo co-cto co-chief co-chair co-chairman co-president co-head co-owner co-creator creator`);
 // Words that may follow a distinctive company name inside its own longer legal name ("Nikola Motor Company",
 // "Theranos IP Company"). Never enough after an ordinary word ("Merge Labs" is not Merge).
 const DESCRIPTORS = words('ai labs lab technologies technology tech group holdings motor motors ip systems software solutions financial health robotics energy therapeutics bio biosciences pharmaceuticals inc trading international global services markets exchange partners capital ventures management enterprises industries us usa uk europe digital networks media security data cloud');
@@ -229,6 +259,10 @@ const BUSINESS_WORDS = words(`startup startups start-up fintech company companie
 round investors investor backers backed customers clients revenue ipo unicorn acquisition acquired merger cofounder co-founder
 founder founders ceo cto cfo chief executive employees staff layoffs headquartered headquarters payments software platform saas
 app product products series seed venture vc funded million billion shares stock shareholders board inc corp llc ltd`);
+
+// Words after "the <Company>" that show the company is meant ("the Ramp team", "a Square spokesperson").
+const COMPANY_NOUNS = words(`startup fintech company firm employees employee staff staffer team spokesperson spokesman spokeswoman
+investors backers shareholders board valuation ipo headquarters inc corp llc ltd engineer engineers alum alumni`);
 
 // Common words a sentence or a headline may put right after a company's name ("SoftBank Near Settlement").
 const COMMON_CAPS = words(`near nears amid against after before under beyond above below despite during until since via per
@@ -311,7 +345,10 @@ export function parsePersonName(raw) {
   if (!tokens.length) return { display: '', given: '', middles: [], surname: '', suffix, title, tokens: [] };
   if (tokens.length === 1) return { display: tokens[0], given: tokens[0], middles: [], surname: '', suffix, title, tokens };
   let cut = tokens.length - 1;
-  while (cut > 1 && SURNAME_PARTICLES.has(tokens[cut - 1].toLowerCase()) && tokens[cut - 1] === tokens[cut - 1].toLowerCase()) cut -= 1;
+  // A particle stays with the surname however it was typed ("Vincent Van Dijk" is Vincent van Dijk), except a
+  // particle that is also a common given name ("Ben"), which typed in capitals is more often a middle name.
+  const particle = (t) => SURNAME_PARTICLES.has(t.toLowerCase()) && (t === t.toLowerCase() || !PARTICLE_NAMES.has(t.toLowerCase()));
+  while (cut > 1 && particle(tokens[cut - 1])) cut -= 1;
   return {
     display: tokens.join(' '),
     given: tokens[0],
@@ -346,10 +383,14 @@ export const isCommonName = (name) => nameCommonness(name).common;
 
 const B = "(?<![\\p{L}\\p{N}])(?<!\\p{L}[-'])";
 // Up to two middle names or initials; the first may be joined by a hyphen ("Jean-Pierre" for typed "Jean Pierre").
-const MIDDLE = "((?:(?:\\s+|-)(?:\\p{L}\\.|\\p{L}[\\p{L}'-]*\\.?)){0,2}?)";
+// A quoted nickname may stand among them ('William "Billy" McFarland'), as court and press records write it.
+const QUOTED = `["“'‘]\\p{L}[\\p{L}'.-]*["”'’]`;
+const MIDDLE = `((?:(?:\\s+|-)(?:\\p{L}\\.|\\p{L}[\\p{L}'-]*\\.?)|\\s+${QUOTED}){0,2}?)`;
+const QUOTED_WORD = new RegExp(`^${QUOTED}$`, 'u');
 const partRe = (word) => escapeRe(lowerFold(word).replace(/\.$/, '')).replace(/'/g, "'?");
 const givenRe = (given) => lowerFold(given).split(/[-\s]+/).filter(Boolean).map(partRe).join('(?:-|\\s+)');
-const surnameRe = (surname) => surname.split(/\s+/).map(partRe).join('\\s+');
+// The parts of a double surname are written with a hyphen or a space ("Bankman-Fried", "Garcia Lopez").
+const surnameRe = (surname) => surname.split(/[\s-]+/).filter(Boolean).map(partRe).join('(?:-|\\s+)');
 const NOT_A_MIDDLE = words('and of the or to in for with by is was says said vs on at as ceo cto cfo founder chief former');
 
 /**
@@ -378,26 +419,37 @@ export function personNameMatcher(name) {
   const G = givenRe(p.given);
   const S = single ? '' : surnameRe(p.surname);
   const forward = unspaced ? new RegExp(`(?<![A-Za-z0-9])${G}(?![A-Za-z0-9])`, 'giu')
-    : single ? new RegExp(`${B}${G}(?![\\p{L}\\p{N}])`, 'giu') : new RegExp(`${B}${G}${MIDDLE}\\s+${S}(?![\\p{L}\\p{N}])`, 'giu');
+    : single ? new RegExp(`${B}${G}(?![\\p{L}\\p{N}])`, 'giu') : new RegExp(`${B}${G}${MIDDLE}(\\s+|-)${S}(?![\\p{L}\\p{N}])`, 'giu');
   const reversedComma = single ? null : new RegExp(`${B}${S}\\s*,\\s*${G}${MIDDLE}(?![\\p{L}\\p{N}])`, 'giu');
   const reversedBare = single ? null : new RegExp(`${B}${S}\\s+${G}(?![\\p{L}\\p{N}])`, 'giu');
   const initials = single ? null : new RegExp(`${B}((?:\\p{L}\\.\\s*){1,3})${S}(?![\\p{L}\\p{N}])`, 'giu');
   const nicks = [...(NICKNAMES.get(lowerFold(p.given)) || [])];
   const nickRe = single || !nicks.length ? null : new RegExp(`${B}(?:${nicks.map(partRe).join('|')})${MIDDLE}\\s+${S}(?![\\p{L}\\p{N}])`, 'giu');
   const otherGiven = single ? null : new RegExp(`${B}(\\p{L}[\\p{L}]+)\\s+${S}(?![\\p{L}\\p{N}])`, 'giu');
+  const sharedSurname = single ? null
+    : new RegExp(`${B}((?:\\p{L}[\\p{L}'-]+\\s*,\\s*){0,4}\\p{L}[\\p{L}'-]+)\\s*,?\\s+(?:and|&)\\s+(\\p{L}[\\p{L}'-]+)\\s+(${S})(?![\\p{L}\\p{N}])`, 'giu');
   const subjectMiddles = p.middles.map((m) => lowerFold(m).replace(/\.$/, '')).filter(Boolean);
   const subjectSuffix = p.suffix;
+  // Lowercase particles that belong to the typed name ("van der" in Daan van der Berg, "al" in al-Rashid): written
+  // in lower case they are still the name. The main surname word must still be capitalised ("grace hopper" is prose).
+  const ownParticles = new Set([...p.middles, ...p.surname.split(/[\s-]+/)].map((w) => lowerFold(w))
+    .filter((w) => SURNAME_PARTICLES.has(w) || NAME_JOINERS.has(w)));
 
   // A word in a script without capitals (Han, Arabic, Hebrew...) is written as a name however it is written.
   const capitalised = (w) => /^\p{Lu}/u.test(w) || caseless(w);
   const wordsOf = (s) => s.split(/[\s,]+/).flatMap((w) => w.split('-')).filter((w) => w && w !== '.');
   const middleState = (mid) => {
+    // A quoted nickname is how the person is called, not another middle name.
+    const ms = mid.split(/\s+/).filter((w) => !QUOTED_WORD.test(w)).join(' ');
+    return middleWordsState(ms);
+  };
+  const middleWordsState = (mid) => {
     const ms = wordsOf(mid).map((w) => w.replace(/\.$/, ''));
     // A hyphen after the given name joins a double given name: only the subject's own ("Jean-Pierre"), never
     // another one ("Anne-Marie" for Anne).
     if (/^-/.test(mid) && !(subjectMiddles[0] && ms[0] && subjectMiddles[0] === ms[0].toLowerCase())) return 'reject';
     for (const m of ms) {
-      if (!capitalised(m) || NOT_A_MIDDLE.has(m.toLowerCase())) return 'reject';
+      if ((!capitalised(m) && !ownParticles.has(m.toLowerCase())) || NOT_A_MIDDLE.has(m.toLowerCase())) return 'reject';
     }
     if (!subjectMiddles.length || !ms.length) return 'ok';
     const fits = ms.every((m) => {
@@ -422,8 +474,18 @@ export function personNameMatcher(name) {
       const mid = single ? '' : (m[1] || '');
       // Every part of the name is written as a name: "Grace Hopper", "GRACE HOPPER", never "grace hopper".
       const nameWords = wordsOf(m[0]).filter((w) => !wordsOf(mid).includes(w));
-      if (!nameWords.every(capitalised)) continue;
+      if (!nameWords.every((w) => capitalised(w) || ownParticles.has(w.toLowerCase()))) continue;
+      // The particles are never the whole name: some word of it is capitalised.
+      if (!nameWords.some(capitalised)) continue;
       const after = text.slice(e);
+      // "Maria Garcia-Lopez": a hyphen before the surname joins the last middle word into a double surname. That is
+      // the person's name only when the typed name has that same word ("Maria Garcia Lopez"); otherwise it is a
+      // longer surname than theirs.
+      if (!single && m[2] === '-') {
+        const lastMid = wordsOf(mid).filter((w) => !QUOTED_WORD.test(w)).pop() || '';
+        const lm = lowerFold(lastMid).replace(/\.$/, '');
+        if (!lm || lm.length < 2 || subjectMiddles[subjectMiddles.length - 1] !== lm) { push(weak, s, e, 'longer-surname'); continue; }
+      }
       if (/^'(?!s(?![\p{L}]))\p{L}/u.test(after)) continue; // "Smith'son": inside another word
       if (/^-\p{L}/u.test(after)) { push(weak, s, e, 'longer-surname'); continue; } // "John Smith-Jones"
       // "Erin Elizabeth Holmes" for Elizabeth Holmes: a given name written right before the name makes it someone
@@ -439,7 +501,9 @@ export function personNameMatcher(name) {
         if (g && !own && !NOT_A_GIVEN.has(g) && !TITLES.has(g) && !ROLE_WORDS.has(g) && !FUNCTION_WORDS.has(g) && !DETERMINERS.has(g) && !LEGAL_FORMS.has(g) && !BUSINESS_VERBS.has(g)) {
           const at = s - prevW[0].length;
           const lowerBefore = /(?:^|[\s(])\p{Ll}[\p{L}'’-]*[,;:]?\s+$/u.test(before.slice(0, at));
-          otherGivenName = COMMON_GIVEN.has(g) || (lowerBefore && !atSentenceStart(text, at));
+          // A given name that is also a common word ("Mark", "Grace") in a Title Case headline is only a word.
+          const wordlike = WORDLIKE_GIVEN.has(g) && inHeadline(text, at, e);
+          otherGivenName = !wordlike && (COMMON_GIVEN.has(g) || (lowerBefore && !atSentenceStart(text, at)));
         }
         if (otherGivenName) {
           push(weak, s - prevW[0].length, e, 'other-given');
@@ -505,6 +569,17 @@ export function personNameMatcher(name) {
     add(weak, initials, 'initials', capitalisedAll);
     add(weak, nickRe, 'nickname', capitalisedAll);
     const givenKey = lowerFold(p.given);
+    // "Patrick and John Collison", "Adam and Rebekah Neumann": siblings or a couple share one written surname. The
+    // subject's given name in such a list is a mention of them, though not their full name as written; it is read
+    // before the other-given rule, which would otherwise take "John Collison" for a namesake and drop the record.
+    add(weak, sharedSurname, 'shared-surname', (m) => {
+      const members = m[1].split(/\s*,\s*/).filter(Boolean);
+      if (![...members, m[2]].every((w) => /^\p{Lu}/u.test(w))) return false;
+      if (!/^\p{Lu}/u.test(m[3])) return false;
+      const lastGiven = lowerFold(m[2]);
+      if (lastGiven === givenKey || NOT_A_GIVEN.has(lastGiven) || TITLES.has(lastGiven) || ROLE_WORDS.has(lastGiven)) return false;
+      return members.some((w) => lowerFold(w) === givenKey);
+    });
     add(weak, otherGiven, 'other-given', (m) => {
       if (!capitalisedAll(m)) return false;
       const g = lowerFold(m[1]);
@@ -582,13 +657,41 @@ export function companyMatchForms(company) {
   const out = [];
   if (strict.length >= 2) out.push({ form: strict, ordinary: !/\s/.test(strict) && isOrdinaryWordCompany(strict), multi: /\s/.test(strict) });
   const loose = companyKeys(company)[0] || '';
-  if (loose && loose !== strict && loose.length >= 3 && !/\s/.test(loose) && !RESIDUE_STOP.has(loose) && !/^\d+$/.test(loose)) {
+  const shortOk = (k) => k && k !== strict && k.length >= 3 && !/\s/.test(k) && !RESIDUE_STOP.has(k) && !/^\d+$/.test(k);
+  if (shortOk(loose)) {
     out.push({ form: loose, ordinary: isOrdinaryWordCompany(loose), multi: false });
+  } else {
+    // A registered name with describing words after the brand ("Coinbase Global", "Nikola Motor Company",
+    // "Robinhood Markets", "FTX Trading"): the press writes the brand alone. Describing words are removed from the
+    // end only, and only when one word is left; an ordinary word left ("Ramp" from "Ramp Business Corporation")
+    // still needs the marker rules.
+    const ws = (loose || strict).split(' ').filter(Boolean);
+    while (ws.length > 1 && BRAND_TAIL.has(ws[ws.length - 1])) ws.pop();
+    const brand = ws.length === 1 ? ws[0] : '';
+    if (shortOk(brand) && brand !== loose && !COMMON_GIVEN.has(brand) && !NOT_A_GIVEN.has(brand)) {
+      out.push({ form: brand, ordinary: isOrdinaryWordCompany(brand), multi: false });
+    }
   }
   return out;
 }
+// Describing words a registered name may add after its brand.
+const BRAND_TAIL = new Set([...DESCRIPTORS, ...words(`business automotive therapeutics pharma pharmaceutical biotech biotherapeutics
+markets trading motor motors company corporation co global holdings payments platforms brands foods
+interactive entertainment communications innovations semiconductor semiconductors dynamics aerospace medical
+logistics fintech labs networks incorporated limited`)]);
 
 const wordKey = (w) => lowerFold(w).replace(/^[^a-z0-9&]+|[^a-z0-9&]+$/g, '');
+// A stock ticker or exchange tag written right after a company ("Nikola (NKLA)", "Block (NYSE: SQ)").
+const TICKER_AFTER = /^[ \t]*\((?:(?:NASDAQ|Nasdaq|NYSE|NYSE American|AMEX|LSE|TSX|TSXV|ASX|OTC|OTCQB|OTCQX|HKEX|SGX|NSE|BSE|TSE|Euronext|XETRA|SIX)\s*:\s*)?[A-Z][A-Z0-9]{0,4}(?:\.[A-Z]{1,2})?\)/;
+const NOT_A_TICKER = words('UK US USA EU AI UAE NYC LA SF');
+/** The text after a ticker that opens it, or the text unchanged. */
+function afterTicker(after) {
+  const m = after.match(TICKER_AFTER);
+  if (!m) return after;
+  const tag = m[0].replace(/^[ \t]*\(|\)$/g, '');
+  if (!/:/.test(tag) && NOT_A_TICKER.has(tag)) return after;
+  return after.slice(m[0].length);
+}
 const startsCapital = (w) => /^[^\p{L}\p{N}]*\p{Lu}/u.test(w);
 const hasCapital = (w) => /\p{Lu}/u.test(w);
 
@@ -618,6 +721,19 @@ const ROLE_BEFORE = /\b(?:co-?founders?|founders?|officers?|ceo|cto|cfo|coo|cpo|
 const ROLE_TEXT = /\b(?:co-?founder|founder|ceo|cto|cfo|coo|chief|president|director|head|vp|engineer|manager|partner|investor|officer|lead)\b/i;
 // "Larry Dean Harmon d/b/a Helix", "trading as Flow": a business name follows.
 const TRADE_NAME_BEFORE = /(?:\bd\/b\/a|\bdba|\bdoing\s+business\s+as|\btrading\s+as|\bt\/a|\bf\/k\/a|\bformerly\s+known\s+as)\s+$/i;
+// What a company makes or does, written after its possessive ("Ramp's new AI agents", "Ramp's corporate card").
+const COMPANY_OUTPUT = words(`ai agent agents app apps card cards tool tools feature features launch launches model models
+service services offering offerings platform platforms product products software plan plans strategy expansion
+growth deal deals partnership partnerships rival rivals competitor competitors customers users chatbot api
+acquisition acquisitions earnings layoffs lawsuit valuation`);
+// Up to four capitalised words, then a legal form: "Flow| Hair Salon Inc", "Flow| Hair Salon, LLC".
+const LONGER_LEGAL_NAME = /^((?:[ \t]+\p{Lu}[\p{L}&'’-]*){1,4}),?[ \t]+(?:Inc|Incorporated|LLC|L\.L\.C\.|Ltd|Limited|Corp|Corporation|Co|Company|GmbH|PLC|plc|LLP|PBC)\b/u;
+// "<Org> and <Co> partner": another capitalised name joined by "and" before, and "partner(s/ed)" after.
+const PARTNER_BEFORE = /(?:^|[^\p{L}\p{N}])\p{Lu}[\p{L}\p{N}&.-]*\s+(?:and|&)\s+$/u;
+const PARTNER_VERB = /^\s+partner(?:s|ed|ing)?\b/i;
+// "<Co> and <Org> partner"
+const PARTNER_AFTER = /^\s+(?:and|&)\s+\p{Lu}[\p{L}\p{N}&.-]*(?:\s+\p{Lu}[\p{L}\p{N}&.-]*)?\s+partner(?:s|ed|ing)?\b/u;
+const INSIDE_BEFORE = /(?:^|[.!?]["”’)]*\s+|\n\s*|[|—–]\s+)Inside\s+$/;
 const VERB_BEFORE = /\b(?:at|joined|joins|founded|co-?founded|cofounded|left|leaves|leads|led|runs|ran|heads|backed|backs|invested\s+in|invests\s+in|acquired\s+by|acquires|acquired|buys|bought|sold|works\s+at|worked\s+at|sues|sued)\s+$/i;
 
 /**
@@ -660,9 +776,16 @@ export function companyMentionMatcher(company, opts = {}) {
       unspaced,
       re: unspaced
         ? new RegExp(`(?<![A-Za-z0-9])${body}(?![A-Za-z0-9])`, 'giu')
-        : new RegExp(`(?<![\\p{L}\\p{N}])(?<!\\p{L}-)${body}(?![\\p{L}\\p{N}])(?!-\\p{L})`, 'giu'),
+        : new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])(?!-\\p{L})`, 'giu'),
     };
   });
+  // A word glued before the name by a hyphen makes it part of another word ("on-ramp", "anti-Stripe"), except
+  // "ex-", which names a former employer ("Ex-Nikola CEO", "ex-Stripe engineer").
+  const hyphenBefore = (str, s) => {
+    if (str[s - 1] !== '-') return null;
+    const w = str.slice(0, s - 1).match(/(?<![\p{L}\p{N}])(\p{L}+)$/u);
+    return w && w[1].toLowerCase() === 'ex' ? 'ex' : (/\p{L}$/u.test(str.slice(0, s - 1)) ? 'glued' : null);
+  };
   // Handles and domains often glue a word to the name ("@acmemotor", "acmemotor.com"). The key counts as the
   // start of an @handle or a domain label when it has 5 or more characters and is not the person's own name.
   const prefixes = [...new Set(forms.map((f) => f.form.replace(/\s+/g, '')))]
@@ -671,7 +794,7 @@ export function companyMentionMatcher(company, opts = {}) {
       new RegExp(`(?<![A-Za-z0-9_])@${escapeRe(k)}[a-z0-9_]*(?![A-Za-z0-9_])`, 'gi'),
       new RegExp(`(?<![A-Za-z0-9_-])${escapeRe(k)}[a-z0-9-]*\\.[a-z]{2,6}(?![A-Za-z0-9])`, 'gi'),
     ]);
-  const aliasList = () => (typeof opts.aliases === 'function' ? opts.aliases() : (opts.aliases || []));
+  const baseAliases = () => (typeof opts.aliases === 'function' ? opts.aliases() : (opts.aliases || []));
   const person = opts.person || null;
 
   const neutral = (w) => {
@@ -685,7 +808,8 @@ export function companyMentionMatcher(company, opts = {}) {
   // Whether the occurrence [start,end) is one part of a longer, different name ("Cash Flow Capital", "Boat Ramp",
   // "Domaine du Mistral", "Harvey Weinstein", "Merge Labs").
   const insideLongerName = (str, start, end, form) => {
-    const after = str.slice(end);
+    // A ticker after the name ("Nikola (NKLA) founder") is the company's own tag: read the word after it.
+    const after = afterTicker(str.slice(end));
     const next = after.match(/^[ \t]+(\S+)/);
     const nextKey = next ? wordKey(next[1]) : '';
     const titled = /^['’]s\b/i.test(after) || Boolean(next && ROLE_WORDS.has(nextKey));
@@ -702,6 +826,16 @@ export function companyMentionMatcher(company, opts = {}) {
         }
       } else if (startsCapital(prev.word) && !neutral(prev.word) && !titled && !atSentenceStart(str, prev.at) && !headline) {
         return true;
+      }
+    }
+    // A run of capitalised words after the name that ends in a legal form is a longer registered name ("Flow Hair
+    // Salon Inc"), in a Title Case headline too, unless every word between is a describing word a company adds to
+    // its brand ("Flow Technologies Inc").
+    if (!form.multi) {
+      const run = after.match(LONGER_LEGAL_NAME);
+      if (run) {
+        const between = run[1].trim().split(/\s+/).map(wordKey);
+        if (between.some((w) => !(BRAND_TAIL.has(w) || ownWords.has(w)))) return true;
       }
     }
     // A capitalised word after a one-word name continues another name ("Harvey Weinstein", "Merge Labs",
@@ -721,20 +855,28 @@ export function companyMentionMatcher(company, opts = {}) {
 
   // An ordinary word is the company only with a sign of business use beside it.
   const markerFor = (str, start, end) => {
-    const after = str.slice(end);
+    const after = afterTicker(str.slice(end));
+    if (hyphenBefore(str, start) === 'ex') return 'ex-employer';
+    if (after !== str.slice(end)) return 'ticker';
     const before = str.slice(Math.max(0, start - 60), start);
     const next = after.match(/^(?:['’]s)?[ \t]+([^\s,.;:!?)]+)/);
     const nextKey = next ? wordKey(next[1]) : '';
     if (/^['’]s\b/i.test(after)) {
-      // "Ramp's backers", "Ramp's co-founder", "Ramp's John Smith"
-      const two = after.slice(2, 40).match(/^\s+(\S+)(?:\s+(\S+))?/);
-      const ws = two ? [two[1], two[2]].filter(Boolean).map(wordKey) : [];
-      if (ws.some((w) => ROLE_WORDS.has(w) || BUSINESS_WORDS.has(w))) return 'possessive';
+      // "Ramp's backers", "Ramp's co-founder", "Ramp's John Smith", "Ramp's new AI agents" (what a company makes
+      // or does, within three words), never "Square's corners".
+      const three = after.slice(2, 60).match(/^\s+(\S+)(?:\s+(\S+))?(?:\s+(\S+))?/);
+      const ws = three ? [three[1], three[2], three[3]].filter(Boolean).map(wordKey) : [];
+      if (ws.some((w) => ROLE_WORDS.has(w) || BUSINESS_WORDS.has(w) || COMPANY_OUTPUT.has(w))) return 'possessive';
       if (person && person(after.slice(2, 60))) return 'possessive-person';
     }
     if (next && (ROLE_WORDS.has(nextKey) || BUSINESS_VERBS.has(nextKey))) return 'role-or-verb-after';
     if (ROLE_BEFORE.test(before)) return 'role-before';
     if (TRADE_NAME_BEFORE.test(before)) return 'trade-name';
+    // Two companies partnering: "Visa and Ramp partner on cards", "Ramp and Visa partner on cards".
+    if (PARTNER_BEFORE.test(before) && PARTNER_VERB.test(after)) return 'partnership';
+    if (PARTNER_AFTER.test(after)) return 'partnership';
+    // A feature headline about the company: "Inside Ramp: how ...".
+    if (INSIDE_BEFORE.test(str.slice(0, start)) && /^\s*:/.test(after)) return 'inside-headline';
     // The whole sentence or field is the company ("... Affiliations: Stripe. Papers ...", a bio reading "Stripe.").
     if (/(?:^|[.!?:]\s+|\s[|;]\s|;\s*)$/.test(str.slice(0, start)) && /^(?:[.!?](?:\s|$)|\s*$|\s[|;]\s|\s*;)/.test(str.slice(end))) return 'standalone';
     // A field of a structured record about the person ("Patrick Collison; Stripe; ..."): a register's company field.
@@ -764,9 +906,12 @@ export function companyMentionMatcher(company, opts = {}) {
     return null;
   };
 
-  return (input) => {
+  // `callOpts.aliases` replaces the learned names for one call, so a caller grading with only some of what it has
+  // learned (only what came from confirmed records, say) can leave the rest out.
+  return (input, callOpts = {}) => {
     const str = String(input || '');
     if (!str) return empty;
+    const aliasList = Array.isArray(callOpts.aliases) ? () => callOpts.aliases : baseAliases;
     const { text, map } = foldWithMap(str);
     const orig = (s, e) => ({ start: map[s], end: map[e] ?? str.length });
     const spans = [];
@@ -803,6 +948,7 @@ export function companyMentionMatcher(company, opts = {}) {
         const s = m.index;
         const e = s + m[0].length;
         const before = s > 0 ? text[s - 1] : '';
+        if (!f.unspaced && hyphenBefore(text, s) === 'glued') continue;
         // An address or handle: "stripe.com", "/company/stripe", "@stripe"
         if (before && '/@.'.includes(before)) { add(s, e, 'strong', 'address'); continue; }
         if (/^\.[a-z]{2,6}(?![a-z])/.test(text.slice(e, e + 8))) { add(s, e, 'strong', 'domain'); continue; }
@@ -825,7 +971,12 @@ export function companyMentionMatcher(company, opts = {}) {
         // An ordinary word: an article before it or a particle after it marks the word ("a Plaid shirt",
         // "The Notion that", "'The Ramp' church", "Ramp up", "Scale of the scheme").
         const prev = wordBefore(text, s) || (() => { const q = text.slice(0, s).match(/(\S+)\s*["“'‘]$/); return q ? { word: q[1], at: q.index } : null; })();
-        if (prev && DETERMINERS.has(wordKey(prev.word))) continue;
+        // ...unless a role or a company word follows: "the Ramp founder", "the Ramp co-founder", "a Ramp spokesperson".
+        if (prev && DETERMINERS.has(wordKey(prev.word))) {
+          const nx = afterTicker(text.slice(e)).match(/^(?:['’]s)?[ \t]+([^\s,.;:!?)]+)/);
+          const nk = nx ? wordKey(nx[1]) : '';
+          if (!(ROLE_WORDS.has(nk) || COMPANY_NOUNS.has(nk))) continue;
+        }
         const nextWord = text.slice(e).match(/^[ \t]+([a-z]+)\b/);
         if (nextWord && VERB_PARTICLES.has(nextWord[1])) continue;
         const how = markerFor(text, s, e);
@@ -833,7 +984,16 @@ export function companyMentionMatcher(company, opts = {}) {
       }
     }
     if (!spans.length) return empty;
-    spans.sort((a, b) => a.start - b.start);
+    spans.sort((a, b) => a.start - b.start || b.end - a.end);
+    // A shorter form found inside a longer one ("Zeta" inside "Zeta Labs") is the same mention: keeping it would let
+    // the checks after the company start in the middle of its name ("Zeta| Labs CEO Jane Doe").
+    for (let i = spans.length - 1; i >= 0; i -= 1) {
+      const sp = spans[i];
+      const outer = spans.find((o, j) => j !== i && o.start <= sp.start && sp.end <= o.end && (o.end - o.start) > (sp.end - sp.start));
+      if (!outer) continue;
+      if (STRENGTH_RANK[sp.strength] > STRENGTH_RANK[outer.strength]) { outer.strength = sp.strength; outer.how = sp.how; }
+      spans.splice(i, 1);
+    }
     const strength = spans.reduce((best, sp) => (STRENGTH_RANK[sp.strength] > STRENGTH_RANK[best] ? sp.strength : best), 'none');
     return { named: true, strength, spans };
   };
@@ -858,9 +1018,126 @@ const SENTENCE_BREAK = /[.!?]["”’)]*\s+(?=[\p{Lu}\p{N}"“(])|\n|\s[|•·]\
 const OTHER_BEFORE_COMPANY = /(\p{Lu}[\p{L}'’-]+\s+\p{Lu}[\p{L}'’-]+)(?:\s*,\s*(?:the\s+|a\s+|an\s+)?(?:[\p{L}-]+\s+){0,4}?|\s+)(?:of|at|from|with)\s+$/u;
 // " CEO Patrick Collison", "'s founder Jane Doe": the company's role given to another person right after it.
 // (No `i` flag: with it \p{Lu} would match lowercase letters too, and "Co-Founder with Fraud" would read as a name.)
-const OTHER_AFTER_COMPANY = /^(?:['’]s)?\s+(?:[Cc]o-?[Ff]ounder|[Ff]ounder|CEO|CTO|CFO|COO|[Cc]hief\s+[Ee]xecutive(?:\s+[Oo]fficer)?|[Pp]resident|[Cc]hair(?:man|woman)?|[Hh]ead|[Bb]oss)\s*,?\s+(\p{Lu}[\p{L}'’-]+\s+\p{Lu}[\p{L}'’-]+)/u;
-// "John Smith of Morgan Stanley", "John Smith, an analyst at Goldman": the name tied to another organisation.
-const AFFILIATION_AFTER_NAME = /^(?:\s*,)?\s+(?:(?:an?|the)\s+)?(?:[\p{Ll}-]+\s+){0,3}?(?:of|at|from)\s+(?:the\s+)?(\p{Lu}[\p{L}&.'’-]*(?:\s+(?:\p{Lu}[\p{L}&.'’-]*|&|of|de)){0,4})/u;
+const OTHER_AFTER_COMPANY = /^(?:['’]s)?\s+(?:[Cc]o-?[Ff]ounder|[Ff]ounder|[Cc]o-?CEO|[Cc]o-?[Cc]hief\s+[Ee]xecutive|CEO|CTO|CFO|COO|[Cc]hief\s+[Ee]xecutive(?:\s+[Oo]fficer)?|[Pp]resident|[Cc]hair(?:man|woman)?|[Hh]ead|[Bb]oss)\s*,?\s+(\p{Lu}[\p{L}'’-]+\s+\p{Lu}[\p{L}'’-]+)/u;
+// Role words written before "of/at <Org>" after a name, in any case ("CEO of", "Co-Founder & CEO of", "the vice
+// president of"), and a department after a role ("VP of Sales at").
+const AFF_ROLE = String.raw`(?:[\p{Ll}-]+|&|CEO|CTO|CFO|COO|CPO|CMO|CRO|CIO|CISO|VP|SVP|EVP|GM|MD|[Cc]o-?[Ff]ounder|[Cc]o-?CEO|[Ff]ounder|[Pp]artner|[Pp]resident|[Dd]irector|[Hh]ead|[Cc]hair(?:man|woman|person)?|[Cc]hief|[Ee]xecutive|[Oo]fficer|[Mm]anager|[Ee]ngineer|[Aa]nalyst|[Aa]ssociate|[Pp]rincipal|[Ss]enior|[Ll]ead|[Gg]eneral|[Mm]anaging|[Vv]ice|[Tt]echnical|[Ff]inancial|[Oo]perating|[Pp]roduct|[Ss]cientist|[Rr]esearcher|[Pp]rofessor|[Ff]ellow|[Aa]dvisor|[Aa]dviser|[Tt]rustee|[Mm]ember)`;
+const AFF_DEPT = String.raw`(?:(?:of|for)\s+(?:Sales|Engineering|Marketing|Product|Operations|Finance|Growth|Design|Research|People|Talent|Communications|Strategy|Partnerships|Business\s+Development|Technology|Data|Security|Legal|Policy|Investor\s+Relations|Revenue|Customer\s+Success|Infrastructure|Platform|Risk|Compliance)\s+)?`;
+// "John Smith of Morgan Stanley", "John Smith, an analyst at Goldman", "Eric Glyman, CEO of Omega Corp": the name
+// tied to another organisation.
+const AFFILIATION_AFTER_NAME = new RegExp(String.raw`^(?:\s*,)?\s+(?:(?:an?|the)\s+)?(?:${AFF_ROLE}\s+){0,4}?${AFF_DEPT}(?:of|at|from)\s+(?:the\s+)?(\p{Lu}[\p{L}&.'’-]*(?:\s+(?:\p{Lu}[\p{L}&.'’-]*|&|of|de)){0,4})`, 'u');
+// "Eric Glyman, Omega Corp," / "Eric Glyman (Omega Corp)": a speaker list or panel gives each name its organisation.
+const AFFILIATION_LISTED = /^(\s*,\s*|\s*\(\s*)(\p{Lu}[\p{L}&.'’-]*(?:\s+(?:\p{Lu}[\p{L}&.'’-]*|&|of)){0,3})(?=(\s*\))|\s*(?:[,;|]|$))/u;
+// "Jane Doe, Theranos," / "Jane Doe (Theranos)": another person listed with the company right before it.
+const PERSON_LISTED_BEFORE = /(\p{Lu}[\p{L}'’-]+\s+\p{Lu}[\p{L}'’-]+)(\s*,\s*|\s*\(\s*)$/u;
+
+// Words that make a name an organisation's in any language a register writes ("La Plateforme Holding").
+const ORG_WORDS = words(`holding holdings foundation fund funds trust bank club association institute university college school
+agency consulting consultants associates studio studios society societe compagnie gesellschaft stiftung verein fondation fonds
+investments investment advisors advisory management properties realty estate church ministries hospital clinic center
+centre council committee commission office department industries enterprises ventures labs`);
+// Nouns that make a name a place's ("Kansas City", "Orange County").
+const PLACE_NOUNS = words('city county province prefecture state republic kingdom island islands isle district region territory township borough parish emirate oblast');
+// Places a record may write right after "born" ("born South Korea", "born Kansas, ..."). Matched as a whole name, or
+// word by word only where the caller has no other sign the words are a person's name.
+const PLACES = new Set([
+  ...`afghanistan albania algeria argentina armenia australia austria azerbaijan bahrain bangladesh belarus belgium bolivia
+  bosnia brazil bulgaria cambodia cameroon canada chile china colombia croatia cuba cyprus czechia denmark ecuador egypt
+  estonia ethiopia finland france georgia germany ghana greece guatemala haiti honduras hungary iceland india indonesia
+  iran iraq ireland israel italy jamaica japan kazakhstan kenya korea kosovo kuwait latvia lebanon libya lithuania
+  luxembourg malaysia mexico moldova mongolia morocco nepal netherlands nicaragua nigeria norway oman pakistan panama
+  paraguay peru philippines poland portugal qatar romania russia rwanda scotland senegal serbia singapore slovakia
+  slovenia somalia spain sudan sweden switzerland syria taiwan tanzania thailand tunisia turkey uganda ukraine uruguay
+  uzbekistan venezuela vietnam yemen zambia zimbabwe england britain wales
+  alabama alaska arizona arkansas california colorado connecticut delaware florida hawaii idaho illinois indiana iowa
+  kansas kentucky louisiana maine maryland massachusetts michigan minnesota mississippi missouri montana nebraska nevada
+  ohio oklahoma oregon pennsylvania tennessee texas utah vermont virginia wisconsin wyoming ontario quebec bavaria
+  london paris berlin tokyo beijing shanghai moscow mumbai delhi bangalore chicago boston seattle atlanta dallas houston
+  phoenix detroit miami denver toronto vancouver montreal sydney melbourne dublin madrid rome milan vienna zurich geneva
+  stockholm oslo copenhagen helsinki warsaw prague budapest istanbul cairo lagos nairobi johannesburg seoul taipei manila
+  jakarta bangkok hanoi karachi lahore dhaka tehran baghdad brooklyn manhattan queens bronx`.split(/\s+/).filter(Boolean),
+  'south korea', 'north korea', 'new york', 'new jersey', 'new mexico', 'new hampshire', 'new zealand', 'new delhi',
+  'united states', 'united kingdom', 'hong kong', 'south africa', 'saudi arabia', 'sri lanka', 'costa rica', 'el salvador',
+  'puerto rico', 'north carolina', 'south carolina', 'north dakota', 'south dakota', 'west virginia', 'rhode island',
+  'los angeles', 'san francisco', 'san diego', 'san jose', 'las vegas', 'salt lake', 'tel aviv', 'buenos aires',
+  'rio de janeiro', 'sao paulo', 'mexico city', 'kuala lumpur', 'abu dhabi', 'palo alto', 'silicon valley', 'soviet union',
+]);
+
+/**
+ * Whether a name read as a person's other name is really a place or an organisation ("Kansas City", "South
+ * Korea", "JD Capital Partners"): it ends in a legal form or an organisation word, holds a place noun, or is a
+ * known place as a whole. With `loose`, any word that is a known place or a compass word counts too, for a caller
+ * with nothing else showing the words are a person's name.
+ */
+export function placeOrOrgName(name, { loose = false } = {}) {
+  const ws = lowerFold(name).replace(/[^\p{L}\p{N}&' -]+/gu, ' ').trim().split(/\s+/).map(wordKey).filter(Boolean);
+  if (!ws.length) return false;
+  const last = ws[ws.length - 1];
+  if (LEGAL_FORMS.has(last) || BRAND_TAIL.has(last) || ORG_WORDS.has(last)) return true;
+  if (ws.some((w) => PLACE_NOUNS.has(w))) return true;
+  if (PLACES.has(ws.join(' '))) return true;
+  if (loose) {
+    if (ws.some((w) => PLACES.has(w) || RESIDUE_STOP.has(w))) return true;
+    for (let i = 0; i + 1 < ws.length; i += 1) if (PLACES.has(`${ws[i]} ${ws[i + 1]}`)) return true;
+  }
+  return false;
+}
+
+/** Whether a word is one a person's name is never made of (a role, a legal form, a place, a common headline word). */
+const notNameWord = (w) => {
+  const k = wordKey(w);
+  return LEGAL_FORMS.has(k) || BRAND_TAIL.has(k) || ORG_WORDS.has(k) || COMMON_CAPS.has(k) || ROLE_WORDS.has(k) || BUSINESS_WORDS.has(k)
+    || RESIDUE_STOP.has(k) || NOT_A_GIVEN.has(k) || TITLES.has(k) || FUNCTION_WORDS.has(k) || DETERMINERS.has(k);
+};
+/** Two to four capitalised words that could be a person's name ("Jane Doe"), not an organisation ("Omega Corp"). */
+const personShaped = (s) => {
+  const t = String(s || '').trim();
+  if (!/^\p{Lu}[\p{L}'’.-]+(?:\s+\p{Lu}[\p{L}'’.-]+){1,3}$/u.test(t)) return false;
+  // "Palo Alto", "San Francisco": a place written like a name.
+  if (PLACES.has(t.split(/\s+/).map(wordKey).join(' '))) return false;
+  return !t.split(/\s+/).some(notNameWord);
+};
+const SCHOOLISH = /\b(?:universit\w*|college|school|institute|academy|polytechnic|harvard|stanford|mit|yale|princeton|oxford|cambridge|berkeley|columbia|wharton|insead|caltech|cornell|penn)\b/i;
+/** An organisation named in a list after a name: it has a legal form or describing word, or is one word that is not a given name. */
+const orgShaped = (s) => {
+  const ws = String(s || '').trim().split(/\s+/);
+  if (ws.some((w) => { const k = wordKey(w); return LEGAL_FORMS.has(k) || BRAND_TAIL.has(k); })) return true;
+  if (ws.length !== 1) return false;
+  const k = wordKey(ws[0]);
+  return k.length >= 2 && !COMMON_GIVEN.has(k) && !ROLE_WORDS.has(k) && !TITLES.has(k) && !NOT_A_GIVEN.has(k) && !/^\d/.test(k)
+    && !GENERATIONAL.has(k) && !DEGREE_SUFFIX.has(k) && !RESIDUE_STOP.has(k);
+};
+
+/**
+ * Where a company's name really ends: a legal form, describing words and a ticker written after the matched form
+ * ("Theranos Inc", "Zeta Labs", "Nikola (NKLA)") still belong to it, so the role after them is read, not the
+ * middle of the name.
+ */
+function companyEnd(str, co, companySpans = []) {
+  let end = co.end;
+  for (const sp of companySpans) if (sp.start <= co.start && sp.end > end) end = sp.end;
+  for (let i = 0; i < 6; i += 1) {
+    const rest = str.slice(end);
+    const t = afterTicker(rest);
+    if (t !== rest) { end += rest.length - t.length; continue; }
+    const m = rest.match(/^(,?\s+)(\S+?)([.,]?)(?=\s|$|[,;:)])/);
+    if (!m || !startsCapital(m[2])) break;
+    const k = wordKey(m[2]);
+    if (!(LEGAL_FORMS.has(k) || BRAND_TAIL.has(k))) break;
+    end += m[1].length + m[2].length + (m[3] === '.' ? 1 : 0);
+  }
+  return end;
+}
+
+/** The fields of a record written as fields, with their positions. */
+function fieldsOf(str) {
+  const out = [];
+  const re = /;\s*|\s\|\s/g;
+  let from = 0;
+  for (const m of str.matchAll(re)) { out.push({ start: from, end: m.index }); from = m.index + m[0].length; }
+  out.push({ start: from, end: str.length });
+  return out.map((f) => ({ ...f, text: str.slice(f.start, f.end) }));
+}
 
 /**
  * Is the company mention at `co` about the person named at `nm`?
@@ -876,9 +1153,27 @@ export function nameNearCompany(text, nm, co, { isSelf = () => false, companySpa
   if (co.start < nm.end && nm.start < co.end) return true; // overlapping (a handle containing the company)
   // A structured record whose own field is the person's name ("Jane Roe | Acme Inc | ..."): a register or a
   // source that already matched the person by name; the whole record is about them.
+  const coEnd = companyEnd(str, co, companySpans);
   if (isWholeField(str, nm.start, nm.end)) {
-    const m = str.slice(co.end, co.end + 80).match(OTHER_AFTER_COMPANY);
-    return !(m && !isSelf(m[1]));
+    const m = str.slice(coEnd, coEnd + 80).match(OTHER_AFTER_COMPANY);
+    if (m && !isSelf(m[1])) return false;
+    // A row lists several people ("Jane Doe | Theranos | Eric Glyman | Omega Corp"): the company field belongs to
+    // the person field before it, and to one after it only with no other person between.
+    const fields = fieldsOf(str);
+    const fi = (pos) => fields.findIndex((f) => f.start <= pos && pos < Math.max(f.end, f.start + 1));
+    const ni = fi(nm.start);
+    const ci = fi(co.start);
+    if (ni < 0 || ci < 0 || ni === ci) return true;
+    // A field giving the same person's fuller or formal name ("Samuel Benjamin Bankman-Fried" beside "Sam
+    // Bankman-Fried") ends in the same surname; it is not another person.
+    const lastWord = (s) => lowerFold(String(s).trim().split(/\s+/).pop() || '');
+    const ownSurname = lastWord(str.slice(nm.start, nm.end));
+    const same = (t) => isSelf(t.trim()) || lastWord(t) === ownSurname;
+    const otherPerson = (f) => personShaped(f.text) && !same(f.text);
+    if (ci > ni) return !fields.slice(ni + 1, ci).some(otherPerson);
+    const owner = fields.slice(0, ci).reverse().find((f) => personShaped(f.text) || same(f.text));
+    if (owner && !same(owner.text)) return false;
+    return !fields.slice(ci + 1, ni).some(otherPerson);
   }
   const companyFirst = co.end <= nm.start;
   const gapStart = companyFirst ? co.end : nm.end;
@@ -891,16 +1186,44 @@ export function nameNearCompany(text, nm, co, { isSelf = () => false, companySpa
   if (!address && gap.length > (crosses ? ACROSS_SENTENCE_CHARS : SAME_SENTENCE_CHARS)) return false;
   // The name is tied to another organisation right after it ("John Smith of Morgan Stanley"): only a company
   // named before it in the same sentence can still be theirs ("Ex-Stripe engineer John Smith of Dublin").
-  const aff = str.slice(nm.end, nm.end + 120).match(AFFILIATION_AFTER_NAME);
+  const afterName = str.slice(nm.end, nm.end + 120);
+  let affStart = -1;
+  let affLen = 0;
+  const aff = afterName.match(AFFILIATION_AFTER_NAME);
   if (aff) {
-    const affStart = nm.end + aff.index + aff[0].length - aff[1].length;
-    const affEnd = affStart + aff[1].length;
+    affStart = nm.end + aff.index + aff[0].length - aff[1].length;
+    affLen = aff[1].length;
+  } else {
+    const listed = afterName.match(AFFILIATION_LISTED);
+    // "(Omega Corp)" names an organisation unless it is a role or a title; after a comma only something shaped
+    // like an organisation counts, so a list of people ("Eric Glyman, Jane Doe, and ...") is not read as one.
+    // A school beside the name ("Eric Glyman (Harvard), founder of Ramp") is where they studied, not an employer.
+    // After a comma the list must go on to another person or end, as speaker lists do ("Eric Glyman, Omega Corp,
+    // and Jane Doe"), so a place in a dateline ("Eric Glyman, Brooklyn, said") is not taken for an employer.
+    const paren = listed && /\(/.test(listed[1]);
+    const listGoesOn = listed && !paren
+      && /^\s*(?:,\s*(?:and\s+|&\s+)?\p{Lu}[\p{L}'’-]+\s+\p{Lu}[\p{L}'’-]+|[;|]|$)/u.test(afterName.slice(listed[0].length));
+    if (listed && (paren ? listed[3] !== undefined : listGoesOn) && orgShaped(listed[2]) && !SCHOOLISH.test(listed[2])) {
+      affStart = nm.end + listed[1].length;
+      affLen = listed[2].length;
+    }
+  }
+  if (affStart >= 0) {
+    const affEnd = affStart + affLen;
     const ours = [co, ...companySpans].some((sp) => sp.start >= affStart && sp.start < affEnd);
     if (!ours && (!companyFirst || crosses)) return false;
   }
   if (companyFirst) {
-    const m = str.slice(co.end, nm.start + 1).match(OTHER_AFTER_COMPANY);
+    const m = str.slice(coEnd, nm.start + 1).match(OTHER_AFTER_COMPANY);
     if (m && !isSelf(m[1])) return false;
+    // "Jane Doe, Theranos, and Eric Glyman", "Jane Doe (Theranos), Eric Glyman": the company is listed with the
+    // person right before it, not with the subject after it.
+    const lb = str.slice(Math.max(0, co.start - 80), co.start).match(PERSON_LISTED_BEFORE);
+    if (lb && !isSelf(lb[1]) && personShaped(lb[1])) {
+      const rest = str.slice(coEnd);
+      const closes = /\(/.test(lb[2]) ? /^\s*\)/.test(rest) : /^\s*(?:[,;|)]|$|(?:and|&)\s)/.test(rest);
+      if (closes) return false;
+    }
   } else {
     const m = gap.match(OTHER_BEFORE_COMPANY);
     if (m && !isSelf(m[1])) return false;
@@ -1009,7 +1332,7 @@ const OUTCOMES = [
 const PARDON = /\bpardon(?:s|ed|ing)?\b/i;
 // "denies a motion to dismiss": a request to end the matter, not its end.
 const DISMISS_REQUEST = /\b(?:den(?:y|ies|ied)|reject(?:s|ed)?|refus(?:es|ed))\b[^.;]{0,60}?\bmotions? (?:to|for) dismiss(?:al)?\b|\bmotions? (?:to|for) dismiss(?:al)?\b(?![^.;]{0,20}\bgranted\b)/gi;
-const WON = new RegExp(String.raw`^[^.;]{0,30}?\b(?:wins?|won|prevail(?:s|ed)?\s+in)\b${SPAN}\b(?:${MATTER}|appeals?|trials?|arbitration|verdicts?|judgments?)\b`, 'i');
+const WON = new RegExp(String.raw`^[^.;]{0,30}?\b(?:wins?|won(?!['’]t)|prevail(?:s|ed)?\s+in)\b${SPAN}\b(?:${MATTER}|appeals?|trials?|arbitration|verdicts?|judgments?)\b`, 'i');
 
 const DEFENDANT_BEFORE = /\b(?:against|sues?|sued|suing|charg(?:es|ed)|indict(?:s|ed)|convict(?:s|ed)|accus(?:es|ed)|arrest(?:s|ed)|fin(?:es|ed)|prosecut\w+|defendants?|investigat\w+|probes?)\s+(?:\S+\s+){0,2}$/i;
 const DEFENDANT_AFTER = /^[^.;]{0,60}?\b(?:charged|indicted|convicted|arrested|sentenced|pleaded guilty|pled guilty|found guilty|accused|sued (?:by|over|for|in)\b|named (?:as )?(?:a )?defendant)/i;

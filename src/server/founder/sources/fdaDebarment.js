@@ -37,8 +37,8 @@
  */
 import { request, htmlToText } from '../http';
 import { makeFinding } from '../finding';
-import { cached } from '../cache';
-import { nameTokens, companyTokens, personVariants, normalizeName } from './sanctions';
+import { cachedEntry } from '../cache';
+import { nameTokens, companyTokens, normalizeName, screenNames } from './sanctions';
 import { withAliasHold } from './alias';
 import { screenRows, personNameForms } from './debarment';
 
@@ -209,9 +209,12 @@ export function parseFdaDebarment(html, { expired = false } = {}) {
   return { v: 1, key: expired ? 'fda-expired' : 'fda-current', at: new Date().toISOString(), rows };
 }
 
-const loadPage = (key, url, expired, deadline) => cached(key, DAY_MS, async () => parseFdaDebarment((await request(url, {
-  deadline, timeoutMs: 15000, accept: 'text/html', maxBytes: 2 * 1024 * 1024,
-})).text, { expired }));
+// -> { value, at, fresh }: fresh is false when an older copy stands in for a failed refresh. The loader uses the
+// deadline the cache gives it, so one caller's deadline does not cut the shared download short.
+const loadPage = (key, url, expired, deadline) => cachedEntry(key, DAY_MS, async ({ deadline: d }) => parseFdaDebarment((await request(url, {
+  deadline: d, timeoutMs: 15000, accept: 'text/html', maxBytes: 2 * 1024 * 1024,
+})).text, { expired }), { deadline });
+const dayOf = (ms) => new Date(Number(ms) || Date.now()).toISOString().slice(0, 10);
 const loadCurrent = (deadline) => loadPage('debarment:fda-current:v1', FDA_DEBARMENT_PAGE, false, deadline);
 const loadExpired = (deadline) => loadPage('debarment:fda-expired:v1', FDA_EXPIRED_PAGE, true, deadline);
 
@@ -220,18 +223,16 @@ const loadExpired = (deadline) => loadPage('debarment:fda-expired:v1', FDA_EXPIR
 /* ------------------------------------------------------------------ */
 
 const isPersonTask = (task) => task.kind !== 'company';
-const searchedNames = (task, ctx) => {
-  if (task.kind === 'company') return [oneLine(task.value)];
-  if (task.kind === 'subject' && ctx?.subject?.variants?.length) return [...new Set([...ctx.subject.variants, ...personVariants(ctx.subject.name)])];
-  return personVariants(task.value);
-};
+// The names screened, shared with the other sanctions screens: a company under every known name (the typed name and
+// the legal names learned from records tied to the person), a person under their name and its variants.
+const searchedNames = (task, ctx) => screenNames(task, ctx);
 const canScreen = (task, ctx) => (isPersonTask(task)
   ? searchedNames(task, ctx).some((v) => isFullName(nameTokens(v)))
   : companyTokens(task.value).join('').length >= 3);
 
 const NAME_ONLY = 'matched by name only: the FDA list gives a name, dates and a Federal Register citation, and nothing (no company, no role) to tell namesakes apart';
 
-function finding(task, ctx, { row, matched }) {
+function finding(task, ctx, { row, matched, via }) {
   const ended = Boolean(row.x);
   const person = row.t === 'person';
   const what = ended ? 'FDA debarment (ended)' : 'FDA debarment';
@@ -254,7 +255,8 @@ function finding(task, ctx, { row, matched }) {
     data: { list: ended ? 'FDA expired debarment list (drug product applications)' : 'FDA debarment list (drug product applications)', citation: row.c || null, term: row.e || null, ended, listPage: ended ? FDA_EXPIRED_PAGE : FDA_DEBARMENT_PAGE, searched: oneLine(task.value) },
   };
   if (task.kind === 'company') {
-    const oneWord = companyTokens(task.value).length < 2;
+    // One word only when the hit came through the bare typed word, not a learned legal name matched whole.
+    const oneWord = companyTokens(via || task.value).length < 2;
     return makeFinding(ctx.subject, {
       ...base,
       title: `${what}: ${row.n}${oneWord ? ': name match only, verify identity' : ''}`,
@@ -291,8 +293,14 @@ export const fdaDebarmentConnector = {
       };
     }
     // The current list must load; the list of ended debarments is a bonus
-    const [current, expired] = await Promise.allSettled([loadCurrent(ctx.deadline), loadExpired(ctx.deadline)]);
-    if (current.status === 'rejected') throw current.reason;
+    const [currentEntry, expiredEntry] = await Promise.allSettled([loadCurrent(ctx.deadline), loadExpired(ctx.deadline)]);
+    if (currentEntry.status === 'rejected') throw currentEntry.reason;
+    const current = { status: 'fulfilled', value: currentEntry.value.value };
+    const expired = expiredEntry.status === 'fulfilled' ? { status: 'fulfilled', value: expiredEntry.value.value } : expiredEntry;
+    // A copy older than a day, read because the refresh failed: the note gives its date and the screen is partial
+    const staleDates = [currentEntry.value, expiredEntry.status === 'fulfilled' ? expiredEntry.value : null]
+      .filter((e) => e && e.fresh === false).map((e) => dayOf(e.at));
+    const asOf = staleDates.length ? ` (list as of ${staleDates.sort()[0]})` : '';
     const mode = isPersonTask(task) ? 'person' : 'company';
     const names = searchedNames(task, ctx);
     const hits = [
@@ -306,12 +314,13 @@ export const fdaDebarmentConnector = {
       notes.push(`FDA expired debarment list: could not be read, so ${name} was screened only against current FDA debarments, not against debarments that have ended`);
       partial.push('FDA expired debarment list');
     }
+    if (asOf) partial.push(`FDA debarment list: list as of ${staleDates.sort()[0]}`);
     if (!hits.length) {
       const firmsListed = current.value.rows.some((r) => r.t === 'entity');
       const scope = expired.status === 'fulfilled' ? 'current or ended FDA debarments' : 'current FDA debarments';
       notes.push(mode === 'company' && !firmsListed
-        ? `FDA debarment list: no firm is currently debarred, so there is no match for ${name}${expired.status === 'fulfilled' ? ' (the list of ended debarments was also searched)' : ''}`
-        : `FDA debarment list: no match for ${name} among ${scope}`);
+        ? `FDA debarment list: no firm is currently debarred, so there is no match for ${name}${expired.status === 'fulfilled' ? ' (the list of ended debarments was also searched)' : ''}${asOf}`
+        : `FDA debarment list: no match for ${name} among ${scope}${asOf}`);
     }
     if (hits.length > MAX_FINDINGS) notes.push(`FDA debarment list: ${hits.length} entries match the name ${name}; the first ${MAX_FINDINGS} are shown`);
     if (findings.length && mode === 'person') notes.push(`FDA debarment list: the list gives only names, dates and Federal Register citations, so a match on ${name} is a name match until the Federal Register notice shows it is the same person`);

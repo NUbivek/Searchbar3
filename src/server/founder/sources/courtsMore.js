@@ -29,7 +29,7 @@ import { mentionsMinor } from '../guardrails';
 import { withAliasHold } from './alias';
 import {
   person, sameName, caseParties, sameCompany, namesPerson, findMentions, personTokens,
-  PRIVATE_MATTER, textNamesCompany, formCore, companyNames, matchNames, partyIsKnownCompany,
+  PRIVATE_MATTER, textNamesCompany, formCore, companyNames, matchNames, partyIsKnownCompany, holdDiminutive,
 } from './courts';
 
 // One list of private matters and one company-in-text rule for every court source: both live in courts.js.
@@ -173,9 +173,12 @@ function delawareFinding(rows, ctx, who, company) {
   const latest = [...rows].sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
   const { court } = latest;
   const caption = latest.caption.replace(/[,;:\s]+$/, '');
-  if (!DE_COURTS.has(court.toLowerCase()) || PRIVATE_MATTER.test(`${caption} ${latest.description}`)) return null;
+  if (!DE_COURTS.has(court.toLowerCase())) return null;
   const parties = caseParties(caption);
   const partyHit = parties.people.find((p) => sameName(p, who)) || '';
+  // A family, estate or immigration matter is private when the person is a party; a company's own case that merely
+  // uses such a word ("Real Estate of Delaware LLC") is its business.
+  if (partyHit && PRIVATE_MATTER.test(`${caption} ${latest.description}`)) return null;
   const companyParty = company ? [...parties.sides, ...parties.people, ...parties.asides].find((p) => partyIsKnownCompany(p, company, ctx.subject)) || '' : '';
   if (!partyHit && !companyParty) return null;
   // A minor's initials in the caption: never reported.
@@ -203,7 +206,8 @@ function delawareFinding(rows, ctx, who, company) {
       ? { matchText: [who.name, caption, `Delaware ${court}`, descriptions.join('; ')].filter(Boolean).join(' | ') }
       : { match: 'company', matchReasons: [`${companyParty} is a party to the case`] }),
   });
-  return finding;
+  // A party found only under a diminutive of the first name ("Samuel" for "Sam") is held at likely.
+  return partyHit ? holdDiminutive(finding, ctx.subject, who, partyHit) : finding;
 }
 
 /** A phrase for the court's search: quoted, so "Mistral AI" is not read as "Mistral" OR "ai" (which matches "Claim"). */
@@ -404,7 +408,10 @@ function readDoc(d) {
     agencyName: (agencies.filter((a) => a.slug !== 'health-and-human-services-department' && a.slug !== 'commerce-department').map((a) => a.name)[0]) || agencies.map((a) => a.name)[0] || 'US federal agency',
   };
 }
-const excluded = (doc) => doc.agencies.some((a) => FR_EXCLUDED_AGENCIES.has(a.slug)) || PRIVATE_MATTER.test(`${doc.title} ${doc.abstract}`);
+// A debarment, exclusion or export-denial order is a public sanction: words like "psychiatric" (the billing that was
+// defrauded) or "visa" (the fraud convicted of) in it describe the offence, not the person's private life.
+const excluded = (doc) => doc.agencies.some((a) => FR_EXCLUDED_AGENCIES.has(a.slug))
+  || (!FR_BAN.test(`${doc.title}\n${doc.abstract}`) && PRIVATE_MATTER.test(`${doc.title} ${doc.abstract}`));
 const isItc = (doc) => doc.agencies.some((a) => a.slug === ITC);
 
 /** An order or case that names the person. */
@@ -668,7 +675,7 @@ function euFindings(rows, ctx, who, company) {
           ? { match: 'company', matchReasons: [`${companyHit} is a party to the case`] }
           : { match: 'possible', matchReasons: [`the decision names ${companyHit}, a one-word name many unrelated companies share; verify it is the same company`] }),
     });
-    if (finding) findings.push(finding);
+    if (finding) findings.push(personHit ? holdDiminutive(finding, ctx.subject, who, personHit) : finding);
   }
   return findings.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 }
@@ -769,7 +776,7 @@ function canadaFinding(item, ctx, who, company) {
   const companyHit = company ? [...parties.sides, ...parties.people, ...parties.asides].find((p) => partyIsKnownCompany(p, company, ctx.subject)) || '' : '';
   if (!personHit && !companyHit) return null;
   if (personHit && mentionsMinor(`${item.title} ${item.snippet}`)) return null;
-  return makeFinding(ctx.subject, {
+  const finding = makeFinding(ctx.subject, {
     source: CA_ID,
     sourceLabel: CA_LABEL,
     category: 'litigation',
@@ -783,6 +790,7 @@ function canadaFinding(item, ctx, who, company) {
       ? { matchText: [who.name, item.title, item.court, item.snippet].filter(Boolean).join(' | ') }
       : { match: 'company', matchReasons: [`${companyHit} is a party to the case`] }),
   });
+  return personHit ? holdDiminutive(finding, ctx.subject, who, personHit) : finding;
 }
 
 export const canadaFederalCourtsConnector = {

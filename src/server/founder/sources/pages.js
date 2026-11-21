@@ -39,7 +39,7 @@
 import { request, htmlToText, getJson, HttpError } from '../http';
 import { addCompanyAlias } from '../identity';
 import { companyKeys } from '../names';
-import { cached } from '../cache';
+import { cached, isCutShort } from '../cache';
 import { makeFinding, makeThread, severityFromText } from '../finding';
 import { threadsFromResult, profileFromUrl, structuredData, personFacts, threadsFromFacts } from '../extract';
 import { isBlockedUrl } from '../guardrails';
@@ -175,9 +175,26 @@ async function robotsVerdict(url, deadline) {
       if (error?.status >= 400 && error.status < 500 && error.status !== 429) return { text: '' };
       throw error;
     }
-  }, { persist: false, deadline }).catch(() => null);
+  }, { persist: false, deadline }).catch((error) => {
+    // Cut short by the step's deadline, or the host is resting: that says nothing about the robots file, and
+    // the page must not be dropped for the whole check as "could not be read". Thrown as an HttpError (onHop
+    // passes those through as they are), so the lookup runs again in the next step or once the host is free.
+    if (waitable(error)) throw asWaitable(error, `${u.origin}/robots.txt`);
+    return null;
+  });
   if (!rules) return 'unknown';
   return robotsAllow(parseRobots(rules.text), `${u.pathname}${u.search}`) ? 'allowed' : 'disallowed';
+}
+
+/** The error is a step running out of time, or a host asking to be left alone: the lookup should run again, not fail. */
+export function waitable(error) {
+  return Boolean(error) && (isCutShort(error) || error.code === 'resting' || Number(error.retryAt) > 0);
+}
+function asWaitable(error, url) {
+  if (error instanceof HttpError) return error;
+  return new HttpError(String(error?.message || 'Out of time'), {
+    url, retryable: true, retryAt: Number(error?.retryAt) || null, code: error?.code === 'resting' ? 'resting' : 'deadline',
+  });
 }
 
 /**
@@ -484,10 +501,30 @@ export function readPage(subject, { url, html: rawHtml, archived = null, templat
     data: { kind: 'bio', page: url, ...(archived ? { archived: { date: archived.date, url: archived.replay } } : {}) },
   };
   const findings = [];
+  // Where each sentence sits on the page: a quote reads in the page's order (the kept sentences are ranked, what
+  // they did before first, only to choose which are kept).
+  const pageOrder = sentencesOf(allText);
+  const posOf = (t) => { const i = pageOrder.indexOf(t); return i >= 0 ? i : pageOrder.length + Math.max(0, allText.indexOf(t)); };
+  // On a page about them, their first name alone names them too (the rule bioSentences reads them by)
+  const fullFirst = aboutThem ? firstNameAsFull(subject) : (x) => x;
+  const namesThem = (x) => subject.hasName(x) || subject.hasName(fullFirst(x));
   for (const kind of ['career', 'education']) {
-    const mine = sentences.filter((s) => s.kind === kind).slice(0, kind === 'career' ? 8 : 3);
-    if (!mine.length) continue;
-    const quote = mine.map((s) => s.text).join(' ');
+    const chosen = sentences.filter((s) => s.kind === kind).slice(0, kind === 'career' ? 8 : 3).map((s) => s.text);
+    // A "She/He" sentence reads with the sentence naming the person before it: that sentence joins this record
+    // (from the page, within two sentences back), or the pronoun sentence is left out rather than stand alone.
+    const texts = [];
+    for (const t of [...chosen].sort((a, b) => posOf(a) - posOf(b))) {
+      if (PRONOUN_LEAD.test(t) && !namesThem(t) && !texts.some((x) => namesThem(x) && posOf(x) < posOf(t))) {
+        const at = pageOrder.indexOf(t);
+        const lead = at > 0 ? pageOrder.slice(Math.max(0, at - 2), at).reverse().find((x) => namesThem(x) && !tellsAnother(subject, x)) : null;
+        if (!lead) continue;
+        if (!texts.includes(lead)) texts.push(lead);
+      }
+      if (!texts.includes(t)) texts.push(t);
+    }
+    texts.sort((a, b) => posOf(a) - posOf(b));
+    if (!texts.length) continue;
+    const quote = texts.join(' ');
     const finding = makeFinding(subject, {
       ...base, category: kind,
       title: `${kind === 'career' ? 'Career' : 'Education'}, as told on ${where}${title ? `: ${title}` : ''}`,
@@ -639,15 +676,40 @@ async function readSite(task, ctx) {
   const company = ownCompanyOf(subject, site);
   let legal = '';
   let legalAt = '';
+  // Each path is judged on its own: one page that fails does not stop the others from being asked, and what
+  // could not be read is said, so a failed read never looks like a site with nothing about the person.
+  let settled = 0; // paths that got an answer (read, missing, closed by robots ...)
+  const failed = []; // paths that could not be read, with why
+  let cut = false;
   for (const path of SITE_PATHS) {
     if (requests >= SITE_MAX_REQUESTS || kept >= SITE_MAX_KEPT) break;
-    if (ctx.deadline && Date.now() > ctx.deadline - 3000) break;
+    if (ctx.deadline && Date.now() > ctx.deadline - 3000) {
+      // Out of time before any page answered: handed back as cut short, so the step loop runs it again.
+      if (!settled) throw new HttpError(`Out of time before the about and team pages of ${site} could be read`, { url: `https://${site}`, retryable: true, code: 'deadline' });
+      cut = true;
+      break;
+    }
     const url = `https://${site}${path}`;
     requests += 1;
     let page;
     // A guessed address that turns the reader away is left alone (the web archive's own lookup reads the
     // team pages' history); only pages the site serves are read here.
-    try { page = await openPage(url, ctx.deadline, { archiveFallback: false, take: budget.take }); } catch { break; }
+    try {
+      page = await openPage(url, ctx.deadline, { archiveFallback: false, take: budget.take });
+    } catch (error) {
+      if (waitable(error)) {
+        // Nothing read yet: the whole lookup waits for the next step or for the host (retryAt). Something read:
+        // the rest of the host is just as unavailable now, so stop and say what was not read.
+        if (!settled) throw error;
+        failed.push({ path, why: 'out of time' });
+        cut = true;
+        break;
+      }
+      // A 403, a server error, a reset: this page could not be read; the next path is still asked.
+      failed.push({ path, why: error?.status ? `HTTP ${error.status}` : 'no answer' });
+      continue;
+    }
+    settled += 1;
     if (page.status === 'limit') { if (!kept) notes.push(limitNote); break; }
     if (page.status === 'robots') continue;
     if (page.status === 'unknown') { notes.push(NOTE.unknown(site)); break; }
@@ -662,6 +724,12 @@ async function readSite(task, ctx) {
     findings.push(...out.findings);
     threads.push(...out.threads);
   }
+  // Every page asked failed: the lookup failed, and is reported as failed (never as a site read with nothing found).
+  if (failed.length && !settled) {
+    throw new HttpError(`The about and team pages of ${site} could not be read (${failed.map((f) => `${f.path}: ${f.why}`).join('; ')})`, { url: `https://${site}`, retryable: true });
+  }
+  if (failed.length) notes.push(`Some about and team pages of ${site} could not be read (${failed.map((f) => `${f.path}: ${f.why}`).join('; ')}); what they say is not in this report.`);
+  else if (cut) notes.push(`Time ran out before all the about and team pages of ${site} were read; what the others say is not in this report.`);
   if (legal) {
     const record = makeFinding(subject, {
       source: ID, sourceLabel: LABEL, category: 'corporate',

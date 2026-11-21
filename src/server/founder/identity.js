@@ -22,6 +22,7 @@ import { nameMatcher, normalizePersonName, companyKeys } from '../founderCheck';
 import {
   companyKeyStrict as strictKey, companyMentionMatcher, companyMatchForms, cooccurrences, isCommonName, isBroadOrganisation,
   describedAsSomeoneElse, parsePersonName, isOrdinaryWordCompany, personNameVariants, personNameMatcher, isLargeEmployer,
+  placeOrOrgName,
 } from './names';
 
 const stripAccents = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -95,15 +96,16 @@ function orgMatcher(org, subject = null) {
   if (raw.length < 2) return null;
   if (!companyMatchForms(raw).length) return null;
   const key = companyKeys(raw)[0] || raw.toLowerCase();
-  const aliases = () => {
-    const list = subject?.anchors?.aliases;
-    return list ? [...list.values()].filter((a) => a.of === key).map((a) => a.value) : [];
-  };
+  const aliasesOf = (map) => (map ? [...map.values()].filter((a) => a.of === key).map((a) => a.value) : []);
+  const aliases = () => aliasesOf(subject?.anchors?.aliases);
   const person = subject ? subject.hasName : null;
   const personWords = subject ? nameTokens(subject.name) : [];
   const mention = companyMentionMatcher(raw, { aliases, person, personWords });
-  const test = (text) => mention(text).named;
-  test.positions = (text) => mention(text).spans;
+  // `opts.anchors` is the anchor set being graded with (a view that leaves some out): its learned legal names are
+  // used instead of the subject's full list, so an alias hidden from the view does not count.
+  const callOpts = (opts) => (opts && opts.anchors ? { aliases: aliasesOf(opts.anchors.aliases) } : {});
+  const test = (text, opts) => mention(text, callOpts(opts)).named;
+  test.positions = (text, opts) => mention(text, callOpts(opts)).spans;
   test.mention = mention;
   return test;
 }
@@ -173,6 +175,9 @@ export function addNameAlias(subject, { alias, origin = 'found' } = {}) {
   const parts = parsePersonName(n);
   // A one-word alias ("Smith") would tie every namesake's record; a name in a script without spaces is a full name.
   if (!parts.surname && !/[\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(n)) return false;
+  // A place or an organisation read as a name ("Kansas City" from "born Kansas City", "JD Capital Partners") would
+  // tie every record about that place or firm.
+  if (placeOrOrgName(n)) return false;
   if (subject.hasName(n)) return false;
   if (!subject.anchors.otherNames) subject.anchors.otherNames = new Map();
   const key = personKey(n);
@@ -201,6 +206,7 @@ export function findNameAliases(subject, text) {
   const out = [];
   const seen = new Set();
   const given = parsePersonName(subject.name).given;
+  const ownTokens = new Set(nameTokens(subject.name));
   for (const nm of subject.hasName.positions(str)) {
     const after = str.slice(nm.end, nm.end + 120);
     for (const cue of ALIAS_CUES) {
@@ -209,6 +215,17 @@ export function findNameAliases(subject, text) {
       // "née Smith" is the surname only: the given name stays the person's.
       const name = cue.surnameOnly ? `${given} ${m[1]}` : m[1].replace(/[.,]+$/, '').trim();
       if (!parsePersonName(name).surname) continue;
+      // "born Seoul": one word after "born" may be a birth surname or a place; a known place is not a name.
+      if (cue.surnameOnly && /born/i.test(m[0]) && placeOrOrgName(m[1], { loose: true })) continue;
+      // An organisation or a place is not another name of the person ("also known as JD Capital Partners").
+      if (placeOrOrgName(name)) continue;
+      if (cue.how === 'born' && !nameTokens(name).some((t) => ownTokens.has(t))) {
+        // "born Kansas City, Missouri", "born South Korea", "born in ...": "born" before a place is where, not a
+        // birth name. A birth name sharing no word with the person's name ("born Reginald Dwight") is kept only
+        // when no word of it is a place and no ", <Place>" or " in" follows it.
+        const rest = after.slice(m.index + m[0].length);
+        if (placeOrOrgName(name, { loose: true }) || /^\s*,\s*(?!(?:January|February|March|April|May|June|July|August|September|October|November|December)\b)\p{Lu}/u.test(rest) || /^\s+(?:in|near|to)\s/i.test(rest)) continue;
+      }
       if (subject.hasName(name)) continue;
       const k = personKey(name);
       if (seen.has(k)) continue;
@@ -478,15 +495,71 @@ export function restoreSubject({ name, company, otherNames, anchors = {} }) {
  *   'related', 'event', 'role', 'reversed-name'), so a caller can decide what to trust; a grade carried only by
  *   'related' or 'event' should not make the record's threads trusted.
  */
-export function matchSubject(subject, text, { date } = {}) {
+export function matchSubject(subject, text, opts = {}) {
+  const result = gradeText(subject, text, opts);
+  if (result.level !== 'confirmed' || opts.strongOnly) return result;
+  // Anchors learned from a record graded only 'likely' (origin 'weak:<id>', or a company assumed from the user's
+  // network or inferred) may make another record 'likely', never 'confirmed': a namesake's record naming the same
+  // school, associate, handle, domain or learned legal name is not proof. Grade again with only the anchors that
+  // may confirm; keep 'confirmed' only when that still confirms.
+  if (!hasWeakAnchor(subject)) return result;
+  const strict = gradeText(strongView(subject), text, { ...opts, strongOnly: true });
+  if (strict.level === 'confirmed') return result;
+  return {
+    ...result,
+    level: 'likely',
+    reasons: [...result.reasons, 'a clue learned from a record that is itself only likely cannot confirm'].slice(0, 4),
+  };
+}
+
+// Origins of anchors learned from a record graded 'likely' or assumed rather than shown (deepCheck.js anchor strength).
+const WEAK_ORIGIN = /^(?:weak:|inferred$|network$)/;
+/** Whether an anchor came from a record that is only likely (or an assumption): it may raise a record to likely at most. */
+export const isWeakOrigin = (origin) => WEAK_ORIGIN.test(String(origin || ''));
+// The kinds a weak origin is capped for here. Companies are capped by the caller (deepCheck.js gradeOf), which
+// also marks a grade resting on an assumed company.
+const CAPPED_KINDS = ['schools', 'people', 'handles', 'domains', 'aliases', 'roles'];
+function hasWeakAnchor(subject) {
+  return CAPPED_KINDS.some((k) => [...(subject.anchors[k] || new Map()).values()].some((a) => isWeakOrigin(a.origin)));
+}
+/** The subject seen without the anchors learned from 'likely' records (a cheap copy; company tests read aliases from it). */
+function strongView(subject) {
+  const anchors = { ...subject.anchors };
+  for (const k of CAPPED_KINDS) {
+    if (anchors[k]) anchors[k] = new Map([...anchors[k]].filter(([, a]) => !isWeakOrigin(a.origin)));
+  }
+  return { ...subject, anchors };
+}
+
+/**
+ * The text with the subject's own company word masked where it stands right before the name and was read as
+ * another given name ("Theranos Elizabeth Holmes"), or null when no such word is there.
+ */
+function companyModifierMasked(subject, str, otherGiven) {
+  let out = null;
+  for (const w of otherGiven) {
+    const m = str.slice(w.start, w.end).match(/^(\S+)\s+/);
+    if (!m || !/^\p{Lu}/u.test(m[1])) continue;
+    const word = strictKey(m[1]);
+    const own = [...subject.anchors.companies.values()].some((a) => companyMatchForms(a.value).some((f) => f.form === word));
+    if (!own) continue;
+    out = (out || str).slice(0, w.start) + '•'.repeat(m[1].length) + (out || str).slice(w.start + m[1].length);
+  }
+  return out;
+}
+
+function gradeText(subject, text, { date } = {}) {
   const str = String(text || '');
   const isSelf = (s) => subject.hasName(s);
   const companyAnchors = [...subject.anchors.companies.values()];
+  // Company tests read learned legal names from the anchors being graded with, so a view that leaves some out is
+  // honoured (orgMatcher).
+  const view = { anchors: subject.anchors };
   const pairedCompanies = (names) => {
     const hits = [];
     const far = [];
     for (const a of companyAnchors) {
-      const spans = typeof a.test.positions === 'function' ? a.test.positions(str) : (a.test(str) ? [{ start: 0, end: 0 }] : []);
+      const spans = typeof a.test.positions === 'function' ? a.test.positions(str, view) : (a.test(str) ? [{ start: 0, end: 0 }] : []);
       if (!spans.length) continue;
       if (typeof a.test.positions !== 'function' || cooccurrences(str, names, spans, { isSelf }).length) hits.push(a);
       else far.push(a);
@@ -504,9 +577,31 @@ export function matchSubject(subject, text, { date } = {}) {
       if (ps.length) { names = ps; viaAlias = a; break; }
     }
   }
+  const weakAll = !names.length && typeof subject.hasName.weakPositions === 'function' ? subject.hasName.weakPositions(str) : [];
+  if (!names.length) {
+    // "a lawsuit against Theranos Elizabeth Holmes", "with Ramp Eric Glyman": the subject's own company written
+    // right before the name as a modifier is not another given name. Read the name again with that word masked.
+    const masked = companyModifierMasked(subject, str, weakAll.filter((w) => w.kind === 'other-given'));
+    if (masked) names = subject.hasName.positions(masked);
+  }
   if (!names.length) {
     // The full name is required: a role alone never ties a record to them (lead rule)
-    const weak = typeof subject.hasName.weakPositions === 'function' ? subject.hasName.weakPositions(str) : [];
+    const weak = weakAll;
+    // "Patrick and John Collison founded Stripe": siblings or a couple sharing one written surname. The subject's
+    // given name is there, but not their full name as written: possible, or likely with their company in the same
+    // clause, never confirmed.
+    const shared = weak.filter((w) => w.kind === 'shared-surname');
+    if (shared.length) {
+      const sameClause = (a) => (typeof a.test.positions === 'function' ? a.test.positions(str, view) : []).some((sp) => shared.some((w) => {
+        const lo = Math.min(sp.end, w.end);
+        const hi = Math.max(sp.start, w.start);
+        const between = str.slice(lo, Math.max(lo, hi));
+        return between.length <= 150 && !/[.!?;|]\s|\n/.test(between);
+      }));
+      const hit = companyAnchors.find(sameClause);
+      if (hit) return { level: 'likely', reasons: [`names ${hit.value}`, 'the name is written in a list sharing one surname'], basis: ['company', 'shared-surname'] };
+      return { level: 'possible', reasons: ['matched by name only (in a list sharing one surname)'], basis: ['shared-surname'] };
+    }
     const reversed = weak.filter((w) => w.kind === 'reversed');
     if (reversed.length) {
       const { hits } = pairedCompanies(reversed);

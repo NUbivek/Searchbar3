@@ -44,8 +44,8 @@ import { getJson, getText, getBytes, htmlToText } from '../http';
 import { makeFinding } from '../finding';
 import { cachedEntry, isCutShort } from '../cache';
 import { isSensitive, mentionsMinor } from '../guardrails';
-import { isOrdinaryWordCompany, companyKeys } from '../names';
-import { companyKey, matchOrgName, orgTokens } from './exposure';
+import { companyKeys } from '../names';
+import { companyKey, matchOrgName, orgTokens, distinctiveMatch, legalNameMatch } from './exposure';
 // The library's own file: its package entry point runs a self-test when it is loaded without a parent module
 import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 
@@ -124,12 +124,7 @@ const publishable = (text, max = 200) => {
 
 const isDomain = (v) => /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(String(v || ''));
 const dropThe = (tokens) => (tokens.length > 1 && tokens[0] === 'the' ? tokens.slice(1) : tokens);
-const containsRun = (tokens, want) => {
-  if (!want.length) return false;
-  for (let i = 0; i + want.length <= tokens.length; i += 1) if (want.every((t, j) => tokens[i + j] === t)) return true;
-  return false;
-};
-const RANK = { legal: 0, exact: 1, padded: 2, leading: 3, contains: 4 };
+const RANK = { legal: 0, exact: 1, padded: 2, leading: 3, contains: 4, partial: 5 };
 const tooGeneralNote = (name) => `Breach notices were not searched for "${oneLine(name)}": the name is too short or too general to match reliably.`;
 
 /** Every name the check knows for this company other than the one given: learned legal names, never a domain. */
@@ -160,8 +155,6 @@ export function targetOf(task, ctx) {
   return { key, names: knownNamesOf(key, ctx) };
 }
 
-/** Is the company named distinctively enough for its exact name alone to stand for it? */
-const distinctive = (key) => key.specific && (key.full.length >= 2 || !isOrdinaryWordCompany(key.full.join(' ')));
 
 /**
  * How a register's organisation name matches the company, under each of its known names.
@@ -170,24 +163,36 @@ const distinctive = (key) => key.specific && (key.full.length >= 2 || !isOrdinar
 export function gradeOrganisation(target, recordName) {
   const tokens = dropThe(orgTokens(recordName));
   if (!tokens.length) return null;
-  // A learned legal name of two words or more written whole in the entry is the company ("Uber Technologies, Inc.")
-  const legal = target.names.find((k) => k.full.length >= 2 && containsRun(tokens, k.full));
+  // A learned legal name of two words or more that is the entry's name ("Uber Technologies, Inc.", legal forms aside)
+  // is the company. Written inside a longer name ("Lightning Bolt Financial Advisors LLC" for "Bolt Financial, Inc.")
+  // it may be another firm: possible at most.
+  const longNames = target.names.filter((k) => k.full.length >= 2);
+  const legal = longNames.find((k) => legalNameMatch(k.name, recordName) === 'exact');
   if (legal) {
-    return { grade: 'legal', match: 'company', severity: 'medium', extra: {}, matchReasons: [`the organisation's name contains ${legal.name}, a name of ${target.key.name} found in other records`] };
+    return { grade: 'legal', match: 'company', severity: 'medium', extra: {}, matchReasons: [`the organisation's name is ${legal.name}, a name of ${target.key.name} found in other records`] };
   }
   let best = null;
-  for (const key of [target.key, ...target.names]) {
+  // One-word learned names are matched like the given name; longer ones only as above (a substring run is not a match).
+  for (const key of [target.key, ...target.names.filter((k) => k.full.length < 2)]) {
     const grade = matchOrgName(key, recordName);
     if (grade && (!best || RANK[grade] < RANK[best.grade])) best = { grade, key };
   }
-  if (!best) return null;
+  if (!best) {
+    const inside = longNames.find((k) => legalNameMatch(k.name, recordName) === 'partial');
+    if (!inside) return null;
+    return {
+      grade: 'partial', match: 'possible', severity: 'low', extra: { excludeFromTimeline: true, companyNamesake: true },
+      matchReasons: [`the entry contains ${inside.name}, a name of ${target.key.name} found in other records, inside a longer name`, 'it may be another company: verify it is the same company before relying on it'],
+    };
+  }
   const reason = {
     exact: `the organisation's name matches ${best.key.name}`,
     padded: `the organisation's name is ${best.key.name} followed by general words`,
     leading: `the entry begins with the name ${best.key.name}`,
     contains: `the entry names ${best.key.name}`,
   }[best.grade];
-  if (best.grade !== 'padded' && distinctive(best.key)) return { grade: best.grade, match: 'company', severity: 'medium', extra: {}, matchReasons: [reason] };
+  // Judged on the form that matched: only the bare brand ("Harvey" for Harvey AI) is judged on the brand alone
+  if (best.grade !== 'padded' && distinctiveMatch(best.key, recordName)) return { grade: best.grade, match: 'company', severity: 'medium', extra: {}, matchReasons: [reason] };
   const why = best.grade === 'padded'
     ? `the name adds a general word to ${best.key.name}, so it may be another company: verify it is the same company before relying on it`
     : `"${best.key.name}" is an ordinary word other organisations also use, so it may be another company: verify it is the same company before relying on it`;

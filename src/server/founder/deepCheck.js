@@ -43,13 +43,18 @@ export const LIMITS = {
   concurrency: 8,
   taskTimeoutMs: 20000,
   restMs: 20000, // how long a lookup waits when its host is resting and does not say until when
-  maxRests: 4, // how many times one lookup may be put back for a resting host
-  // A host or the search engines may say when they are free again (an allowance per ten minutes, a pause
+  maxRests: 4, // how many times one lookup may be put back for a resting host  // A host or the search engines may say when they are free again (an allowance per ten minutes, a pause
   // after "slow down"). Lookups then wait for that time, but a check does not wait forever: past this age
   // the lookups still waiting are reported as not run, never as sources that failed.
+  // Twelve minutes: a search engine's allowance window and its pause after a block are both ten minutes,
+  // so a shorter limit could never accept any wait for it.
   maxWaitAgeMs: 12 * 60 * 1000,
   // When only waiting lookups are left, the longest the check sits idle for the next one
-  tailWaitMs: 90 * 1000,
+  tailWaitMs: 45 * 1000,
+  // ... and the most steps in a row that may pass with nothing run. A live check sat through five empty steps
+  // (three minutes) for its last eight archive lookups, each put back again by the same slow host; the reader
+  // of the page sees a stuck bar. After this many, the lookups still waiting are reported as not run.
+  maxIdleSteps: 2,
   // how many threads of each kind are pulled; the rest are listed, not followed
   // url: pages the page reader opens (one request each, at most MAX_PAGES in pages.js) and profiles the web archive reads
   pull: { company: 10, affiliate: 16, school: 6, associate: 10, relative: 8, handle: 6, domain: 6, url: 18, alias: 4 },
@@ -57,7 +62,7 @@ export const LIMITS = {
 
 export const GAP_TEMPLATE = 'q.gap';
 const GIVEN_COMPANY = 'the company given';
-const ASSUMED_COMPANY = 'the company assumed from your network';
+export const ASSUMED_COMPANY = 'the company assumed from your network';
 const EARLIER_COMPANY_GIVEN = 'an earlier company given';
 
 /**
@@ -80,6 +85,20 @@ export const LEGAL_NAME_SOURCES = new Set(['us-state-registries', 'uk-companies-
  * more, marked with the name that prompted it, rather than a lookup under the new name alone.
  */
 export const ALIAS_COURT_SOURCES = new Set(['court-dockets', 'court-records-open', 'doj-press-releases', 'uk-gazette', 'uk-case-law', 'fr-bodacc', 'us-enforcement-actions', 'delaware-courts', 'us-agency-orders', 'eu-courts', 'canada-federal-courts']);
+/**
+ * Sources that mostly say whether the person has an account or a page somewhere (a code registry, a social
+ * network, a book catalogue, a blog feed). Each is asked a handful of times per check, not once per page found,
+ * after the screens and the profile sources, and they are the first left out when the lookup budget runs low.
+ * A live check spent most of its last five minutes on these. Lookups past the allowance are reported as not run.
+ */
+export const PRESENCE_SOURCES = new Set(['huggingface', 'open-library-books', 'crates-io', 'npm-packages', 'stack-overflow', 'bluesky', 'mastodon', 'writing-feeds']);
+const PRESENCE_PER_SOURCE = 5;
+// The web archive reads earlier versions of profiles (each lookup several slow, paced requests): it keeps its
+// place in the order, since what a profile used to say is part of the record, but within an allowance per check.
+const ARCHIVE_PER_CHECK = 12;
+const perCheckCap = (id) => (PRESENCE_SOURCES.has(id) ? PRESENCE_PER_SOURCE : id === 'web-archive' ? ARCHIVE_PER_CHECK : null);
+// Past this share of the lookup budget, presence lookups are left for the screens and the rest.
+const PRESENCE_BUDGET_SHARE = 0.85;
 // Screens may run past the lookup budget by this share of it, so the last companies found still get them.
 const SCREEN_RESERVE = 0.15;
 // Rounds past the round limit in which only screens still queued may run.
@@ -104,31 +123,51 @@ const READER_ORIGIN = /^reader(?::|$)/;
 export const isStrongOrigin = (origin) => STRONG_ORIGIN.test(String(origin || ''));
 const originId = (origin) => (/^(?:found|weak|reader):(.+)$/.exec(String(origin || '')) || [])[1] || null;
 // A likely grade carried only by these never makes a record's threads trusted (identity.js basis).
-const WEAK_BASIS = new Set(['related', 'event', 'reversed-name']);
+// 'shared-surname': a list such as 'Patrick and John Collison' names the surname once for two people.
+const WEAK_BASIS = new Set(['related', 'event', 'reversed-name', 'shared-surname']);
 
 /** The subject seen through only the anchors `keep(kind, anchor)` accepts (a cheap copy of the maps). */
 function viewOf(subject, keep) {
   const anchors = {};
   for (const [kind, map] of Object.entries(subject.anchors)) {
-    anchors[kind] = kind === 'roles' || kind === 'events' || !map ? map : new Map([...map].filter(([, a]) => keep(kind, a)));
+    anchors[kind] = !map || typeof map.entries !== 'function' ? map : new Map([...map].filter(([, a]) => keep(kind, a)));
   }
   return { ...subject, anchors };
 }
+/**
+ * Grade text against the subject seen through only some of its anchors. A company anchor reads the company's other
+ * names (legal names, domains) from the subject it was made on, not from the copy viewOf hands out, so for the
+ * length of this one synchronous call the subject's alias map is swapped for the filtered one and then put back.
+ */
+function matchView(subject, keep, text, date) {
+  const view = viewOf(subject, keep);
+  const original = subject.anchors.aliases;
+  if (!original) return matchSubject(view, text, { date });
+  subject.anchors.aliases = view.anchors.aliases;
+  try {
+    return matchSubject(view, text, { date });
+  } finally {
+    subject.anchors.aliases = original;
+  }
+}
+// The kinds of anchor that can carry a record to "confirmed" (a company, a legal name of it, or the second fact
+// beside a large employer or a one-word name: a school, a person, a handle, a domain, a role held at the time).
+// One of these that came from a likely record, or was only inferred or assumed, never confirms anything.
+const CONFIRMING_KINDS = new Set(['companies', 'aliases', 'schools', 'people', 'handles', 'domains', 'roles']);
 /** What the subject's anchors hold that may need a second look, or null when every anchor may do anything. */
 function anchorNeeds(subject, selfId) {
-  let weakCompany = false;
+  let weak = false;
   let reader = false;
   let self = false;
   for (const [kind, map] of Object.entries(subject.anchors)) {
-    if (kind === 'roles' || kind === 'events' || !map) continue;
+    if (!map || typeof map.values !== 'function') continue;
     for (const a of map.values()) {
-      if (kind === 'aliases') { if (selfId && originId(a.origin) === selfId) self = true; continue; }
-      if (kind === 'companies' && !isStrongOrigin(a.origin)) weakCompany = true;
-      if (READER_ORIGIN.test(String(a.origin || ''))) reader = true;
+      if (CONFIRMING_KINDS.has(kind) && !isStrongOrigin(a.origin)) weak = true;
+      if (kind !== 'aliases' && kind !== 'roles' && kind !== 'events' && READER_ORIGIN.test(String(a.origin || ''))) reader = true;
       if (selfId && originId(a.origin) === selfId) self = true;
     }
   }
-  return weakCompany || reader || self ? { weakCompany, reader, self } : null;
+  return weak || reader || self ? { weak, reader, self } : null;
 }
 const KIND_WEIGHT = { subject: 1, alias: 0.9, url: 0.85, company: 0.8, relative: 0.72, associate: 0.62, school: 0.58, handle: 0.5, domain: 0.45 };
 const DEPTH_WEIGHT = [1, 0.8, 0.55];
@@ -633,7 +672,10 @@ function sourceOn(c, state = null) {
 }
 function ensureStat(state, id, label) {
   if (!state.sources) state.sources = {};
-  return state.sources[id] || (state.sources[id] = { label: label || id, runs: 0, findings: 0, errors: 0, ms: 0 });
+  const stat = state.sources[id] || (state.sources[id] = { label: label || id, runs: 0, findings: 0, errors: 0, ms: 0 });
+  // a stat first made without the source at hand (a lookup not run) takes its proper name once it is known
+  if (label && stat.label === id) stat.label = label;
+  return stat;
 }
 function planFailed(state, c, error) {
   const stat = ensureStat(state, c.id, c.label);
@@ -702,16 +744,29 @@ function planTasks(thread, depth, connectors, subject, state = null) {
   return out;
 }
 
-function enqueue(state, tasks) {
+function enqueue(state, tasks, connectors = null) {
   const seen = new Set([...state.done, ...(state.missed || []), ...state.queue.map(taskKey)]);
+  // Lookups each capped source has had in this check (asked, not run, or queued)
+  const used = new Map();
+  const usedOf = (id) => {
+    if (!used.has(id)) used.set(id, [...state.done, ...(state.missed || [])].filter((k) => k.startsWith(`${id}|`)).length + state.queue.filter((t) => t.connector === id).length);
+    return used.get(id);
+  };
+  const capped = [];
   let added = 0;
   for (const t of tasks) {
     const key = taskKey(t);
     if (seen.has(key)) continue;
     seen.add(key);
+    const cap = perCheckCap(t.connector);
+    if (cap !== null) {
+      if (usedOf(t.connector) >= cap) { capped.push(t); continue; }
+      used.set(t.connector, usedOf(t.connector) + 1);
+    }
     state.queue.push(t);
     added += 1;
   }
+  if (capped.length) markNotRun(state, capped, Array.isArray(connectors) ? new Map(connectors.map((c) => [c.id, c])) : null);
   return added;
 }
 
@@ -808,7 +863,9 @@ function noteThread(state, subject, thread, depth, evidence = null, origin = nul
     ...(tie === 'affiliate' && thread.trusted && origin?.venture ? { venture: true } : {}),
     ...(thread.relation ? { relation: thread.relation } : {}), ...(thread.role ? { role: thread.role } : {}), ...(thread.platform ? { platform: thread.platform } : {}),
     // proposed by the second reader, not yet seen on a record: the report labels it so
-    ...(READER_ORIGIN.test(anchorOrigin) ? { suggested: true, origin: anchorOrigin, ...(thread.statedRole ? { statedRole: String(thread.statedRole).slice(0, 80) } : {}) } : {}),
+    // The second reader's statedRole is not kept: it was read from anywhere in the passage (a founder of another
+    // company named in it), and nothing shows it. The reader's own words for the tie stay in `why`.
+    ...(READER_ORIGIN.test(anchorOrigin) ? { suggested: true, origin: anchorOrigin } : {}),
   };
   addEvidence(record, evidence);
   state.threads[key] = record;
@@ -930,7 +987,7 @@ function pullThread(state, subject, record, connectors) {
   const allowance = record.tie === 'affiliate' ? LIMITS.pull.affiliate : LIMITS.pull[record.kind];
   if (pulledOfKind >= (allowance ?? 6)) { state.dropped.threads += 1; return 0; }
   record.pulled = true;
-  return enqueue(state, planTasks(record, record.depth, connectors, subject, state));
+  return enqueue(state, planTasks(record, record.depth, connectors, subject, state), connectors);
 }
 
 /**
@@ -970,8 +1027,9 @@ function resolveIdentity(state, subject, connectors) {
 
 /**
  * Grade text against the subject, keeping to what each anchor may do (see "anchor strength" above):
- *   confirmed  only through a company anchor the user gave or a confirmed record produced, and never one
- *              this record produced itself (`selfId`)
+ *   confirmed  only through anchors the user gave or a confirmed record produced, of every kind (a company,
+ *              its legal name, and the school, person, handle, domain or role that is the second fact beside a
+ *              large employer), and never one this record produced itself (`selfId`)
  *   likely     the cap when the company that tied it came from a likely record, or was only inferred or
  *              assumed from the user's network (then `assumed` is set: the record holds only if the
  *              assumed company is the right one)
@@ -984,8 +1042,9 @@ function gradeOf(subject, text, date = null, selfId = null) {
   const needs = anchorNeeds(subject, selfId);
   if (!needs) return graded;
   const notSelf = (a) => !(selfId && originId(a.origin) === selfId);
-  if (graded.level === 'confirmed' && (needs.weakCompany || needs.self)) {
-    const strong = matchSubject(viewOf(subject, (kind, a) => notSelf(a) && (kind !== 'companies' || isStrongOrigin(a.origin))), text, { date });
+  if (graded.level === 'confirmed' && (needs.weak || needs.self)) {
+    // Confirmed only if it still confirms on what the user gave and confirmed records produced, of every kind.
+    const strong = matchView(subject, (kind, a) => notSelf(a) && (!CONFIRMING_KINDS.has(kind) || isStrongOrigin(a.origin)), text, date);
     if (strong.level === 'confirmed') return graded;
     // Rests on the assumed company alone when nothing else known about the person ties it.
     const assumedHit = [...subject.anchors.companies.values()].some((a) => ASSUMED_ORIGIN.test(String(a.origin || '')) && a.test(text));
@@ -995,7 +1054,7 @@ function gradeOf(subject, text, date = null, selfId = null) {
   // A clue the second reader proposed, or one this record produced, does not count on its own. One exception:
   // a legal name learned from a filing or register entry that lists the person (design decision 1) lifts that
   // same entry to likely, never to confirmed.
-  const without = matchSubject(viewOf(subject, (kind, a) => (kind === 'aliases' || notSelf(a)) && !READER_ORIGIN.test(String(a.origin || ''))), text, { date });
+  const without = matchView(subject, (kind, a) => (kind === 'aliases' || notSelf(a)) && !READER_ORIGIN.test(String(a.origin || '')), text, date);
   if (matchRank(without.level) >= matchRank('likely')) return graded;
   return { level: 'possible', reasons: ['matched by name only', ...(needs.reader ? ['a clue the second reader suggested is not yet borne out by a record'] : [])].slice(0, 4), basis: without.basis || [] };
 }
@@ -1010,6 +1069,32 @@ function applyGrade(f, graded) {
 
 /** The date a record is graded at (a role held at the time): the one it was first graded at, else its own. */
 const gradeDateOf = (f) => f.gradeDate || f.date || null;
+
+// An origin already in the check's own words (see "anchor strength"), or an encyclopedia link (kept apart by identity.js)
+const KNOWN_ORIGIN = /^(?:given|found|weak|reader|inferred|network|encyclopedia)(?::|$)/;
+// Events are left as they are: they never confirm a record, and the reason a record shows names their origin.
+const GRADED_KINDS = ['companies', 'aliases', 'schools', 'people', 'handles', 'domains', 'roles', 'otherNames'];
+/**
+ * Give every anchor the grade of the record it came from. A source may register an anchor while it runs (the
+ * knowledge graph adds a company's registered name, its website and the person's tenures) and names the record
+ * by its id alone: that becomes 'found:<id>' when the check graded the record confirmed (and not only through an
+ * assumed company), else 'weak:<id>', so it is never stronger than its record and never re-grades that record.
+ * A 'weak:<id>' anchor whose record has since been confirmed on other grounds becomes 'found:<id>'.
+ */
+function gradeOrigins(state, subject) {
+  const byId = new Map(state.findings.map((f) => [f.id, f]));
+  const strongRecord = (f) => Boolean(f) && f.match === 'confirmed' && !f.assumedTie;
+  for (const kind of GRADED_KINDS) {
+    const map = subject.anchors[kind];
+    if (!map || typeof map.values !== 'function') continue;
+    for (const a of map.values()) {
+      const origin = String(a.origin || '');
+      if (!origin) continue;
+      if (!KNOWN_ORIGIN.test(origin)) a.origin = strongRecord(byId.get(origin)) ? `found:${origin}` : `weak:${origin}`;
+      else if (origin.startsWith('weak:') && strongRecord(byId.get(origin.slice(5)))) a.origin = `found:${origin.slice(5)}`;
+    }
+  }
+}
 
 /** Records graded "possible" or "likely" are re-read whenever more is known about the subject. */
 function regrade(state, subject) {
@@ -1156,7 +1241,9 @@ function learnLegalNames(state, subject, connectors, kept, threads) {
     const listsRole = (Array.isArray(d.roles) && d.roles.length > 0) || (Array.isArray(d.appointments) && d.appointments.length > 0) || /\b(?:officer|director|promoter|executive)\b/i.test(f.title || '');
     if (matchRank(f.match) < matchRank('likely') && !listsRole) continue;
     const names = [d.issuer, d.company, d.legalName, d.entityName, ...(Array.isArray(d.filers) ? d.filers : [])].filter((x) => typeof x === 'string');
-    for (const name of names) candidates.push({ name, origin: `found:${f.id}` });
+    // The legal name is as strong as the entry it came from: only a confirmed entry's name may confirm others.
+    const origin = f.match === 'confirmed' ? `found:${f.id}` : `weak:${f.id}`;
+    for (const name of names) candidates.push({ name, origin });
   }
   for (const { th, origin } of threads) {
     if (!th?.trusted || origin.level !== 'confirmed' || origin.assumed) continue;
@@ -1353,7 +1440,7 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   }
 
   if (state.step === 0 && state.queue.length === 0 && state.tasksRun === 0) {
-    enqueue(state, planTasks({ kind: 'subject', value: subject.name, why: 'the person being checked' }, 0, connectors, subject, state));
+    enqueue(state, planTasks({ kind: 'subject', value: subject.name, why: 'the person being checked' }, 0, connectors, subject, state), connectors);
     const seeds = [];
     if (subject.company) seeds.push({ kind: 'company', value: subject.company, why: GIVEN_COMPANY, trusted: true });
     if (state.assumedCompany) seeds.push({ kind: 'company', value: state.assumedCompany, why: ASSUMED_COMPANY, trusted: true });
@@ -1367,7 +1454,12 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
     // A LinkedIn handle only ties records to the person: LinkedIn is never opened or searched as a handle.
     if (given.profile?.handle && given.profile.platform !== 'linkedin') seeds.push({ kind: 'handle', value: given.profile.handle, why: `${given.profile.platform || 'profile'} handle given`, platform: given.profile.platform || null, trusted: true });
     for (const th of seeds) {
-      const origin = { anchor: th.why === ASSUMED_COMPANY ? 'network' : 'given' };
+      // An earlier company the user typed is screened like a venture of theirs (courts, enforcement, insolvency,
+      // watchlists), unless it is a very large employer: a former job at Google must not fill the report with
+      // Google's litigation. Then only what ties the person to it is looked up.
+      const earlier = th.why === EARLIER_COMPANY_GIVEN;
+      const broad = earlier && Boolean(subject.anchors.companies.get(anchorKey('company', th.value))?.broad);
+      const origin = { anchor: th.why === ASSUMED_COMPANY ? 'network' : 'given', ...(earlier && !broad ? { venture: true } : {}) };
       const record = noteThread(state, subject, th, 1, null, origin);
       if (record) pullThread(state, subject, record, connectors);
     }
@@ -1387,7 +1479,8 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   // The seed goes first whatever learning says: when the search engines are short of allowance, the lookups
   // that tell who the person is must be the ones that get it. The screens come next, also outside learning:
   // a clean screen is their normal answer, and learning would push them to the end, where they go unrun.
-  const tierOf = (t) => (isSeedTask(t) ? 2 : isScreenTask(t) ? 1 : 0);
+  // Presence lookups (an account on a code registry or a social network) go last, after the profile sources.
+  const tierOf = (t) => (isSeedTask(t) ? 2 : isScreenTask(t) ? 1 : PRESENCE_SOURCES.has(t.connector) ? -1 : 0);
   const order = state.queue
     .map((t, i) => ({ t, i, tier: tierOf(t), score: (KIND_WEIGHT[t.kind] ?? 0.5) * (DEPTH_WEIGHT[t.depth] ?? 0.4) * (tierOf(t) === 1 ? 1 : (0.4 + (learned.get(learnKey(t)) ?? 0.5))) * attested(t) }))
     .sort((x, y) => y.tier - x.tier || y.score - x.score || x.i - y.i)
@@ -1396,8 +1489,17 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   // The budget: everything but the screens stops at maxTasks; the screens may use a reserve beyond it.
   const batch = [];
   let planned = state.tasksRun;
+  const presenceCap = Math.floor(limits.maxTasks * PRESENCE_BUDGET_SHARE);
   for (const t of order) {
+    // When the budget runs low, presence lookups are the first left out (the seed's own are already run by then)
+    if (PRESENCE_SOURCES.has(t.connector) && !isSeedTask(t) && planned >= presenceCap) continue;
     if (isScreenTask(t) ? planned < screenCap : planned < limits.maxTasks) { batch.push(t); planned += 1; }
+  }
+  // Only presence lookups left, and no budget for them: reported as not run now rather than carried round by round.
+  if (!batch.length && state.queue.length && state.tasksRun >= presenceCap && state.queue.every((t) => PRESENCE_SOURCES.has(t.connector) && !isSeedTask(t))) {
+    markNotRun(state, state.queue, byId);
+    state.log.push({ step: state.step, text: `${state.queue.length} lookup${state.queue.length === 1 ? '' : 's'} of accounts and profiles elsewhere not run: the check kept its last lookups for the screens.` });
+    state.queue = [];
   }
   const seenIds = new Set(state.findings.map((f) => f.id));
   const seenUrls = new Set(state.findings.map(pageKey));
@@ -1454,6 +1556,8 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
       spent[key] = (spent[key] || 0) + n;
       return true;
     },
+    // How long this check may still wait for a host or the search engines to be free again (ms)
+    waitLeftMs: () => (limits.maxWaitAgeMs ?? LIMITS.maxWaitAgeMs) - (Date.now() - (state.startedAt || Date.now())),
   };
 
   const worker = async () => {
@@ -1530,9 +1634,22 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
           notRun.push({ task });
           continue;
         }
+        // A watchlist, court or regulator screen that timed out or met a server error is put back once: a list
+        // that was still downloading on a cold start (the sanctions lists) is ready by the next try. Only a
+        // second failure is final, so the most important screens are not left answered in part for one slow load.
+        // It stays claimed for the rest of this step and runs again at the next one (a step later, not a wait for a
+        // resting host: it never counts toward the idle steps, and is never reported as waited out).
+        const cls = failureClass(error);
+        if (isScreenTask(task) && !task.screenRetried && (cls === 'timeout' || /^HTTP 5\d\d$/.test(cls))) {
+          task.screenRetried = true;
+          ran.delete(key);
+          release(task.connector);
+          if (process.env.NODE_ENV !== 'test') console.warn(`[deep-check] ${c.id} failed (${cls}), tried again later: ${message.slice(0, 200)}`);
+          continue;
+        }
         stat.errors += 1;
         stat.lastError = plainFailure(message, error);
-        stat.lastErrorClass = failureClass(error);
+        stat.lastErrorClass = cls;
         const classes = stat.errorClasses || (stat.errorClasses = {});
         classes[stat.lastErrorClass] = (classes[stat.lastErrorClass] || 0) + 1;
         if (process.env.NODE_ENV !== 'test') console.warn(`[deep-check] ${c.id} failed (${stat.lastErrorClass}): ${message.slice(0, 300)}`);
@@ -1661,6 +1778,8 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   const gone = new Set([...ran.keys(), ...notRunTasks.map((x) => taskKey(x.task))]);
   state.queue = state.queue.filter((t) => !gone.has(taskKey(t)));
 
+  // Anchors the sources registered while they ran carry the grade of the record they came from.
+  gradeOrigins(state, subject);
   // Read what came back for new threads, then pull them.
   let pulled = 0;
   const fresh = [];
@@ -1686,7 +1805,10 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   noteCountries(state, newlyKept);
   if (newlyKept.length) noteCompanyFounded(state, subject);
   pulled += followCompanyNames(state, subject, connectors);
+  gradeOrigins(state, subject);
   const upgraded = regrade(state, subject);
+  // a record regrade confirmed now lends its anchors the strength of a confirmed record
+  if (upgraded) gradeOrigins(state, subject);
   state.anchors = exportAnchors(subject);
 
   await Promise.all([recordStats('query', outcomes), recordStats('source', reliability)]);
@@ -1703,17 +1825,20 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
     const waiting = state.queue.filter((t) => t.notBefore && t.notBefore > Date.now());
     const next = Math.min(...waiting.map((t) => t.notBefore));
     const onlyWaiting = waiting.length === state.queue.length;
-    if (onlyWaiting && next - Date.now() > (limits.tailWaitMs ?? LIMITS.tailWaitMs)) {
+    state.idleSteps = (state.idleSteps || 0) + 1;
+    const idledOut = state.idleSteps > (limits.maxIdleSteps ?? LIMITS.maxIdleSteps);
+    if (onlyWaiting && (idledOut || next - Date.now() > (limits.tailWaitMs ?? LIMITS.tailWaitMs))) {
       markNotRun(state, waiting, byId, { waited: true });
       state.queue = state.queue.filter((t) => !waiting.includes(t));
       state.log.pop();
-      state.log.push({ step: state.step, text: `${waiting.length} last lookup${waiting.length === 1 ? '' : 's'} not run: ${waiting.length === 1 ? 'its source' : 'their sources'} asked to wait more than a minute and a half.` });
+      state.log.push({ step: state.step, text: `${waiting.length} last lookup${waiting.length === 1 ? '' : 's'} not run: ${waiting.length === 1 ? 'its source' : 'their sources'} kept asking the check to wait.` });
     } else {
       state.log.pop();
       return { state, progress: summarize(state) };
     }
   }
 
+  if (ran.size > 0) state.idleSteps = 0;
   state.step += 1;
   // A round only counts as dry when lookups actually ran and found nothing, and no screen is still waiting to run
   const screensLeft = state.queue.some(isScreenTask);

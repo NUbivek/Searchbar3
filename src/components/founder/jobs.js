@@ -148,7 +148,10 @@ export function startJob(name, company, extra = {}) {
   const key = jobKey(name, company);
   if (!starting.has(key)) {
     const request = call({ action: 'start', name, company, ...extra })
-      .then((data) => { if (data.jobId) rememberJob(name, company, data.jobId); return data; })
+      .then((data) => {
+        if (data.jobId) { rememberJob(name, company, data.jobId); rememberStartDetails(data.jobId, detailsBody(extra)); }
+        return data;
+      })
       .finally(() => starting.delete(key));
     starting.set(key, request);
   }
@@ -190,4 +193,31 @@ export function keepDetails(name, company, details) {
 }
 export function keptDetails(name, company) {
   try { return JSON.parse(window.sessionStorage.getItem(detailsKey(name, company)) || 'null'); } catch { return null; }
+}
+
+// ------------------------------------------------------------ which details a check was started with (this tab)
+const startedKey = (jobId) => `deep-started:${jobId}`;
+/** Kept in this tab, like the details themselves: so a reopened check can say whether the details typed now were used. */
+export function rememberStartDetails(jobId, body) {
+  if (!jobId) return;
+  try { window.sessionStorage.setItem(startedKey(jobId), JSON.stringify(body || {})); } catch { /* nothing kept */ }
+}
+/** The start details this tab sent for the check, or null when this tab did not start it. */
+export function startDetailsOf(jobId) {
+  try { return jobId ? JSON.parse(window.sessionStorage.getItem(startedKey(jobId)) || 'null') : null; } catch { return null; }
+}
+/**
+ * Whether the details typed now went into the check `jobId`: 'used' (every detail typed was sent with it),
+ * 'unused' (this tab started it with other details), 'unknown' (it was started elsewhere), or '' when no
+ * detail is typed.
+ */
+export function detailsUse(jobId, details) {
+  const typed = detailsBody(details || {});
+  const keys = Object.keys(typed);
+  if (!keys.length) return '';
+  const sent = startDetailsOf(jobId);
+  if (!sent) return 'unknown';
+  const same = (a, b) => JSON.stringify(Array.isArray(a) ? a.map((x) => x.toLowerCase()) : String(a || '').toLowerCase())
+    === JSON.stringify(Array.isArray(b) ? b.map((x) => String(x).toLowerCase()) : String(b || '').toLowerCase());
+  return keys.every((k) => same(typed[k], sent[k])) ? 'used' : 'unused';
 }

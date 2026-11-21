@@ -168,13 +168,21 @@ function hfFinding(subject, o, grade) {
  * The grade of an account that states the person's full name. `reached`: why the account was reached
  * through something already tied to the person (the exact handle or link), or '' when found by name.
  */
-function hfGrade(subject, o, reached) {
+function hfGrade(subject, o, reached, exact = false, handle = '') {
   const text = [...hfOrgs(o).flatMap((g) => [g.fullname, g.name]), safe(o.details)].filter(Boolean).join('. ');
   const companies = knownCompanies(subject, text);
+  // A website or another handle of the person that the bio links to (not the handle the account was reached by).
+  const linked = ['domains', 'handles'].flatMap((kind) => [...(subject.anchors[kind] || new Map()).values()])
+    .filter((a) => a.value.toLowerCase().replace(/^@/, '') !== String(handle).toLowerCase() && a.test(text)).map((a) => a.value);
   const reasons = ["states the person's full name"];
-  if (reached) reasons.push(reached);
+  // The same handle on another service is no tie by itself: a handle such as "janedoe" is just the name, and a
+  // namesake may hold it here (the same rule as presence.js gradeReached). Only the exact Hugging Face link or
+  // handle counts on its own.
+  const tied = Boolean(reached) && exact;
+  if (reached && (tied || companies.length || linked.length)) reasons.push(reached);
   if (companies.length) reasons.push(...companies.slice(0, 2).map((c) => `its organisations or bio name ${c}`));
-  if (reached || companies.length) return { match: 'likely', matchReasons: reasons };
+  if (linked.length) reasons.push(...linked.slice(0, 2).map((v) => `links to ${v}`));
+  if (tied || companies.length || linked.length) return { match: 'likely', matchReasons: reasons };
   return { match: 'possible', matchReasons: ['matched by name only: a Hugging Face profile name is its owner\'s own claim; verify identity'] };
 }
 
@@ -216,7 +224,7 @@ async function hfAccount(subject, user, why, exact, ctx) {
     // Without the person's full name the account is not tied to them, however it was reached.
     return { findings: [], threads: [], notes: [stated === 'other' || exact ? `The Hugging Face account ${user} does not state the person's full name and was left out.` : `Hugging Face: the account ${user} does not state the person's name; it was left out.`] };
   }
-  const finding = hfFinding(subject, o, hfGrade(subject, o, why));
+  const finding = hfFinding(subject, o, hfGrade(subject, o, why, exact, user));
   return { findings: [finding].filter(Boolean), threads: [], notes: [] };
 }
 

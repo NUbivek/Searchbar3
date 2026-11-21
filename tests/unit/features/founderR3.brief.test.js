@@ -74,7 +74,8 @@ describe('the assembled brief on a real report (Eric Glyman / Ramp, r9)', () => 
 
   test('the company section gives the legal name, founding and funding', () => {
     const company = section(brief, 'COMPANY');
-    expect(company).toMatch(/Legal name: Ramp Business Corp \[Source \d+\]/);
+    // round 4: the name filed with the SEC is the legal name, and says so
+    expect(company).toMatch(/Legal name \(as filed with the SEC\): Ramp Business Corp \[Source \d+\]/);
     expect(company).toMatch(/Founded in 2019 \[Source \d+\]/);
     expect(company).toMatch(/\$1,850,000,000 offered/);
   });

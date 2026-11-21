@@ -352,6 +352,9 @@ export const patentsConnector = {
     // 4. One finding per family, graded from the assignee. A family whose printed assignee is a known company is
     //    graded by the identity check from its own text. One the company search returned under another owner is
     //    "likely" at most (a reassigned patent), or "possible" when that owner only resembles the company.
+    // The short names of every known company (the one typed, anchors, learned legal names): an assignee that only
+    // contains one of them is a look-alike, never the company.
+    const lookalikeNames = [...new Set([companyShort, ...knownCompanyNames(subject).map((n) => withoutLegalForm(n.name))].filter(Boolean))];
     const heldGrade = (family) => {
       if (family.assignees.some((a) => assigneeCompany(subject, a))) return null;
       if (company && family.underCompany) {
@@ -363,6 +366,11 @@ export const patentsConnector = {
       // A name-only family is left to the grader (so a company learned later can tie it), unless its owner merely
       // resembles a known company: that must never be read as the company.
       if (family.assignees.some((a) => known(a) && !assigneeCompany(subject, a))) return { match: 'possible', reason: 'matched by name; the assignee only resembles a known company of this person' };
+      // The same for an owner that carries a known company's word without being it ("Flow Hair Salon Inc",
+      // "Flowserve Corp" for Flow) although the company matcher does not read it as the company: left to the grader,
+      // the company's word in the text would tie a namesake inventor's patent to the person.
+      const lookalike = family.assignees.find((a) => lookalikeNames.some((n) => resemblesCompany(a, n)));
+      if (lookalike) return { match: 'possible', reason: `matched by name; the assignee ${lookalike} only resembles ${lookalikeNames.find((n) => resemblesCompany(lookalike, n))}: it may be another company` };
       return null;
     };
     let graded = groupFamilies([...byNumber.values()]).map((family) => ({ family, finding: familyFinding(subject, who, family, this, heldGrade(family)) })).filter((x) => x.finding);

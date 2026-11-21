@@ -193,8 +193,22 @@ describe('a lookup whose host is resting', () => {
     const state = startState({ name: 'Jane Roe', company: 'Acme' });
     for (let i = 0; i < 6 && state.phase === 'collect'; i += 1) {
       for (const t of state.queue) if (t.notBefore) t.notBefore = Date.now() - 1;
-      await stepDeepCheck(state, { connectors: [paced], deadline: Date.now() + 5000 });
+      // (the limit on empty steps in a row is lifted here: this test is about the rests of one lookup)
+      await stepDeepCheck(state, { connectors: [paced], limits: { ...LIMITS, maxIdleSteps: 99 }, deadline: Date.now() + 5000 });
     }
     expect(state.sources.arch).toMatchObject({ errors: 1, lastError: 'did not respond in time' });
+  });
+
+  test('but a check does not sit through more than two empty steps for it: the lookup is then reported as not run', async () => {
+    const paced = { id: 'arch', label: 'Archive', kinds: ['subject'], timeoutMs: 1000, run: async () => { throw new Error('Out of time before the request could start'); } };
+    const state = startState({ name: 'Jane Roe', company: 'Acme' });
+    let steps = 0;
+    for (; steps < 8 && state.phase === 'collect'; steps += 1) {
+      for (const t of state.queue) if (t.notBefore) t.notBefore = Date.now() + 2000; // still resting when the next step starts
+      await stepDeepCheck(state, { connectors: [paced], deadline: Date.now() + 3200 });
+    }
+    expect(state.phase).toBe('report');
+    expect(steps).toBeLessThanOrEqual(4);
+    expect(state.sources.arch).toMatchObject({ errors: 0, waitedOut: 1 });
   });
 });

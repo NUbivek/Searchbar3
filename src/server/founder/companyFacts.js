@@ -40,8 +40,34 @@ function sentences(text) {
  * Shorten a sentence to about `max` characters around position `at` without cutting a word or a number:
  * "$1,850,000,000" stays whole, and "…" marks what was left out.
  */
+// Page furniture a snippet may carry around the sentence ("Skip to main content", "Accept all cookies"): never
+// part of what the company's figure says (the same phrases report.js keeps out of the brief).
+const SITE_CHROME = /\b(?:skip to (?:navigation|content|main(?: content)?|footer)|accessibility statement|help using this website|today['’]s paper|cookie (?:policy|settings|preferences)|accept (?:all )?cookies|sign in|log in|subscribe now|all rights reserved|advertisement)\b/gi;
+// A publisher written after a headline ("... - TechCrunch", "... | Bloomberg"): a short name with no figure in it.
+const PUBLISHER_TAIL = /\s+[-–—|]\s+(?:The\s+)?[A-Z][A-Za-z&.'’]*(?:\s+[A-Z][A-Za-z&.'’]*){0,3}\s*$/;
+
+/** The part of `t` around `at` between site-chrome phrases, and `at` within it. */
+function withoutChrome(t, at) {
+  let start = 0;
+  let end = t.length;
+  for (const m of t.matchAll(SITE_CHROME)) {
+    if (m.index >= at) { end = m.index; break; }
+    start = m.index + m[0].length;
+  }
+  let part = t.slice(start, end);
+  const lead = part.match(/^[\s.|,;:·•–—-]+/);
+  if (lead) { part = part.slice(lead[0].length); start += lead[0].length; }
+  part = part.replace(/[\s|·•–—-]+$/, '');
+  // a trailing publisher goes, unless the figure itself sits in it
+  const pub = part.match(PUBLISHER_TAIL);
+  if (pub && pub.index > at - start) part = part.slice(0, pub.index);
+  return { t: part, at: Math.max(0, at - start) };
+}
+
 export function clipAround(text, at = 0, max = 280) {
-  const t = tidy(text);
+  const cut = withoutChrome(tidy(text), at);
+  const t = cut.t;
+  at = cut.at;
   if (t.length <= max) return t;
   let from = Math.max(0, Math.min(at - Math.floor(max / 3), t.length - max));
   let to = Math.min(t.length, from + max);
@@ -155,7 +181,12 @@ export function learnCompanyNames(subject, findings = [], threads = []) {
 
 const MONEY = '\\$\\s?\\d[\\d,]*(?:\\.\\d+)?(?:\\s?(?:million|billion|trillion|[MBK]|bn|mn)\\b)?';
 const ROUND = '(?:pre-seed|seed(?:\\s+round)?|Series\\s+[A-H](?:-?\\d)?(?:\\s+(?:round|extension))?|growth round|funding round|venture round|tender offer)';
-const RAISE = /\b(?:rais(?:e[sd]?|ing)|closed|clos(?:es|ing)|secur(?:e[sd]?|ing)|land(?:s|ed)|bag(?:s|ged)|nab(?:s|bed)|announc(?:e[sd]|ing)|completed|gets|got|picks up|picked up)\b/i;
+// "gets" and "got" are not raising: "Zetafold gets $2M fine".
+const RAISE = /\b(?:rais(?:e[sd]?|ing)|closed|clos(?:es|ing)|secur(?:e[sd]?|ing)|land(?:s|ed)|bag(?:s|ged)|nab(?:s|bed)|announc(?:e[sd]|ing)|completed|picks up|picked up)\b/i;
+// An amount with no round named is funding only in a sentence about funding...
+const FUNDING_NOUN = /\b(?:funding|financing|fund-?rais\w*|round|investments?|investors?|backers?|venture|capital|led by|equity|seed)\b/i;
+// ...and never in one about a crime, a fine, a settlement or a forfeiture ("closed a $5 million settlement").
+const NOT_FUNDING = /\b(?:fraud\w*|crim\w*|fine[sd]?(?!-)|penalt\w*|settle\w*|forfeit\w*|restitution|seiz\w*|stolen|theft|embezzl\w*|launder\w*|ponzi|charged|indict\w*|convict\w*|sentenc\w*|judgments?|damages|bail|lawsuits?|sued|disgorge\w*|bribe\w*)\b/i;
 const NOT_INVESTOR = /^(?:the|a|an|and|its|their|his|her|existing|new|other|several|many|investors?|participation|backers?|funds?)$/i;
 
 /** Investor names from a list: "Accel, NEA and Addition" (never the person or the company itself). */
@@ -175,11 +206,51 @@ const MONTHS = 'January|February|March|April|May|June|July|August|September|Octo
 const monthNo = (m) => ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(String(m).slice(0, 3).toLowerCase()) + 1;
 /** A date the sentence itself gives ("in May 2021", "in 2022"), else the record's own date. */
 function dateIn(sentence, fallback) {
-  const m = sentence.match(new RegExp(`\\b(?:in|on|since)\\s+(?:(${MONTHS})\\.?\\s+(?:\\d{1,2},\\s+)?)?((?:19|20)\\d\\d)\\b`));
+  const m = sentence.match(new RegExp(`\\b(?:in|on|since|as of)\\s+(?:(${MONTHS})\\.?\\s+(?:\\d{1,2},\\s+)?)?((?:19|20)\\d\\d)\\b`));
   if (m) return m[1] ? `${m[2]}-${String(monthNo(m[1])).padStart(2, '0')}` : m[2];
   return fallback ? String(fallback).slice(0, 10) : null;
 }
 const moneyKey = (s) => String(s || '').toLowerCase().replace(/[\s,$]/g, '').replace(/million|mn/, 'm').replace(/billion|bn/, 'b');
+
+// Capitalised words that do not name an organisation of their own: articles, headline words, months, titles,
+// round names and currencies ("The First $100M ARR", "A New Corporate Card", "Series B", "USD")
+const NOT_ACTOR = new Set(`the a an and of for in on at to by with from its his her their our this that these those how why what who when where
+inside first new latest after before following as is was has have it says said exclusive update report breaking watch meet
+january february march april may june july august september october november december jan feb mar apr jun jul aug sep sept oct nov dec
+series seed round funding usd eur gbp aud cad sgd hkd ceo cto coo cfo cpo cro co-founder cofounder founder co-ceo chief executive officer president chairman chair
+mr mrs ms dr`.split(/\s+/));
+// words that put the name after them in the investor's place, not the company's: "led by Accel", "with Brex"
+const INVESTOR_BEFORE = /\b(?:led by|co-led by|by|from|with|including|include|includes|alongside|participation from|backed by|joined by|investors?|backers?|such as|than|over|versus|vs\.?)\s*$/i;
+const RIVAL = /\b(?:rivals?|competitors?|competing|peers?|challengers?|new (?:startup|company|venture)|another (?:startup|company))\b/i;
+
+/**
+ * Is the figure at `at` in sentence `s` the company's? The organisation the clause is about is the nearest
+ * capitalised name before the figure that is not in an investor's place ("led by Accel"). The figure is the
+ * company's when that name is the company (or a form of it), or when no other organisation is named; never when
+ * the sentence calls the other one a rival or a new startup ("Ramp's rival Brex, valued at $12 billion";
+ * "launched a new startup, Alta, which has raised $80 million").
+ */
+function figureIsCompanys(s, at, isCo, personWords) {
+  const pre = s.slice(0, at);
+  let actor = null; // { co: boolean }
+  let others = 0;
+  let prevInvestor = false;
+  for (const m of pre.matchAll(/[A-Z][\p{L}\p{N}&.'’-]*(?:\s+(?:of\s+|&\s+)?[A-Z][\p{L}\p{N}&.'’-]*)*/gu)) {
+    const run = m[0].replace(/['’]s$/, '');
+    const lead = pre.slice(Math.max(0, m.index - 30), m.index);
+    const co = isCo(run);
+    const words = run.toLowerCase().split(/\s+/).map((w) => w.replace(/[.'’]+$/, '')).filter((w) => w.length > 1 && !NOT_ACTOR.has(w) && !personWords.has(w));
+    if (!co && !words.length) continue;
+    // a list after an investor stays in the investor's place: "led by Accel, NEA and Addition"
+    const investor = /(?:,|\band|&)\s*$/i.test(lead) ? prevInvestor : INVESTOR_BEFORE.test(lead);
+    prevInvestor = investor && !co;
+    if (prevInvestor) continue;
+    if (!co) others += 1;
+    actor = { co };
+  }
+  if (others && RIVAL.test(pre)) return false;
+  return !actor || actor.co;
+}
 
 /**
  * The company's facts from the records.
@@ -220,12 +291,22 @@ export function buildCompanyFacts(subject, findings = [], threads = []) {
     if (!x.date && r.date) x.date = r.date;
     for (const i of r.investors || []) if (!x.investors.includes(i)) x.investors.push(i);
   };
-  const addStanding = (kind, figure, text, id, date) => {
+  // `stated`: the sentence gives its own date ("As of June 2026"); `headline`: the line is a record's title. A
+  // dated sentence is the better line for a figure than a headline, so it replaces one already kept.
+  const addStanding = (kind, figure, text, id, date, { stated = false, headline = false } = {}) => {
+    if (!id) return;
     const key = `${kind}|${moneyKey(figure)}`;
-    if (!standing.has(key)) standing.set(key, { kind, text, date: date || null, ids: new Set() });
-    standing.get(key).ids.add(id);
+    const rank = (stated ? 2 : 0) + (headline ? 0 : 1);
+    if (!standing.has(key)) standing.set(key, { kind, text, date: date || null, ids: new Set(), rank });
+    const x = standing.get(key);
+    if (rank > x.rank) Object.assign(x, { text, date: date || null, rank });
+    x.ids.add(id);
   };
   const co = `(?:${forms.map(esc).join('|')})`;
+  // a capitalised run that names the company: its name or a legal name anywhere in it ("Fintech Ramp Earns")
+  const coIn = new RegExp(`(?<![\\p{L}\\p{N}])${co}(?![\\p{L}\\p{N}])`, 'iu');
+  const isCo = (run) => coIn.test(run) || aliases.some((a) => run.toLowerCase().includes(a.toLowerCase()));
+  const personWords = new Set(String(subject?.name || '').toLowerCase().split(/\s+/).filter(Boolean));
 
   for (const f of usable) {
     const d = f.data || {};
@@ -240,7 +321,10 @@ export function buildCompanyFacts(subject, findings = [], threads = []) {
       if (offered || sold) addRound({ round: 'Form D offering', amount: [offered && `${offered} offered`, sold && `${sold} sold`].filter(Boolean).join('; '), date: first || f.date || null }, f.id);
     }
     const text = f.data?.kind === 'bio' ? String(f.quote || '') : `${f.title || ''}. ${f.quote || ''}`;
+    const bare = (x) => x.replace(/[.!?\s]+$/, '');
+    const titleLines = new Set(f.data?.kind === 'bio' ? [] : sentences(f.title || '').map(bare));
     for (const s of sentences(text)) {
+      const how = { stated: Boolean(dateIn(s, null)), headline: titleLines.has(bare(s)) };
       if (s.length > 600 || privacyReason(s) || !namesCompany(s, f)) continue;
       // founding year: "Merge was founded in 2020", "started Merge in 2020", "Ramp, founded in 2019", "Merge began in 2020"
       for (const re of [
@@ -253,19 +337,22 @@ export function buildCompanyFacts(subject, findings = [], threads = []) {
       // funding: "Merge raises $55M Series B led by Accel", "raised $4.5M in seed funding led by NEA, with ..."
       const money = new RegExp(`(${MONEY})(?:\\s+(?:in\\s+)?(?:a\\s+|its\\s+|new\\s+)*(${ROUND})(?:\\s+(?:funding|financing|round))?)?`, 'gi');
       for (const m of s.matchAll(money)) {
+        // another company's round, valuation or revenue in the same sentence is not this company's
+        if (!figureIsCompanys(s, m.index, isCo, personWords)) continue;
         const before = s.slice(Math.max(0, m.index - 70), m.index);
         const after = s.slice(m.index + m[0].length, m.index + m[0].length + 220);
         const round = m[2] ? tidy(m[2]).replace(/^series/i, 'Series').replace(/^seed(?: round)?$/i, 'Seed').replace(/^pre-seed$/i, 'Pre-seed') : (after.match(new RegExp(`^\\s*(?:in\\s+)?(?:a\\s+|its\\s+)?(${ROUND})`, 'i')) || [])[1] || null;
         const isValuation = /^\s*(?:post-money\s+|pre-money\s+)?valuation\b/i.test(after) || /\b(?:valued at|valuation of|valuation to|worth)\s*$/i.test(before) || /\bat an?\s*$/i.test(before);
         if (isValuation) {
-          addStanding('valuation', m[1], clipAround(s, m.index), f.id, dateIn(s, f.date));
+          addStanding('valuation', m[1], clipAround(s, m.index), f.id, dateIn(s, f.date), how);
           continue;
         }
         if (/\b(?:revenue|ARR|sales)\b/i.test(after.slice(0, 40)) || /\b(?:revenue|ARR|sales)\s+(?:of\s+)?$/i.test(before)) {
-          addStanding('revenue', m[1], clipAround(s, m.index), f.id, dateIn(s, f.date));
+          addStanding('revenue', m[1], clipAround(s, m.index), f.id, dateIn(s, f.date), how);
           continue;
         }
         if (!(RAISE.test(before) || round)) continue;
+        if (!round && (!FUNDING_NOUN.test(s) || NOT_FUNDING.test(s))) continue;
         const lead = (after.match(/\bled by\s+([A-Z][^,;.()]{1,60}?)(?=\s*(?:,|;|\.|\(|$|\s+with\b|\s+and\s+(?:participation|existing|others)|\s+alongside\b|\s+at\b|\s+in\b|\s+on\b))/) || [])[1] || null;
         const more = (after.match(/\b(?:with participation from|participation from|alongside|joined by|investors include|backed by|from investors)\s+([^.;()]{3,220})/i) || [])[1] || '';
         const list = investorList(subject, more, company);
@@ -276,24 +363,55 @@ export function buildCompanyFacts(subject, findings = [], threads = []) {
       }
       // "valued at $44 billion", "a $22.5 billion valuation" already read above; "investors include A, B and C"
       const inv = s.match(/\b(?:investors include|is backed by|backed by investors such as|investors such as|backers include)\s+([^.;()]{3,220})/i);
-      if (inv) for (const i of investorList(subject, inv[1], company)) addInvestor(i, f.id);
+      if (inv && figureIsCompanys(s, inv.index, isCo, personWords)) for (const i of investorList(subject, inv[1], company)) addInvestor(i, f.id);
       // headcount and customers: "about 200 employees", "7,000+ B2B companies", "used by over 70,000 businesses"
       for (const m of s.matchAll(/(?<![\d$.,])(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)(\+)?\s*(?:(?:thousand|million)\s+)?(?:[A-Z][\w-]*\s+)?(employees|staff|people|customers|businesses|companies|clients|users)\b/g)) {
+        if (!figureIsCompanys(s, m.index, isCo, personWords)) continue;
         const kind = /employees|staff|people/.test(m[3]) ? 'headcount' : 'customers';
         if (kind === 'headcount' && !/\b(?:employ\w*|staff|team|headcount|workforce|people)\b/i.test(s)) continue;
         if (kind === 'customers' && !/\b(?:customers?|clients?|used by|serv(?:es|ing)|power(?:s|ing)|users)\b/i.test(s)) continue;
-        addStanding(kind, `${m[1]}${m[2] || ''}`, clipAround(s, m.index), f.id, dateIn(s, f.date));
+        addStanding(kind, `${m[1]}${m[2] || ''}`, clipAround(s, m.index), f.id, dateIn(s, f.date), how);
       }
     }
   }
   const ranked = [...foundedVotes.entries()].sort((a, b) => b[1].size - a[1].size || a[0] - b[0]);
-  const fin = (list) => list.map((x) => ({ ...x, ids: [...x.ids] }));
+  const foundedYear = ranked[0] ? ranked[0][0] : null;
+  // A domain whose every record says it was registered years before the company existed was an earlier holder's
+  // (a founder's personal site, an earlier venture), unless it carries the company's own name (bought later).
+  const coKey = company.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const byId = new Map((findings || []).map((f) => [f.id, f]));
+  const earlierDomain = (x) => {
+    if (!foundedYear || (coKey.length >= 3 && x.domain.split('.')[0].replace(/[^a-z0-9]+/g, '').includes(coKey))) return false;
+    const recs = x.ids.map((id) => byId.get(id)).filter((f) => f && f.source === 'domain-history');
+    return recs.length > 0 && recs.length === x.ids.length && recs.every((f) => {
+      const y = yearOf(f.data?.registered || f.date);
+      return y && y < foundedYear - 1;
+    });
+  };
+  // a figure dated before the company existed is about something else (an earlier company, another firm)
+  const inLife = (x) => !foundedYear || !x.date || (yearOf(x.date) || foundedYear) >= foundedYear;
+  // every line keeps at least one record id: a line no record states is never shown
+  const fin = (list) => list.filter((x) => x.ids.size > 0 && inLife(x)).map(({ rank, ...x }) => ({ ...x, ids: [...x.ids] }));
+  const outIds = new Set([...funding.values()].filter((x) => !inLife(x)).flatMap((x) => [...x.ids]));
+  // the same sentence read for two figures ("valued at $44 billion with $1 billion in revenue") is one line
+  const byText = new Map();
+  for (const x of fin([...standing.values()])) {
+    const k = x.text.toLowerCase();
+    if (!byText.has(k)) { byText.set(k, { ...x, kinds: [x.kind] }); continue; }
+    const kept = byText.get(k);
+    kept.ids = [...new Set([...kept.ids, ...x.ids])];
+    if (!kept.kinds.includes(x.kind)) kept.kinds.push(x.kind);
+  }
+  const rankOf = new Map([...standing.values()].map((x) => [x.text.toLowerCase(), x.rank]));
   return {
-    legalNames, domains,
-    founded: ranked[0] ? { year: ranked[0][0], ids: [...ranked[0][1]] } : null,
+    legalNames, domains: domains.filter((x) => !earlierDomain(x)),
+    founded: foundedYear ? { year: foundedYear, ids: [...ranked[0][1]] } : null,
     funding: fin([...funding.values()]).sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))),
-    investors: fin([...investors.values()]).sort((a, b) => b.ids.length - a.ids.length).slice(0, 25),
-    standing: fin([...standing.values()]).sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).slice(0, 20),
+    // an investor named only in a round left out above goes with it
+    investors: fin([...investors.values()]).filter((x) => x.ids.some((id) => !outIds.has(id))).sort((a, b) => b.ids.length - a.ids.length).slice(0, 25),
+    // dated sentences first, then other sentences, headlines last; the newest first within each
+    standing: [...byText.values()]
+      .sort((a, b) => (rankOf.get(b.text.toLowerCase()) || 0) - (rankOf.get(a.text.toLowerCase()) || 0) || String(b.date || '').localeCompare(String(a.date || ''))).slice(0, 20),
   };
 }
 

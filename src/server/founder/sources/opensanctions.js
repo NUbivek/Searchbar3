@@ -45,9 +45,9 @@
  */
 import { request, getJson } from '../http';
 import { makeFinding } from '../finding';
-import { cached } from '../cache';
+import { cachedEntry } from '../cache';
 import { isSensitive, mentionsMinor } from '../guardrails';
-import { normalizeName, nameTokens, companyTokens, personVariants, reasonText } from './sanctions';
+import { normalizeName, nameTokens, companyTokens, reasonText, screenNames, gradeListedPerson } from './sanctions';
 import { withAliasHold } from './alias';
 import { eachCsvRow, screenRows, personNameForms } from './debarment';
 
@@ -124,7 +124,6 @@ const clipText = (s, n) => {
   return `${(space > n * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:(]+$/, '')}…`;
 };
 const capitalise = (s) => String(s || '').replace(/^\s*([a-z])/, (m, c) => c.toUpperCase());
-const properCase = (s) => oneLine(s).split(' ').map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
 const isLatin = (name) => normalizeName(name).length >= 2;
 const isFullName = (tokens) => tokens.filter((t) => t.length > 1).length >= 2;
 /** A field the file wrote as a quoted empty string ('""') or wrapped in stray quotes. */
@@ -245,25 +244,28 @@ export function readMetadata(meta, dataset) {
 
 const MAX_FILE_BYTES = 12 * 1024 * 1024;
 
-/** One list, loaded on first need and kept for a day as a compact index. */
-const loadDataset = (dataset, deadline) => cached(`opensanctions:${dataset.id}:v1`, DAY_MS, async () => {
-  const meta = readMetadata(await getJson(`${BASE}/${dataset.id}/index.json`, { deadline, timeoutMs: 10000, maxBytes: 512 * 1024 }), dataset);
+/**
+ * One list, loaded on first need and kept for a day as a compact index. -> { value, at, fresh }: `fresh` is false
+ * when an older copy stands in for a failed refresh, and the screen then says how old the list it read is. The
+ * loader uses the deadline the cache gives it (the shared download is not cut short by one caller's deadline).
+ */
+const loadDataset = (dataset, deadline) => cachedEntry(`opensanctions:${dataset.id}:v1`, DAY_MS, async ({ deadline: d }) => {
+  const meta = readMetadata(await getJson(`${BASE}/${dataset.id}/index.json`, { deadline: d, timeoutMs: 10000, maxBytes: 512 * 1024 }), dataset);
   if (meta.size && meta.size > MAX_FILE_BYTES) throw new Error(`The ${dataset.name} file is larger than this source reads`);
-  const { text } = await request(meta.url, { deadline, timeoutMs: 25000, maxBytes: MAX_FILE_BYTES, accept: 'text/csv' });
+  const { text } = await request(meta.url, { deadline: d, timeoutMs: 25000, maxBytes: MAX_FILE_BYTES, accept: 'text/csv' });
   const index = parseTargets(text, dataset, meta.count);
   return { ...index, page: meta.page, ...(meta.updated ? { asOf: meta.updated } : {}) };
-});
+}, { deadline });
+const dayOf = (ms) => new Date(Number(ms) || Date.now()).toISOString().slice(0, 10);
 
 /* ------------------------------------------------------------------ */
 /* Tasks and findings                                                  */
 /* ------------------------------------------------------------------ */
 
 const isPersonTask = (task) => task.kind !== 'company';
-const searchedNames = (task, ctx) => {
-  if (task.kind === 'company') return [oneLine(task.value)];
-  if (task.kind === 'subject' && ctx?.subject?.variants?.length) return [...new Set([...ctx.subject.variants, ...personVariants(ctx.subject.name)])];
-  return personVariants(task.value);
-};
+// The names screened, shared with the other sanctions screens: a company under every known name (the typed name and
+// the legal names learned from records tied to the person), a person under their name and its variants.
+const searchedNames = (task, ctx) => screenNames(task, ctx);
 const canScreen = (task, ctx) => (isPersonTask(task)
   ? searchedNames(task, ctx).some((v) => isFullName(nameTokens(v)))
   : companyTokens(task.value).join('').length >= 3);
@@ -285,10 +287,12 @@ function capped(subject, f, found) {
  *   company    'company' when the whole name matches; 'possible' for a one-word name
  *   associate, relative   'possible' unless the record also names the subject (then 'likely' at most)
  */
-function graded(task, ctx, f, context) {
+function graded(task, ctx, f, { context = '', tier = 1, via = '' } = {}) {
   const subject = ctx.subject;
   if (task.kind === 'company') {
-    if (companyTokens(task.value).length < 2) {
+    // One word only when the hit came through the bare typed word: a learned legal name ("Ramp Business
+    // Corporation") matched whole is the company's own record.
+    if (companyTokens(via || task.value).length < 2) {
       return makeFinding(subject, { ...f, title: `${f.title}: name match only, verify identity`, match: 'possible', matchReasons: ['only the company name\'s one distinctive word matches; many unrelated companies share a one-word name'] });
     }
     return makeFinding(subject, { ...f, match: 'company', matchReasons: ['the listed name is the same as the company name'] });
@@ -297,16 +301,17 @@ function graded(task, ctx, f, context) {
     const reason = `name match on ${task.kind === 'relative' ? 'a relative' : 'an associate'} of the subject; verify identity`;
     return capped(subject, f, makeFinding(subject, f)) || makeFinding(subject, { ...f, match: 'possible', matchReasons: [reason] });
   }
-  const matchText = `${properCase(subject.name)}. ${context}`;
-  let found = capped(subject, { ...f, matchText }, makeFinding(subject, { ...f, matchText }));
-  if (!found || found.match === 'possible') {
-    found = makeFinding(subject, { ...f, title: `${f.title}: name match only, verify identity`, match: 'possible', matchReasons: ['matched by name only'] });
-  }
-  return found;
+  // The person: the shared grader of a listed person, as ASIC and the debarment lists use it. A variant of the
+  // name (tier 3) stays possible, and only a company the check was started with raises a hit; then the hold at
+  // likely, the strongest this source may set.
+  const possibleTitle = `${f.title}: name match only, verify identity`;
+  const found = gradeListedPerson(subject, f, { tier, context, possibleTitle });
+  if (!found || found.match !== 'confirmed') return found;
+  return makeFinding(subject, { ...f, match: 'likely', matchReasons: [...(found.matchReasons || []).slice(0, 3), 'held at likely: a watchlist entry is matched by name'] });
 }
 
 function findingFor(task, ctx, dataset, index, hit) {
-  const { row, matched } = hit;
+  const { row, matched, tier, via } = hit;
   const interpol = dataset.id === 'interpol_red_notices';
   const kind = row.t === 'person' ? 'Individual' : row.t === 'entity' ? 'Entity' : 'Listed party';
   const quote = [
@@ -336,7 +341,7 @@ function findingFor(task, ctx, dataset, index, hit) {
       searched: oneLine(task.value), tier: hit.tier, listReadAt: index.at, ...(index.asOf ? { listDated: index.asOf } : {}),
       credit: 'OpenSanctions, CC BY-NC 4.0',
     },
-  }, row.r || '');
+  }, { context: row.r || '', tier, via });
 }
 
 /** Screen one name against the lists of one group (or all of them). */
@@ -365,14 +370,19 @@ async function screenLists(task, ctx, lists) {
   const clean = [];
   let interpolHit = false;
   wanted.forEach((dataset, i) => {
-    const index = loaded[i];
+    const entry = loaded[i];
+    const index = entry ? entry.value : null;
     if (!index) {
       notes.push(`${dataset.name}: could not be read (${clipText(errors[i]?.message || 'no answer', 120)}), so ${name} was not screened against it`);
       partial.push(`${dataset.name}: did not answer`);
       return;
     }
+    // An older copy read because the refresh failed: dated, and the screen answered only in part (never a clean
+    // result as of today).
+    const stale = entry.fresh === false;
+    if (stale) partial.push(`${dataset.name}: list as of ${dayOf(entry.at)}`);
     const hits = screenRows(index, searchedNames(task, ctx), person ? 'person' : 'company');
-    if (!hits.length) { clean.push(dataset.name); return; }
+    if (!hits.length) { clean.push(stale ? `${dataset.name} (list as of ${dayOf(entry.at)})` : dataset.name); return; }
     if (dataset.id === 'interpol_red_notices') interpolHit = true;
     for (const hit of hits.slice(0, MAX_FINDINGS)) {
       const f = findingFor(task, ctx, dataset, index, hit);

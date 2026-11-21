@@ -2,11 +2,12 @@
  * Deep background check, one step per request (a full check takes minutes,
  * a serverless request does not).
  *
- *   POST { action: 'start', name, company,     -> { jobId, progress, assumed?, networkSuggestion? }
+ *   POST { action: 'start', name, company,     -> { jobId, progress, assumed?, networkSuggestion?, resumed?, replaced? }
  *          website?, profileUrl?, place?,           The owner's running check of the same person from the last
- *          otherCompanies?: [], school?,            hour is handed back instead of starting another.
- *          otherNames?: [], useNetworkCompany?,
- *          askNetwork?, confirmedCompany? }      -> { needsConfirm: { company, question } } (nothing started)
+ *          otherCompanies?: [], school?,            hour, started with the same details, is handed back instead of
+ *          otherNames?: [], useNetworkCompany?,     starting another (resumed). Started with other details, a new
+ *          askNetwork?, confirmedCompany? }         check runs and the earlier one stops (replaced: its id).
+ *                                            -> { needsConfirm: { company, question } } (nothing started)
  *                                                   With no company typed, the one contact with this name is
  *                                                   a question for the user first (askNetwork: the page can
  *                                                   ask it); only after a yes (confirmedCompany) is that
@@ -26,6 +27,7 @@
  * a check gathers a lot about one person and uses shared free quotas, so it
  * is tied to an account and limited per hour.
  */
+import crypto from 'crypto';
 import { getUserId, requireFounderUser } from '../../../server/auth';
 import { startState, stepDeepCheck, progressOf, stopCollecting, validateCheckInput, validateOrgName, validatePersonName } from '../../../server/founder/deepCheck';
 import { createSubject } from '../../../server/founder/identity';
@@ -72,14 +74,6 @@ function by(promise, until, fallback) {
     new Promise((resolve) => { timer = setTimeout(() => resolve(fallback), Math.max(0, until - Date.now())); }),
   ]).finally(() => clearTimeout(timer));
 }
-/** The companies whose investors are looked up: the person's company, then up to two they founded earlier. */
-function investorCompanies(report) {
-  const out = [];
-  const add = (c) => { const v = String(c || '').trim(); if (v && !out.some((x) => x.toLowerCase() === v.toLowerCase())) out.push(v); };
-  add(report.company || report.profile?.company);
-  for (const f of report.profile?.founded || []) add(f?.org);
-  return out.slice(0, 3);
-}
 /**
  * Investors of the person's companies (the current one and up to two they founded before), looked up once
  * when the report is built, never past `until`. Only company names are ever used as search terms.
@@ -93,7 +87,8 @@ async function networkInvestors(signedIn, owner, report, until) {
       const link = await linker();
       const store = await import('../../../server/network/store');
       if (!(await store.countContacts(owner))) return { investors: [], missed: false };
-      const companies = investorCompanies(report);
+      // The current company first (typed, found, or confirmed from the user's network), then up to two founded
+      const companies = link.investorLookupCompanies(report, 3);
       if (!companies.length) return { investors: [], missed: false };
       // All companies under one time limit, each investor kept with the company it backed ({ name, of }), so the
       // report can say "an investor in Upfit Labs, which they founded". Any lookup that did not finish is said.
@@ -210,17 +205,69 @@ function briefRanOut(report) {
   return { brief: quotedDeepBrief(report, reason), briefInfo: { mode: 'quoted', reason, tried: [], retry: true } };
 }
 
-/** The report without internal fields, ready for the page. */
-function publicReport(report) {
-  const strip = ({ score, step, via, matchFixed, gradeText, ...rest }) => rest;
-  return {
-    ...report,
-    redFlags: report.redFlags.map(strip),
-    companyMatters: (report.companyMatters || []).map(strip),
-    possibleNamesake: report.possibleNamesake.map(strip),
-    sections: report.sections.map((s) => ({ ...s, items: s.items.map(strip) })),
-    claimChanges: report.claimChanges.map(strip),
+// Fields a record carries for the check's own use: how it was ranked, which round and thread found it, whether a
+// source fixed its grade, and the full text it was graded on. The page never sees them.
+const INTERNAL_FIELDS = ['score', 'step', 'via', 'matchFixed', 'gradeText'];
+// A record wherever it sits in the report: it has an id and a grade or a source.
+const isRecord = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) && typeof v.id === 'string' && ('match' in v || 'source' in v);
+/**
+ * The report without internal fields, ready for the page. Every record is cleaned wherever it sits (the red flags,
+ * the sections, "if this is the right person", records nested under another), not only the lists named here, so a
+ * list added to the report later cannot carry them out by mistake. Other objects are copied as they are.
+ */
+export function publicReport(report) {
+  const clean = (value, depth) => {
+    if (depth > 12 || !value || typeof value !== 'object') return value;
+    if (Array.isArray(value)) return value.map((v) => clean(v, depth + 1));
+    const out = {};
+    const record = isRecord(value);
+    for (const [k, v] of Object.entries(value)) {
+      if (record && INTERNAL_FIELDS.includes(k)) continue;
+      out[k] = clean(v, depth + 1);
+    }
+    return out;
   };
+  return clean(report, 0);
+}
+
+/**
+ * A short fingerprint of what a start asked for: the person, the company and every optional detail (website,
+ * profile, place, school, earlier companies, other names, the company confirmed from the network). A running
+ * check is handed back only to a start that asked for the same; case, order and spacing do not count.
+ */
+export function inputKey(input = {}, body = {}) {
+  const low = (v) => String(v || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const list = (a) => (Array.isArray(a) ? a : []).map(low).filter(Boolean).sort();
+  const p = input.profile && typeof input.profile === 'object' ? input.profile : null;
+  const parts = {
+    name: low(input.name), company: low(input.company), website: low(input.website),
+    profile: p ? low(p.domain ? `site:${p.domain}` : `${p.platform || ''}:${p.handle || ''}`) : '',
+    place: low(input.place), school: low(input.school), otherCompanies: list(input.otherCompanies), otherNames: list(input.otherNames),
+    network: body.useNetworkCompany === false ? 'off' : low(body.confirmedCompany),
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 24);
+}
+
+/**
+ * Stop an earlier running check that a new start with other details replaces: what it had not asked yet is
+ * recorded as not run, and its report is built from what it found if it is opened again. Skipped while another
+ * request is working on it (it then ends on its own). Never throws: the new check goes ahead either way.
+ */
+async function stopReplaced(id, owner) {
+  let leased = null;
+  let saved = false;
+  try {
+    leased = await leaseJob(id, { owner });
+    if (!leased || leased.busy) return;
+    const { state } = leased.job;
+    if (state.phase !== 'collect') return;
+    stopCollecting(state, 'A new check of the same person was started with other details, so this one stopped collecting here. The lookups not run are listed as not run.');
+    saved = await saveNext(id, state, 'running');
+  } catch (error) {
+    console.warn('earlier founder check not stopped:', error?.message);
+  } finally {
+    if (leased && !leased.busy && !saved) await releaseLease(id, leased.leaseId);
+  }
 }
 
 const NOT_FOUND = { error: 'This check was not found. It may have expired; run it again.' };
@@ -233,7 +280,7 @@ const REPORT_FAILED = 'The report could not be assembled from this check. Run th
 /** One line per check for the page's list (never the report itself). */
 function jobLine(j) {
   const state = j.status === 'done' ? 'done' : j.status === 'failed' ? 'failed' : 'running';
-  return { id: j.id, name: j.name, company: j.company || '', state, when: new Date(j.updatedAt || j.createdAt || Date.now()).toISOString(), redFlags: j.redFlags ?? null };
+  return { id: j.id, name: j.name, company: j.company || '', state, when: new Date(j.updatedAt || j.createdAt || Date.now()).toISOString(), redFlags: j.redFlags ?? null, ifRightPerson: j.ifRightPerson ?? null };
 }
 
 /** What the page is told about a check: progress, and the report once there is one. */
@@ -319,9 +366,19 @@ export default async function handler(req, res) {
       const named = readableName(checked.value);
       if (!named.ok) return res.status(400).json({ error: named.error, field: 'name' });
       const input = named.value;
-      // The same person started in the last hour and still running: hand it back rather than use another slot.
+      const key = inputKey(input, body);
+      // The same person started in the last hour with the same details and still running: hand it back rather than
+      // use another slot. It is answered as it is, never stepped here (the page steps it, under its lease).
       const running = await findLatestJob(owner, { name: input.name, company: input.company, status: 'running', withinMinutes: 60 });
-      if (running && (running.state?.phase === 'collect' || running.state?.phase === 'report')) return res.status(200).json({ jobId: running.id, progress: progressOf(running.state), resumed: true });
+      let replaced = null;
+      if (running && (running.state?.phase === 'collect' || running.state?.phase === 'report')) {
+        // A check saved before the details were keyed matches only a start that adds nothing beyond name and company.
+        const runningKey = running.state.inputKey || inputKey({ name: running.state.name || input.name, company: running.state.company ?? input.company }, {});
+        if (runningKey === key) return res.status(200).json({ jobId: running.id, progress: progressOf(running.state), resumed: true });
+        // Started again with other details (a profile address, other names, a website): those details are what tell
+        // the person apart from namesakes, so a new check runs with them and the earlier one is stopped.
+        replaced = running.id;
+      }
       // network pairing: with no company typed, the one contact with this name is put to the user as a question
       // first. Only after a yes is its company assumed: it may make records likely, never confirmed, and the report
       // says so. A page that cannot ask yet gets the check without it, and the question beside it.
@@ -329,6 +386,7 @@ export default async function handler(req, res) {
       if (network.suggestion && body.askNetwork === true) return res.status(200).json({ needsConfirm: network.suggestion });
       const seed = network.seed || null;
       const state = startState({ ...input, assumedCompany: seed?.company || '' });
+      state.inputKey = key;
       if (seed) state.networkSeed = { company: seed.company, origin: 'network' }; // network pairing
       // The count and the record of the new job happen under one lock, and the
       // job store may refuse the insert itself (limited) when the hour is full.
@@ -348,17 +406,30 @@ export default async function handler(req, res) {
       }
       if (created.everyone) return res.status(429).json({ error: MANY_STARTED });
       const { id } = created;
-      const extra = seed ? { assumed: { company: seed.company } } : network.suggestion ? { networkSuggestion: network.suggestion } : {};
-      // The first step runs now. If it fails or cannot be saved, the check still exists and its id goes back:
-      // the page's next step carries on from the saved start, and no second slot is used.
+      if (replaced) await stopReplaced(replaced, owner);
+      const extra = {
+        ...(seed ? { assumed: { company: seed.company } } : network.suggestion ? { networkSuggestion: network.suggestion } : {}),
+        ...(replaced ? { replaced } : {}),
+      };
+      // The first step runs now, under the check's lease like any step: a start sent again (a retry after a dropped
+      // answer, a reload that picks the check up) is told the check is busy rather than running every lookup twice.
+      // If it fails or cannot be saved, the check still exists and its id goes back with what was saved.
+      const leased = await leaseJob(id, { owner });
+      if (!leased || leased.busy) return res.status(200).json({ jobId: id, progress: progressOf(state), ...extra });
+      let saved = false;
       try {
         const { progress } = await stepDeepCheck(state, { connectors: CONNECTORS, deadline: startedAt + STEP_MS, review: reviewer() });
-        await saveNext(id, state, 'running');
-        return res.status(200).json({ jobId: id, progress, ...extra });
+        saved = await saveNext(id, state, 'running');
+        if (saved) return res.status(200).json({ jobId: id, progress, ...extra });
+        // Another request saved it first: what the page is told is what was saved, never progress that was not.
+        const current = await getJob(id, { owner }).catch(() => null);
+        return res.status(200).json({ jobId: id, progress: current ? progressOf(current.state) : null, ...extra });
       } catch (error) {
         console.error('Deep founder check: first step not completed:', error.message);
-        const saved = await getJob(id, { owner }).catch(() => null);
-        return res.status(200).json({ jobId: id, progress: saved ? progressOf(saved.state) : null, ...extra });
+        const current = await getJob(id, { owner }).catch(() => null);
+        return res.status(200).json({ jobId: id, progress: current ? progressOf(current.state) : null, ...extra });
+      } finally {
+        if (!saved) await releaseLease(id, leased.leaseId);
       }
     }
 

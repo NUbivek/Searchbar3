@@ -84,8 +84,10 @@ describe('/api/debug/env-check', () => {
   });
 
   // Changed in round 3 (security-debug-routes): signed out gets a 404, as if the route did not exist.
+  // Changed in round 4 (network-security-debug-prod-open): production answers only an account on a set allow-list.
   test('requires a signed-in session in production', async () => {
     process.env.NODE_ENV = 'production';
+    process.env.FOUNDER_ALLOWED_EMAILS = 'owner@example.com';
     getServerSession.mockResolvedValue(null);
 
     const req = createMockReq({ method: 'GET' });
@@ -99,8 +101,9 @@ describe('/api/debug/env-check', () => {
   });
 
   // Changed in round 3: on a deployment only whether each group is set up, never the names of settings.
-  test('serves diagnostics to a signed-in user in production', async () => {
+  test('serves diagnostics to a signed-in user on the allow-list in production', async () => {
     process.env.NODE_ENV = 'production';
+    process.env.FOUNDER_ALLOWED_EMAILS = 'owner@example.com';
     getServerSession.mockResolvedValue({ user: { id: 'google:123', email: 'owner@example.com' } });
 
     const req = createMockReq({ method: 'GET' });

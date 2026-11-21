@@ -8,9 +8,10 @@ import NetworkHelpers from '../components/network/NetworkHelpers';
 import DeepCheck, { displayModel } from '../components/founder/DeepCheck';
 import { ExternalLink, SourceBadge } from '../components/founder/parts';
 import { briefHtml } from '../components/founder/briefHtml';
-import { keepDetails, keptDetails, recentJobs } from '../components/founder/jobs';
+import { keepDetails, keptDetails, recentJobs, detailsBody } from '../components/founder/jobs';
 import { formatWhen } from '../components/founder/summary';
 import { sectorKeywordsFrom } from '../utils/network/sectors';
+import { normalizeCompanyKey, companyMatch, companyFormMatch } from '../utils/network/parseContacts';
 import { skippedNote } from '../utils/skippedNote';
 
 const EMPTY = 'Nothing found in available sources.';
@@ -46,8 +47,16 @@ async function quickCheck(body) {
   return data;
 }
 
-const coKey = (s) => String(s || '').toLowerCase().replace(/\b(inc|llc|ltd|corp|co|company|gmbh|sa)\b\.?/g, '').replace(/[^\p{L}\p{N}]+/gu, '');
-const sameCompany = (a, b) => { const x = coKey(a); const y = coKey(b); return Boolean(x && y) && (x === y || x.includes(y) || y.includes(x)); };
+/**
+ * The same company written two ways, by the matcher the Network Map uses: equal names, a longer name holding
+ * a two-word one as whole words, or only form words added ("Acme" and "Acme Inc."). Never a substring: "Ramp"
+ * is not "Rampart Capital", and "X" is not "Exxon".
+ */
+export const sameCompany = (a, b) => {
+  const x = normalizeCompanyKey(a);
+  const y = normalizeCompanyKey(b);
+  return Boolean(x && y) && Boolean(companyMatch(x, y) || companyFormMatch(x, y));
+};
 
 /** The quick brief's citation: "Q3", so it never reads like record 3 of the deep report. */
 function Cite({ index, sources }) {
@@ -82,10 +91,14 @@ function Quote({ item, sources }) {
   );
 }
 
-/** Items about this person, then (apart) items from pages that may describe someone else with the name. */
+/**
+ * Items about this person, then (apart) items from pages that may describe someone else with the name: a page
+ * flagged as possibly another person, and one tied to the name only (nameOnly) while other pages tie the person.
+ */
+const mayBeSomeoneElse = (x) => Boolean(x?.possibleDifferentPerson || x?.nameOnly);
 function OwnThenOthers({ items, render, ordered = false }) {
-  const own = items.filter((x) => !x.possibleDifferentPerson);
-  const others = items.filter((x) => x.possibleDifferentPerson);
+  const own = items.filter((x) => !mayBeSomeoneElse(x));
+  const others = items.filter(mayBeSomeoneElse);
   const List = ordered ? 'ol' : 'ul';
   return (
     <>
@@ -93,7 +106,7 @@ function OwnThenOthers({ items, render, ordered = false }) {
       {others.length > 0 && (
         <div className={own.length ? 'mt-4 border-t border-line pt-3' : ''}>
           <p className="eyebrow mb-1">May be someone else</p>
-          <p className="mb-2 text-xs text-muted">These sources do not mention the company. They may describe the same person elsewhere, or a different person with the same name.</p>
+          <p className="mb-2 text-xs text-muted">These sources do not tie the person by more than the name. They may describe the same person elsewhere, or a different person with the same name.</p>
           <List className={ordered ? 'relative ml-2 border-l border-line pl-6' : 'divide-y divide-line'}>{others.map(render)}</List>
         </div>
       )}
@@ -147,6 +160,16 @@ const DETAIL_FIELDS = [
   ['otherNames', 'Other names', 'Former or other spellings, with commas'],
 ];
 const NO_DETAILS = { website: '', profileUrl: '', place: '', otherCompanies: '', school: '', otherNames: '' };
+/** Details kept for a person (lists as arrays) back in the form's shape (lists as comma-separated text). */
+function formDetailsOf(kept) {
+  const out = { ...NO_DETAILS };
+  if (!kept || typeof kept !== 'object') return out;
+  for (const k of Object.keys(NO_DETAILS)) {
+    const v = kept[k];
+    out[k] = Array.isArray(v) ? v.join(', ') : typeof v === 'string' ? v : '';
+  }
+  return out;
+}
 
 /** The person's earlier deep checks: reopening one never starts a new check. */
 function RecentChecks({ jobs }) {
@@ -167,7 +190,12 @@ function RecentChecks({ jobs }) {
             {j.company && <span className="chip">{j.company}</span>}
             {j.state === 'running' && <span className="chip chip-active">running</span>}
             {j.state === 'failed' && <span className="chip chip-warn">did not finish</span>}
-            {j.state === 'done' && typeof j.redFlags === 'number' && <span className={j.redFlags ? 'chip chip-bad' : 'chip'}>{j.redFlags} red flag{j.redFlags === 1 ? '' : 's'}</span>}
+            {j.state === 'done' && typeof j.redFlags === 'number' && (
+              // serious records held "if this is the right person" keep a zero from reading as clean
+              <span className={j.redFlags ? 'chip chip-bad' : j.ifRightPerson > 0 ? 'chip chip-warn' : 'chip'}>
+                {j.redFlags} red flag{j.redFlags === 1 ? '' : 's'}{j.ifRightPerson > 0 ? ` · ${j.ifRightPerson} serious if right person` : ''}
+              </span>
+            )}
             {j.when && <span className="ml-auto text-xs text-muted">{formatWhen(j.when)}</span>}
           </li>
         ))}
@@ -207,6 +235,7 @@ export default function FounderPage() {
   const [name, setName] = useState('');
   const [company, setCompany] = useState('');
   const [details, setDetails] = useState(NO_DETAILS);
+  const [detailsEdited, setDetailsEdited] = useState(false); // typed since the page last loaded a person's details
   const [showMore, setShowMore] = useState(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -228,6 +257,15 @@ export default function FounderPage() {
     recentJobs().then((list) => { if (live) setJobs(list); }).catch(() => {});
     return () => { live = false; };
   }, [status, deepReport]);
+
+  // A new person on the page: the details shown are those kept for this person, never the last person's.
+  useEffect(() => {
+    if (!router.isReady) return;
+    const kept = qName && typeof window !== 'undefined' ? formDetailsOf(keptDetails(qName, qCompany)) : NO_DETAILS;
+    setDetails(kept);
+    setDetailsEdited(false);
+    if (Object.keys(detailsBody(kept)).length) setShowMore(true); // details that will be sent are in sight
+  }, [router.isReady, qName, qCompany]);
 
   useEffect(() => {
     if (!router.isReady) return undefined;
@@ -263,13 +301,24 @@ export default function FounderPage() {
     return () => { cancelled = true; };
   }, [router.isReady, qName, qCompany, run, nameIssue]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Details loaded for the person on the page belong to them: once another name or company is typed, and no
+  // detail has been typed since, the form shows (and sends) none.
+  const otherPerson = name.trim() !== qName || company.trim() !== qCompany;
+  const formDetails = otherPerson && !detailsEdited ? NO_DETAILS : details;
+  const filledDetails = Object.keys(detailsBody(formDetails)).length;
+  const editDetail = (key, value) => {
+    setDetails((d) => ({ ...(otherPerson && !detailsEdited ? NO_DETAILS : d), [key]: value }));
+    setDetailsEdited(true);
+  };
+
   const onSubmit = (e) => {
     e.preventDefault();
     const n = name.trim();
     const c = company.trim();
     const problem = nameProblem(n, c);
     if (problem) { setError(problem); return; }
-    keepDetails(n, c, details);
+    keepDetails(n, c, formDetails);
+    setDetailsEdited(false); // sent for this person: a name typed next does not inherit them
     const query = { name: n };
     if (c) query.company = c;
     if (n === qName && c === qCompany) {
@@ -278,7 +327,16 @@ export default function FounderPage() {
     }
     router.push({ pathname: '/founder', query }, undefined, { shallow: true });
   };
-  const choose = (co) => router.push({ pathname: '/founder', query: { name: qName, company: co } }, undefined, { shallow: true });
+  const choose = (co) => {
+    // the details typed for the name are kept for the person chosen: this is the case they were typed for
+    keepDetails(qName, co, filledDetails ? formDetails : (keptDetails(qName, '') || NO_DETAILS));
+    router.push({ pathname: '/founder', query: { name: qName, company: co } }, undefined, { shallow: true });
+  };
+  // The check on the page goes in the address, so a reload or Back opens it and not an older one the link named.
+  const onJob = (id) => {
+    if (!id || id === qJob) return;
+    router.replace({ pathname: '/founder', query: { name: qName, ...(qCompany ? { company: qCompany } : {}), job: id } }, undefined, { shallow: true });
+  };
 
   // the optional details typed for this person (kept in this tab, so they survive the sign-in round trip)
   const startDetails = useMemo(() => (qName && typeof window !== 'undefined' ? keptDetails(qName, qCompany) : null), [qName, qCompany, run]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -297,9 +355,14 @@ export default function FounderPage() {
   const otherPages = new Set([...(data?.timeline || []), ...companies, ...(data?.education || []), ...(data?.litigation || []), ...(data?.press || []), ...mentions]
     .filter((x) => x.possibleDifferentPerson).map((x) => x.sourceIndex));
   const allProfiles = data?.profiles || [];
-  const ownProfiles = choosing ? [] : allProfiles.filter((p) => !otherPages.has(p.sourceIndex) && (!qCompany || !p.company || sameCompany(p.company, qCompany)));
+  // a profile the server flags as possibly another person is never listed as theirs
+  const ownProfiles = choosing ? [] : allProfiles.filter((p) => !p.possibleDifferentPerson && !otherPages.has(p.sourceIndex) && (!qCompany || !p.company || sameCompany(p.company, qCompany)));
   const profilesLeftOut = choosing ? 0 : allProfiles.length - ownProfiles.length;
   const namesakePages = data?.namesakePages || [];
+  const namesakeCourt = data?.namesakeCourtRecords && Number(data.namesakeCourtRecords.count) > 0 ? data.namesakeCourtRecords : null;
+  // While several people share the name and none is chosen, the quick brief's sections would show one of them as
+  // this person: only the sources and the chooser are shown until a choice (or "the name alone").
+  const undecided = choosing && !nameAlone;
 
   // The deep check starts once it is known who it is about: at once with a company or a saved check; otherwise
   // after the quick look, unless that found several people (then after the choice, or on the name alone).
@@ -459,8 +522,21 @@ export default function FounderPage() {
         title="Litigation and regulatory mentions"
         count={(data.litigation || []).length}
         empty={!(data.litigation || []).length}
-        emptyText="No litigation or regulatory mentions in the available sources."
-        note={<p className="mb-3 rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs text-muted">{data.litigationDisclaimer}</p>}
+        emptyText={namesakeCourt ? 'No litigation or regulatory mention tied to this person; the court records under the name are listed above.' : 'No litigation or regulatory mentions in the available sources.'}
+        note={(
+          <>
+            <p className="mb-3 rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs text-muted">{data.litigationDisclaimer}</p>
+            {namesakeCourt && (
+              <div className="mb-3 rounded-xl border border-line px-3.5 py-2.5" data-testid="namesake-court">
+                <p className="eyebrow mb-1">Court records under the name, not tied to this person</p>
+                <p className="mb-2 text-xs text-muted">{namesakeCourt.count} court record{namesakeCourt.count === 1 ? ' names' : 's name'} someone with this name but not the company. Check {namesakeCourt.count === 1 ? 'it' : 'them'} directly.</p>
+                <ul className="space-y-1 text-sm text-muted">
+                  {(namesakeCourt.records || []).map((c, i) => <li key={`${c.url}-${i}`}><ExternalLink href={c.url} className="hover:text-brand-600 hover:underline">{c.title}</ExternalLink></li>)}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
       >
         <OwnThenOthers items={data.litigation || []} render={(l, i) => <li key={i} className="py-3 first:pt-0 last:pb-0"><Quote item={l} sources={sources} /></li>} />
       </Section>
@@ -564,6 +640,7 @@ export default function FounderPage() {
           </div>
           <button type="button" className="btn-ghost mt-2 px-2 py-1 text-xs" aria-expanded={showMore} aria-controls="founder-more" onClick={() => setShowMore((v) => !v)}>
             <HiOutlineChevronDown style={{ width: 13, height: 13 }} className={showMore ? 'rotate-180' : ''} /> More details
+            {filledDetails > 0 && <span className="chip ml-1">{filledDetails} added</span>}
           </button>
           <div id="founder-more" hidden={!showMore} className="mt-3">
             <p className="muted mb-2 text-xs">Optional. Each detail you know helps the deep check tell this person apart from others with the name.</p>
@@ -571,7 +648,7 @@ export default function FounderPage() {
               {DETAIL_FIELDS.map(([key, label, hint]) => (
                 <label key={key} className="block text-xs text-muted">
                   {label}
-                  <input type="text" className="input mt-1 w-full" maxLength={key === 'otherCompanies' || key === 'otherNames' ? 400 : 200} value={details[key]} placeholder={hint} onChange={(e) => setDetails((d) => ({ ...d, [key]: e.target.value }))} />
+                  <input type="text" className="input mt-1 w-full" maxLength={key === 'otherCompanies' || key === 'otherNames' ? 400 : 200} value={formDetails[key]} placeholder={hint} onChange={(e) => editDetail(key, e.target.value)} />
                 </label>
               ))}
             </div>
@@ -582,7 +659,7 @@ export default function FounderPage() {
 
         {error && <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" role="alert">{error}</div>}
         {choosing && !nameAlone && <Chooser name={data.name || qName} people={data.people} onChoose={choose} onNameAlone={() => setNameAlone(true)} />}
-        {deepOn && <DeepCheck name={qName} company={qCompany} runKey={run} jobId={qJob || null} details={startDetails} onReport={setDeepReport} />}
+        {deepOn && <DeepCheck name={qName} company={qCompany} runKey={run} jobId={qJob || null} details={startDetails} onReport={setDeepReport} onJob={onJob} />}
         {loading && <BriefSkeleton name={qName} company={qCompany} />}
 
         {noSources && (
@@ -623,7 +700,7 @@ export default function FounderPage() {
             <div className="mt-4 space-y-4">{quickBrief}{sourcesCard}</div>
           </details>
         ) : (
-          <>{quickBrief}{sourcesCard}</>
+          <>{undecided ? null : quickBrief}{sourcesCard}</>
         ))}
       </div>
     </PageShell>

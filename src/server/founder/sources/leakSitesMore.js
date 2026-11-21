@@ -36,8 +36,8 @@
 import { getJson, HOST_GAP_MS, decodeEntities } from '../http';
 import { makeFinding } from '../finding';
 import { cachedEntry } from '../cache';
-import { isOrdinaryWordCompany, companyKeys } from '../names';
-import { companyKey, matchOrgName, ownNameIn, registrableDomain, orgTokens } from './exposure';
+import { companyKeys } from '../names';
+import { companyKey, matchOrgName, ownNameIn, registrableDomain, orgTokens, companyOwnDomains, bareBrandOnly, distinctiveMatch, legalNameMatch } from './exposure';
 
 // RansomFeed states no rate limit; the research notes ask for about one request every two seconds.
 // (Set here so this file needs no change elsewhere; an integrator may move it into http.js HOST_GAP_MS.)
@@ -58,10 +58,6 @@ const KINDS = ['company', 'domain'];
 const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const squash = (tokens) => tokens.join('');
 const dropThe = (tokens) => (tokens.length > 1 && tokens[0] === 'the' ? tokens.slice(1) : tokens);
-const containsRun = (tokens, want) => {
-  for (let i = 0; i + want.length <= tokens.length; i += 1) if (want.every((t, j) => tokens[i + j] === t)) return true;
-  return false;
-};
 const isDomainText = (v) => /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(String(v || ''));
 /** "2023-09-14 20:39:00" -> "2023-09-14" (the source's own calendar day). */
 const isoDay = (s) => {
@@ -69,12 +65,13 @@ const isoDay = (s) => {
   return m && +m[1] >= 1990 && +m[1] <= 2100 && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31 ? `${m[1]}-${m[2]}-${m[3]}` : null;
 };
 const field = (label, value) => { const v = oneLine(value); return v ? `${label}: ${v}${/[.!?]$/.test(v) ? '' : '.'}` : ''; };
-const MATCH_RANK = { exact: 0, padded: 1, leading: 2, contains: 3 };
+const MATCH_RANK = { exact: 0, padded: 1, leading: 2, contains: 3, partial: 4 };
 const MATCH_REASON = {
   exact: (company) => `the organisation's name matches ${company}`,
   padded: (company) => `the organisation's name is ${company} followed by general words: check it is the same company`,
   leading: (company) => `the entry begins with the name ${company}`,
   contains: (company) => `the entry names ${company}`,
+  partial: (company) => `the entry contains a legal name of ${company} inside a longer name`,
 };
 
 /** Mail, social and hosting domains shared by millions (the same list exposure.js uses): a listing of one says nothing. */
@@ -120,16 +117,13 @@ function targetOf(task, ctx) {
   return { kind: 'company', key };
 }
 
-/** The company's own websites the check knows, when their name part is the company's name. */
+/**
+ * The company's own websites the check knows (exposure.js companyOwnDomains): domains learned for this company
+ * whatever their label, and the subject's domains named like the company or beginning with its name
+ * ("nikolamotor.com" for Nikola).
+ */
 function ownDomainsOf(key, ctx) {
-  const out = new Set();
-  const subject = ctx?.subject;
-  const values = [...(subject?.anchors?.domains?.values?.() || []), ...[...(subject?.anchors?.aliases?.values?.() || [])].filter((a) => isDomainText(a.value))].map((a) => a.value);
-  for (const value of values) {
-    const d = registrableDomain(value);
-    if (d && !SHARED_DOMAINS.has(d) && matchOrgName(key, d) === 'exact') out.add(d);
-  }
-  return [...out];
+  return companyOwnDomains(key, ctx);
 }
 
 /** Every fuller legal name the check has learned for this company (identity.addCompanyAlias), of two words or more. */
@@ -139,33 +133,40 @@ function legalNamesOf(key, ctx) {
     .filter((a) => a.of === of && !isDomainText(a.value) && companyKey(a.value).full.length >= 2)
     .map((a) => a.value);
 }
-const legalNameIn = (key, text, ctx) => {
-  const tokens = dropThe(orgTokens(text));
-  return legalNamesOf(key, ctx).find((n) => containsRun(tokens, companyKey(n).full)) || '';
-};
-
-/** Named distinctively enough for its exact name alone to stand for it (not one ordinary word: phase 1 matcher). */
-const distinctiveName = (key) => key.specific && (key.full.length >= 2 || !isOrdinaryWordCompany(key.full.join(' ')));
+/** The learned legal name that a text is named (whole, legal forms aside; never inside a longer name), or ''. */
+const legalNameIn = (key, text, ctx) => legalNamesOf(key, ctx).find((n) => legalNameMatch(n, text) === 'exact') || '';
+/** Does a learned legal name appear only inside a longer name ("Lightning Bolt Financial Advisors")? */
+const legalNameInside = (key, text, ctx) => legalNamesOf(key, ctx).some((n) => legalNameMatch(n, text) === 'partial');
 
 /**
  * The grade of one matched listing. 'company' only on the company's own website, or on its exact, distinctive
  * name or a learned legal name; otherwise a possible namesake. Never a grade about the person.
  */
-function gradeListing(target, grade, { onOwnDomain = false, recordName = '', ctx = null, domainNote = '' } = {}) {
+function gradeListing(target, grade, { onOwnDomain = false, recordName = '', ctx = null, domainNote = '', bareOnly = undefined, otherSites = [] } = {}) {
   if (target.kind === 'domain' || onOwnDomain) return { match: 'company', severity: 'medium', extra: {} };
+  // Every post gives a website and none is the company's own (known): another organisation of the same name
+  // (a "Nikola" hotel at nikola-hotel.rs is not Nikola at nikolamotor.com), whatever the name says.
+  if (otherSites.length) {
+    const why = `the listing gives the website ${otherSites.slice(0, 2).join(', ')}, not the company's own, so it is probably another organisation of the same name`;
+    return { match: 'possible', severity: 'low', why, extra: { excludeFromTimeline: true, companyNamesake: true, otherWebsite: otherSites[0], ...(domainNote ? { ownDomainChecked: domainNote } : {}) } };
+  }
   const byLegalName = Boolean(recordName) && Boolean(legalNameIn(target.key, recordName, ctx));
-  if (byLegalName || ((grade === 'exact' || grade === 'leading' || grade === 'contains') && distinctiveName(target.key))) {
+  if (byLegalName || ((grade === 'exact' || grade === 'leading' || grade === 'contains') && distinctiveMatch(target.key, recordName, bareOnly))) {
     return { match: 'company', severity: 'medium', extra: {} };
   }
   const why = grade === 'padded'
     ? `the name adds a general word to ${target.key.name}, so it may be another company: check it is the same company`
-    : `"${target.key.name}" is an ordinary word other organisations also use, so it may be another company: check it is the same company`;
+    : grade === 'partial'
+      ? `the company's legal name appears inside a longer name, so it may be another company: check it is the same company`
+      : `"${target.key.name}" is an ordinary word other organisations also use, so it may be another company: check it is the same company`;
   return { match: 'possible', severity: 'low', why, extra: { excludeFromTimeline: true, companyNamesake: true, ...(domainNote ? { ownDomainChecked: domainNote } : {}) } };
 }
 
 /**
- * How one listing matches: { grade, onOwn } or null. A company is matched on its own name (or a learned
- * legal name) in the victim title, or on its own website; a domain on that domain only.
+ * How one listing matches: { grade, onOwn, bare, otherSite } or null. A company is matched on its own name (or a
+ * learned legal name) in the victim title, or on its own website; a domain on that domain only. `bare` says the
+ * listing named only the company's bare brand ("Harvey" for Harvey AI); `otherSite` is the website the listing
+ * gives when the company's own website is known and this is another one.
  */
 function matchListing(target, own, ctx, victim, website = '') {
   const site = registrableDomain(website);
@@ -174,12 +175,17 @@ function matchListing(target, own, ctx, victim, website = '') {
   }
   if ((site && own.includes(site)) || domainsIn(victim).some((d) => own.includes(d))) return { grade: 'exact', onOwn: true };
   let grade = matchOrgName(target.key, victim);
-  if (grade !== 'exact' && legalNameIn(target.key, victim, ctx)) grade = 'exact';
+  let bare = Boolean(grade) && bareBrandOnly(target.key, victim);
+  if (grade !== 'exact' && legalNameIn(target.key, victim, ctx)) { grade = 'exact'; bare = false; }
+  if (!grade && legalNameInside(target.key, victim, ctx)) grade = 'partial';
   // A website whose name is the company's ("mgmresorts.com") counts as the name, unless the company's own site is
   // known and this is another one (a "merge.cd" is not merge.dev).
-  if (!grade && site && !own.length && matchOrgName(target.key, site) === 'exact') grade = 'exact';
-  if (grade && site && own.length && !own.includes(site) && grade !== 'exact') return null;
-  return grade ? { grade, onOwn: false } : null;
+  if (!grade && site && !own.length && matchOrgName(target.key, site) === 'exact') { grade = 'exact'; bare = bareBrandOnly(target.key, site); }
+  if (!grade) return null;
+  // The company's own website is known and the listing names another: a looser name is dropped, and even an
+  // exact one is at most a possible namesake (as the breach catalogue skips an entry on another website).
+  if (site && own.length && !own.includes(site)) return grade === 'exact' ? { grade, onOwn: false, bare, otherSite: site } : null;
+  return { grade, onOwn: false, bare };
 }
 
 /** The company's own name as the listing writes it, never the rest of an attacker's headline. */
@@ -201,9 +207,12 @@ function groupListings(rows, target, own, ctx) {
     const hit = matchListing(target, own, ctx, row.victim, row.website);
     if (!hit) continue;
     const group = groupName(row.group) || 'an extortion group';
-    const entry = byGroup.get(group.toLowerCase()) || { group, grade: hit.grade, onOwn: false, names: [], days: new Set(), rows: [] };
+    const entry = byGroup.get(group.toLowerCase()) || { group, grade: hit.grade, onOwn: false, whole: false, anySite: false, otherSites: [], names: [], days: new Set(), rows: [] };
     if ((MATCH_RANK[hit.grade] ?? 9) < (MATCH_RANK[entry.grade] ?? 9)) entry.grade = hit.grade;
     if (hit.onOwn) entry.onOwn = true;
+    if (!hit.bare) entry.whole = true;
+    // A post with no foreign website keeps the group's claim on the name; posts on another website only add the site
+    if (hit.otherSite) { if (!entry.otherSites.includes(hit.otherSite)) entry.otherSites.push(hit.otherSite); } else entry.anySite = true;
     const name = shownName(target, own, ctx, row.victim);
     if (name) entry.names.push(name);
     if (row.day) entry.days.add(row.day);
@@ -227,7 +236,7 @@ function groupListings(rows, target, own, ctx) {
 
 const reasonOf = (target, own, entry) => {
   if (target.kind === 'domain') return `exact match on the domain ${target.domain}`;
-  if (entry.onOwn) return `the listing names the company's own website (${own.join(', ') || 'its domain'})`;
+  if (entry.onOwn) return `the listing names the company's own website (${own.slice(0, 2).join(', ') || 'its domain'})`;
   return MATCH_REASON[entry.grade](target.key.name);
 };
 
@@ -274,7 +283,7 @@ function ransomfeedTerms(target, own) {
   add(squash(target.key.full)); // "mgmresorts", "uber"
   add(squash(target.key.core)); // "Uber Technologies" -> "uber"
   if (target.key.full.length > 1) add(target.key.full[0]); // "change" catches "Change HealthCare - OPTUM"
-  for (const d of own) add(d);
+  for (const d of own.slice(0, 2)) add(d);
   return out.slice(0, MAX_QUERIES);
 }
 
@@ -293,7 +302,8 @@ export const ransomfeedConnector = {
   async run(task, ctx) {
     const target = targetOf(task, ctx);
     if (target.skip) return { findings: [], threads: [], notes: target.note ? [target.note] : [] };
-    const own = target.kind === 'company' ? ownDomainsOf(target.key, ctx).slice(0, 2) : [];
+    // Every website known to be the company's decides what is its own (only the first ones are searched or named)
+    const own = target.kind === 'company' ? ownDomainsOf(target.key, ctx) : [];
     const terms = ransomfeedTerms(target, own);
 
     const rows = [];
@@ -318,11 +328,11 @@ export const ransomfeedConnector = {
     const seen = new Set();
     const unique = rows.filter((r) => { const k = r.id || `${r.victim}|${r.group}|${r.day}`; if (seen.has(k)) return false; seen.add(k); return true; });
     const entries = groupListings(unique, target, own, ctx);
-    const domainNote = own.length && !entries.some((e) => e.onOwn) ? `No RansomFeed post names ${own.join(' or ')}.` : '';
+    const domainNote = own.length && !entries.some((e) => e.onOwn) ? `No RansomFeed post names ${own.slice(0, 2).join(' or ')}.` : '';
     const what = target.kind === 'company' ? target.key.name : target.domain;
 
     const findings = entries.map((entry) => {
-      const g = gradeListing(target, entry.grade, { onOwnDomain: entry.onOwn, recordName: entry.organisation, ctx, domainNote });
+      const g = gradeListing(target, entry.grade, { onOwnDomain: entry.onOwn, recordName: entry.organisation, ctx, domainNote, bareOnly: !entry.whole, otherSites: entry.anySite ? [] : entry.otherSites });
       const firstRow = entry.rows.slice().sort((a, b) => String(a.day || '').localeCompare(String(b.day || '')))[0];
       const site = registrableDomain(firstRow.website);
       const country = entry.rows.map((r) => r.country).find((c) => c && !/^(none|unknown|n\/a)$/i.test(c)) || '';
@@ -412,7 +422,8 @@ export const ransomwatchArchiveConnector = {
     const notes = [];
     if (asOf) notes.push(`The ransomwatch archive could not be refreshed; its copy of ${asOf} was searched.`);
 
-    const own = target.kind === 'company' ? ownDomainsOf(target.key, ctx).slice(0, 2) : [];
+    // Every website known to be the company's decides what is its own (only the first ones are searched or named)
+    const own = target.kind === 'company' ? ownDomainsOf(target.key, ctx) : [];
     const forms = prefilterForms(target, own, ctx);
     const rows = [];
     for (const [title, group, day] of posts) {
@@ -421,11 +432,11 @@ export const ransomwatchArchiveConnector = {
       rows.push({ victim: title, group, day, website: '' });
     }
     const entries = groupListings(rows, target, own, ctx);
-    const domainNote = own.length && !entries.some((e) => e.onOwn) ? `No archived post names ${own.join(' or ')}.` : '';
+    const domainNote = own.length && !entries.some((e) => e.onOwn) ? `No archived post names ${own.slice(0, 2).join(' or ')}.` : '';
     const what = target.kind === 'company' ? target.key.name : target.domain;
 
     const findings = entries.map((entry) => {
-      const g = gradeListing(target, entry.grade, { onOwnDomain: entry.onOwn, recordName: entry.organisation, ctx, domainNote });
+      const g = gradeListing(target, entry.grade, { onOwnDomain: entry.onOwn, recordName: entry.organisation, ctx, domainNote, bareOnly: !entry.whole });
       return makeFinding(ctx.subject, {
         source: ARCHIVE_ID, sourceLabel: ARCHIVE_LABEL, category: CATEGORY,
         title: `${entry.organisation} listed by ${entry.group} on a ransomware leak site, archived (claimed, unverified)`,

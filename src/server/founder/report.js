@@ -10,8 +10,11 @@
  * and screens read from them. Its answer is checked in code, line by line:
  * every citation must be to a record it was shown; a factual line without a
  * citation is removed; a line about the person or their company that cites
- * only records matched by name only is removed; a red-flag line must share a
- * word with a record it cites; links, images and markup are removed; the
+ * only records matched by name only is removed; a red-flag line (and a
+ * bottom-line sentence stating an adverse event) loses its name-only
+ * citations and must report the same kind of event as a tied record it still
+ * cites, with a distinctive word of it; the screens section is always the
+ * check's own; links, images and markup are removed; the
  * privacy rules run over it. These checks see citation numbers and words, not
  * meaning: nothing reviews the answer's sense, so a sentence can still
  * misstate a record it cites. When the checks remove too much, or no model
@@ -22,7 +25,7 @@ import { CATEGORIES } from './finding';
 import { buildProfile, isPersonRun } from './profile';
 import { matchRank, restoreSubject, personKey, slugCandidates, nameTokens } from './identity';
 import { companyKeys, nameMatcher } from '../founderCheck';
-import { companyMentionMatcher, companyKeyStrict, cooccurrences, isBroadOrganisation, isCommonName, isOrdinaryWordCompany } from './names';
+import { companyMentionMatcher, companyKeyStrict, cooccurrences, isBroadOrganisation, isCommonName, isOrdinaryWordCompany, matterOutcome } from './names';
 import { USE_NOTICE, cleanModelText } from './guardrails';
 import { searchCoverageNote, SEARCH_COUNT_KEYS } from './sources/searchEngines';
 import { chatComplete, PROVIDERS, providerEnabled } from '../llm/providers';
@@ -197,11 +200,14 @@ function roleBeforeFounding(f) {
 // How serious the kind of event a red flag reports is, for ordering red flags: a criminal matter first, then
 // a regulator's action, a lawsuit or settlement, related-party dealings, a forced departure, everything else.
 const FLAG_WEIGHTS = [
-  // a sanctions, debarment or wanted-list entry, or a bar from an industry, leads everything
-  [6, /\bsanction(?:s|ed)\b|\bdebarr?\w*|\bwanted (?:by|list)\b|\bmost wanted\b|\bexclusion list\b|\bexcluded from federal\b|\bbarred from\b|\bprohibition order\b/i],
-  [5,/\bindict\w*|\bconvict\w*|\bsentenc\w+|\bfound guilty\b|\bplead(?:s|ed)? guilty\b|\bpled guilty\b|\bguilty verdict\b|\bprison\b|\bpardon\w*/i],
+  // a sanctions, debarment or wanted-list entry, or a bar from an industry, leads everything. Only list wording
+  // counts in a headline: "Judge sanctions Jane Roe over discovery abuse" is a court's penalty in a lawsuit, and
+  // "Russia sanctions" news is not a listing either (both fall to the lawsuit weight below).
+  [6, /\bOFAC\b|\bSDN list\b|\bsanctions? lists?\b|\bsanctioned by the (?:US |U\.S\. |UK |EU )?(?:Treasury|Department of the Treasury|State Department|government)\b|\badded to (?:the )?(?:\w+ )?sanctions\b|\bdebarr?\w*|\bwanted (?:by|list)\b|\bmost wanted\b|\bexclusion list\b|\bexcluded from federal\b|\bbarred from\b|\bprohibition order\b/i],
+  // "Guilty of Defrauding Investors" is a conviction; "pleads not guilty" is not
+  [5, /\bindict\w*|\bconvict\w*|\bsentenc\w+|(?<!\bnot )\bguilty\b|\bguilty verdict\b|\bprison\b|\bpardon\w*/i],
   [4, /\bSEC\b|\bSecurities and Exchange Commission\b|\bDOJ\b|\bDepartment of Justice\b|\bcharged\b|\bcharges\b|\bFINRA\b|\bFTC\b|\bregulators?\b|\benforcement action\b/i],
-  [3, /\blawsuits?\b|\bsue[ds]?\b|\bsuing\b|\bclass[- ]action\b|\bsettle\w*|\bagreed to pay\b/i],
+  [3, /\blawsuits?\b|\bsue[ds]?\b|\bsuing\b|\bclass[- ]action\b|\bsettle\w*|\bagreed to pay\b|\bsanction(?:s|ed)?\b/i],
   [2, /\brelated[- ]part(?:y|ies)\b|\bself[- ]dealing\b|\bconflicts? of interest\b|\blandlord to\b/i],
   [1, /\bousted\b|\bfired\b|\bresign\w*|\bstep(?:s|ped)? down\b|\bforced out\b|\bunder pressure\b/i],
 ];
@@ -214,8 +220,13 @@ function flagWeight(flag) {
   const floor = flag.category === 'sanctions' || LIST_SOURCES.has(flag.source) ? 6 : flag.category === 'regulatory' ? 4 : 0;
   const titles = [flag.title, ...(flag.more || []).filter((m) => m.match !== 'possible').map((m) => m.title)];
   const fromTitles = Math.max(0, ...titles.map(weightOf));
-  return Math.max(floor, fromTitles || weightOf(flag.quote));
+  const weight = Math.max(floor, fromTitles || weightOf(flag.quote));
+  // A matter that ended in the person's favour (acquitted, dismissed, dropped, overturned, won) goes below every
+  // matter still standing against them, whatever its headline said when it began.
+  return flag.outcome && EXCULPATORY.has(flag.outcome.text) ? Math.min(weight, 0.5) : weight;
 }
+// Outcomes that clear the person (finding.js EXCULPATORY): the matter stays listed, with the outcome beside it.
+const EXCULPATORY = new Set(['acquitted', 'overturned', 'vacated', 'dismissed', 'dropped', 'won']);
 
 /** Which gaps no free source covered on this run: the fixed list, adjusted to what actually answered. */
 function notCoveredFor(state, allSources, answered, silent) {
@@ -375,8 +386,10 @@ const EVENTS = [
   ['pardon', /\bpardon\w*|\bcommut\w+|\bclemency\b/i],
   ['appeal', /\bappeal\w*|\bupheld\b|\baffirm\w*|\boverturn\w*|\brehear\w*/i],
   ['sentence', /\bsentenc\w+|\byears? in (?:federal )?prison\b|\bimprison\w*|\breports? to prison\b/i],
-  ['conviction', /\bconvict\w+|\bfound guilty\b|\bguilty verdict\b|\bplead(?:s|ed)? guilty\b|\bpled guilty\b|\bverdict\b/i],
-  ['charges', /\bindict\w+|\bcharged\b|\bcharges\b|\barrest\w*|\bextradit\w*/i],
+  // a bare "guilty" ("Guilty of Defrauding Investors") is a conviction too, but never "not guilty"
+  ['conviction', /\bconvict\w+|(?<!\bnot )\bguilty\b|\bverdict\b/i],
+  // "prosecutors charge Jane Roe"; never "in charge of"
+  ['charges', /\bindict\w+|\bcharged\b|\bcharges\b|(?<!\bin )\bcharge\b(?!\s+of\b)|\barrest\w*|\bextradit\w*/i],
   ['settlement', /\bsettle\w*|\bagreed to pay\b|\bconsent (?:order|decree)\b/i],
   ['bar', /\bbarred\b|\bbanned\b|\bdisqualif\w+|\bdebarr\w+|\bexclu(?:sion|ded)\b|\bprohibition\b/i],
   ['insolvency', /\bbankrupt\w*|\binsolven\w*|\bliquidat\w*|\bchapter (?:7|11)\b|\breceivership\b|\bwound up\b|\bwinding[- ]up\b/i],
@@ -408,20 +421,42 @@ const WINDOW_MS = 31 * 24 * 3600 * 1000;
  */
 function dateWindows(serious) {
   const kinds = new Map();
+  // Reports of a rare event with no date, or with a year only ("convicted of securities fraud (2022)", an undated
+  // forum thread on the sentencing): placed after the dated ones are clustered.
+  const loose = new Map();
   for (const f of serious) {
     const tag = eventOf(f);
-    if ((f.match !== 'confirmed' && f.match !== 'likely') || !RARE_EVENTS.has(tag) || !f.date || f.date.length < 7 || docketOf(f)) continue;
+    if ((f.match !== 'confirmed' && f.match !== 'likely') || !RARE_EVENTS.has(tag) || docketOf(f)) continue;
     const kind = `${tag}|${whoOf(f)}`;
-    if (!kinds.has(kind)) kinds.set(kind, []);
-    kinds.get(kind).push(f);
+    const bucket = !f.date || f.date.length < 7 ? loose : kinds;
+    if (!bucket.has(kind)) bucket.set(kind, []);
+    bucket.get(kind).push(f);
   }
   const out = new Map();
+  const windowsOf = new Map(); // kind -> [{ key, years: Set }]
   for (const [kind, list] of kinds) {
     let i = 0;
+    const wins = [];
     list.sort((a, b) => when(a) - when(b)).forEach((f, j) => {
       if (j > 0 && when(f) - when(list[j - 1]) > WINDOW_MS) i += 1;
       out.set(f.id, `${kind}|window${i}`);
+      if (!wins[i]) wins[i] = { key: `${kind}|window${i}`, years: new Set() };
+      wins[i].years.add(String(f.date).slice(0, 4));
     });
+    windowsOf.set(kind, wins);
+  }
+  // One sentencing of a person reported once with a date and twice without is one matter. A record with a year
+  // joins the one window of that event in its year; an undated one joins the event's window only when there is
+  // a single one. When several fit, nothing says which: it stays a matter of its own.
+  for (const [kind, list] of loose) {
+    const wins = windowsOf.get(kind) || [];
+    for (const f of list) {
+      const year = f.date ? String(f.date).slice(0, 4) : '';
+      const fits = year ? wins.filter((w) => w.years.has(year)) : wins;
+      if (fits.length === 1) out.set(f.id, fits[0].key);
+      // no dated report of the event at all: undated reports of it share one matter, year-only ones by year
+      else if (!wins.length) out.set(f.id, `${kind}|loose${year || ''}`);
+    }
   }
   return out;
 }
@@ -475,6 +510,159 @@ function matterKey(f, windows = new Map()) {
   return `${tag}|${f.date.slice(0, 7)}|${whoOf(f)}${f.match === 'possible' ? '|possible' : ''}`;
 }
 
+/* --------------------------------------------------------------------- one matter, one red flag
+ * Matters are first built from reports of one event (above). Three kinds of report still split one matter:
+ * the stages of one prosecution (charged, tried, convicted, sentenced), two reports of one settlement that
+ * share its amount, and the dockets of one dispute between the same two parties. And the record that ends a
+ * matter (a pardon, an acquittal, a dismissal) is often graded low, or reported apart, so it never joined it.
+ */
+const shortRecord = (f) => ({ n: f.n, title: f.title, url: f.url, sourceLabel: f.sourceLabel, date: f.date, match: f.match });
+// Stages of one criminal prosecution, in order.
+const STAGES = { charges: 1, trial: 2, conviction: 3, sentence: 4, appeal: 5 };
+const CRIMINAL = /\bindict\w*|\barrest\w*|\bextradit\w*|\bprosecut\w*|\bcriminal\b|\bgrand jury\b|\bU\.?S\.? Attorney\b|\bjury\b|\btrial\b|\bplead(?:s|ed)?\b|\bpled\b/i;
+// "to Pay $125 Million to Resolve Fraud Charges": a civil settlement of charges, not a stage of a prosecution
+const CIVIL_END = /\bto pay\b|\bresolv\w*|\bsettle\w*|\bagreed to pay\b|\bconsent (?:order|decree)\b/i;
+const PROSECUTION_GAP_MS = 2 * 365 * 24 * 3600 * 1000;
+// Reports of one stage spread over more than this are two cases (two convictions), not one: nothing is merged then.
+const STAGE_SPREAD_MS = 90 * 24 * 3600 * 1000;
+/** The stage of a prosecution a record reports, read from its headline: null when it reports none. */
+function stageOf(f) {
+  const title = String(f.title || '');
+  if (CIVIL_END.test(title)) return null;
+  // the headline says which stage a report is about; a quotation mentions earlier stages in passing
+  const tag = eventOf({ title });
+  if (tag === 'lawsuit' || tag === 'settlement' || tag === 'insolvency' || tag === 'departure') return null;
+  const text = `${title} ${f.quote || ''}`;
+  // "seeks probation after fraud conviction" is the sentencing, not a second conviction
+  if (tag === 'sentence' || /\bsentenc\w+|\bprobation\b/i.test(title)) return 'sentence';
+  if (tag === 'conviction') return 'conviction';
+  if (/\btrial\b/i.test(title) && (tag === 'charges' || tag === 'fraud' || !tag)) return 'trial';
+  if (tag === 'charges') return f.source === 'doj-press-releases' || CRIMINAL.test(text) ? 'charges' : null;
+  if (tag === 'appeal') return /\bconvict\w*|\bsentenc\w*|\bcriminal\b|\bprison\b/i.test(text) ? 'appeal' : null;
+  return null;
+}
+const tagsOf = (flag) => new Set([eventOf(flag), ...(flag.stages || []).map((s) => s.tag)].filter(Boolean));
+// Amounts of a million or more a text states, as numbers ("$125 Million" and "$125M" are one amount).
+const MONEY = /\$\s?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(billion|million|bn|b|m)?\b/gi;
+function amountsIn(text) {
+  const out = new Set();
+  for (const m of String(text || '').matchAll(MONEY)) {
+    const unit = String(m[2] || '').toLowerCase();
+    const v = Number(m[1].replace(/,/g, '')) * (/^b/.test(unit) ? 1e9 : /^m/.test(unit) ? 1e6 : 1);
+    if (v >= 1e6) out.add(Math.round(v / 1e5));
+  }
+  return out;
+}
+// The two parties of a docket's title ("Nikola Corporation v. Milton"), in either order.
+const PARTY_FORMS = /\b(?:the|inc|incorporated|llc|ltd|limited|corp|corporation|co|company|plc|lp|llp)\b/g;
+function captionOf(f) {
+  if (f.category !== 'litigation' && !PRIMARY_SOURCES.has(f.source)) return null;
+  const m = /^(.{2,80}?)\s+v(?:s)?\.?\s+(.{2,80}?)(?:\s*\(|$)/i.exec(String(f.title || ''));
+  if (!m) return null;
+  const party = (s) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(PARTY_FORMS, ' ').replace(/\s+/g, ' ').trim();
+  const pair = [party(m[1]), party(m[2])].sort();
+  return pair[0] && pair[1] ? pair.join(' | ') : null;
+}
+const sevIndex = (f) => ['info', 'low', 'medium', 'high'].indexOf(f.severity);
+/** Fold `other` into `target`: its record and its reports join target's, the stronger grade and the latest outcome stay. */
+function absorb(target, other) {
+  const seen = new Set([target.n]);
+  target.more = [...(target.more || []), shortRecord(other), ...(other.more || [])].filter((m) => !seen.has(m.n) && seen.add(m.n));
+  if (sevIndex(other) > sevIndex(target)) target.severity = other.severity;
+  const outs = [target.outcome, other.outcome].filter(Boolean).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  if (outs[0]) target.outcome = outs[0];
+  if (target.passing && !other.passing) delete target.passing;
+  if (target.stages || other.stages) target.stages = [...(target.stages || []), ...(other.stages || [])];
+}
+/** Merge each group of flags into one, led by the strongest record; returns the list without the merged ones. */
+function mergeGroups(list, groups, stageAware = false) {
+  const gone = new Set();
+  for (const group of groups) {
+    if (group.length < 2) continue;
+    if (stageAware) for (const f of group) if (!f.stages) f.stages = [{ tag: stageOf(f), date: matterDate(f), n: f.n, auth: sourceAuthority(f) }];
+    const lead = [...group].sort((a, b) => Number(Boolean(a.passing)) - Number(Boolean(b.passing)) || sourceAuthority(b) - sourceAuthority(a)
+      || (stageAware ? (STAGES[stageOf(b)] || 0) - (STAGES[stageOf(a)] || 0) : 0) || sevIndex(b) - sevIndex(a) || a.n - b.n)[0];
+    for (const f of group) if (f !== lead) { absorb(lead, f); gone.add(f); }
+    if (lead.stages) lead.stages.sort((a, b) => (STAGES[a.tag] || 0) - (STAGES[b.tag] || 0) || String(a.date || '').localeCompare(String(b.date || '')));
+  }
+  return list.filter((f) => !gone.has(f));
+}
+// The date a matter is placed by: its lead's when given to the month, else the earliest month-dated report of it
+// tied to the person (a Wikidata entry gives a year; the news reports of the same conviction give the day).
+function matterDate(flag) {
+  if (flag.date && String(flag.date).length >= 7) return flag.date;
+  const dated = (flag.more || []).filter((m) => m.match !== 'possible' && m.date && String(m.date).length >= 7).map((m) => String(m.date)).sort();
+  return dated[0] || flag.date || null;
+}
+function matterWhen(flag) {
+  if (flag.date && String(flag.date).length >= 7) return when(flag);
+  const dated = (flag.more || []).filter((m) => m.match !== 'possible' && m.date && String(m.date).length >= 7).map(when).filter(Boolean);
+  return dated.length ? Math.min(...dated) : 0;
+}
+/**
+ * One prosecution, one red flag: the stages of a criminal matter of one person (charged, tried, convicted,
+ * sentenced, appealed), each within two years of the last. When one stage is reported months apart (two
+ * convictions), nothing says which sentence follows which: those stay apart. A stage reported with no date, or
+ * a year only, joins the one prosecution of that person that has the stage (in or next to that year).
+ */
+function mergeProsecutions(list) {
+  const byWho = new Map();
+  const loose = [];
+  for (const f of list) {
+    if (!stageOf(f) || f.match === 'possible') continue;
+    if (!matterWhen(f)) { loose.push(f); continue; }
+    if (!byWho.has(whoOf(f))) byWho.set(whoOf(f), []);
+    byWho.get(whoOf(f)).push(f);
+  }
+  const groups = [];
+  for (const flags of byWho.values()) {
+    flags.sort((a, b) => matterWhen(a) - matterWhen(b));
+    let cur = [];
+    for (const f of flags) {
+      if (cur.length && matterWhen(f) - matterWhen(cur[cur.length - 1]) > PROSECUTION_GAP_MS) { groups.push(cur); cur = []; }
+      cur.push(f);
+    }
+    if (cur.length) groups.push(cur);
+  }
+  const clear = groups.filter((g) => Object.keys(STAGES).every((stage) => {
+    const at = g.filter((f) => stageOf(f) === stage).map(matterWhen);
+    return !at.length || Math.max(...at) - Math.min(...at) <= STAGE_SPREAD_MS;
+  }));
+  const yearOfMs = (ms) => new Date(ms).getUTCFullYear();
+  for (const f of loose) {
+    const year = /^\d{4}/.test(String(f.date || '')) ? Number(String(f.date).slice(0, 4)) : null;
+    const fits = clear.filter((g) => whoOf(g[0]) === whoOf(f) && g.some((x) => stageOf(x) === stageOf(f))
+      && (year == null || (year >= yearOfMs(matterWhen(g[0])) - 1 && year <= yearOfMs(matterWhen(g[g.length - 1])) + 1)));
+    if (fits.length === 1) fits[0].push(f);
+  }
+  return mergeGroups(list, clear, true);
+}
+/** Two reports of one person's settlement or fine within a week that state the same amount are one matter. */
+function mergeSameAmount(list) {
+  const groups = [];
+  for (const f of list) {
+    if (!when(f) || f.match === 'possible') continue;
+    const amounts = amountsIn(f.title);
+    if (!amounts.size) continue;
+    const g = groups.find((x) => x.some((o) => whoOf(o) === whoOf(f) && Math.abs(when(o) - when(f)) <= 7 * 24 * 3600 * 1000
+      && [...amountsIn(o.title)].some((a) => amounts.has(a))));
+    if (g) g.push(f); else groups.push([f]);
+  }
+  return mergeGroups(list, groups);
+}
+/** Dockets of one dispute between the same two parties ("Milton v. Nikola", "Nikola v. Milton", its appeal) are one matter. */
+function mergeSameParties(list) {
+  const byPair = new Map();
+  for (const f of list) {
+    const pair = captionOf(f);
+    if (!pair) continue;
+    const key = `${whoOf(f)}|${pair}`;
+    if (!byPair.has(key)) byPair.set(key, []);
+    byPair.get(key).push(f);
+  }
+  return mergeGroups(list, [...byPair.values()]);
+}
+
 const PLACEHOLDER = /\bThis is some text inside of a div block\b|\blorem ipsum\b|\bHeading goes here\b/i;
 
 // How a record is tied, for ranking: to the person, to their company, by name only.
@@ -515,9 +703,17 @@ function companyFoundedYear(profile, state, subject, coKey) {
   const company = String(state.company || '').trim();
   if (!company) return null;
   const co = escapeRe(company);
+  // Only the company itself founded: "Zetafold was founded in 2019", "Zetafold, founded in 2019", "Zetafold (founded
+  // in 2019)", "Zetafold founded in 2019", "co-founded Zetafold (with Karim Atiyeh) in 2019". Never what the company
+  // launched ("Zetafold launched its bill pay product in 2022") or anything of the company's ("Zetafold's app was
+  // launched in 2022"): those are products, not the founding.
+  const coAt = `(?<![\\p{L}\\p{N}])${co}(?![\\p{L}\\p{N}'’])(?:,?\\s+(?:Inc|LLC|Ltd|Corp|Corporation|Co)\\.?)?`;
+  const year = `(?:[A-Z][a-z]+\\.?\\s+(?:\\d{1,2},?\\s+)?)?((?:19|20)\\d{2})\\b`;
   const res = [
-    new RegExp(`(?<![\\p{L}\\p{N}])${co}(?![\\p{L}\\p{N}])[^.]{0,60}?\\b(?:was\\s+)?(?:founded|started|launched|incorporated|established)\\b[^.]{0,40}?\\bin\\s+(?:[A-Z][a-z]+\\.?\\s+)?((?:19|20)\\d{2})\\b`, 'iu'),
-    new RegExp(`\\b(?:co-?founded|founded|started|launched)\\s+${co}(?![\\p{L}\\p{N}])[^.]{0,30}?\\bin\\s+(?:[A-Z][a-z]+\\.?\\s+)?((?:19|20)\\d{2})\\b`, 'iu'),
+    new RegExp(`${coAt}(?:,[^,.]{0,60},)?\\s+(?:was|were|got|has been)\\s+(?:officially\\s+|first\\s+|originally\\s+)?(?:co-?founded|founded|started|launched|incorporated|established)\\b(?:\\s+by\\s+[^.]{0,50}?)?\\s+in\\s+${year}`, 'iu'),
+    new RegExp(`${coAt}\\s*(?:,|\\()\\s*(?:which was\\s+)?(?:co-?founded|founded|started|launched|incorporated|established)\\s+(?:by\\s+[^.]{0,50}?\\s+)?in\\s+${year}`, 'iu'),
+    new RegExp(`${coAt}\\s+(?:co-?founded|founded|started|incorporated|established)\\s+in\\s+${year}`, 'iu'),
+    new RegExp(`\\b(?:co-?founded|founded|started|launched)\\s+${coAt}(?:\\s*\\((?:with|alongside)\\s+[^)]{0,50}\\)|\\s+(?:with|alongside)\\s+[^.]{0,50}?)?,?\\s+(?:back\\s+)?in\\s+${year}`, 'iu'),
   ];
   const votes = new Map();
   for (const f of state.findings || []) {
@@ -528,8 +724,9 @@ function companyFoundedYear(profile, state, subject, coKey) {
       if (m) { votes.set(Number(m[1]), (votes.get(Number(m[1])) || 0) + 1); break; }
     }
   }
+  // One record read this way is not enough to call a domain an earlier holder's: two must agree.
   const best = [...votes.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0];
-  return best ? best[0] : null;
+  return best && best[1] >= 2 ? best[0] : null;
 }
 
 // Sources whose records are pages of the open web: two of them at one address are one page.
@@ -561,12 +758,20 @@ function groupPages(list) {
     if (!byPage.has(key)) { byPage.set(key, [f]); out.push(byPage.get(key)); } else byPage.get(key).push(f);
   }
   const memberOf = new Map();
+  const sev = (f) => SEVERITY_ORDER.indexOf(f.severity);
   const records = out.map((group) => {
     if (group.length === 1) return group[0];
-    const lead = [...group].sort((a, b) => (TIE_ORDER[b.match] || 0) - (TIE_ORDER[a.match] || 0)
+    // The lead comes from the most strongly tied copies (to the person, else the company, else by name only);
+    // among those, the most severe leads, so the quotation shown is the one that supports the grade. A copy tied
+    // less strongly (a search snippet matched by name only) never raises the page's severity: its words may be
+    // about someone else on the same page.
+    const top = Math.max(...group.map((f) => tierOf(f.match)));
+    const strongest = group.filter((f) => tierOf(f.match) === top);
+    const lead = [...strongest].sort((a, b) => sev(b) - sev(a)
+      || (TIE_ORDER[b.match] || 0) - (TIE_ORDER[a.match] || 0)
       || Number(a.category === 'archive') - Number(b.category === 'archive')
       || String(b.quote || '').length - String(a.quote || '').length)[0];
-    const severity = group.map((f) => f.severity).sort((a, b) => SEVERITY_ORDER.indexOf(b) - SEVERITY_ORDER.indexOf(a))[0] || lead.severity;
+    const severity = lead.severity;
     const others = group.filter((f) => f !== lead);
     for (const o of others) memberOf.set(o.id, lead.id);
     return {
@@ -739,14 +944,24 @@ export function buildReport(state) {
   };
   // 5. A domain registered before the company existed was registered by an earlier holder: not the company's history.
   const foundedYear = companyFoundedYear(profile, state, subject, coKey);
+  // Only the company's own domains are judged by its founding year: the year the domain source gave for this
+  // domain (domains.js sets data.foundedYear only then), else the company's year for the website typed or a
+  // domain carrying the company's name. The domain of an earlier start-up of theirs keeps its own history.
+  const givenSite = String(state.given?.website || '').toLowerCase();
   const earlierHolder = (f) => {
-    if (f.source !== 'domain-history' || !foundedYear) return f;
+    if (f.source !== 'domain-history') return f;
+    // the domain from the record's data, else from its title ("zeta.test: registered 2009")
+    const domain = String(f.data?.domain || (String(f.title || '').match(/^([a-z0-9-]+(?:\.[a-z0-9-]+)+)\b/i) || [])[1] || '').toLowerCase();
+    const ownYear = Number(f.data?.foundedYear);
+    const own = Number.isFinite(ownYear) && ownYear > 1800 ? ownYear
+      : foundedYear && domain && (domain === givenSite || namesCompanyDomain(domain, state.company)) ? foundedYear : null;
+    if (!own) return f;
     const reg = String(f.data?.registered || f.date || '');
     const y = yearOf(reg);
-    if (!y || y >= foundedYear) return f;
+    if (!y || y >= own) return f;
     return {
       ...f,
-      title: `${f.data?.domain || 'Domain'}: first registered ${reg}, by an earlier holder (${state.company || 'the company'} was founded in ${foundedYear})`,
+      title: `${f.data?.domain || 'Domain'}: first registered ${reg}, by an earlier holder (${state.company || 'the company'} was founded in ${own})`,
       excludeFromTimeline: true,
       data: { ...(f.data || {}), earlierHolder: true },
     };
@@ -819,15 +1034,26 @@ export function buildReport(state) {
   // A page from the open web that only mentions the person in passing (its own headline is about something
   // else: "2021 in the United States", another person's biography) is not a red flag about them, however
   // alarming the sentence that mentions them. It stays in the press section.
+  // That holds for encyclopaedia pages and roundups. A news report whose headline does not name them ("Fintech
+  // startup CEO pleads guilty to wire fraud") is still about them when a sentence of it names them in full and
+  // reports the event; and a record tied to them that does neither is kept as a red flag marked as a mention in
+  // passing, never dropped from every list.
+  const encyclopaedia = (f) => REFERENCE_SOURCES.has(f.source) || isWikiOther(f) || Boolean(f.data?.wikiKind)
+    || (() => { try { return /(?:^|\.)wikipedia\.org$/i.test(new URL(f.url).hostname); } catch { return false; } })();
+  const eventIn = (s) => EVENTS.some(([, re]) => re.test(s));
   const aboutThem = (f) => {
-    if (f.category !== 'press' && f.category !== 'identity') return true;
-    if (f.match === 'company' || f.data?.person) return true;
+    if (f.category !== 'press' && f.category !== 'identity') return 'yes';
+    if (f.match === 'company' || f.data?.person) return 'yes';
     const title = String(f.title || '');
-    return subject.hasName(title) || [...subject.anchors.companies.values()].some((a) => a.test(title));
+    if (subject.hasName(title) || [...subject.anchors.companies.values()].some((a) => a.test(title))) return 'yes';
+    if (encyclopaedia(f)) return 'no';
+    if (sentencesOf(f.quote).some((s) => subject.hasName(s) && eventIn(s))) return 'yes';
+    return f.match === 'confirmed' || f.match === 'likely' ? 'passing' : 'no';
   };
+  const about = new Map(cited.map((f) => [f.n, aboutThem(f)]));
   // The person's own posts (data.ownStatement) are what they said, not something said about them: never a red flag.
   const ownStatement = (f) => Boolean(f.data?.ownStatement);
-  const serious = cited.filter((f) => (f.severity === 'high' || f.severity === 'medium') && aboutThem(f) && !ownStatement(f));
+  const serious = cited.filter((f) => (f.severity === 'high' || f.severity === 'medium') && about.get(f.n) !== 'no' && !ownStatement(f));
   // Roles the person held with an end date ({ org, role, from, to }), from the identity anchors.
   const tenures = [...(state.anchors?.roles || []), ...(subject.anchors.roles ? [...subject.anchors.roles.values()] : [])]
     .map((r) => ({ org: String(r.org || r.value || '').trim(), to: String(r.to || '').slice(0, 10) }))
@@ -866,7 +1092,8 @@ export function buildReport(state) {
   for (const f of serious) {
     const key = matterKey(f, windows);
     if (!matters.has(key)) matters.set(key, []);
-    const whole = key.startsWith('case|') || windows.has(f.id);
+    // Undated reports of an event with no dated report share a key, but still need a headline word in common.
+    const whole = key.startsWith('case|') || (windows.has(f.id) && !/\|loose\d*$/.test(key));
     let same = whole ? matters.get(key)[0] : null;
     if (!whole) {
       let best = 0;
@@ -893,14 +1120,21 @@ export function buildReport(state) {
     // The authority's own record leads (court, prosecutor or regulator, then an encyclopaedia, then news, a
     // forum last); among records of one kind, `cited` is in rank order, so the first is the strongest.
     const tied = person.length ? person : assumed.length ? assumed : company.length ? company : list;
-    const lead = tied.reduce((best, f) => (sourceAuthority(f) > sourceAuthority(best) ? f : best), tied[0]);
+    // a record that reports the matter leads one that only mentions the person in passing
+    const passing = (f) => about.get(f.n) === 'passing';
+    const lead = tied.reduce((best, f) => (Number(passing(best)) - Number(passing(f)) || sourceAuthority(f) - sourceAuthority(best)) > 0 ? f : best, tied[0]);
     // The matter's latest outcome a record gives (dismissed, acquitted, settled, pardoned: finding.js data.outcome).
     // data.outcome is { outcome, role } (finding.js); a saved check may hold the outcome as plain text.
     const outcomeOf = (f) => (f.data?.outcome && typeof f.data.outcome === 'object' ? f.data.outcome.outcome || null : f.data?.outcome || null);
     const outcomes = list.filter((f) => outcomeOf(f) && (f.match !== 'possible' || !person.length))
       .sort((a, b) => when(b) - when(a) || b.n - a.n);
     const roleOf = (f) => (f.data?.outcome && typeof f.data.outcome === 'object' ? f.data.outcome.role || null : null);
-    const entry = { ...lead, more: list.filter((f) => f !== lead).map(short), ...(outcomes.length ? { outcome: { text: String(outcomeOf(outcomes[0])), role: roleOf(outcomes[0]), date: outcomes[0].date || null, n: outcomes[0].n } } : {}) };
+    const entry = {
+      ...lead, more: list.filter((f) => f !== lead).map(short),
+      ...(outcomes.length ? { outcome: { text: String(outcomeOf(outcomes[0])), role: roleOf(outcomes[0]), date: outcomes[0].date || null, n: outcomes[0].n } } : {}),
+      // tied to them only by a report that mentions them in passing: listed, and said to be so
+      ...(person.length && person.every(passing) ? { passing: true } : {}),
+    };
     // A company's insolvency reported after the person left it is context about the company, not a mark against them.
     // Even when the record names the person: the insolvency of a company they had already left is all it reports.
     // A matter matched by name only stays with the possible namesakes.
@@ -925,9 +1159,111 @@ export function buildReport(state) {
       && nearEnd(r.date) && Math.abs(at(r.date) - at(f.date)) <= 2 * MONTH_MS);
     if (flag) { flag.more.push(short(f)); inFlags.add(f.n); }
   }
-  // Most serious kind of event first, then the authority of the source that reports it, then rank.
+  // One matter, one entry (see mergeProsecutions and the others): a prosecution's stages, one settlement's
+  // reports, one dispute's dockets. Never across lists: a name-only record never joins a red flag this way.
+  for (const list of [redFlags, ifRightPerson]) list.splice(0, list.length, ...mergeSameParties(mergeSameAmount(mergeProsecutions(list))));
+  companyMatters.splice(0, companyMatters.length, ...mergeSameParties(companyMatters));
+  // The record that ends a matter joins it, whatever its own grade: an acquittal graded low, a pardon reported on
+  // its own. It must be tied to the same person or company, name them in its headline (or share the case number),
+  // come after the matter began and report an end that fits it (a pardon ends a conviction or a sentence; a
+  // dismissal ends charges, a lawsuit or an inquiry); for anything but a pardon, it must share the case number or
+  // a distinctive headline word. A cleared matter stays listed, graded low, with its outcome beside it.
+  const ENDS = {
+    pardoned: ['conviction', 'sentence'],
+    acquitted: ['charges', 'conviction', 'appeal'], overturned: ['conviction', 'sentence', 'appeal'], vacated: ['conviction', 'sentence', 'appeal'],
+    dismissed: ['charges', 'lawsuit', 'investigation', 'penalty', 'fraud', 'settlement'], dropped: ['charges', 'lawsuit', 'investigation', 'fraud'], won: ['lawsuit', 'charges', 'appeal'],
+  };
+  const endOf = (f) => {
+    const own = f.data?.outcome && typeof f.data.outcome === 'object' ? f.data.outcome.outcome : f.data?.outcome;
+    if (own && !(own === 'won' && /\bwon['’]t\b/i.test(`${f.title || ''} ${f.quote || ''}`) && !/\b(?:wins?|prevail\w*)\b|\bwon\b(?!['’])/i.test(`${f.title || ''} ${f.quote || ''}`))) return { text: String(own), role: f.data?.outcome?.role || null };
+    // a saved record read before outcomes were stored: its headline alone says how the matter ended ("won't
+    // testify" is not a case won)
+    const read = matterOutcome(String(f.title || '').replace(/\bwon['’]t\b/gi, 'will not'), { person: subject.hasName });
+    return read.outcome ? { text: read.outcome, role: read.role } : null;
+  };
+  const allMatters = () => [...redFlags, ...ifRightPerson, ...companyMatters];
+  // Agencies named by their initials ("SEC moves to drop case"): a shared one is a strong sign of the same matter.
+  const AGENCY = /\b(?:SEC|DOJ|FTC|FCA|FINRA|CFTC|CFPB|FBI|IRS|OCC|ASIC|BaFin|AMF|SFC|ESMA|CMA|ICO)\b/g;
+  const agencies = (f) => new Set(`${f.title || ''}`.match(AGENCY) || []);
+  // Words of a headline that say which matter it is ("wire", "securities", "patent", a party's name), without the
+  // person's and company's names, common words and the words of the event or its end ("charges", "acquits").
+  const OUTCOME_WORDS = /^(?:acquit\w*|dismiss\w*|drop\w*|overturn\w*|vacat\w*|pardon\w*|clear\w*|wins?|won|moves?|case|cases)$/;
+  const endWords = (text) => new Set(String(text || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/)
+    .filter((w) => w.length >= 4 && !COMMON.has(w) && !skip.has(w) && !OUTCOME_WORDS.test(w) && !EVENTS.some(([, re]) => re.test(w))));
+  const endsMatch = (r, m) => {
+    if (corroborationKey(r) === corroborationKey(m)) return Infinity;
+    const mine = endWords(r.title);
+    const theirs = new Set([m, ...(m.more || []).filter((x) => x.match !== 'possible')].flatMap((x) => [...endWords(x.title)]));
+    // an agency counts only when the matter's own headline names it (a prosecution's coverage mentions every agency)
+    const agency = [...agencies(r)].filter((a) => agencies(m).has(a)).length;
+    return [...mine].filter((w) => theirs.has(w)).length + 2 * agency;
+  };
+  const ends = [];
+  for (const r of cited) {
+    if (!CORROBORATES.has(r.match) || ownStatement(r) || eventOnly(r)) continue;
+    const end = endOf(r);
+    if (!end || !ENDS[end.text]) continue;
+    // a pardon or dismissal is joined to a matter of this person only when its own headline names them
+    const named = whoOf(r) === 'person' ? subject.hasName(r.title || '') : mentionsCompany(r.title || '') || namesAlias(r.title || '');
+    ends.push({ r, end, named });
+  }
+  // A person is pardoned once for a matter: the earliest dated report of it dates the pardon, and every later
+  // report of it ("Pardoned founder raises $1B") joins the same matter, never a later one.
+  const pardonAt = new Map();
+  for (const { r, end } of ends) {
+    if (end.text !== 'pardoned' || !when(r)) continue;
+    const k = `${whoOf(r)}|${Boolean(r.assumedTie)}`;
+    pardonAt.set(k, Math.min(pardonAt.get(k) ?? Infinity, when(r)));
+  }
+  for (const { r, end, named } of ends) {
+    // a matter its own headline reports as settled ("to Pay $125 Million to Resolve Fraud Charges") has ended already
+    // and a matter that reached a conviction or a sentence is not "dropped", "dismissed" or "acquitted" afterwards:
+    // only a pardon, or a conviction overturned or vacated, ends it
+    const convicted = (m) => tagsOf(m).has('conviction') || tagsOf(m).has('sentence');
+    const fitsEnd = (m) => whoOf(m) === whoOf(r) && Boolean(m.assumedTie) === Boolean(r.assumedTie) && [...tagsOf(m)].some((t) => ENDS[end.text].includes(t))
+      && !(end.text !== 'pardoned' && CIVIL_END.test(m.title || ''))
+      && !(convicted(m) && !['pardoned', 'overturned', 'vacated'].includes(end.text));
+    const led = allMatters().find((m) => m.n === r.n);
+    const within = allMatters().find((m) => m !== led && (m.more || []).some((x) => x.n === r.n));
+    let target = within && fitsEnd(within) ? within : null;
+    const fits = allMatters().filter((m) => m !== led && fitsEnd(m));
+    if (!target && docketOf(r)) target = fits.find((m) => [m, ...(m.more || [])].some((x) => docketOf(x) === docketOf(r))) || null;
+    if (!target && named && end.text === 'pardoned') {
+      const at = pardonAt.get(`${whoOf(r)}|${Boolean(r.assumedTie)}`);
+      // the prosecution whose headlines report a conviction or sentence first, then the latest before the pardon
+      const staged = (m) => Number(Boolean(m.stages?.length || stageOf(m)));
+      if (at) target = fits.filter((m) => matterWhen(m) && matterWhen(m) <= at).sort((a, b) => staged(b) - staged(a) || matterWhen(b) - matterWhen(a))[0] || null;
+    }
+    // anything else must come after the matter began and share the case's words or its agency
+    // (one word in common is enough when it is the only matter the end can fit; with several, two are needed)
+    if (!target && named && when(r)) {
+      const earlier = fits.filter((m) => !matterWhen(m) || matterWhen(m) <= when(r));
+      const need = earlier.length === 1 ? 1 : 2;
+      target = earlier.map((m) => [m, endsMatch(r, m)]).filter(([, a]) => a >= need).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+    }
+    if (!target) continue;
+    if (led) {
+      // the record that ends it was a matter of its own: it joins the matter it ends
+      for (const list of [redFlags, ifRightPerson, companyMatters]) { const i = list.indexOf(led); if (i >= 0) list.splice(i, 1); }
+      absorb(target, led);
+    } else if (!(target.more || []).some((m) => m.n === r.n)) target.more.push(shortRecord(r));
+    // The outcome shown: a later outcome replaces an earlier one (dismissed, then reinstated and settled); of the
+    // reports of one outcome, the most authoritative source, then the earliest report, dates it.
+    const cur = target.outcome;
+    const curRec = cur && cited.find((x) => x.n === cur.n);
+    const better = !cur
+      || (cur.text !== end.text ? String(r.date || '') > String(cur.date || '')
+        : (sourceAuthority(r) - (curRec ? sourceAuthority(curRec) : -1)) > 0
+          || (curRec && sourceAuthority(r) === sourceAuthority(curRec) && r.date && (!cur.date || String(r.date) < String(cur.date))));
+    // an undated report of a pardon is dated by the earliest report of it
+    const pardonDate = end.text === 'pardoned' && pardonAt.get(`${whoOf(r)}|${Boolean(r.assumedTie)}`);
+    if (better) target.outcome = { text: end.text, role: end.role, date: r.date || (pardonDate ? new Date(pardonDate).toISOString().slice(0, 10) : null), n: r.n };
+    if (EXCULPATORY.has(target.outcome.text)) target.severity = 'low';
+  }
+  // Most serious kind of event first, then the authority of the source that reports it, then rank; a matter tied
+  // to them only by a mention in passing after one reported about them.
   redFlags.sort((a, b) => flagWeight(b) - flagWeight(a) || (SEVERITY_WEIGHT[b.severity] || 0) - (SEVERITY_WEIGHT[a.severity] || 0)
-    || sourceAuthority(b) - sourceAuthority(a) || a.n - b.n);
+    || Number(Boolean(a.passing)) - Number(Boolean(b.passing)) || sourceAuthority(b) - sourceAuthority(a) || a.n - b.n);
   companyMatters.sort((a, b) => a.n - b.n);
   ifRightPerson.sort((a, b) => a.n - b.n);
   possibleNamesake.sort((a, b) => a.n - b.n);
@@ -961,7 +1297,11 @@ export function buildReport(state) {
     n: f.n, title: f.title,
     note: `The role is given as starting ${f.data.roleStart}, before the company was founded (${f.data.orgFounded}).`,
   }));
-  const coverageOfFlag = new Set(redFlags.flatMap((r) => r.more.map((m) => m.n)));
+  // Every matter is one row: its lead. The further reports of a red flag, a company matter, a matter that holds
+  // only if this is the right person, or a namesake's matter never take rows of their own.
+  const coverageOfFlag = new Set([...redFlags, ...companyMatters, ...ifRightPerson, ...possibleNamesake].flatMap((r) => (r.more || []).map((m) => m.n)));
+  // (the lead of a company matter, or of one that holds only if this is the right person, is a row below with the
+  // other dated records)
   const leads = redFlags.filter((f) => !offTimeline(f));
   // Career, company and legal events with their own dates. An archive record is dated by its capture, which
   // is not an event: archive records never sit on the timeline (what they show reaches it through the profile).
@@ -985,9 +1325,19 @@ export function buildReport(state) {
   // The person's own profile page: a path segment that is their name as a slug (ramp.com/authors/eric-glyman,
   // twitter.com/eglyman), not an article whose address starts with their name (/blog/eric-glyman-lessons-learned).
   const slugs = new Set(slugCandidates(subject.name));
+  // A profile platform adds a short suffix with digits to a name taken already (linkedin.com/in/jane-roe-4b2a17):
+  // under a profile path that segment is still their name. An article's address (/blog/jane-roe-lessons) is not.
+  const PROFILE_PATH = /^(?:in|pub|profile|people|u|user|users|author|authors|team)$/;
   const ownPage = (url) => {
     const u = String(url || '').replace(/^https?:\/\/web\.archive\.org\/web\/[^/]+\//i, '');
-    try { return new URL(/^https?:/i.test(u) ? u : `https://${u}`).pathname.toLowerCase().split('/').some((seg) => slugs.has(seg.replace(/^@/, ''))); } catch { return false; }
+    try {
+      const parsed = new URL(/^https?:/i.test(u) ? u : `https://${u}`);
+      const segs = parsed.pathname.toLowerCase().split('/').filter(Boolean).map((seg) => seg.replace(/^@/, ''));
+      const profileHost = PROFILE_HOSTS.test(parsed.hostname.toLowerCase().replace(/^(?:www|mobile)\./, '')) || /(?:^|\.)linkedin\.com$/i.test(parsed.hostname);
+      return segs.some((seg, i) => slugs.has(seg)
+        || ((profileHost || (i > 0 && PROFILE_PATH.test(segs[i - 1])))
+          && [...slugs].some((s) => seg.startsWith(`${s}-`) && /^(?=[a-z]*\d)[a-z0-9]{2,12}$/.test(seg.slice(s.length + 1)))));
+    } catch { return false; }
   };
   const firstName = String(subject.name || '').trim().split(/\s+/)[0] || '';
   const firstRe = firstName.length >= 3 ? new RegExp(`(?<![\\p{L}])${escapeRe(firstName)}(?![\\p{L}])`, 'u') : null;
@@ -1013,7 +1363,8 @@ export function buildReport(state) {
     if (!before.size && !after.size) return false;
     return before.size !== after.size || [...before].some((t) => !after.has(t));
   };
-  const claimChanges = cited.filter(isClaimChange);
+  // ownProfile: the change is on their own profile page, so the brief may ask them about it.
+  const claimChanges = cited.filter(isClaimChange).map((f) => (ownPage(f.data?.page || f.url) ? { ...f, ownProfile: true } : f));
 
   // People screened against a watchlist: done task keys read `connector|kind|value|template`. A person counts
   // as screened only when every watchlist lookup planned for them answered: the check lists the lookups that
@@ -1116,6 +1467,11 @@ export function buildReport(state) {
     // was available (sources/searchEngines.js). Empty when every question had a general web search.
     searchNote: searchCoverageNote({ general: Number(state.spent?.[SEARCH_COUNT_KEYS.general]) || 0, headlines: Number(state.spent?.[SEARCH_COUNT_KEYS.headlines]) || 0, none: Number(state.spent?.[SEARCH_COUNT_KEYS.none]) || 0 }) || null,
     notCovered: notCoveredFor(state, allSources, answered, silent),
+    // The earlier companies the user typed, and whether each was screened as a venture of theirs (courts and
+    // regulators under the company's name) or, for a very large employer, only checked for ties to the person.
+    givenCompanies: Object.values(state.threads || {})
+      .filter((t) => t && t.kind === 'company' && t.why === 'an earlier company given' && t.value)
+      .map((t) => ({ name: String(t.value), screened: Boolean(t.venture) })),
     // The screens that answered every lookup in full and found nothing (the brief's "Screens with no match").
     clearScreens: screens.flatMap((g) => g.items).filter((i) => i.status === 'clear').map((i) => i.label),
     dropped: state.dropped || { tasks: 0, findings: 0, threads: 0 },
@@ -1163,7 +1519,7 @@ export function buildReport(state) {
     commonName,
     generatedAt: new Date().toISOString(),
     profile: published,
-    companyFacts: reportCompanyFacts(profile.companyFacts, cite),
+    companyFacts: reportCompanyFacts(profile.companyFacts, cite, { records: new Map(cited.map((f) => [f.n, f])), company: state.company || '' }),
     screens,
     sharedCompanyName: sharedName,
     // Records are pages: copies of one page merged into one record are counted once (copiesMerged says how many).
@@ -1273,15 +1629,22 @@ export function reportProfile(profile, cite) {
  * What the records say of the person's company (profile.companyFacts), with citation numbers in place of
  * record ids: legal names, domains, founding year, funding rounds, investors, standing. Null when absent.
  */
-export function reportCompanyFacts(facts, cite) {
+export function reportCompanyFacts(facts, cite, { records = null, company = '' } = {}) {
   if (!facts || typeof facts !== 'object') return null;
+  // A domain whose every record says an earlier holder registered it (before the company existed) is not the company's.
+  const ownDomain = (x) => !records || x.cites.some((n) => !records.get(n)?.data?.earlierHolder);
+  // A fact shown in the report cites a record among the report's sources: one read from a record that is not
+  // there (dropped, or about someone else) has no cites and is not shown, as publishCompanyFacts does.
+  const cited = (list, pick) => withCites(list, cite, pick).filter((x) => x.cites.length > 0);
+  const foundedCites = facts.founded && facts.founded.year != null ? cite(facts.founded.ids) : [];
   const out = {
-    legalNames: withCites(facts.legalNames, cite, (x) => ({ name: x.name })),
-    domains: withCites(facts.domains, cite, (x) => ({ domain: x.domain })),
-    founded: facts.founded && facts.founded.year != null ? { year: facts.founded.year, cites: cite(facts.founded.ids) } : null,
-    funding: withCites(facts.funding, cite, (x) => ({ round: x.round || null, amount: x.amount || null, date: x.date || null, lead: x.lead || null, investors: Array.isArray(x.investors) ? x.investors : [] })),
-    investors: withCites(facts.investors, cite, (x) => ({ name: x.name })),
-    standing: withCites(facts.standing, cite, (x) => ({ text: x.text })),
+    legalNames: cited(facts.legalNames, (x) => ({ name: x.name })),
+    domains: cited(facts.domains, (x) => ({ domain: x.domain })).filter((x) => ownDomain(x) || namesCompanyDomain(x.domain, company)),
+    founded: foundedCites.length ? { year: facts.founded.year, cites: foundedCites } : null,
+    funding: cited(facts.funding, (x) => ({ round: x.round || null, amount: x.amount || null, date: x.date || null, lead: x.lead || null, investors: Array.isArray(x.investors) ? x.investors : [] })),
+    investors: cited(facts.investors, (x) => ({ name: x.name })),
+    // kind (valuation, revenue, headcount, customers) and date, so the brief can say which figure is the latest
+    standing: cited(facts.standing, (x) => ({ text: x.text, kind: x.kind || null, date: x.date || null })),
   };
   const has = out.legalNames.length || out.domains.length || out.founded || out.funding.length || out.investors.length || out.standing.length;
   return has ? out : null;
@@ -1416,6 +1779,8 @@ function sourceKind(f) {
 function officialKind(f) {
   if (f.source === 'patents') return 'a patent record';
   if (f.source === 'trademarks') return 'a trademark record';
+  // a press or litigation release of the SEC reports a case; it is not a filing of the company
+  if ((f.source === 'sec-filings' || f.source === 'sec-company') && (/\b(?:press|litigation) release\b/i.test(f.title || '') || /release/i.test(String(f.data?.kind || '')))) return 'an SEC press release';
   if (f.source === 'sec-filings' || f.source === 'sec-company') return 'an SEC filing';
   if (REGISTER_SOURCES.has(f.source) || /regist/.test(f.source || '')) return 'a register entry';
   if (f.source === 'academic-record') return 'an academic record';
@@ -1444,7 +1809,6 @@ function eduText(e) {
   return `${inert(e.school)}${degree ? `: ${degree}` : ''}${years ? ` (${years})` : ''}`;
 }
 const foundedText = (x) => `Founded ${inert(x.org)}${x.year ? ` in ${x.year}` : ''}${listOf(x.with).length ? ` with ${andList(listOf(x.with).map(inert))}` : ''}${x.outcome ? `; ${inert(x.outcome)}` : ''}`;
-const amountText = (x) => [x.round, x.amount].filter(Boolean).map(inert).join(': ');
 // A lead's text without a registration number (a broker's CRD number identifies the person: no ID numbers in the brief).
 const leadText = (text) => inert(String(text || '').replace(/\s*\(CRD\s*#?\s*\d+\)/gi, ''));
 /** A bullet that states a fact: only with at least one citation. */
@@ -1454,6 +1818,153 @@ const capped = (list, n, fmt, where = 'in the report') => [...list.slice(0, n).m
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const tiedToPerson = (f) => Boolean(f) && (f.match === 'confirmed' || f.match === 'likely');
 const sortByDate = (list) => [...list].sort((a, b) => String(a.date || '9999').localeCompare(String(b.date || '9999')));
+
+/* ------------------------------------------------------------------ company facts, as the brief states them */
+
+// A record that reports money raised, as opposed to money lost, paid or forfeited ("gets four years in prison for
+// $600M fraud", "to pay $125 million", "forfeits $3.1B of stock"): only those support a funding line.
+const FUNDING_WORD = /\b(?:rais(?:e|es|ed|ing)|funding|round|series [a-h]\b|seed\b|financing|investment|investors?|backed by|offering)\b|\b(?:secur(?:es|ed)|lands|landed|closes|closed|nabs|bags)\b[^.]{0,25}[$€£]/i;
+const NOT_FUNDING = /\bfraud\w*|\bprison\b|\bsentenc\w*|\bcharg(?:e|es|ed)\b|\bsettle\w*|\bfine[ds]?\b|\bpenalt\w*|\bforfeit\w*|\brestitution\b|\blawsuits?\b|\bsued\b|\bconvict\w*|\bdamages\b|\bjudgment\b|\bpardon\w*|\bto pay\b|\breimburs\w*|\bseiz\w*/i;
+const isFormD = (f) => Boolean(f) && (f.data?.form === 'D' || /\bForm D\b/.test(String(f.title || '')));
+/**
+ * The funding entries the brief may state: each cites a record that reports money raised (or is a Form D), and
+ * none is dated before the company was founded. A saved report whose records are not at hand keeps its entries.
+ */
+function fundingRows(cf, byN) {
+  const founded = Number(cf.founded?.year);
+  return listOf(cf.funding).filter((x) => {
+    if (!x.amount || !listOf(x.cites).length) return false;
+    if (x.date && Number.isFinite(founded) && Number(String(x.date).slice(0, 4)) < founded) return false;
+    const recs = listOf(x.cites).map((n) => byN.get(n)).filter(Boolean);
+    return !recs.length || recs.some((f) => isFormD(f) || (FUNDING_WORD.test(`${f.title || ''} ${f.quote || ''}`) && !NOT_FUNDING.test(String(f.title || ''))));
+  });
+}
+/** A funding entry in words: a round only when a round label or a Form D says so, otherwise a reported raise. */
+function fundingText(x, byN) {
+  const round = x.round || (listOf(x.cites).some((n) => isFormD(byN.get(n))) ? 'Form D offering' : null);
+  return round ? `${inert(round)}: ${inert(x.amount)}` : `a reported raise of ${inert(x.amount)}`;
+}
+/** The latest dated funding entry; an undated one is never called the latest. */
+const latestFunding = (rows) => rows.filter((x) => x.date).sort((a, b) => String(a.date).localeCompare(String(b.date))).pop() || null;
+
+// Site furniture a page reader can catch with a sentence ("Skip to navigation ... Today's Paper"): cut there.
+const SITE_CHROME = /\b(?:skip to (?:navigation|content|main(?: content)?|footer)|accessibility statement|help using this website|today['’]s paper|cookie (?:policy|settings|preferences)|accept (?:all )?cookies|sign in|log in|subscribe now|all rights reserved|advertisement)\b/i;
+/** A standing figure's sentence without site furniture or a trailing " - Publisher". */
+function cleanStanding(text) {
+  let t = String(text || '');
+  const chrome = SITE_CHROME.exec(t);
+  if (chrome) t = t.slice(0, chrome.index);
+  // a headline's " - CNBC." or " | saastr.com": a short name with no figure, after a dash or bar at the end
+  t = t.replace(/\s+[-–—|]\s+(?=[^$€£\d]{2,40}$)(?:[\p{L}&.'’]+\s?){1,4}\.?\s*$/u, '');
+  return t.replace(/[\s,;:–—|-]+$/, '').trim();
+}
+const FIGURE = /[$€£]\s?\d[\d,.]*\s*(?:trillion|billion|million|thousand|bn|[BMK])?\+?|\d[\d,.]*\+?\s*(?:employees|staff|people|customers|businesses|companies|clients|users)/gi;
+const KIND_WORD = { valuation: /\bvalu\w*|\bworth\b/i, revenue: /\brevenue\b|\bARR\b|\bsales\b/i, customers: /\bcustomers?|\bbusinesses|\bclients?|\busers?\b/i, headcount: /\bemployees|\bstaff|\bpeople|\bheadcount/i };
+/** The figure of a standing sentence that is of its kind ("valued at $44 billion with $1 billion in revenue": $1 billion for revenue). */
+function figureOf(kind, text) {
+  const all = [...String(text || '').matchAll(FIGURE)];
+  const t = String(text || '');
+  const re = KIND_WORD[kind];
+  // the kind's word just after the figure ("$1 billion in annualized revenue"), else just before it ("valued at $44 billion")
+  const near = re && (all.find((m) => re.test(t.slice(m.index + m[0].length, m.index + m[0].length + 25)))
+    || all.find((m) => re.test(t.slice(Math.max(0, m.index - 25), m.index))));
+  return ((near || all[0] || [''])[0]).trim();
+}
+const STANDING_KINDS = [['valuation', 'Valuation'], ['revenue', 'Revenue'], ['customers', 'Customers'], ['headcount', 'Headcount']];
+/**
+ * Standing lines: per kind (valuation, revenue, customers, headcount) the newest dated figure with its date, then
+ * the others as earlier figures; a saved report without kinds lists each sentence, cleaned, newest first.
+ */
+function standingLines(cf, byN) {
+  const seen = new Set();
+  const rows = [];
+  for (const x of listOf(cf.standing)) {
+    const text = cleanStanding(x.text);
+    const key = text.toLowerCase().replace(/\W+/g, ' ').trim();
+    if (!key || seen.has(key) || !listOf(x.cites).length) continue;
+    seen.add(key);
+    const date = x.date || listOf(x.cites).map((n) => byN.get(n)?.date).filter(Boolean).sort().pop() || null;
+    rows.push({ ...x, text, date, figure: figureOf(x.kind, text) });
+  }
+  const newestFirst = (a, b) => String(b.date || '').localeCompare(String(a.date || ''));
+  const out = [];
+  for (const [kind, label] of STANDING_KINDS) {
+    const list = rows.filter((x) => x.kind === kind).sort(newestFirst);
+    if (!list.length) continue;
+    const [top, ...earlier] = list;
+    out.push(bullet(`${label}: ${inert(clipWords(top.text, 220))}${top.date ? ` (${top.date})` : ' (date not given)'}`, top.cites, 2));
+    const figures = earlier.filter((x) => x.figure && x.figure !== top.figure).slice(0, 4);
+    if (figures.length) out.push(`• Earlier or undated ${label.toLowerCase()} figures: ${figures.map((x) => `${inert(x.figure)}${x.date ? ` (${x.date})` : ' (undated)'} ${refs(x.cites, 1)}`).join('; ')}`);
+  }
+  out.push(...rows.filter((x) => !STANDING_KINDS.some(([k]) => k === x.kind)).sort(newestFirst).slice(0, 4)
+    .map((x) => bullet(`${inert(clipWords(x.text, 240))}${x.date && !x.text.includes(x.date) ? ` (${x.date})` : ''}`, x.cites, 2)));
+  return out.filter(Boolean);
+}
+/**
+ * The company's names, split: a name filed with the SEC is its legal name; a name on a company register (the UK
+ * subsidiary of a US company) is a registered entity of it, not "the legal name"; any other is a name in the records.
+ */
+function companyNames(cf, byN) {
+  const kindOf = (x) => {
+    const recs = listOf(x.cites).map((n) => byN.get(n)).filter((f) => f && f.match !== 'possible');
+    if (recs.some((f) => /^sec-/.test(f.source || '') && officialKind(f) === 'an SEC filing')) return 'sec';
+    if (recs.some((f) => REGISTER_SOURCES.has(f.source) || /regist/.test(f.source || ''))) return 'register';
+    return byN.size ? 'other' : 'sec';
+  };
+  const named = listOf(cf.legalNames).filter((x) => x.name && listOf(x.cites).length).map((x) => ({ ...x, kind: kindOf(x) }));
+  return { sec: named.filter((x) => x.kind === 'sec'), register: named.filter((x) => x.kind === 'register'), other: named.filter((x) => x.kind === 'other') };
+}
+/**
+ * The company's domains, without one an earlier holder registered before the company existed (a founder's
+ * personal domain from years before). A domain that carries the company's name stays: a company often buys an
+ * older domain of its name (ramp.com), and only its registration date is not the company's history.
+ */
+const namesCompanyDomain = (domain, company) => {
+  const key = String(company || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return key.length >= 3 && String(domain || '').toLowerCase().split('.')[0].replace(/[^a-z0-9]+/g, '').includes(key);
+};
+function ownDomains(cf, byN, company = '') {
+  const founded = Number(cf.founded?.year);
+  return listOf(cf.domains).filter((x) => {
+    const recs = listOf(x.cites).map((n) => byN.get(n)).filter(Boolean);
+    if (!recs.length) return listOf(x.cites).length > 0;
+    if (namesCompanyDomain(x.domain, company)) return true;
+    return recs.some((f) => {
+      if (f.data?.earlierHolder) return false;
+      const reg = Number(String(f.data?.registered || '').slice(0, 4));
+      return !(Number.isFinite(founded) && reg > 1900 && reg < founded - 1);
+    });
+  });
+}
+/** "; latest outcome: pardoned, 2025-03-28 [Source n]": the outcome a record gives for a matter, else ''. */
+function outcomeText(f) {
+  if (!f.outcome?.text) return '';
+  return `; latest outcome: ${inert(f.outcome.text)}${f.outcome.role ? ` (their part: ${inert(f.outcome.role)})` : ''}${f.outcome.date ? `, ${f.outcome.date}` : ''}${f.outcome.n && f.outcome.n !== f.n ? ` [Source ${f.outcome.n}]` : ''}`;
+}
+const STAGE_WORDS = { charges: 'charged', trial: 'tried', conviction: 'convicted', sentence: 'sentenced', appeal: 'appealed' };
+/** "; stages: charged (2021-07-29) [Source 6], convicted (2022-10) [Source 3], ..." for a prosecution merged from its stages. */
+function stagesText(f) {
+  // per stage, the court's or prosecutor's own record first, then one dated to the day or month, then the earliest
+  const precise = (s) => Number(String(s.date || '').length >= 7);
+  const order = [...listOf(f.stages)].sort((a, b) => (b.auth || 0) - (a.auth || 0) || precise(b) - precise(a) || String(a.date || '').localeCompare(String(b.date || '')));
+  const firsts = [];
+  for (const s of order) if (STAGE_WORDS[s.tag] && !firsts.some((x) => x.tag === s.tag)) firsts.push(s);
+  firsts.sort((a, b) => STAGES[a.tag] - STAGES[b.tag]);
+  if (firsts.length < 2) return '';
+  return `; stages: ${firsts.map((s) => `${STAGE_WORDS[s.tag]}${s.date ? ` (${s.date})` : ''} [Source ${s.n}]`).join(', ')}`;
+}
+
+/** The earlier companies typed for the check: which were screened, which only checked for ties to the person. */
+function givenCompaniesLines(coverage) {
+  const given = listOf(coverage?.givenCompanies).filter((c) => c && c.name);
+  if (!given.length) return [];
+  const screened = given.filter((c) => c.screened).map((c) => inert(c.name));
+  const tiesOnly = given.filter((c) => !c.screened).map((c) => inert(c.name));
+  return [
+    ...(screened.length ? [`• Earlier companies you gave, screened: ${screened.join(', ')}.`] : []),
+    ...(tiesOnly.length ? [`• Earlier companies you gave, checked only for ties to the person (too large to screen as a venture of theirs): ${tiesOnly.join(', ')}.`] : []),
+  ];
+}
 
 /** The screens that did not answer, were off, or answered in part, by label (from the screens, else the coverage rows). */
 function silentScreens(report) {
@@ -1505,13 +2016,21 @@ function whatChecksOut(report, byN) {
   // The company: its legal name and its offerings, as a filing or register states them.
   const cf = report.companyFacts || {};
   const officialCites = (ns) => listOf(ns).filter((n) => { const f = byN.get(n); return f && f.match !== 'possible' && independent(f); });
-  for (const x of listOf(cf.legalNames)) {
+  // A name filed with the SEC is the company's legal name; names on company registers (a UK subsidiary of a US
+  // company) are registered entities of it, listed together.
+  const coNames = companyNames(cf, byN);
+  for (const x of coNames.sec) {
     const ns = officialCites(x.cites);
-    if (ns.length) lines.push(bullet(`${inert(x.name)} is the legal name of ${inert(co)} on ${officialKind(byN.get(ns[0]))}`, ns, 2));
+    if (ns.length) lines.push(bullet(`${inert(x.name)} is the legal name of ${inert(co)} as filed with the SEC`, ns, 2));
   }
+  const registered = coNames.register.map((x) => ({ ...x, ns: officialCites(x.cites) })).filter((x) => x.ns.length);
+  if (registered.length) lines.push(`• ${registered.length === 1 ? `A company register lists ${inert(registered[0].name)} as a registered entity of ${inert(co)} ${refs(registered[0].ns, 2)}` : `Company registers list these registered entities of ${inert(co)}: ${registered.map((x) => `${inert(x.name)} ${refs(x.ns, 1)}`).join('; ')}`}`);
+  // A filing confirms a round only when it is the company's offering notice (Form D) and states the amount: an SEC
+  // press release about charges states a sum the company paid, not one it raised.
+  const digits = (v) => (/\d[\d,.]*/.exec(String(v || '')) || [''])[0].replace(/[,.]/g, '');
   for (const x of listOf(cf.funding)) {
-    const ns = officialCites(x.cites);
-    if (ns.length && x.amount) lines.push(bullet(`${officialKind(byN.get(ns[0])).replace(/^an? /, (a) => (a === 'an ' ? 'An ' : 'A '))} confirms ${inert(co)}'s ${inert(x.round || 'funding round')}: ${inert(x.amount)}${x.date ? ` (${x.date})` : ''}`, ns, 2));
+    const ns = officialCites(x.cites).filter((n) => { const f = byN.get(n); return isFormD(f) && digits(x.amount) && `${f.title || ''} ${f.quote || ''}`.replace(/[,.]/g, '').includes(digits(x.amount)); });
+    if (ns.length && x.amount) lines.push(bullet(`A Form D offering notice filed with the SEC confirms ${inert(co)}'s offering: ${inert(x.amount)}${x.date ? ` (${x.date})` : ''}`, ns, 2));
   }
   // A domain registered around the founding corroborates the founding date, and nothing else.
   const founded = Number(cf.founded?.year);
@@ -1558,13 +2077,26 @@ function founderQuestions(report, checks) {
   const co = report.company || p.company;
   const qs = [];
   if (report.identityNote && report.company) qs.push(`• Confirm the role at ${inert(report.company)} with a document that shows it (an offering filing, a board resolution or a company register entry): no record found ties ${inert(name)} to it.`);
-  for (const f of listOf(report.redFlags).slice(0, 3)) qs.push(`• Ask for the current status of this matter and its final court or regulator documents: ${inert(clipWords(f.title, 160))}${f.date ? ` (${f.date})` : ''} [Source ${f.n}]`);
+  // One question per matter (the stages of one prosecution are one matter, even in a saved report that lists them
+  // apart). A court or regulator's own record asks for the final documents; a press report asks for their account.
+  const asked = [];
+  for (const f of listOf(report.redFlags)) {
+    if (asked.length >= 3) break;
+    if (stageOf(f) && asked.some((a) => stageOf(a) && whoOf(a) === whoOf(f))) continue;
+    asked.push(f);
+    const official = INDEPENDENT.has(f.source) && ['litigation', 'regulatory', 'sanctions'].includes(f.category);
+    const what = `${inert(clipWords(f.title, 160))}${dated(f)}${outcomeText(f)} [Source ${f.n}]`;
+    qs.push(official ? `• Ask for the current status of this matter and its final court or regulator documents: ${what}` : `• Ask for their account of this matter, and any court or regulator document that settles it: ${what}`);
+  }
   for (const l of listOf(p.leads).slice(0, 3)) {
     const text = leadText(String(l.text || '').replace(/\s*Ask\b[^.]*\.?\s*$/i, '').replace(/[.\s]+$/, ''));
     const r = refs(l.cites, 2);
     if (text && r) qs.push(`• Confirm whether this is theirs: ${text}. ${r}`);
   }
-  for (const f of listOf(report.claimChanges).slice(0, 2)) qs.push(`• Ask what changed and why: ${inert(clipWords(f.title, 180))} [Source ${f.n}]`);
+  // A change to their title, role, dates, headline or education is theirs to explain; a rewritten bio on a news
+  // site or a database profile is the site's edit, not a claim of theirs.
+  const theirs = (f) => ['title', 'role', 'dates', 'headline', 'education'].includes(f.data?.field);
+  for (const f of listOf(report.claimChanges).filter(theirs).slice(0, 2)) qs.push(`• Ask what changed and why: ${changeText(f, 180)} [Source ${f.n}]`);
   for (const r of listOf(p.roles).filter((x) => !x.current && x.org).slice(0, 2)) {
     const y = yearsOf(r.from, r.to, false);
     const ref = refs(r.cites, 1);
@@ -1574,11 +2106,43 @@ function founderQuestions(report, checks) {
   if (school && refs(school.cites, 1)) qs.push(`• Confirm the ${school.degree ? `${inert(school.degree)} from` : 'studies at'} ${inert(school.school)}${school.to ? ` (${school.to})` : ''} through the registrar or a degree-verification service. ${refs(school.cites, 1)}`);
   const namesake = listOf(report.possibleNamesake)[0];
   if (namesake) qs.push(`• Ask whether this record, matched by name only, is about them: ${inert(clipWords(namesake.title, 160))} [Source ${namesake.n}]`);
-  const round = sortByDate(listOf(report.companyFacts?.funding)).filter((x) => x.amount).pop();
-  if (co && round && refs(round.cites, 1)) qs.push(`• Ask for ${inert(co)}'s cap table and the documents of the latest round on record (${amountText(round)}${round.date ? `, ${round.date}` : ''}). ${refs(round.cites, 1)}`);
+  const byN = recordsByNumber(report);
+  const round = latestFunding(fundingRows(report.companyFacts || {}, byN));
+  if (co && round && refs(round.cites, 1)) qs.push(`• Ask for ${inert(co)}'s cap table and the documents of the latest funding on record (${fundingText(round, byN)}, ${round.date}). ${refs(round.cites, 1)}`);
   qs.push(`• Ask for a written list of any litigation, regulatory inquiry or insolvency involving ${inert(name)} or their companies, including state and foreign courts, which this check could not search.`);
   if (qs.length < 4) qs.push('• Ask for a CV with dates and a reference at each employer, and compare it with the career above.');
   return qs.slice(0, 8);
+}
+
+/**
+ * A claim that changed, in words: with the field's text before and after, written from the record's own fields
+ * (its title may carry a source's cut inside a date), else its title.
+ */
+function changeText(f, n) {
+  const d = f.data || {};
+  if (d.field && d.field !== 'bio' && d.before && d.after) {
+    const where = String(f.title || '').split(':')[0].trim() || 'Profile';
+    const span = d.fromDate && d.toDate ? ` between ${String(d.fromDate).slice(0, 10)} and ${String(d.toDate).slice(0, 10)}` : '';
+    return `${inert(where)}: ${inert(d.field)} changed${span}: "${inert(clipWords(d.before, Math.round(n / 2)))}" became "${inert(clipWords(d.after, Math.round(n / 2)))}"`;
+  }
+  return inert(clipWords(f.title, n));
+}
+
+/**
+ * The bottom line's word on the screens that did not answer in full: counts only ("2 screens did not answer, 9
+ * are not enabled on this deployment and 10 answered only in part"); the screens are named under PUBLIC-RECORD
+ * SCREENS. Never says a screen was clean.
+ */
+function silentSentence(report) {
+  const silent = silentScreens(report);
+  const parts = [
+    [silent.failed.length, 'did not answer', 'did not answer'],
+    [silent.off.length, 'is not enabled on this deployment', 'are not enabled on this deployment'],
+    [silent.partial.length, 'answered only in part', 'answered only in part'],
+  ].filter(([k]) => k > 0);
+  if (!parts.length) return 'Every public-record screen that was asked answered in full.';
+  const text = parts.map(([k, one, many], i) => `${k}${i === 0 ? ` ${k === 1 ? 'screen' : 'screens'}` : ''} ${k === 1 ? one : many}`);
+  return `Of the public-record screens, ${andList(text)} (see Public-record screens).`;
 }
 
 /**
@@ -1609,33 +2173,32 @@ function assembleSections(report) {
   if (earlier.length) bottom.push(`Earlier roles: ${earlier.map((r) => `${roleText(r).replace(/^Worked at/, 'worked at')} ${refs(r.cites, 1)}`).join('; ')}.`);
   const schools = education.filter((e) => refs(e.cites)).slice(0, 2);
   if (schools.length) bottom.push(`Education: ${schools.map((e) => `${eduText(e)} ${refs(e.cites, 1)}`).join('; ')}.`);
-  const latest = sortByDate(listOf(cf.funding)).filter((x) => x.amount && refs(x.cites)).pop();
-  if (co && cf.founded?.year && refs(cf.founded.cites)) bottom.push(`${inert(co)} was founded in ${cf.founded.year} ${refs(cf.founded.cites, 1)}${latest ? `; the latest funding on record is ${amountText(latest)}${latest.date ? ` (${latest.date})` : ''} ${refs(latest.cites, 1)}` : ''}.`);
-  else if (co && latest) bottom.push(`The latest funding on record for ${inert(co)} is ${amountText(latest)}${latest.date ? ` (${latest.date})` : ''} ${refs(latest.cites, 1)}.`);
+  // the latest dated funding a record reports as raised (never an undated one, a sum paid in a settlement, or one
+  // dated before the company existed)
+  const funding = fundingRows(cf, byN);
+  const latest = latestFunding(funding);
+  const latestText = latest ? `the latest dated funding on record is ${fundingText(latest, byN)} (${latest.date}) ${refs(latest.cites, 1)}` : '';
+  if (co && cf.founded?.year && refs(cf.founded.cites)) bottom.push(`${inert(co)} was founded in ${cf.founded.year} ${refs(cf.founded.cites, 1)}${latestText ? `; ${latestText}` : ''}.`);
+  else if (co && latest) bottom.push(`For ${inert(co)}, ${latestText}.`);
   const records = Number(t.records) || 0;
   const tied = (Number(t.confirmed) || 0) + (Number(t.likely) || 0);
   bottom.push(`Of ${plural(records, 'record', 'records')} collected, ${tied} ${tied === 1 ? 'is' : 'are'} tied to ${name}${t.company ? `, ${t.company} concern ${co ? inert(co) : 'their companies'} without naming them` : ''} and ${t.possible || 0} match the name only${t.wordOnly && co ? `; ${t.wordOnly} more that match only the word "${inert(co)}" were set aside` : ''}.`);
   if (report.commonName) bottom.push(`${report.commonName.reason === 'very common name' ? `${name} is a very common name` : 'The records that match the name only name several organisations, so the name is shared'}: those records are kept apart and are not findings about this person.`);
   const flags = listOf(report.redFlags);
-  if (flags.length) bottom.push(`${plural(flags.length, 'serious matter is', 'serious matters are')} tied to ${name}; the most serious: ${inert(clipWords(flags[0].title, 160))}${flags[0].date ? ` (${flags[0].date})` : ''} [Source ${flags[0].n}].`);
+  // the most serious matter with its latest outcome ("pardoned, 2025-03-28"), as the red flag shows it
+  if (flags.length) bottom.push(`${plural(flags.length, 'serious matter is', 'serious matters are')} tied to ${name}; the most serious: ${inert(clipWords(flags[0].title, 160))}${dated(flags[0])} [Source ${flags[0].n}]${outcomeText(flags[0])}.`);
   else bottom.push('No serious record is tied to this person in the sources that answered.');
   if (listOf(report.ifRightPerson).length) bottom.push(`${plural(report.ifRightPerson.length, 'more serious matter holds', 'more serious matters hold')} only if this is the right person.`);
   if (listOf(report.companyMatters).length) bottom.push(`${plural(report.companyMatters.length, 'more concerns', 'more concern')} ${co ? inert(co) : 'a company they founded or run'}, not ${name} personally.`);
-  const silent = silentScreens(report);
-  const silentParts = [
-    silent.failed.length ? `did not answer: ${silent.failed.map(inert).join(', ')}` : '',
-    silent.off.length ? `not enabled on this deployment: ${silent.off.map(inert).join(', ')}` : '',
-    silent.partial.length ? `answered only in part: ${silent.partial.map(inert).join(', ')}` : '',
-  ].filter(Boolean);
-  bottom.push(silentParts.length ? `Screens that ${silentParts.join('; ')}.` : 'Every public-record screen that was asked answered in full.');
+  bottom.push(silentSentence(report));
 
   // RED FLAGS: what, when, the kind of source, the latest outcome, the citation; company matters apart.
   const flagLine = (f) => {
-    const more = listOf(f.more).filter((m) => m.match !== 'possible').map((m) => m.n);
-    const outcome = f.outcome?.text ? `; latest outcome: ${inert(f.outcome.text)}${f.outcome.role ? ` (their part: ${inert(f.outcome.role)})` : ''}${f.outcome.date ? `, ${f.outcome.date}` : ''}${f.outcome.n && f.outcome.n !== f.n ? ` [Source ${f.outcome.n}]` : ''}` : '';
+    const more = listOf(f.more).filter((m) => m.match !== 'possible' && m.n !== f.outcome?.n).map((m) => m.n);
     const notice = f.claimNote ? `; ${inert(f.claimNote)}${f.confirmedBy ? ` [Source ${f.confirmedBy}]` : ''}` : '';
     const unread = f.textNotRead ? '; listed without its text, which could not be read' : '';
-    return `• ${inert(clipWords(f.title, 220))}${dated(f)}: ${sourceKind(f)}${f.sourceLabel ? `, ${inert(f.sourceLabel)}` : ''}${outcome}${notice}${unread} [Source ${f.n}]${more.length ? `; also reported in ${refs(more, 4)}` : ''}`;
+    const passing = f.passing ? '; it mentions them in passing, in a report about something else' : '';
+    return `• ${inert(clipWords(f.title, 220))}${dated(f)}: ${sourceKind(f)}${f.sourceLabel ? `, ${inert(f.sourceLabel)}` : ''}${stagesText(f)}${outcomeText(f)}${notice}${unread}${passing} [Source ${f.n}]${more.length ? `; also reported in ${refs(more, 4)}` : ''}`;
   };
   const redFlags = flags.length ? capped(flags, 14, flagLine) : ['None found in the records searched.'];
   if (listOf(report.ifRightPerson).length) {
@@ -1646,7 +2209,20 @@ function assembleSections(report) {
     redFlags.push('', 'About the company, not the person (records about a company they founded or run that do not name them):');
     // labelled with the company it is about, unless its own title already names it
     const about = (f) => inert(f.data?.company || co || 'their company');
-    redFlags.push(...capped(report.companyMatters, 8, (f) => flagLine(String(f.title || '').toLowerCase().includes(about(f).toLowerCase()) ? f : { ...f, title: `About ${about(f)}: ${f.title}` })));
+    // Court cases known only by their docket title are listed together under one line, each with the year it was
+    // filed when the record gives one, and said to have none otherwise.
+    const docketOnly = (f) => /court/.test(f.source || '') && captionOf(f) && !f.outcome && listOf(f.more).length === 0;
+    const dockets = report.companyMatters.filter(docketOnly);
+    const others = report.companyMatters.filter((f) => !dockets.includes(f));
+    redFlags.push(...capped(others, 8, (f) => flagLine(String(f.title || '').toLowerCase().includes(about(f).toLowerCase()) ? f : { ...f, title: `About ${about(f)}: ${f.title}` })));
+    if (dockets.length) {
+      const caseText = (f) => {
+        const title = String(f.title || '').replace(/,?\s*federal court docket\)/i, ')');
+        const year = /^\d{4}/.test(String(f.date || '')) ? `filed ${String(f.date).slice(0, 4)}` : 'no filing year on record';
+        return `${inert(clipWords(title, 160)).replace(/\)$/, `; ${year})`)}${/\)$/.test(title) ? '' : ` (${year})`} [Source ${f.n}]`;
+      };
+      redFlags.push(`• Court cases naming ${inert(co || 'the company')} as a party, known from their docket titles only (${sourceKind(dockets[0])}, ${inert(dockets[0].sourceLabel || 'court dockets')}): ${dockets.slice(0, 12).map(caseText).join('; ')}${dockets.length > 12 ? `; and ${dockets.length - 12} more in the report` : ''}`);
+    }
   }
 
   // CAREER AND EDUCATION: the résumé lines, then the leads to confirm with the person.
@@ -1663,22 +2239,19 @@ function assembleSections(report) {
   const leads = listOf(p.leads).map((l) => bullet(leadText(l.text), l.cites, 2)).filter(Boolean);
   if (leads.length) career.push('', 'To confirm with the person (leads, not facts):', ...leads);
 
-  // COMPANY: legal name, founding, funding, investors, standing.
-  const standing = [];
-  const seenStanding = new Set();
-  for (const x of listOf(cf.standing)) {
-    const key = String(x.text || '').toLowerCase().replace(/\W+/g, ' ').trim();
-    if (!key || seenStanding.has(key)) continue;
-    seenStanding.add(key);
-    standing.push(x);
-  }
+  // COMPANY: legal name and registered entities, founding, funding (dated first, newest last), investors, standing.
+  const names = companyNames(cf, byN);
+  const nameList = (list) => list.map((x) => `${inert(x.name)} ${refs(x.cites, 1)}`).join('; ');
+  const domains = ownDomains(cf, byN, co);
   const company = [
-    listOf(cf.legalNames).length ? `• Legal name${cf.legalNames.length > 1 ? 's' : ''}: ${cf.legalNames.map((x) => `${inert(x.name)} ${refs(x.cites, 1)}`).join('; ')}` : null,
+    names.sec.length ? `• Legal name${names.sec.length > 1 ? 's' : ''} (as filed with the SEC): ${nameList(names.sec)}` : null,
+    names.register.length ? `• Registered entit${names.register.length > 1 ? 'ies' : 'y'} on company registers: ${nameList(names.register)}` : null,
+    names.other.length ? `• Other names of the company in the records: ${nameList(names.other)}` : null,
     cf.founded?.year ? bullet(`Founded in ${cf.founded.year}`, cf.founded.cites, 2) : null,
-    ...sortByDate(listOf(cf.funding)).map((x) => bullet(`${amountText(x) || 'A funding round'}${x.date ? ` (${x.date})` : ''}${x.lead ? `, led by ${inert(x.lead)}` : ''}${listOf(x.investors).length ? `, with ${x.investors.slice(0, 6).map(inert).join(', ')}` : ''}`, x.cites, 2)),
+    ...sortByDate(funding).map((x) => bullet(`${fundingText(x, byN).replace(/^a /, 'A ')}${x.date ? ` (${x.date})` : ' (date not given)'}${x.lead ? `, led by ${inert(x.lead)}` : ''}${listOf(x.investors).length ? `, with ${x.investors.slice(0, 6).map(inert).join(', ')}` : ''}`, x.cites, 2)),
     listOf(cf.investors).length ? `• Investors named in the records: ${cf.investors.slice(0, 10).map((x) => `${inert(x.name)} ${refs(x.cites, 1)}`).join(', ')}` : null,
-    ...standing.slice(0, 4).map((x) => bullet(inert(clipWords(x.text, 240)), x.cites, 2)),
-    listOf(cf.domains).length ? `• Web domains: ${cf.domains.map((x) => `${inert(x.domain)} ${refs(x.cites, 1)}`).join(', ')}` : null,
+    ...standingLines(cf, byN),
+    domains.length ? `• Web domains: ${domains.map((x) => `${inert(x.domain)} ${refs(x.cites, 1)}`).join(', ')}` : null,
   ].filter((l) => l && /\[Source \d+\]/.test(l));
   if (!company.length) company.push(co ? `No record gives ${inert(co)}'s legal name, founding date or funding.` : 'No company was named, and no record gives company facts.');
 
@@ -1687,12 +2260,7 @@ function assembleSections(report) {
     : ['No independent official record (a filing, register entry, patent or court record) was found confirming a claim about them; the profile rests on bios, profiles and press.'];
 
   // CLAIMS THAT CHANGED OVER TIME
-  const changeLine = (f) => {
-    const d = f.data || {};
-    const detail = d.field && d.field !== 'bio' && d.before && d.after && !String(f.title || '').includes(String(d.after).slice(0, 20))
-      ? `: "${inert(clipWords(d.before, 120))}" became "${inert(clipWords(d.after, 120))}"` : '';
-    return `• ${inert(clipWords(f.title, 260))}${detail} [Source ${f.n}]`;
-  };
+  const changeLine = (f) => `• ${changeText(f, 260)} [Source ${f.n}]`;
   const changes = listOf(report.claimChanges).length ? capped(report.claimChanges, 10, changeLine) : ['None found.'];
 
   // RELATED PARTIES: with their roles; those with no record on them in one line.
@@ -1738,6 +2306,7 @@ function assembleSections(report) {
     ...(limits.length ? [`• Limits of this check: ${limits.join(', ')}.`] : []),
     ...(coverage.searchNote ? [`• ${inert(coverage.searchNote)}`] : []),
     ...listOf(coverage.notCovered).map((s) => `• Not covered: ${inert(s)}.`),
+    ...givenCompaniesLines(coverage),
   ];
   if (!gaps.length) gaps.push('None recorded.');
 
@@ -1757,7 +2326,10 @@ function assembleSections(report) {
 
 /** Text cut to about n characters at a space, never inside a word or a number ("$1,850,00"). */
 function clipWords(text, n) {
-  const t = String(text || '');
+  // A source that cut its own text inside a number or date ("between 2017-05 and 2020-…") leaves a figure the
+  // reader would take as whole: the broken figure goes, the ellipsis stays.
+  const t = String(text || '').replace(/(?:\s+(?:and|to|from|until|of|at|on|in|by))?\s*[$€£]?\d[\d,.\-/:]*…/g,
+    (m) => (/[-,./:]…$/.test(m) || /,\d{0,2}…$/.test(m) ? '…' : m));
   if (t.length <= n) return t;
   const cut = t.slice(0, n + 1).replace(/\s+\S*$/, '');
   return `${cut || t.slice(0, n)}…`;
@@ -1794,8 +2366,36 @@ function recordsBlock(records) {
 
 // A line with no citation that states no fact: it only says nothing was found, or what did not answer.
 const NO_CLAIM = /\b(?:none (?:found|recorded)|no (?:serious |other |independent |official )?(?:records?|red flags?|matters?|changes?|related parties|claims?|match(?:es)?)\b|not found|nothing (?:was )?found|did not answer|answered (?:only )?in part|not enabled|could not (?:be )?(?:confirmed|verified|searched|reach)|cannot reach|match(?:es|ed)? (?:by )?(?:the )?name only|records? (?:were |was )?collected)/i;
-// A short label line ("About the company:", "**To confirm with the person:**").
+// A short label line ("Possible namesakes to rule out:"), for the sections that state no fact.
 const LABEL = /^[*_]*[A-Z][^.!?[\]]{0,70}:[*_]*$/;
+// The labels a fact section may carry without a citation: only the brief's own ("About the company, not the
+// person (...):"). "Convicted of wire fraud in Ohio in 2016:" is a claim, not a label.
+const KNOWN_LABEL = /^[*_]*(?:About the company|To confirm with the person|Only if this is the right person)\b[^!?[\]]{0,160}:[*_]*$/i;
+const RIGHT_PERSON_LABEL = /^[*_\s]*Only if this is the right person\b/i;
+// Kinds of adverse event, so a line about one can be held to a record that reports the same kind.
+const EVENT_KINDS = [
+  ['charge', /\bcharg(?:e|es|ed|ing)\b|\bindict\w*|\barrest\w*|\bextradit\w*|\bprosecut\w*/i],
+  ['sue', /\bsue[ds]?\b|\bsuing\b|\blawsuits?\b|\bclass[- ]action\b|\blitigation\b|\bcomplaint\b/i],
+  ['convict', /\bconvict\w*|(?<!\bnot )\bguilty\b|\bverdict\b/i],
+  ['sentence', /\bsentenc\w*|\bprison\b|\bjail\w*|\bimprison\w*|\bprobation\b/i],
+  ['fine', /\bfined\b|\bfines?\b|\bpenalt\w*/i],
+  ['settle', /\bsettl\w*|\bagreed to pay\b/i],
+  ['fraud', /\bfraud\w*|\bembezzl\w*|\bbrib\w*|\blaunder\w*|\bponzi\b|\bscam\w*|\bmisconduct\b|\binsider trading\b|\bburglar\w*|\btheft\b|\bassault\w*/i],
+  ['investigate', /\binvestigat\w*|\bprobe[sd]?\b|\bsubpoena\w*|\binquir(?:y|ies)\b/i],
+  ['sanction', /\bsanction\w*|\bdebarr\w*|\bbarred\b|\bbanned\b|\bdisqualif\w*|\bwanted\b/i],
+  ['insolvency', /\bbankrupt\w*|\binsolven\w*|\bliquidat\w*|\breceivership\b|\bwound up\b/i],
+  ['pardon', /\bpardon\w*|\bclemency\b|\bcommut\w*/i],
+  ['cleared', /\bacquit\w*|\bdismiss\w*|\bdropped\b|\bovertur\w*|\bvacated\b/i],
+  ['depart', /\bresign\w*|\bousted\b|\bfired\b|\bstep(?:s|ped)? down\b|\bforced out\b/i],
+  ['allege', /\ballegation\w*|\balleg(?:e|es|ed|edly)\b|\baccus\w*/i],
+];
+const eventKinds = (text) => new Set(EVENT_KINDS.filter(([, re]) => re.test(String(text || ''))).map(([k]) => k));
+// "Every screen answered in full": a claim of complete coverage, false whenever a screen did not answer.
+const FULL_COVERAGE = /\b(?:every|all)\b[^.;]{0,50}\b(?:screens?|sources?|lookups?)\b[^.;]{0,40}\b(?:answered|ran|completed|returned)\b|\b(?:screens?|sources?)\b[^.;]{0,30}\b(?:answered|ran) in full\b|\bno screen (?:failed|was silent)\b/i;
+// What the check could search or reach ("No public source covers state courts", "... were not searched").
+const COVERAGE_WORDS = /\b(?:covers?|covered|reach(?:es|ed)?|searched|not run|did not answer|answered (?:only )?in part|not enabled)\b/i;
+// A gap the model may state without a citation: a claim that no independent record supports, as such.
+const UNVERIFIED = /\bstated only\b|\bno independent (?:record|source)\b|\bnot (?:independently )?(?:confirmed|verified)\b|\bunverified\b|\bcould not be (?:verified|confirmed)\b|\bonly (?:in|on) (?:a |an |her |his |their |the )?(?:own )?(?:bio|profile|press|website|interview)/i;
 const STOP = new Set(['source', 'sources', 'with', 'that', 'this', 'from', 'were', 'have', 'been', 'their', 'they', 'them', 'about', 'after', 'before', 'which', 'when', 'into', 'over', 'also', 'record', 'records', 'reported', 'according', 'official', 'press']);
 // Sentences of the bottom line: a sentence ends at its stop or after its citations.
 const splitSentences = (line) => line.split(/(?<=[.!?]|\[Source \d+\])\s+(?=[A-Z"“])/);
@@ -1860,19 +2460,68 @@ export async function writeDeepBrief(report, { deadline = null, maxRecords = 70,
   const tied = (n) => { const f = byN.get(n); return Boolean(f) && f.match !== 'possible' && !f.assumedTie; };
   const nameWords = new Set([...nameTokens(report.name || ''), ...nameTokens(report.company || '')]);
   const stems = (text) => new Set((String(text || '').toLowerCase().match(/[a-z]{4,}/g) || []).filter((w) => !STOP.has(w) && !nameWords.has(w)).map((w) => w.slice(0, 5)));
-  // A red flag says what one of its records says: at least one distinctive word in common.
-  const sharesWords = (unit, ns) => {
-    const mine = stems(unit.replace(SOURCE_RE, ''));
-    const theirs = new Set(ns.flatMap((n) => { const f = byN.get(n); return f ? [...stems(`${f.title || ''} ${f.quote || ''} ${f.outcome?.text || ''} ${listOf(f.more).map((m) => m.title).join(' ')}`)] : []; }));
-    return [...mine].some((w) => theirs.has(w));
+  // Screen and source names, and the screens' group names, say what was searched; their words ("Sanctions lists")
+  // are not an event the line reports.
+  const silent = silentScreens(report);
+  const silentLabels = [...silent.failed, ...silent.off, ...silent.partial];
+  const labels = [...new Set([
+    ...listOf(report.screens).flatMap((g) => [g.group, ...listOf(g.items).map((i) => i.label)]),
+    ...['searched', 'partlyAnswered', 'notSearched'].flatMap((k) => listOf(report.coverage?.[k]).map((x) => x.label)),
+    ...SCREEN_GROUPS.map(([g]) => g),
+  ].filter(Boolean))].sort((a, b) => b.length - a.length);
+  const withoutLabels = (text) => labels.reduce((t, l) => t.split(l).join(' '), String(text || ''));
+  const namesLabel = (text) => labels.some((l) => String(text || '').includes(l)) || /^\W*Not covered\b/i.test(String(text || '').trim());
+  // A line that only says nothing was found, or what did not answer: the whole line is that statement. "No lawsuits
+  // or charges were found." is one; "Convicted of embezzlement in 2015; no records of an appeal were found." is not.
+  const noClaim = (unit) => {
+    const t = withoutLabels(unit.replace(SOURCE_RE, '')).replace(/^[\s•*-]+/, '').trim();
+    if (!NO_CLAIM.test(t) || FULL_COVERAGE.test(t)) return false;
+    const oneClause = !/[;:]|\.\s+\S|\b(?:but|except|however|although|while)\b/i.test(t.replace(/[.\s]+$/, ''));
+    if (/^(?:no|none|nothing)\b/i.test(t) && oneClause) return true;
+    return eventKinds(t).size === 0;
   };
+  // What a record says, for holding a line to it: its headline, quotation, date, outcome, and its tied reports.
+  const recordText = (f) => `${f.title || ''} ${f.quote || ''} ${f.date || ''} ${f.outcome?.text || ''} ${listOf(f.more).filter((m) => m.match !== 'possible').map((m) => `${m.title || ''} ${m.date || ''}`).join(' ')}`;
+  const words = (text) => new Set([...stems(text), ...(String(text || '').match(/\b(?:19|20)\d{2}\b/g) || [])].filter((w) => !EVENT_KINDS.some(([, re]) => re.test(w))));
+  // An adverse event stated about the person must be what a record tied to them says: the same kind of event, and
+  // a distinctive word of it (a place, a party, a year). A namesake's record cited beside a tied bio, or a bio that
+  // shares one word, never carries it.
+  const supported = (unit, ns) => {
+    const kinds = eventKinds(withoutLabels(unit.replace(SOURCE_RE, '')));
+    const mine = words(withoutLabels(unit.replace(SOURCE_RE, '')));
+    return ns.some((n) => {
+      const f = byN.get(n);
+      if (!f || !tied(n) || f.data?.ownStatement) return false;
+      const text = recordText(f);
+      const theirs = words(text);
+      const shared = [...mine].filter((w) => theirs.has(w)).length;
+      if (!kinds.size) return shared >= 2;
+      const theirKinds = eventKinds(text);
+      return [...kinds].some((k) => theirKinds.has(k)) && shared >= 1;
+    });
+  };
+  // A unit's citations without the name-only and assumed-company records: what is left must carry it.
+  const tiedOnly = (unit) => unit.replace(SOURCE_RE, (m, n) => (tied(Number(n)) ? m : '')).replace(/\s{2,}/g, ' ').trim();
   const keepUnit = (unit, heading) => {
     const ns = citesIn(unit);
-    if (!ns.length) return !FACT_SECTIONS.has(heading) || NO_CLAIM.test(unit) || LABEL.test(unit.trim()) || /^#/.test(unit.trim());
+    if (!ns.length) {
+      if (/^#/.test(unit.trim())) return true;
+      if (FULL_COVERAGE.test(unit) && silentLabels.length) return false;
+      if (heading === '## GAPS AND UNVERIFIED CLAIMS') {
+        // an uncited gap: what did not answer, what nothing confirms, or a label; never an uncited adverse event
+        const rest = withoutLabels(unit);
+        if (noClaim(unit)) return true;
+        return (namesLabel(unit) || UNVERIFIED.test(unit) || COVERAGE_WORDS.test(unit) || LABEL.test(unit.trim())) && eventKinds(rest).size === 0;
+      }
+      if (!FACT_SECTIONS.has(heading)) return true;
+      return noClaim(unit) || (heading !== '## BOTTOM LINE' && KNOWN_LABEL.test(unit.trim()));
+    }
     if (TIED_SECTIONS.has(heading) && !ns.some(tied)) return false;
-    if (heading === '## RED FLAGS' && !sharesWords(unit, ns)) return false;
+    if (heading === '## RED FLAGS' && !supported(unit, ns.filter(tied))) return false;
+    // a bottom-line sentence that states an adverse event is held to the same test as a red flag
+    if (heading === '## BOTTOM LINE' && eventKinds(withoutLabels(unit.replace(SOURCE_RE, ''))).size && !noClaim(unit) && !supported(unit, ns.filter(tied))) return false;
     // The person's own posts are what they said, not a record against them: never the only ground for a red flag.
-    if (heading === '## RED FLAGS' && !ns.some((n) => !byN.get(n)?.data?.ownStatement)) return false;
+    if (heading === '## RED FLAGS' && !ns.some((n) => tied(n) && !byN.get(n)?.data?.ownStatement)) return false;
     // A domain an earlier holder registered (or any record kept off the timeline) confirms nothing about them.
     if (heading === '## WHAT CHECKS OUT' && !ns.some((n) => { const f = byN.get(n); return f && !f.data?.earlierHolder && !f.excludeFromTimeline && !f.data?.excludeFromTimeline; })) return false;
     return true;
@@ -1886,21 +2535,55 @@ export async function writeDeepBrief(report, { deadline = null, maxRecords = 70,
     let heading = DEEP_SECTIONS[0];
     let units = 0;
     let dropped = 0;
+    // inside the model's "Only if this is the right person" block (replaced below by the check's own)
+    let rightPersonBlock = false;
+    const assumedOnly = (u) => { const ns = citesIn(u); return ns.length > 0 && ns.every((n) => byN.get(n)?.assumedTie); };
     for (const raw of first.content.split('\n')) {
       const known = DEEP_SECTIONS.find((h) => raw.trim().toUpperCase() === h);
-      if (known) { heading = known; continue; }
+      if (known) { heading = known; rightPersonBlock = false; continue; }
+      // The screens are stated by the check, never by the model: a screen that did not answer is never "no match".
+      if (heading === '## PUBLIC-RECORD SCREENS') continue;
       const had = /\[Source \d+\]/.test(raw);
-      const line = raw.replace(SOURCE_RE, (m, n) => (shown.has(Number(n)) ? m : ''));
+      let line = raw.replace(SOURCE_RE, (m, n) => (shown.has(Number(n)) ? m : ''));
       // a line whose only citations pointed to unshown records is an uncited claim: drop it
       if (had && !/\[Source \d+\]/.test(line)) continue;
+      if (heading === '## RED FLAGS') {
+        if (RIGHT_PERSON_LABEL.test(line)) { rightPersonBlock = true; continue; }
+        if (rightPersonBlock && (!line.trim() || (KNOWN_LABEL.test(line.trim()) && !RIGHT_PERSON_LABEL.test(line)))) rightPersonBlock = false;
+        if (rightPersonBlock) continue;
+      }
       if (!line.trim()) { buckets.get(heading).push(''); continue; }
-      const parts = heading === '## BOTTOM LINE' ? splitSentences(line) : [line];
-      const kept = parts.filter((u) => keepUnit(u, heading));
+      let parts = heading === '## BOTTOM LINE' ? splitSentences(line) : [line];
+      // a matter that holds only if this is the right person is stated by the check (below), not counted against the model
+      if (report.ifRightPerson?.length && (heading === '## BOTTOM LINE' || heading === '## RED FLAGS')) parts = parts.filter((u) => !assumedOnly(u));
+      if (!parts.length) continue;
+      // In a red flag, and in a bottom-line sentence that states an adverse event, a name-only or assumed-company
+      // citation is taken off: what remains must carry the line on its own (a line left with none is dropped).
+      const hadCites = parts.map((u) => citesIn(u).length);
+      if (heading === '## RED FLAGS') parts = parts.map((u) => (citesIn(u).length ? tiedOnly(u) : u));
+      if (heading === '## BOTTOM LINE') parts = parts.map((u) => (citesIn(u).length && eventKinds(withoutLabels(u.replace(SOURCE_RE, ''))).size ? tiedOnly(u) : u));
+      const kept = parts.filter((u, i) => (citesIn(u).length || !hadCites[i] ? keepUnit(u, heading) : false));
       units += parts.length;
       dropped += parts.length - kept.length;
       if (kept.length) buckets.get(heading).push(kept.join(' '));
     }
     if (!units || dropped / units > 0.2) return { ok: false, reason: `${dropped} of ${units} lines were uncited or rested on name-only records` };
+    // The check's own screens, the matters that hold only if this is the right person, and in the bottom line the
+    // count of the screens that did not answer in full (unless the kept text already names each of them).
+    buckets.set('## PUBLIC-RECORD SCREENS', [...sections['## PUBLIC-RECORD SCREENS']]);
+    const assembledFlags = sections['## RED FLAGS'];
+    const rpAt = assembledFlags.findIndex((l) => RIGHT_PERSON_LABEL.test(l));
+    if (rpAt >= 0 && buckets.get('## RED FLAGS').length) {
+      const end = assembledFlags.indexOf('', rpAt + 1);
+      buckets.get('## RED FLAGS').push('', ...assembledFlags.slice(rpAt, end < 0 ? undefined : end));
+    }
+    const bottomText = buckets.get('## BOTTOM LINE').join(' ');
+    const extra = [];
+    if (report.ifRightPerson?.length && !/\bright person\b/i.test(bottomText)) extra.push(`${plural(report.ifRightPerson.length, 'more serious matter holds', 'more serious matters hold')} only if this is the right person.`);
+    if (silentLabels.length && !silentLabels.every((l) => bottomText.includes(l)) && !bottomText.includes(silentSentence(report))) extra.push(silentSentence(report));
+    const bottomLines = buckets.get('## BOTTOM LINE');
+    const lastAt = bottomLines.map((l) => Boolean(l.trim())).lastIndexOf(true);
+    if (extra.length && lastAt >= 0) bottomLines[lastAt] = `${bottomLines[lastAt]} ${extra.join(' ')}`;
     // A section the checks emptied (or the model left out) is filled from the assembled brief.
     const filled = [];
     const body = DEEP_SECTIONS.map((h) => {

@@ -39,7 +39,7 @@
  * DataCite, and most founders never held an NSF award. The notes say so.
  */
 import { getJson, HttpError } from '../http';
-import { cached } from '../cache';
+import { cachedEntry } from '../cache';
 import { makeFinding, makeThread } from '../finding';
 import { nameTokens } from '../identity';
 import { isSensitive, mentionsMinor } from '../guardrails';
@@ -153,19 +153,38 @@ function compactThesis(item) {
   };
 }
 
-async function dataciteTheses(name, ctx) {
+/**
+ * When a search failed and an older cached answer stood in for it, the answer's date is noted and the lookup is
+ * marked partial: "no thesis" or "no award" from a week-old answer must not read as today's.
+ */
+const staleDate = (entry) => (entry && entry.fresh === false ? new Date(entry.at).toISOString().slice(0, 10) : '');
+function withStale(out, stale, label) {
+  const dates = uniq(stale);
+  if (!dates.length || !out) return out;
+  return {
+    ...out,
+    notes: [...(out.notes || []), `${label}: the search could not be run again, so an earlier answer (${dates.join(', ')}) was used.`],
+    partial: [...(out.partial || []), `${label} (answer as of ${dates.join(', ')})`],
+  };
+}
+
+async function dataciteTheses(name, ctx, stale = []) {
   const q = dataciteQuery(name);
   if (!q) return { rows: [], total: 0 };
   const url = `${DC_SEARCH}?${new URLSearchParams({ query: q, 'page[size]': String(DC_PAGE), 'fields[dois]': DC_FIELDS })}`;
-  return cached(`founder:datacite-theses:v1:${nameTokens(name).join(' ')}`, DAY_MS, async () => {
-    const body = await getJson(url, { deadline: ctx.deadline, timeoutMs: 15000, maxBytes: 2 * 1024 * 1024 });
+  // The loader uses the deadline the cache gives it, so a load shared by several callers is not cut by the first
+  const entry = await cachedEntry(`founder:datacite-theses:v1:${nameTokens(name).join(' ')}`, DAY_MS, async ({ deadline }) => {
+    const body = await getJson(url, { deadline, timeoutMs: 15000, maxBytes: 2 * 1024 * 1024 });
     if (!body || !Array.isArray(body.data) || !body.meta || typeof body.meta !== 'object') throw new HttpError('DataCite returned an unexpected answer to a thesis search', { url: DC_SEARCH });
     const rows = body.data.map(compactThesis);
     // Every record of a DataCite answer has attributes and a creator: when they are missing, the format has changed.
     if (body.data.length && rows.filter((r) => r && r.creators.length).length < body.data.length / 2) throw new HttpError('DataCite thesis records no longer carry their authors in the expected form', { url: DC_SEARCH });
     const total = Number(body.meta.total);
     return { rows: rows.filter(Boolean), total: Number.isFinite(total) ? total : rows.length };
-  });
+  }, { deadline: ctx.deadline });
+  const when = staleDate(entry);
+  if (when) stale.push(when);
+  return entry.value;
 }
 
 /** How many people the theses under the name belong to, at least: theses at different schools are different people, and so are different ORCIDs. */
@@ -186,8 +205,12 @@ export const dataciteThesesConnector = {
   prior: 0.2,
   timeoutMs: 20000,
   async run(task, ctx) {
+    const stale = [];
+    return withStale(await dataciteThesesConnector.answer(task, ctx, stale), stale, 'University theses (DataCite)');
+  },
+  async answer(task, ctx, stale) {
     const { subject } = ctx;
-    const { rows, total } = await dataciteTheses(subject.name, ctx);
+    const { rows, total } = await dataciteTheses(subject.name, ctx, stale);
     const theses = [];
     for (const r of rows) {
       const author = r.creators.find((c) => personNameFits(subject, c.name));
@@ -312,11 +335,11 @@ function compactAward(a) {
   };
 }
 
-async function nsfAwards(param, value, ctx) {
+async function nsfAwards(param, value, ctx, stale = []) {
   const url = `${NS_SEARCH}?${new URLSearchParams({ [param]: value, rpp: String(NS_PAGE) })}`;
-  return cached(`founder:nsf-awards:v1:${param}:${nameTokens(value).join(' ')}`, DAY_MS, async () => {
-    await nsfTurn(ctx.deadline);
-    const body = await getJson(url, { deadline: ctx.deadline, timeoutMs: 15000, maxBytes: 2 * 1024 * 1024 });
+  const entry = await cachedEntry(`founder:nsf-awards:v1:${param}:${nameTokens(value).join(' ')}`, DAY_MS, async ({ deadline }) => {
+    await nsfTurn(deadline);
+    const body = await getJson(url, { deadline, timeoutMs: 15000, maxBytes: 2 * 1024 * 1024 });
     const r = body?.response;
     if (!r || !Array.isArray(r.award) || !r.metadata || typeof r.metadata !== 'object') {
       const why = clean(r?.serviceNotification?.[0]?.notificationMessage || '');
@@ -326,7 +349,10 @@ async function nsfAwards(param, value, ctx) {
     if (r.award.length && rows.filter(Boolean).length < r.award.length / 2) throw new HttpError('NSF award records no longer carry their identifiers in the expected form', { url: NS_SEARCH });
     const total = Number(r.metadata.totalCount);
     return { rows: rows.filter(Boolean), total: Number.isFinite(total) ? total : rows.length };
-  });
+  }, { deadline: ctx.deadline });
+  const when = staleDate(entry);
+  if (when) stale.push(when);
+  return entry.value;
 }
 
 const span = (start, end) => {
@@ -343,6 +369,10 @@ export const nsfAwardsConnector = {
   prior: 0.15,
   timeoutMs: 25000,
   async run(task, ctx) {
+    const stale = [];
+    return withStale(await nsfAwardsConnector.answer(task, ctx, stale), stale, 'NSF awards');
+  },
+  async answer(task, ctx, stale) {
     const { subject } = ctx;
     const who = person(subject);
     const findings = [];
@@ -350,7 +380,7 @@ export const nsfAwardsConnector = {
 
     if (task.kind === 'company') {
       const company = clean(task.value);
-      const { rows, total } = await nsfAwards('awardeeName', company, ctx);
+      const { rows, total } = await nsfAwards('awardeeName', company, ctx, stale);
       const cut = total > rows.length ? { partial: [`NSF awards (first ${rows.length} of ${count(total)} read)`] } : {};
       const own = rows.filter((r) => sameCompany(r.awardee, company));
       if (!own.length) {
@@ -389,7 +419,7 @@ export const nsfAwardsConnector = {
     const answers = [];
     const failures = [];
     for (const name of who.queryNames.slice(0, 2)) {
-      try { answers.push(await nsfAwards('pdPIName', name, ctx)); } catch (error) { failures.push(error); }
+      try { answers.push(await nsfAwards('pdPIName', name, ctx, stale)); } catch (error) { failures.push(error); }
     }
     if (!answers.length) throw failures[0] || new HttpError('The NSF award search did not answer', { url: NS_SEARCH });
     const seen = new Set();

@@ -57,7 +57,7 @@
  */
 import { request, HttpError } from '../http';
 import { makeFinding, makeThread } from '../finding';
-import { cached } from '../cache';
+import { cachedEntry } from '../cache';
 import { companyTokens, matchCompanyName, matchPersonName, personVariants } from './sanctions';
 import { companyGrade } from './government';
 
@@ -365,6 +365,23 @@ function companyRecords(subject, reg, wanted, companies, { country, url, facts, 
   return out;
 }
 
+const dayOf = (ms) => new Date(Number(ms) || Date.now()).toISOString().slice(0, 10);
+/** A cached register answer, with asOf (yyyy-mm-dd) when it is an older copy read because the refresh failed. */
+const datedEntry = (e) => ({ ...e.value, ...(e.fresh === false ? { asOf: dayOf(e.at) } : {}) });
+/**
+ * A lookup answered from an older copy is never a clean answer as of today: every note carries the copy's date
+ * and the lookup is marked partial.
+ */
+function dated(label, r, out) {
+  if (!r?.asOf || !out) return out;
+  const when = ` (register answer as of ${r.asOf})`;
+  return {
+    ...out,
+    notes: (out.notes || []).map((n) => `${String(n).replace(/\.$/, '')}${when}`),
+    partial: [...(out.partial || []), `${label.slice(0, 40)}: answer as of ${r.asOf}`],
+  };
+}
+
 const noExact = (label, wanted, similar) => `${label}: no company is registered under the exact name ${wanted}${similar ? ` (${plural(similar, 'company with a similar name was', 'companies with similar names were')} not reported)` : ''}.`;
 
 /* ------------------------------------------------------------------ Norway (Brønnøysund) */
@@ -436,7 +453,9 @@ export function parseBrregRoles(json) {
 }
 
 async function brregLookup(wanted, deadline) {
-  return cached(`intl:no:v1:${cacheKey(wanted)}`, DAY_MS, async () => {
+  // The loader's own deadline (shadowing the caller's) from the cache; an older copy served after a failed
+  // refresh is dated (asOf) by `dated`.
+  return cachedEntry(`intl:no:v1:${cacheKey(wanted)}`, DAY_MS, async ({ deadline }) => {
     const qs = new URLSearchParams({ navn: withoutForm(wanted), size: String(NO_PAGE_SIZE), organisasjonsform: NO_FORMS.join(',') });
     const { total, companies } = parseBrregSearch(await fetchJson(`${NO_BASE}?${qs}`, deadline));
     const exact = companies.filter((c) => [c.name, ...c.earlierNames].some((n) => sameCompany(wanted, n)));
@@ -445,7 +464,7 @@ async function brregLookup(wanted, deadline) {
       c.officers = parseBrregRoles(await fetchJson(`${NO_BASE}/${c.number}/roller`, deadline));
     }
     return { total, read: companies.length, exact, similar: companies.length - exact.length };
-  });
+  }, { deadline }).then(datedEntry);
 }
 
 const noFacts = (c) => [
@@ -475,22 +494,24 @@ export const noCompanyRegisterConnector = {
     if (stop) return stop;
     const wanted = clean(task.value);
     const r = await brregLookup(wanted, ctx.deadline);
-    for (const c of r.exact) {
-      c.officers = c.officers || [];
-      c.data = { country: 'NO', registerNumber: c.number, legalForm: c.form || null, founded: c.founded, status: c.status || 'registered', earlierNames: c.earlierNames, website: c.website || null, officers: c.officers.map((o) => ({ name: o.name, role: o.role, current: o.current, ...(o.person ? {} : { company: true }) })) };
-    }
-    if (!r.exact.length) {
-      const incomplete = r.total > r.read;
-      const note = noExact(NO_LABEL, withoutForm(wanted), r.similar);
-      if (!incomplete) return { findings: [], threads: [], notes: [note] };
-      const partialNote = `${NO_LABEL}: ${r.total} companies have names like ${withoutForm(wanted)}; the first ${r.read} were read and none carries the exact name`;
-      return { findings: [], threads: [], notes: [note, partialNote], partial: [partialNote.slice(0, 80)] };
-    }
-    return companyRecords(ctx.subject, NO_REG, withoutForm(wanted), r.exact, {
-      country: 'Norwegian',
-      url: (c) => `${NO_PAGE}/${c.number}`,
-      facts: noFacts,
-    });
+    return dated(NO_LABEL, r, await (async () => {
+      for (const c of r.exact) {
+        c.officers = c.officers || [];
+        c.data = { country: 'NO', registerNumber: c.number, legalForm: c.form || null, founded: c.founded, status: c.status || 'registered', earlierNames: c.earlierNames, website: c.website || null, officers: c.officers.map((o) => ({ name: o.name, role: o.role, current: o.current, ...(o.person ? {} : { company: true }) })) };
+      }
+      if (!r.exact.length) {
+        const incomplete = r.total > r.read;
+        const note = noExact(NO_LABEL, withoutForm(wanted), r.similar);
+        if (!incomplete) return { findings: [], threads: [], notes: [note] };
+        const partialNote = `${NO_LABEL}: ${r.total} companies have names like ${withoutForm(wanted)}; the first ${r.read} were read and none carries the exact name`;
+        return { findings: [], threads: [], notes: [note, partialNote], partial: [partialNote.slice(0, 80)] };
+      }
+      return companyRecords(ctx.subject, NO_REG, withoutForm(wanted), r.exact, {
+        country: 'Norwegian',
+        url: (c) => `${NO_PAGE}/${c.number}`,
+        facts: noFacts,
+      });
+    })());
   },
 };
 
@@ -612,7 +633,9 @@ export function parseAresExtract(json) {
 }
 
 async function aresLookup(wanted, deadline) {
-  return cached(`intl:cz:v1:${cacheKey(wanted)}`, DAY_MS, async () => {
+  // The loader's own deadline (shadowing the caller's) from the cache; an older copy served after a failed
+  // refresh is dated (asOf) by `dated`.
+  return cachedEntry(`intl:cz:v1:${cacheKey(wanted)}`, DAY_MS, async ({ deadline }) => {
     await waitTurn(`${CZ_BASE}/x`, deadline);
     let search;
     try {
@@ -645,7 +668,7 @@ async function aresLookup(wanted, deadline) {
       c.registerStatus = extract.status;
     }
     return { total: search.total, read: search.companies.length, exact, similar: search.companies.length - exact.length };
-  });
+  }, { deadline }).then(datedEntry);
 }
 
 const CZ_STATUS = { AKTIVNI: 'active', ZANIKLY: 'ceased', V_LIKVIDACI: 'in liquidation' };
@@ -680,31 +703,33 @@ export const czCompanyRegisterConnector = {
     if (stop) return stop;
     const wanted = clean(task.value);
     const r = await aresLookup(wanted, ctx.deadline);
-    if (r.refused) {
-      const note = `${CZ_LABEL}: the register refused the search for ${withoutForm(wanted)} (it does so when more than 1,000 companies share a name), so the search was not completed`;
-      return { findings: [], threads: [], notes: [note], partial: [note.slice(0, 80)] };
-    }
-    for (const c of r.exact) {
-      c.officers = c.officers || [];
-      c.distressed = c.insolvency === 'AKTIVNI' || /LIKVID/i.test(c.registerStatus || '');
-      c.ended = Boolean(c.closed);
-      c.data = {
-        country: 'CZ', registerNumber: c.number, legalForm: c.formName || c.form || null, founded: c.founded, closed: c.closed, status: czStatus(c),
-        insolvencyRegister: c.insolvency || null, earlierNames: c.earlierNames || [],
-        officers: c.officers.map((o) => ({ name: o.name, role: o.role, body: o.body, from: o.from, to: o.to, ...(o.person ? {} : { company: true }) })).slice(0, 30),
-      };
-    }
-    if (!r.exact.length) {
-      const note = noExact(CZ_LABEL, withoutForm(wanted), r.similar);
-      if (r.total <= r.read) return { findings: [], threads: [], notes: [note] };
-      const partialNote = `${CZ_LABEL}: ${r.total} companies have names like ${withoutForm(wanted)}; the first ${r.read} were read and none carries the exact name`;
-      return { findings: [], threads: [], notes: [note, partialNote], partial: [partialNote.slice(0, 80)] };
-    }
-    return companyRecords(ctx.subject, CZ_REG, withoutForm(wanted), r.exact, {
-      country: 'Czech',
-      url: (c) => `${CZ_PAGE}?ico=${c.number}`,
-      facts: czFacts,
-    });
+    return dated(CZ_LABEL, r, await (async () => {
+      if (r.refused) {
+        const note = `${CZ_LABEL}: the register refused the search for ${withoutForm(wanted)} (it does so when more than 1,000 companies share a name), so the search was not completed`;
+        return { findings: [], threads: [], notes: [note], partial: [note.slice(0, 80)] };
+      }
+      for (const c of r.exact) {
+        c.officers = c.officers || [];
+        c.distressed = c.insolvency === 'AKTIVNI' || /LIKVID/i.test(c.registerStatus || '');
+        c.ended = Boolean(c.closed);
+        c.data = {
+          country: 'CZ', registerNumber: c.number, legalForm: c.formName || c.form || null, founded: c.founded, closed: c.closed, status: czStatus(c),
+          insolvencyRegister: c.insolvency || null, earlierNames: c.earlierNames || [],
+          officers: c.officers.map((o) => ({ name: o.name, role: o.role, body: o.body, from: o.from, to: o.to, ...(o.person ? {} : { company: true }) })).slice(0, 30),
+        };
+      }
+      if (!r.exact.length) {
+        const note = noExact(CZ_LABEL, withoutForm(wanted), r.similar);
+        if (r.total <= r.read) return { findings: [], threads: [], notes: [note] };
+        const partialNote = `${CZ_LABEL}: ${r.total} companies have names like ${withoutForm(wanted)}; the first ${r.read} were read and none carries the exact name`;
+        return { findings: [], threads: [], notes: [note, partialNote], partial: [partialNote.slice(0, 80)] };
+      }
+      return companyRecords(ctx.subject, CZ_REG, withoutForm(wanted), r.exact, {
+        country: 'Czech',
+        url: (c) => `${CZ_PAGE}?ico=${c.number}`,
+        facts: czFacts,
+      });
+    })());
   },
 };
 
@@ -750,11 +775,13 @@ export function parsePrhCompanies(json) {
 }
 
 async function prhLookup(wanted, deadline) {
-  return cached(`intl:fi:v1:${cacheKey(wanted)}`, DAY_MS, async () => {
+  // The loader's own deadline (shadowing the caller's) from the cache; an older copy served after a failed
+  // refresh is dated (asOf) by `dated`.
+  return cachedEntry(`intl:fi:v1:${cacheKey(wanted)}`, DAY_MS, async ({ deadline }) => {
     const { total, companies } = parsePrhCompanies(await fetchJson(`${FI_BASE}?${new URLSearchParams({ name: withoutForm(wanted) })}`, deadline));
     const exact = companies.filter((c) => c.allNames.some((n) => sameCompany(wanted, n)));
     return { total, read: companies.length, exact, similar: companies.length - exact.length };
-  });
+  }, { deadline }).then(datedEntry);
 }
 
 const fiFacts = (c) => [
@@ -785,21 +812,23 @@ export const fiTradeRegisterConnector = {
     if (stop) return stop;
     const wanted = clean(task.value);
     const r = await prhLookup(wanted, ctx.deadline);
-    for (const c of r.exact) {
-      c.officers = [];
-      c.data = { country: 'FI', registerNumber: c.number, legalForm: c.form || null, founded: c.founded, ended: c.ended, status: c.status || 'registered', earlierNames: c.earlierNames, mainLine: c.line || null, website: c.website || null };
-    }
-    if (!r.exact.length) {
-      const note = noExact(FI_LABEL, withoutForm(wanted), r.similar);
-      if (r.total <= r.read) return { findings: [], threads: [], notes: [note] };
-      const partialNote = `${FI_LABEL}: ${r.total} companies have names like ${withoutForm(wanted)}; the first ${r.read} were read and none carries the exact name`;
-      return { findings: [], threads: [], notes: [note, partialNote], partial: [partialNote.slice(0, 80)] };
-    }
-    return companyRecords(ctx.subject, FI_REG, withoutForm(wanted), r.exact, {
-      country: 'Finnish',
-      url: (c) => `${FI_PAGE}/${c.number}`,
-      facts: fiFacts,
-    });
+    return dated(FI_LABEL, r, await (async () => {
+      for (const c of r.exact) {
+        c.officers = [];
+        c.data = { country: 'FI', registerNumber: c.number, legalForm: c.form || null, founded: c.founded, ended: c.ended, status: c.status || 'registered', earlierNames: c.earlierNames, mainLine: c.line || null, website: c.website || null };
+      }
+      if (!r.exact.length) {
+        const note = noExact(FI_LABEL, withoutForm(wanted), r.similar);
+        if (r.total <= r.read) return { findings: [], threads: [], notes: [note] };
+        const partialNote = `${FI_LABEL}: ${r.total} companies have names like ${withoutForm(wanted)}; the first ${r.read} were read and none carries the exact name`;
+        return { findings: [], threads: [], notes: [note, partialNote], partial: [partialNote.slice(0, 80)] };
+      }
+      return companyRecords(ctx.subject, FI_REG, withoutForm(wanted), r.exact, {
+        country: 'Finnish',
+        url: (c) => `${FI_PAGE}/${c.number}`,
+        facts: fiFacts,
+      });
+    })());
   },
 };
 

@@ -362,6 +362,8 @@ async function findContactsAtCompaniesCareful(userId, companyNames, { strict = f
     const limit = Math.min(20000, cap * Math.max(targets.length, 1) * 2);
     // Ranked within each saved company: senior titles, then direct contacts, then the
     // longest-standing connection. key_total says how many there were before the cut.
+    // The outer order is by that rank, so when the overall LIMIT cuts, it drops each company's
+    // lowest-ranked rows first, never the true matches whose names come late in the alphabet.
     const rows = await query(
       `SELECT name, company, company_key, position, profile_url, connected_on, source, relationship, via, key_total
          FROM (
@@ -376,7 +378,7 @@ async function findContactsAtCompaniesCareful(userId, companyNames, { strict = f
                        AND EXISTS (SELECT 1 FROM unnest($2::text[]) AS t(k) WHERE t.k LIKE '%' || company_key || '%')))
          ) c
         WHERE rn <= $4
-        ORDER BY lower(name)
+        ORDER BY rn, company_key
         LIMIT ${limit}`,
       [userId, [...exact], likes, cap]
     );

@@ -30,11 +30,13 @@ beforeEach(() => __resetLearningForTests());
 describe('the second reader\'s suggestions (needs-phase2 fix:gaps)', () => {
   const suggestion = () => makeThread('company', 'Zeta Labs', 'co-founder of Zeta Labs (suggested by the second reading)', { trusted: true, suggested: true, origin: 'reader:f-1', statedRole: 'co-founder' });
 
-  test('a suggested company is kept as a suggestion: its own origin, its stated role, looked at only with the person', async () => {
+  test('a suggested company is kept as a suggestion: its own origin, looked at only with the person', async () => {
     const state = startState({ name: 'Ada Quill', company: 'Acme Corp' });
     await runToEnd(state, [press], { review: async () => ({ threads: [suggestion()], searches: [] }), limits: { ...LIMITS, maxReviews: 1 } });
     const zeta = Object.values(state.threads).find((t) => t.value === 'Zeta Labs');
-    expect(zeta).toMatchObject({ suggested: true, tie: 'affiliate', statedRole: 'co-founder', origin: 'reader:f-1' });
+    expect(zeta).toMatchObject({ suggested: true, tie: 'affiliate', origin: 'reader:f-1' });
+    // Round 4: the reader's statedRole was read from anywhere in the passage and nothing showed it; it is not kept.
+    expect(zeta.statedRole).toBeUndefined();
     // a reader's clue is kept apart from the person's companies (identity.js 'related'), under its own origin
     expect((state.anchors.companies || []).some((a) => a.value === 'Zeta Labs')).toBe(false);
     expect(state.anchors.related.find((a) => a.value === 'Zeta Labs').origin).toBe('reader:f-1');

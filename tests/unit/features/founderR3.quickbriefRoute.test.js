@@ -18,7 +18,9 @@ const { getUserId } = require('../../../src/server/auth');
 
 function call({ method = 'GET', query = {}, body = undefined, headers = {}, ip = '203.0.113.5' } = {}) {
   const res = { statusCode: 200, body: null, headers: {}, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; }, setHeader(k, v) { this.headers[k] = v; } };
-  return handler({ method, query, body, headers: { 'x-forwarded-for': ip, ...headers }, socket: {} }, res).then(() => res);
+  // the page posts JSON; a POST that is not JSON is refused (founderR4.quickbriefRoute.test.js)
+  const type = method === 'POST' ? { 'content-type': 'application/json' } : {};
+  return handler({ method, query, body, headers: { 'x-forwarded-for': ip, ...type, ...headers }, socket: {} }, res).then(() => res);
 }
 
 const RESULT = { name: 'Jane Doe', company: null, sources: [{ n: 1 }], currentRole: null, profiles: [], pastCompanies: [], timeline: [], litigation: [], press: [], mentions: [], education: [] };

@@ -216,6 +216,13 @@ export async function cachedEntry(key, ttlMs, loader, {
  * as soon as it is loaded, not after a multi-megabyte write.
  *
  * Same arguments and options as cachedEntry().
+ *
+ * cached() drops the copy's date, so a caller cannot tell a week-old copy
+ * from today's. It is for values that only help a lookup along (robots rules,
+ * an archive pointer). A source that reports a screen or a search as clean
+ * ("no match", "no recall", "found no entry") must use cachedEntry() and,
+ * when `fresh` is false, say "list as of <date>" and mark the lookup partial:
+ * an old copy must never pass for a current clean result.
  */
 export async function cached(key, ttlMs, loader, options = {}) {
   return (await cachedEntry(key, ttlMs, loader, options)).value;

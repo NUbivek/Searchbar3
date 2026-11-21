@@ -413,6 +413,8 @@ export const looksLikeTitle = (line) => TITLE_WORDS.test(String(line || '')) && 
  * that is "Jane Roe, Chief Scientist" followed by her paragraph.
  * `person` is a name or a matcher with .positions(text).
  */
+/** A line that is only a name: two to four capitalised words, no sentence punctuation ("Bob Lee", "Mary-Ann O'Neil"). */
+const NAME_LINE = /^\p{Lu}[\p{L}'’.-]*(?:\s+\p{Lu}[\p{L}'’.-]*){1,3}$/u;
 function aroundName(html, person) {
   if (!person) return null;
   const body = String(html || '').replace(/<head\b[\s\S]*?<\/head>/i, ' ');
@@ -436,15 +438,21 @@ function aroundName(html, person) {
   const bio = [];
   let size = 0;
   if (sameLine && !headline) { bio.push(`${text.slice(lineStart, hit.end)} ${sameLine}`.trim()); size = bio[0].length; }
+  const nextLine = (i) => { for (let j = i + 1; j < lines.length; j += 1) { const l = clean(lines[j]); if (l) return l; } return ''; };
+  const isThem = (line) => (typeof person === 'function' ? Boolean(person(line)) : clean(line).toLowerCase() === String(person).trim().toLowerCase());
   for (let i = from; i < lines.length && bio.length < 6 && size < 900; i += 1) {
     const line = clean(lines[i]);
     if (!line) continue;
     if (line.length <= 60 && size >= 160) break; // the next heading: another person or section
+    // The next person on a team page: a short name line with a title under it ("Bob Lee" / "CTO"), however short
+    // the bio before it was; and after a paragraph of bio, any name-like line is the next heading. Their bio is
+    // never read as this person's.
+    if (NAME_LINE.test(line) && !isThem(line) && (looksLikeTitle(nextLine(i)) || bio.some((l) => l.length > 30))) break;
     if (line.length <= 30 && !bio.length && i > from + 1) break;
     bio.push(line);
     size += line.length;
   }
-  return { name: clean(hit.text), headline, bioText: bio.filter((l) => l.length > 30).join(' ') };
+  return { name: clean(hit.text), headline, bioText: bio.filter((l) => l.length > 30).join(' '), bioAnchored: bio.some((l) => l.length > 30) };
 }
 
 function generic($, html, person) {
@@ -461,6 +469,9 @@ function generic($, html, person) {
     roles: own?.roles || [],
     education: own?.education || [],
     bioText: near?.bioText || own?.bioText || (near || !person ? description : ''),
+    // the bio was read from the lines under the person's own name line (a team or personal page): it is theirs
+    // even when it only says "she" or "I"
+    ...(person && near?.bioText && near.bioAnchored ? { bioAnchored: true } : {}),
     format: 'page',
     blocked: null,
     named: person ? Boolean(near || own) : null,
@@ -583,6 +594,7 @@ export function extractClaims(html, url = '', { person = null } = {}) {
     blocked: claims.blocked || null,
     links,
     ...(masked ? { masked: true } : {}),
+    ...(claims.bioAnchored && bioText ? { bioAnchored: true } : {}),
     ...(claims.named === undefined ? {} : { named: claims.named }),
   };
 }
@@ -620,17 +632,41 @@ const normText = (s) => stripAccents(s).toLowerCase().replace(/&/g, ' and ').rep
 /** "Theranos, Inc." = "theranos"; "we work" = "WeWork". */
 export const orgKey = (s) => normText(s).replace(ORG_SUFFIX, ' ').replace(/\s+/g, '');
 
+/**
+ * A dotted or spaced abbreviation written letter by letter is one word: "A.B." = "AB", "J. D." = "JD", and a
+ * degree letter before a short subject abbreviation too ("B.Eng." = "BEng", "M. Phil" = "MPhil").
+ */
+const DEGREE_TAIL = new Set(['eng', 'sc', 'tech', 'phil', 'com', 'ed', 'des', 'arch', 'fa', 'ba', 'pa', 'pp', 'res', 'litt']);
+function collapseLetters(t) {
+  const words = String(t || '').split(' ').filter(Boolean);
+  const out = [];
+  for (let i = 0; i < words.length; i += 1) {
+    const w = words[i];
+    if (w.length === 1 && /[a-z]/.test(w)) {
+      let run = w;
+      let j = i + 1;
+      while (j < words.length && words[j].length === 1 && /[a-z]/.test(words[j])) { run += words[j]; j += 1; }
+      if (run.length === 1 && /^[bmdl]$/.test(w) && j < words.length && DEGREE_TAIL.has(words[j])) { run += words[j]; j += 1; }
+      if (run.length > 1) { out.push(run); i = j - 1; continue; }
+    }
+    out.push(w);
+  }
+  return out.join(' ');
+}
+
 const TITLE_SYNONYMS = [
   [/\bchief executive officer\b/g, 'ceo'], [/\bchief technology officer\b|\bchief technical officer\b/g, 'cto'], [/\bchief operating officer\b/g, 'coo'],
   [/\bchief financial officer\b/g, 'cfo'], [/\bchief product officer\b/g, 'cpo'], [/\bchief scientific officer\b|\bchief science officer\b/g, 'cso'],
   [/\bvice president\b/g, 'vp'], [/\bchair(?:man|woman|person)?(?: of the board)?\b/g, 'chair'], [/\bfounders\b/g, 'founder'], [/\bsr\b/g, 'senior'], [/\bjr\b/g, 'junior'],
   [/\bbachelor of science\b|\bb sc\b|\bb s\b|\bbsc\b/g, 'bs'], [/\bbachelor of arts\b|\bb a\b/g, 'ba'], [/\bmaster of science\b|\bm sc\b|\bm s\b|\bmsc\b/g, 'ms'],
+  [/\bbachelor of engineering\b/g, 'beng'], [/\bmaster of engineering\b/g, 'meng'], [/\bbachelor of laws\b/g, 'llb'], [/\bmaster of laws\b/g, 'llm'],
+  [/\bjuris doctor(?:ate)?\b|\bdoctor of law\b/g, 'jd'], [/\bdoctor of medicine\b/g, 'md'],
   [/\bmaster of business administration\b|\bm b a\b/g, 'mba'], [/\bmaster of arts\b|\bm a\b/g, 'ma'], [/\bdoctor of philosophy\b|\bph d\b|\bdphil\b/g, 'phd'], [/\bbachelor s\b|\bbachelors\b/g, 'bachelor'], [/\bmaster s\b|\bmasters\b/g, 'master'],
 ];
 const STOP = new Set(['and', 'of', 'the', 'at', 'a', 'an', 'for', 'in', 'to', 'degree']);
 /** Order, case, punctuation and common spellings do not matter: "Chairman, CEO, and Founder" = "Founder, Chief Executive Officer & Chairman". */
 function phraseKey(s) {
-  let t = normText(s);
+  let t = collapseLetters(normText(s));
   for (const [re, to] of TITLE_SYNONYMS) t = t.replace(re, to);
   return [...new Set(t.split(' ').filter((w) => w && !STOP.has(w)))].sort().join(' ');
 }
@@ -801,6 +837,18 @@ const DEGREE_LEVEL = new Set(['undergraduate', 'undergrad', 'graduate', 'postgra
 const DEGREE_KIND = {
   bachelor: new Set(['bs', 'ba', 'ab', 'sb', 'bsc', 'bse', 'bsee', 'beng', 'bba', 'bfa', 'bcom', 'bsba', 'llb', 'btech', 'bachelor']),
   master: new Set(['ms', 'ma', 'sm', 'msc', 'mse', 'meng', 'mphil', 'mfa', 'mpa', 'mpp', 'mres', 'mtech', 'llm', 'master']),
+  // degrees of their own kind: "Master's degree" is not an MBA, and a doctorate is not a master's
+  business: new Set(['mba', 'emba']),
+  doctorate: new Set(['phd', 'dphil', 'edd', 'dba']),
+  professional: new Set(['jd', 'md']),
+};
+/** Words a degree's own name already says: "BEng, Mechanical" claims the same as "BEng, Mechanical Engineering". */
+const DEGREE_IMPLIES = {
+  beng: ['engineering'], meng: ['engineering'], bse: ['engineering'], mse: ['engineering'], btech: ['technology', 'engineering'], mtech: ['technology', 'engineering'],
+  bs: ['science'], bsc: ['science'], ms: ['science'], msc: ['science'], sb: ['science'], sm: ['science'],
+  ba: ['arts'], ab: ['arts'], ma: ['arts'], bfa: ['arts', 'fine'], mfa: ['arts', 'fine'],
+  bba: ['business', 'administration'], mba: ['business', 'administration'], emba: ['business', 'administration', 'executive'],
+  jd: ['law'], llb: ['law'], llm: ['law'], md: ['medicine'], bcom: ['commerce'],
 };
 const GENERIC_DEGREE = new Set(['bachelor', 'master']);
 const degreeLevelOf = (w) => Object.keys(DEGREE_KIND).find((k) => DEGREE_KIND[k].has(w)) || '';
@@ -813,20 +861,36 @@ function sameDegree(before, after) {
   const split = (s) => {
     const words = [...keyWords(s)];
     const degrees = words.filter((w) => degreeLevelOf(w));
-    return { level: words.filter((w) => DEGREE_LEVEL.has(w)), degrees, rest: words.filter((w) => !DEGREE_LEVEL.has(w) && !degreeLevelOf(w)).sort().join(' ') };
+    const rest = words.filter((w) => !DEGREE_LEVEL.has(w) && !degreeLevelOf(w));
+    return { level: words.filter((w) => DEGREE_LEVEL.has(w)), degrees, restWords: rest, rest: rest.sort().join(' ') };
   };
   const a = split(before);
   const b = split(after);
-  if (a.rest !== b.rest || (!a.rest && !a.degrees.length && !b.degrees.length)) return false;
   if (a.level.length && b.level.length && a.level.sort().join() !== b.level.sort().join()) return false;
+  // Neither names a degree: the same field, and only one copy gives a level
+  if (!a.degrees.length && !b.degrees.length) return Boolean(a.rest) && a.rest === b.rest && (!a.level.length || !b.level.length);
+  // One copy names a degree and the other only the field: the same for a bachelor's or master's; a doctorate,
+  // an MBA or a law or medical degree appearing beside a field is a claim of its own.
+  if (!a.degrees.length || !b.degrees.length) {
+    const withDegree = a.degrees.length ? a : b;
+    if (withDegree.degrees.some((w) => ['business', 'doctorate', 'professional'].includes(degreeLevelOf(w)))) return false;
+    return Boolean(a.rest) && a.rest === b.rest;
+  }
   // the degrees: the same, or one side generic and the other a degree of that level
-  if (!a.degrees.length || !b.degrees.length) return Boolean(a.rest) && (!a.degrees.length && !b.degrees.length ? (!a.level.length || !b.level.length) : true);
   const specific = (list) => list.filter((w) => !GENERIC_DEGREE.has(w));
   const sa = specific(a.degrees);
   const sb = specific(b.degrees);
-  if (sa.length && sb.length) return sa.sort().join() === sb.sort().join();
   const levels = (list) => [...new Set(list.map(degreeLevelOf))].sort().join();
-  return levels(a.degrees) === levels(b.degrees);
+  const degreesAgree = sa.length && sb.length ? sa.sort().join() === sb.sort().join() : levels(a.degrees) === levels(b.degrees);
+  if (!degreesAgree) return false;
+  if (a.rest === b.rest) return true;
+  // The same degree with its field given on one copy only ("Bachelor's degree" and "BA, Economics", "MBA" and
+  // "MBA, Finance"): nothing was claimed differently.
+  if (!a.rest || !b.rest) return true;
+  // or a field that only adds a word the degree's name already says ("Mechanical" and "Mechanical Engineering")
+  const implied = new Set([...a.degrees, ...b.degrees].flatMap((w) => DEGREE_IMPLIES[w] || []));
+  const core = (x) => x.restWords.filter((w) => !implied.has(w)).sort().join(' ');
+  return Boolean(core(a)) && core(a) === core(b);
 }
 
 /** A doctorate, an MBA or a professional degree: one that appears on an unchanged school is worth a closer look. */

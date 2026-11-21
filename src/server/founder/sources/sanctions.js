@@ -11,7 +11,9 @@
  *                    date, link, the list's own role or reason text) and kept
  *                    by cache.js: memory, then the database, then the network.
  *   us-exclusions    people and firms barred from US federal contracts
- *                    (SAM.gov, searched by name, ended exclusions included)
+ *                    (SAM.gov, searched by name; the public search shows
+ *                    only exclusions in force, so ended ones are not
+ *                    screened and every SAM.gov screen says so)
  *                    and federal health programmes (the HHS OIG's official
  *                    LEIE file, read whole once a day).
  *   offshore-leaks   the ICIJ Offshore Leaks database (Panama, Paradise and
@@ -973,6 +975,16 @@ function matchFinding(task, ctx, meta, records) {
 
 const TYPE_WORD = { person: 'individual', entity: 'entity' };
 
+/**
+ * The end date of a list row whose listing has ended (yyyy-mm-dd, before today), or ''. The US screening list
+ * keeps denial orders long after they lapsed (some ended in 2000), and such a row must not read as a current
+ * listing.
+ */
+export function listingEnded(row, today = new Date().toISOString().slice(0, 10)) {
+  const end = (String(row?.e || '').match(/^\d{4}-\d{2}-\d{2}/) || [])[0] || '';
+  return end && end < today ? end : '';
+}
+
 /** A matched list row as a record for matchFinding. */
 function listRecord(list, index, hit) {
   const { row } = hit;
@@ -985,9 +997,10 @@ function listRecord(list, index, hit) {
     row.p ? `Programme: ${row.p}` : '',
     row.i && list.key !== 'us-csl' ? `Reference: ${row.i}` : '',
     row.d ? `Listed: ${row.d}` : '',
-    row.e ? `End date: ${row.e}` : '',
+    row.e ? `${listingEnded(row) ? 'Listing ended' : 'End date'}: ${row.e}` : '',
   ].filter(Boolean);
   return {
+    ended: listingEnded(row),
     name: row.n,
     tag: row.p || (subList.match(/\(([^)]+)\)/) || [])[1] || '',
     quote: parts.join(' | '),
@@ -1013,15 +1026,29 @@ async function screenList(list, task, ctx) {
   const copy = await loadIndex(list, ctx.deadline);
   const { index } = copy;
   const hits = screenIndex(index, searchedNames(task, ctx), isPersonTask(task) ? 'person' : 'company');
-  const findings = byStrength(task, hits).map((g) => matchFinding(task, ctx, {
+  // Listings in force and listings that ended are reported apart, like SAM.gov's ended exclusions: an ended
+  // listing still matters, but it is no longer a bar, so it is medium and says when it ended.
+  const groups = byStrength(task, hits).flatMap((g) => {
+    const records = g.hits.map((h) => listRecord(list, index, h));
+    return [
+      { ...g, records: records.filter((r) => !r.ended), ended: '' },
+      { ...g, records: records.filter((r) => r.ended), ended: records.filter((r) => r.ended).map((r) => r.ended).sort().pop() || '' },
+    ].filter((x) => x.records.length);
+  });
+  const findings = groups.map((g) => matchFinding(task, ctx, {
     source: 'sanctions-lists',
     sourceLabel: groupLabel(),
     category: 'sanctions',
-    severity: 'high',
-    where: `on the ${list.name}`,
+    severity: g.ended ? 'medium' : 'high',
+    where: g.ended
+      ? `on the ${list.name} (${g.records.length === 1 ? `listing ended ${g.ended}` : `listings ended, the latest ${g.ended}`})`
+      : `on the ${list.name}`,
     coreOnly: g.coreOnly,
-    data: { list: list.name, listKey: list.key, listReadAt: new Date(copy.at || Date.now()).toISOString(), ...(index.asOf ? { listDated: index.asOf } : {}), ...(copy.fresh ? {} : { listStale: true }) },
-  }, g.hits.map((h) => listRecord(list, index, h)))).filter(Boolean);
+    data: {
+      list: list.name, listKey: list.key, listReadAt: new Date(copy.at || Date.now()).toISOString(), ...(index.asOf ? { listDated: index.asOf } : {}), ...(copy.fresh ? {} : { listStale: true }),
+      ...(g.ended ? { ended: g.ended } : {}),
+    },
+  }, g.records)).filter(Boolean);
   return { findings, clean: hits.length === 0, copy };
 }
 
@@ -1133,12 +1160,17 @@ const samDate = (s) => {
   return (t.match(/^\d{4}-\d{2}-\d{2}/) || [])[0] || '';
 };
 
-/** One SAM.gov exclusions search, read page by page up to SAM_MAX_PAGES. Ended exclusions are included. */
+/**
+ * One SAM.gov exclusions search, read page by page up to SAM_MAX_PAGES. The public search returns only exclusions
+ * in force: asking for inactive ones is refused ("Unauthorized to view inactive exclusions"), and leaving the
+ * filter out returns the active ones only. Ended exclusions are therefore not screened (SAM_ACTIVE_ONLY_NOTE).
+ */
 async function samSearch(q, ctx) {
   const rows = [];
   let total = 0;
   for (let page = 0; page < SAM_MAX_PAGES; page += 1) {
-    // No is_active filter: an exclusion that has ended is still part of the person's record
+    // No is_active filter. It changes nothing for the public (only exclusions in force come back either way), but
+    // a row whose termination date has passed while it is still listed is then read and labelled as ended.
     const url = `${SAM_SEARCH}?index=ex&q=${encodeURIComponent(q.toLowerCase())}&qMode=ALL&page=${page}&size=${SAM_PAGE_SIZE}&mode=search&sort=-relevance`;
     const json = await getJson(url, { deadline: ctx.deadline, accept: 'application/hal+json', timeoutMs: 12000 });
     if (!json || (json.page == null && json._embedded == null)) throw new Error('SAM.gov did not return a search result');
@@ -1149,6 +1181,9 @@ async function samSearch(q, ctx) {
   }
   return { rows, total };
 }
+
+/** Said on every SAM.gov screen: a clean SAM.gov answer says nothing about exclusions that have ended. */
+export const SAM_ACTIVE_ONLY_NOTE = 'SAM.gov shows the public only exclusions currently in force; ended exclusions were not screened.';
 
 async function screenSam(task, ctx) {
   const name = oneLine(task.value);
@@ -1211,8 +1246,8 @@ async function screenSam(task, ctx) {
       tier,
     }]);
   }).filter(Boolean);
-  const notes = [];
-  if (!hits.length) notes.push(`SAM.gov exclusion list: no match for ${name}`);
+  const notes = [SAM_ACTIVE_ONLY_NOTE];
+  if (!hits.length) notes.push(`SAM.gov exclusion list: no match for ${name} among exclusions in force`);
   if (hits.length > 5) notes.push(`SAM.gov exclusion list: ${hits.length} records match the name ${name}; the first 5 are shown`);
   // A cut answer may hold the matching record on a page not read: the screen is partial, never clean
   if (cut) notes.push(`SAM.gov exclusion list: ${cut + rows.length} records contain the words of the name ${name}; the first ${rows.length} were read`);

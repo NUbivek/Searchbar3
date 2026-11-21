@@ -38,7 +38,7 @@ an AI brief "AI-written; check it against the cited records".
 | Identity and public roles | Wikidata, Wikipedia, LittleSis, GitHub, Hacker News, linked accounts (Keybase), academic record (ORCID, Crossref, theses.fr), scholarly publications (OpenAlex), US nonprofit filings (Form 990) | Education and career as the public record has them, public office, board seats and foundations, a claimed doctorate checked against thesis registries, handles and sites the person has linked |
 | Family and related parties | Wikidata and LittleSis relatives and their roles, related-party passages in SEC filings, family wording in press, the second reader | Relatives who hold a business, political or philanthropic role, organisations they share with the founder; each is screened against watchlists and searched together with the founder |
 | Courts and enforcement | US Department of Justice press releases, federal court case titles (Internet Archive copy of dockets), federal dockets and opinions (CourtListener, when `COURTLISTENER_API_TOKEN` is set), SEC enforcement releases, CFTC and CFPB enforcement actions, FINRA BrokerCheck and SEC adviser records, The Gazette (UK insolvency and disqualification notices), UK court judgments, the French official commercial bulletin (BODACC) | Charges, pleas, convictions, sentences, civil suits, bars, insolvency |
-| Sanctions and watchlists | Sanctions lists (US Consolidated Screening List, UN, EU, UK, Canada), US federal exclusion lists (SAM.gov, and HHS OIG read from its official monthly file), wanted lists (FBI, EU Most Wanted; the founder only), ICIJ Offshore Leaks (the founder and their companies only) | Name screens for the founder, their companies, associates and relatives, under every way the name is written (middle names, suffixes, reordered names) and under any other name given. A clean screen is reported as such with the date of the list copy; a list that failed, a name that could not be screened or a result that was cut is "answered in part", never clean; the report marks any related person who was not fully screened |
+| Sanctions and watchlists | Sanctions lists (US Consolidated Screening List, UN, EU, UK, Canada), US federal exclusion lists (SAM.gov, for exclusions currently in force only: its public search does not show exclusions that have ended, so a past SAM debarment is not covered; and HHS OIG read from its official monthly file), wanted lists (FBI, EU Most Wanted; the founder only), ICIJ Offshore Leaks (the founder and their companies only) | Name screens for the founder, their companies, associates and relatives, under every way the name is written (middle names, suffixes, reordered names) and under any other name given. A clean screen is reported as such with the date of the list copy; a list or register copy older than a day, read because its refresh failed, is named with its date ("list as of ...") and the screen counts as answered in part; a list that failed, a name that could not be screened or a result that was cut is "answered in part", never clean; the report marks any related person who was not fully screened |
 | Filings and company records | SEC filings (full-text search, Form D fundraises, insider filings, proxy disclosures of legal proceedings, 8-K events such as bankruptcy, auditor changes and restatements), UK Companies House (officers, disqualified directors, owners with control, charges, insolvency, overdue filings), French company register, US state business registers (the report names the states searched), the registers of Norway, the Czech Republic and Finland for companies placed there (`sources/registriesIntl.js`), Legal Entity Identifier register, Y Combinator directory, domain history. Patents and US trademarks are off (see "Choices the owner should know about") | Roles and dates independent of what the founder says, earlier companies, dissolutions, co-directors and co-founders. Everything is searched under every known name of the company: the name typed, and the legal name and domain learned from a record tied to the person |
 | Breach and leak-site exposure (company level) | Ransomware leak-site listings from two live indexes (RansomLook, RansomFeed) and a historical archive (ransomwatch, 2020 to mid-2025) (`sources/exposure.js`, `leakSitesMore.js`); known data breaches (Have I Been Pwned catalogue); breach notices filed with regulators (California, Washington, Oregon, Delaware, Vermont, Maryland, Indiana, the UK ICO) (`breachRegistersMore.js`) | Whether the founder's companies appear as victims or in breach notices. Organisation, date and counts only; a criminal's claim is always "claimed, unverified". A listing that matches only an ordinary word is never the company's, and when the company's own domain was looked up and nothing names it the record says so |
 
@@ -276,7 +276,7 @@ checked in full.
 | `FOUNDER_SOURCES_ON` | comma-separated ids of sources that are off until the owner agrees to their terms: `opensanctions-lists`, `asic-banned`, `sfc-hk-enforcement`, `us-tax-court`, `podcast-episodes`, `infostealer-exposure` |
 | `SEC_USER_AGENT` | **needed for SEC filing texts, enforcement releases and SEC press releases**: a name and contact email, for example "Example Research ops@example.com". The SEC's website refuses automated readers that declare no contact. An email in `FOUNDER_HTTP_CONTACT` also works. Without either, those lookups are reported as not answered |
 | `FOUNDER_HTTP_CONTACT` | a URL or address the owner chooses to declare to the sites it asks (nothing is declared by default). The FTC case search and crates.io are asked only when it is set |
-| `FOUNDER_ALLOWED_EMAILS` | comma-separated addresses or `@domains` allowed to sign in; empty means any Google account, as before |
+| `FOUNDER_ALLOWED_EMAILS` | comma-separated addresses or `@domains` allowed to sign in; empty means any Google account, as before. Quotes and `mailto:` around an entry are tolerated. A value that is set but holds no valid address or domain refuses every account (it fails closed, and the server log says why) |
 | `FOUNDER_GOOGLE_PATENTS=on` | turns the patent search back on (see "Choices the owner should know about") |
 | `GITHUB_TOKEN` | optional, a token with no scopes: a larger hourly allowance for GitHub lookups |
 | `FOUNDER_SEARCH_GOOGLE_NEWS=0` | turns off the Google News feed (see "Choices the owner should know about") |
@@ -332,6 +332,10 @@ checked in full.
   account, which is the owner's to create.
 - **Who can sign in.** Any Google account can sign in and run checks unless
   `FOUNDER_ALLOWED_EMAILS` is set.
+- **Debug routes.** In production the debug routes (`/api/debug/...`) answer
+  only when `FOUNDER_ALLOWED_EMAILS` is set and the signed-in account is on it
+  (everyone else gets "not found"). Model runs through them share one hourly
+  cap of 40 across all accounts, on top of each account's own limit.
 - **Quick brief limits.** Signed-out visitors: 15 quick briefs per ten
   minutes and 40 per hour per address. Signed-in: 30 and 120 per account
   (`QUICK_LIMITS` in `src/pages/api/founder/index.js`).
@@ -370,6 +374,34 @@ checked in full.
   so a full check takes three to five minutes, and several checks run back
   to back will find less news until the search allowances refill (about ten
   minutes).
+
+## How the loop runs
+
+- **Anchors from likely records never confirm.** A company, school, handle or
+  domain learned from a record graded likely (of any kind) may raise another
+  record to likely at most, never to confirmed. A likely grade that rests only
+  on a weak basis (a related record, an event, a reversed name, or a list
+  sharing one surname such as "Patrick and John Collison") never makes that
+  record's threads trusted.
+- **Screens are retried once.** A court, regulator or watchlist screen that
+  timed out or got a server error (5xx) is run once more before it is
+  reported as not answered.
+- **Earlier companies typed are screened**, under their own names, unless one
+  is a very large employer; then it is only checked for ties to the person.
+  The report's coverage lists which were screened and which were only checked
+  for ties.
+- **Per-check allowances.** Presence sources (Hugging Face, Open Library,
+  crates.io, npm, Stack Overflow, Bluesky, Mastodon, writing feeds) at most 5
+  lookups each per check; the web archive at most 12. Lookups past an
+  allowance are reported as not run.
+- **Waiting for a source.** A lookup whose host or search engine says when it
+  is free again waits for that time while the check is under 12 minutes old
+  (`LIMITS.maxWaitAgeMs`; a search engine's allowance window and its pause
+  after a block are both ten minutes). Past that it is reported as not run.
+- **Starting again.** Starting a check of a person who already has one
+  running resumes that check only when the details given match the ones it
+  started with. Otherwise the running check is stopped and replaced by a new
+  one with the new details, and the page says so.
 
 ## Limits per check
 

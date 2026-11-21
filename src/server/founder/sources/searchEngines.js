@@ -168,6 +168,8 @@ export const REGION = {
   ja: { gnews: 'hl=ja&gl=JP&ceid=JP:ja', ddg: 'jp-jp', wiki: 'ja' },
   ko: { gnews: 'hl=ko&gl=KR&ceid=KR:ko', ddg: 'kr-kr', wiki: 'ko' },
   zh: { gnews: 'hl=zh-CN&gl=CN&ceid=CN:zh-Hans', ddg: 'cn-zh', wiki: 'zh' },
+  zt: { gnews: 'hl=zh-TW&gl=TW&ceid=TW:zh-Hant', ddg: 'tw-tzh', wiki: 'zh' },
+  fi: { gnews: 'hl=fi&gl=FI&ceid=FI:fi', ddg: 'fi-fi', wiki: 'fi' },
   he: { gnews: 'hl=he&gl=IL&ceid=IL:he', ddg: 'il-he', wiki: 'he' },
   hi: { gnews: 'hl=hi&gl=IN&ceid=IN:hi', ddg: 'in-en', wiki: 'hi' },
   id: { gnews: 'hl=id&gl=ID&ceid=ID:id', ddg: 'id-en', wiki: 'id' },
@@ -683,7 +685,8 @@ export async function keylessSearch(query, { news = false, num = 10, withinDays,
   let answered = 0;
   let generalAnswered = 0; // DuckDuckGo, Brave or the backup service: a search of the whole web, any year
   const generalState = () => {
-    const general = tried.filter((t) => t.id === 'metered' || engineById(t.id)?.general);
+    // The backup service failing (or not switched on) does not stop the wait for a general search that rests
+    const general = tried.filter((t) => (t.id === 'metered' && t.outcome !== 'failed') || engineById(t.id)?.general);
     const waiting = !news && generalAnswered === 0 && generalIds.length > 0 && general.length > 0 && general.every((t) => WAITING.has(t.outcome));
     return { waiting, retryAt: waiting ? nextFreeAt(generalIds, { siteSearch }) : null };
   };
@@ -693,14 +696,44 @@ export async function keylessSearch(query, { news = false, num = 10, withinDays,
     const headlinesOnly = !news && prefer !== 'archive' && generalAnswered === 0 && answered > 0;
     return { results, engine, tried, general: generalAnswered > 0, headlinesOnly, generalWaiting: g.waiting, generalRetryAt: g.retryAt };
   };
+  // The backup search service, for the lookups that matter most. It cannot search a past window. Asked at most
+  // once per question: resolves to its results when it found some, else undefined.
+  const late = () => Boolean(deadline && Date.now() > deadline - 3000);
+  let meteredAsked = false;
+  const askMetered = async () => {
+    if (meteredAsked) return undefined;
+    meteredAsked = true;
+    const shared = allowMetered && meteredOn() && !before && !after && webSearchConfigured() && meteredLeft() > 0 && !late()
+      ? await reserveSharedMetered()
+      : undefined;
+    if (shared === false) { tried.push({ id: 'metered', outcome: 'resting' }); return undefined; } // this hour's uses across all instances are spent
+    if (shared === undefined) return undefined;
+    if (late()) { tried.push({ id: 'metered', outcome: 'busy' }); return undefined; }
+    meteredStamps.push(Date.now()); // counted here only when the service is really asked
+    try {
+      const items = await searchWeb(q, { news, withinDays: withinDays || 0, num, fallback: false });
+      const results = finish((items || []).map((it) => ({ title: tidy(it.title), snippet: tidy(it.snippet || it.content), url: it.url, date: it.date || null })), { num, sites, after, before, withinDays, accept });
+      answered += 1;
+      generalAnswered += 1;
+      tried.push({ id: 'metered', outcome: results.length ? 'results' : 'nothing', count: results.length });
+      return results.length ? results : undefined;
+    } catch (error) {
+      tried.push({ id: 'metered', outcome: 'failed', error: tidy(error?.message || error).slice(0, 120) });
+      return undefined;
+    }
+  };
+
   for (const engine of candidates) {
     if (asked >= MAX_ENGINES_PER_CALL) break;
     if (engine.lastResort && answered > 0) continue; // the others answered: nothing to gain from the slow one
-    // The general web searches were all skipped: for a question that needs one, wait for it instead of the news feeds
+    // The general web searches were all skipped: a question that needs one goes to the backup service first
+    // (when this lookup may use it), and only then waits for a general search instead of the news feeds.
     if (needGeneral && !engine.general && generalAnswered === 0 && !news) {
+      const found = await askMetered();
+      if (found) return answer(found, 'metered');
       const g = generalState();
-      if (g.waiting && g.retryAt && g.retryAt - Date.now() <= maxWaitMs) {
-        throw restingError(`Waiting for a general web search (${tried.map((t) => `${engineById(t.id)?.label || t.id}: ${OUTCOME_WORDS[t.outcome] || t.outcome}`).join('; ')})`, g.retryAt);
+      if (generalAnswered === 0 && g.waiting && g.retryAt && g.retryAt - Date.now() <= maxWaitMs) {
+        throw restingError(`Waiting for a general web search (${tried.map((t) => `${t.id === 'metered' ? 'the backup search service' : engineById(t.id)?.label || t.id}: ${OUTCOME_WORDS[t.outcome] || t.outcome}`).join('; ')})`, g.retryAt);
       }
     }
     const skip = await takeTurn(engine, { deadline, siteSearch, maxWaitMs: asked === 0 && !tried.some((t) => t.outcome === 'busy') ? QUEUE_FIRST_MS : QUEUE_NEXT_MS });
@@ -718,25 +751,10 @@ export async function keylessSearch(query, { news = false, num = 10, withinDays,
     }
   }
 
-  // Last resort: the backup search service, for the lookups that matter most. It cannot search a past window.
-  const late = () => Boolean(deadline && Date.now() > deadline - 3000);
-  const shared = allowMetered && meteredOn() && !before && !after && webSearchConfigured() && meteredLeft() > 0 && !late()
-    ? await reserveSharedMetered()
-    : undefined;
-  if (shared === false) tried.push({ id: 'metered', outcome: 'resting' }); // this hour's uses across all instances are spent
-  else if (shared !== undefined && late()) tried.push({ id: 'metered', outcome: 'busy' });
-  else if (shared !== undefined) {
-    meteredStamps.push(Date.now()); // counted here only when the service is really asked
-    try {
-      const items = await searchWeb(q, { news, withinDays: withinDays || 0, num, fallback: false });
-      const results = finish((items || []).map((it) => ({ title: tidy(it.title), snippet: tidy(it.snippet || it.content), url: it.url, date: it.date || null })), { num, sites, after, before, withinDays, accept });
-      answered += 1;
-      generalAnswered += 1;
-      tried.push({ id: 'metered', outcome: results.length ? 'results' : 'nothing', count: results.length });
-      if (results.length) return answer(results, 'metered');
-    } catch (error) {
-      tried.push({ id: 'metered', outcome: 'failed', error: tidy(error?.message || error).slice(0, 120) });
-    }
+  // Last resort: the backup search service, when it was not asked above.
+  {
+    const found = await askMetered();
+    if (found) return answer(found, 'metered');
   }
 
   const why = () => tried.map((t) => `${t.id === 'metered' ? 'the backup search service' : engineById(t.id)?.label || t.id}: ${OUTCOME_WORDS[t.outcome] || t.outcome}`).join('; ');

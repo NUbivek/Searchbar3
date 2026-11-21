@@ -327,7 +327,12 @@ describe('nsf-awards', () => {
     fakeNet([['api.nsf.gov/services/v1/awards.json', page([])]]);
     const subject = createSubject({ name: 'Dana Vance' });
     await nsfAwardsConnector.run({ kind: 'subject', value: 'Dana Vance' }, ctxFor(subject));
-    await expect(nsfAwardsConnector.run({ kind: 'company', value: 'Hydra Freight' }, { ...ctxFor(subject), deadline: Date.now() + 2500 })).rejects.toThrow(/Out of time/);
+    // The search loads under the cache's own deadline (round 4): the request waits its turn instead of giving up,
+    // while a caller whose own time runs out first is told it ran out of time.
+    await expect(nsfAwardsConnector.run({ kind: 'company', value: 'Hydra Freight' }, { ...ctxFor(subject), deadline: Date.now() + 300 })).rejects.toThrow(/Out of time/);
+    const started = Date.now();
+    await nsfAwardsConnector.run({ kind: 'company', value: 'Hydra Freight' }, { ...ctxFor(subject), deadline: Date.now() + 5000 });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(500);
   });
 });
 

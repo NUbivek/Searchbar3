@@ -245,7 +245,8 @@ const NIKOLA_TX = [{ ':id': 'row-tx', taxpayer_number: '3200', taxpayer_name: 'N
 describe('US state registers: the place of formation decides', () => {
   test('with the home state known from a tied LEI record, only the registration of an entity formed there ties', async () => {
     network(stateRoutes(NIKOLA_CO, NIKOLA_CT, NIKOLA_TX));
-    const lei = { source: 'lei-register', match: 'company', data: { jurisdiction: 'US-DE' } };
+    // the LEI record must name this company (round 4: a record of another company of the person never sets the home state)
+    const lei = { source: 'lei-register', match: 'company', quote: 'Nikola Corporation — LEI 5493001KJTIIGC8Y1R12', data: { legalName: 'Nikola Corporation', jurisdiction: 'US-DE' } };
     const out = await usStateRegistriesConnector.run(companyTask('Nikola Corporation'), ctxOf(createSubject({ name: 'Trevor Milton', company: 'Nikola' }), [lei]));
     const by = (code) => out.findings.find((f) => f.data.state === code);
     expect(by('CT')).toMatchObject({ match: 'company' });

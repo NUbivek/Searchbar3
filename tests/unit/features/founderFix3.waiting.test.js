@@ -77,3 +77,17 @@ test('a check does not sit idle for minutes for its last few lookups', async () 
   expect(state.sources['web-search']).toMatchObject({ errors: 0, waitedOut: 1 });
   expect(state.log.map((l) => l.text).join(' ')).toMatch(/last lookup not run/);
 });
+
+test('a source that keeps saying "wait a little" does not hold the check through empty step after empty step', async () => {
+  // every attempt is put back by a few seconds, as a slow archive host does: never past the tail limit, never free
+  let calls = 0;
+  const archive = { id: 'web-archive', label: 'Web archive', kinds: ['subject'], prior: 0.6, run: async () => { calls += 1; throw Object.assign(new Error('archive.org is resting'), { code: 'SEARCH_RESTING', retryAt: Date.now() + 5000 }); } };
+  const state = startState({ name: 'Trevor Milton', company: 'Nikola' });
+  let steps = 0;
+  for (; steps < 12 && state.phase === 'collect'; steps += 1) await stepDeepCheck(state, { connectors: [archive], deadline: Date.now() + 3200 });
+  expect(state.phase).toBe('report');
+  expect(steps).toBeLessThanOrEqual(4); // the first try and two empty steps, then given up: not until the age limit
+  expect(calls).toBe(1);
+  expect(state.sources['web-archive']).toMatchObject({ errors: 0, waitedOut: 1 });
+  expect(state.log.some((l) => /kept asking the check to wait/.test(l.text))).toBe(true);
+});

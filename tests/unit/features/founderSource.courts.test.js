@@ -206,16 +206,21 @@ describe('finra-brokercheck', () => {
     ['adviserinfo.sec.gov/search/individual?', { hits: { total: 0, hits: [] } }],
   ];
 
-  test('a disclosure is medium; the company in the record confirms it; firms become trusted threads', async () => {
+  // The register lists him as SAMUEL BENJAMIN BANKMAN-FRIED, a diminutive away from the name typed (Sam): with the
+  // company in the record it is held at likely (round 4, sources-official-sec-nickname-prefix), never confirmed.
+  test('a disclosure is medium; under the formal first name it is never confirmed', async () => {
     const calls = fakeNet(routes(detail()));
     const out = await brokerCheckConnector.run({ kind: 'subject', value: 'Sam Bankman-Fried' }, ctxFor(createSubject({ name: 'Sam Bankman-Fried', company: 'FTX' })));
     expect(calls.length).toBeLessThanOrEqual(4);
     expect(out.findings).toHaveLength(1);
     const f = out.findings[0];
-    expect(f).toEqual(expect.objectContaining({ category: 'regulatory', severity: 'medium', match: 'confirmed', url: 'https://brokercheck.finra.org/individual/summary/6204362', date: '2022-12-13' }));
+    expect(f).toEqual(expect.objectContaining({ category: 'regulatory', severity: 'medium', url: 'https://brokercheck.finra.org/individual/summary/6204362', date: '2022-12-13' }));
+    // Never confirmed under the formal first name; how far below is the shared grader's call (the allegation names
+    // FTX beside the surname only), and the firms are trusted threads only when the record is tied.
+    expect(['likely', 'possible']).toContain(f.match);
     expect(f.quote).toContain('Jane Street Capital, LLC (2014-07-15 to 2017-10-02)');
     expect(f.data).toEqual(expect.objectContaining({ crd: '6204362', disclosures: 1, bar: false }));
-    expect(out.threads).toEqual([expect.objectContaining({ kind: 'company', value: 'Jane Street Capital, LLC', trusted: true })]);
+    if (f.match === 'likely') expect(out.threads).toEqual([expect.objectContaining({ kind: 'company', value: 'Jane Street Capital, LLC', trusted: true })]);
   });
 
   test('name only stays possible and gives no threads; a bar is high', async () => {
@@ -226,12 +231,12 @@ describe('finra-brokercheck', () => {
     expect(out.threads).toHaveLength(0);
   });
 
-  test('a known firm on the record confirms it', async () => {
+  test('a known firm on the record: never confirmed when listed under the formal first name', async () => {
     fakeNet(routes(detail({ disclosures: [] })));
     const subject = createSubject({ name: 'Sam Bankman-Fried' });
     addAnchor(subject, 'companies', 'Jane Street', 'found');
     const out = await brokerCheckConnector.run({ kind: 'subject', value: 'Sam Bankman-Fried' }, ctxFor(subject));
-    expect(out.findings[0].match).toBe('confirmed');
+    expect(['likely', 'possible']).toContain(out.findings[0].match);
     expect(out.findings[0].severity).toBe('info');
   });
 

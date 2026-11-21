@@ -42,6 +42,7 @@
  */
 import { getJson, getText, mapLimit } from '../http';
 import { makeFinding, makeThread, severityFromText } from '../finding';
+import { companyKeys, isOrdinaryWordCompany } from '../names';
 import { nameTokens, matchSubject, companyKeyStrict, addAnchor, addRoleAnchor, addEventAnchor, addCompanyAlias } from '../identity';
 import { threadsFromResult, relativesFromText, associatesFromText, plausiblePersonName, mentions } from '../extract';
 import { isSensitive, mentionsMinor, cleanSentences } from '../guardrails';
@@ -288,11 +289,15 @@ async function articleNamesCompany(subject, article, ctx) {
   const doc = json?.query?.pages?.[0];
   if (!doc || doc.missing || !doc.extract) return false;
   const sections = articleSections(String(doc.extract)).filter((x) => (!x.heading || WP_CAREER_SECTION.test(x.top)) && !WP_PRIVATE_SECTION.test(x.heading) && !WP_PRIVATE_SECTION.test(x.top));
-  const text = withPronouns(subject, sections.flatMap((x) => x.paragraphs).join(' ').slice(0, 20000));
-  return sentencesIn(text).filter((x) => subject.hasName(x)).some((x) => {
+  // Articles call their subject by surname after the lead ("Quenneville co-founded ..."): the surname is read as
+  // the full name, which is safe because the article is about this one candidate. A possessive ("Quenneville's
+  // brother") is left alone, so a relative's company never resolves the entry.
+  const text = withPronouns(subject, withFullName(subject, sections.flatMap((x) => x.paragraphs).join(' ').slice(0, 20000), { possessive: false }));
+  // The sentence that pairs them is returned: the entry's records are graded with it (entityContext).
+  return sentencesIn(text).filter((x) => subject.hasName(x)).find((x) => {
     const graded = matchSubject(subject, x);
     return graded.level === 'confirmed' && (graded.basis || []).includes('company');
-  });
+  }) || false;
 }
 
 async function findEntity(subject, ctx) {
@@ -325,7 +330,7 @@ async function findEntity(subject, ctx) {
   if (chosen.status === 'unclear' && chosen.single) {
     // The only person with the name, whose entry omits the company: their article may name it beside them.
     const named = await articleNamesCompany(subject, chosen.single.article, ctx).catch(() => false);
-    if (named) return { status: 'resolved', entity: chosen.single, by: 'context', via: 'article' };
+    if (named) return { status: 'resolved', entity: { ...chosen.single, evidence: named }, by: 'context', via: 'article' };
   }
   return chosen;
 }
@@ -347,12 +352,25 @@ function resolveEntity(subject, ctx) {
  * only begin with a known company's word ("Mercury Records" for Mercury) are masked, here and in each record's
  * own text (entity.masked), so they never tie a record to the company.
  */
-const entityContext = (subject, e) => `${subject.name}. ${e.label}: ${e.description}. Employers: ${e.employers.join('; ')}. Organisations: ${e.orgs.join('; ')}. Schools: ${e.schools.join('; ')}.`;
+const entityContext = (subject, e) => `${subject.name}. ${e.label}: ${e.description}. Employers: ${e.employers.join('; ')}. Organisations: ${e.orgs.join('; ')}. Schools: ${e.schools.join('; ')}.${e.evidence ? ` Wikipedia article: ${e.evidence}` : ''}`;
 
-const wdFinding = (ctx, entity, f) => makeFinding(ctx.subject, {
-  source: WD_ID, sourceLabel: WD_LABEL, severity: 'info', ...f,
-  matchText: maskOrgs(`${entityContext(ctx.subject, entity)} ${f.title} ${f.quote || ''}`, entity.masked || []),
-});
+/**
+ * An entry resolved through its Wikipedia article (entity.via 'article') is tied by the article sentence that
+ * names the company, not by the graph itself: its records are 'likely' at most, with that reason.
+ */
+const wdFinding = (ctx, entity, f) => {
+  const matchText = maskOrgs(`${entityContext(ctx.subject, entity)} ${f.title} ${f.quote || ''}`, entity.masked || []);
+  if (entity.via === 'article') {
+    const graded = matchSubject(ctx.subject, matchText);
+    if (graded.level === 'confirmed') {
+      return makeFinding(ctx.subject, {
+        source: WD_ID, sourceLabel: WD_LABEL, severity: 'info', ...f,
+        match: 'likely', matchReasons: ["full name; the person's Wikipedia article names the company", ...graded.reasons.slice(0, 2)],
+      });
+    }
+  }
+  return makeFinding(ctx.subject, { source: WD_ID, sourceLabel: WD_LABEL, severity: 'info', ...f, matchText });
+};
 
 /** Statements whose value is text or an id, not an item with a label. */
 const LITERAL_KINDS = /^(official website|X username|GitHub username|LinkedIn personal profile ID|Crunchbase person ID|ORCID iD|SEC CIK|Google Scholar author ID|Semantic Scholar author ID|birth name)$/;
@@ -863,7 +881,7 @@ export const wikidataConnector = {
     const { subject } = ctx;
     const found = await resolveEntity(subject, ctx);
     if (found.status !== 'resolved') return { findings: [], threads: [], notes: found.note ? [found.note] : [] };
-    const entity = { ...found.entity, by: found.by };
+    const entity = { ...found.entity, by: found.by, ...(found.via ? { via: found.via } : {}) };
     entity.masked = namesakeOrgs(subject, [...entity.employers, ...entity.orgs, ...entity.schools]);
     const wantProfile = task.template !== 'family';
     const wantFamily = task.template !== 'profile';
@@ -985,11 +1003,12 @@ export function articleSections(extract) {
  * surname mentions are expanded first. Used for finding threads only: quoted
  * text is never altered.
  */
-function withFullName(subject, text) {
+function withFullName(subject, text, { possessive = true } = {}) {
   const tokens = String(subject.name || '').split(/\s+/);
   const surname = tokens[tokens.length - 1] || '';
   if (tokens.length < 2 || surname.length < 3) return text;
-  const re = new RegExp(`(?<![A-Za-zÀ-ÿ'’-])(?<![A-ZÀ-Þ][A-Za-zÀ-ÿ'’-]*\\s)(?<![A-Z]\\.\\s)${escapeRe(surname)}(?![A-Za-zÀ-ÿ-])(?!\\s+(?:[A-ZÀ-Þ][a-zà-ÿ]|II\\b|III\\b|IV\\b|Jr\\b|Sr\\b))`, 'g');
+  // possessive false: "Roe's brother" is left as it is (the sentence may be about a relative)
+  const re = new RegExp(`(?<![A-Za-zÀ-ÿ'’-])(?<![A-ZÀ-Þ][A-Za-zÀ-ÿ'’-]*\\s)(?<![A-Z]\\.\\s)${escapeRe(surname)}(?![A-Za-zÀ-ÿ-])${possessive ? '' : "(?!['’])"}(?!\\s+(?:[A-ZÀ-Þ][a-zà-ÿ]|II\\b|III\\b|IV\\b|Jr\\b|Sr\\b))`, 'g');
   return String(text).replace(re, subject.name);
 }
 
@@ -1109,13 +1128,41 @@ function companyRolesFromText(subject, text) {
  * already rewritten to the name). The typed company is never added to the text: an article about a same-named
  * company that mentions a namesake does not make its people trusted leads.
  */
-function pairsPersonWithCompany(subject, sentences, articleName = '') {
+function pairsPersonWithCompany(subject, sentences) {
+  // "the company" is never read as the typed company: an article about a same-named company (a 1960s record
+  // label called Mercury) that says "Jane Doe became the company's director" is about a namesake.
   return sentences.some((sentence) => {
-    // In the company's own article (its title is the company's name), "the company" is that company.
-    const x = articleName ? sentence.replace(/\bthe (?:company|firm|startup|business)\b/gi, articleName) : sentence;
-    const graded = matchSubject(subject, x);
+    const graded = matchSubject(subject, sentence);
     return graded.level === 'confirmed' && (graded.basis || []).includes('company');
   });
+}
+
+const FOUNDING_WORDS = /\b(?:found(?:ed|ing)|co-?founded|establish(?:ed|ment)|incorporated|launched|started|formed)\b/i;
+/**
+ * Does an article about a company called by the subject's company name match something already known about
+ * that company, so it is the same company and not an older namesake? A known domain or legal name of it, a
+ * known person of the subject (a co-founder) other than the subject, or the year the person founded it, given
+ * in a sentence about its founding. An ordinary word ("Mercury", "Ramp") names many companies, so its article
+ * must pass this before any person in it becomes a trusted lead.
+ */
+function articleMatchesKnownFact(subject, company, text) {
+  const key = companyKeys(company)[0] || company.toLowerCase();
+  const lower = String(text).toLowerCase();
+  const aliases = [...(subject.anchors.aliases || new Map()).values()].filter((a) => a.of === key);
+  for (const a of aliases) {
+    const re = new RegExp(`(?<![A-Za-z0-9-])${escapeRe(a.value.toLowerCase())}(?![A-Za-z0-9-])`);
+    if (re.test(lower)) return true;
+  }
+  for (const a of (subject.anchors.domains || new Map()).values()) if (a.test(text)) return true;
+  for (const a of (subject.anchors.people || new Map()).values()) if (!subject.hasName(a.value) && a.test(text)) return true;
+  const years = [...(subject.anchors.roles || new Map()).values()]
+    .filter((r) => r.role === 'founder' && (companyKeys(r.org)[0] || r.org.toLowerCase()) === key && r.from)
+    .map((r) => r.from.slice(0, 4));
+  if (years.length) {
+    const said = sentencesIn(text).filter((x) => FOUNDING_WORDS.test(x));
+    if (said.some((x) => years.some((y) => new RegExp(`\\b${y}\\b`).test(x)))) return true;
+  }
+  return false;
 }
 
 /** A company the person founded or runs (or the one given); an affiliate (a stake, an investment) is not read. */
@@ -1167,6 +1214,8 @@ async function wpCompany(task, ctx) {
   const key = companyKeyStrict(company);
   if (key.length < 3) return empty;
   const french = languageHints(subject).includes('fr');
+  // An ordinary word names many companies: its article must also match a fact already known about the company.
+  const ordinary = isOrdinaryWordCompany(company);
   const [doc, frDoc] = await Promise.all([
     companyArticle('en', company, key, ctx),
     // the other language is a supplement: its failure is no failure of the lookup
@@ -1181,7 +1230,7 @@ async function wpCompany(task, ctx) {
     const about = sentencesIn(text).filter((x) => subject.hasName(x));
     if (about.length) {
       const title = clean(doc.title);
-      const trusted = pairsPersonWithCompany(subject, about, title.replace(/\s*\([^)]*\)\s*$/, ''));
+      const trusted = pairsPersonWithCompany(subject, about) && (!ordinary || articleMatchesKnownFact(subject, company, text));
       for (const a of associatesFromText(subject, text).slice(0, 8)) threads.push(makeThread('associate', a.name, `${a.why} (Wikipedia article on ${title})`, { trusted }));
       const relatives = relativesFromText(subject, text).slice(0, 4);
       for (const r of relatives) {
@@ -1203,7 +1252,7 @@ async function wpCompany(task, ctx) {
     const about = sentencesIn(text).filter((x) => subject.hasName(x));
     if (about.length) {
       const title = clean(frDoc.title);
-      const trusted = pairsPersonWithCompany(subject, about, title.replace(/\s*\([^)]*\)\s*$/, ''));
+      const trusted = pairsPersonWithCompany(subject, about) && (!ordinary || articleMatchesKnownFact(subject, company, text));
       for (const a of companyRolesFromFrench(subject, text, title.replace(/\s*\([^)]*\)\s*$/, '')).slice(0, 6)) {
         threads.push(makeThread('associate', a.name, `${a.role} of ${company} (French Wikipedia article on ${title})`, { trusted, role: a.role }));
       }
