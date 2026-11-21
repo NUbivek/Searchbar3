@@ -691,10 +691,17 @@ export function checkFounderBrief(text, sources, { maxSource = null, personWords
     advisorySections: ['## RED FLAGS AND OPEN QUESTIONS'],
     weakDropSections: ['## LITIGATION AND REGULATORY', '## RED FLAGS AND OPEN QUESTIONS'],
     ignoreWords: personWords,
-    maxDropShare: 0.2,
+    // Live models cite once per paragraph and paraphrase amounts, so a strict reading refused every answer and
+    // the brief always fell back to quotations (found on the live preview, 2026-11-21). What protects the reader
+    // is that an unsupported line never shows; the whole answer is refused only when most of it is unsupported
+    // or it invents more than one legal matter.
+    inherit: true,
+    elsewhere: true,
+    failAfter: 2,
+    maxDropShare: 0.5,
     emptySection: 'Not found in the available sources.',
   });
-  if (!c.ok) return { ok: false, reason: c.reason, checked: c.checked, dropped: c.dropped };
+  if (!c.ok) return { ok: false, reason: c.reason, checked: c.checked, dropped: c.dropped, reasons: c.reasons };
   if (!/\[Source \d+\]/.test(c.content)) return { ok: false, reason: 'no valid citations' };
   let content = completeBriefSections(c.content);
   if (identityNote) content = content.replace('## SUMMARY\n', `## SUMMARY\n*${identityNote}*\n\n`);
@@ -1297,10 +1304,15 @@ async function writeBrief(state, { model = 'auto', useLLM = true, deadline = nul
     // having a bad day must not cost the brief: when the first model has not answered after a few seconds the other
     // services are asked side by side, and the first good answer is used (hedgeMs, llm/providers.js). A model picked
     // in the menu is asked alone. Whatever a model service does, the brief is back by the deadline.
+    const rejected = []; // why a model's answer was not used, for the log (so a too-strict check is seen, not guessed)
     const asked = chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], {
       preferred: model, maxTokens: 1300, deadline, personal: true, effort: 'low',
       hedgeMs: deadline && model === 'auto' ? BRIEF_HEDGE_MS : 0,
-      accept: (text) => checkFounderBrief(text, sources, opts).ok,
+      accept: (text) => {
+        const c = checkFounderBrief(text, sources, opts);
+        if (!c.ok) rejected.push({ reason: c.reason, checked: c.checked, dropped: c.dropped, why: (c.reasons || []).slice(0, 4) });
+        return c.ok;
+      },
     }).catch(() => null);
     const out = await withTimeout(Promise.resolve(asked), deadline ? Math.max(1000, deadline - Date.now() + 1500) : 120000, 'AI brief').catch(() => null);
     if (out) {
@@ -1318,8 +1330,9 @@ async function writeBrief(state, { model = 'auto', useLLM = true, deadline = nul
       }
       briefInfo = { mode: 'quoted', reason: `The AI brief failed validation (${checked.reason})` };
     } else {
-      briefInfo = { mode: 'quoted', reason: 'The AI model was unavailable' };
+      briefInfo = { mode: 'quoted', reason: 'The AI model was unavailable', ...(rejected.length ? { answersNotUsed: rejected.length } : {}) };
     }
+    if (rejected.length) console.warn(`Quick brief: ${rejected.length} model answer(s) did not pass the checks:`, JSON.stringify(rejected).slice(0, 1800));
   }
   const { profile, mod } = await readProfile(state);
   return { brief: quotedBrief(state, profile, briefInfo.reason, profile?.about?.length ? null : firstBio(mod, state)), briefInfo };

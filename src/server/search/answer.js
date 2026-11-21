@@ -186,27 +186,35 @@ function lineSentences(body) {
  * a [Source n] whose text gives its years, numbers and (at least one word of each of) its capitalised names;
  * a sentence that does not is removed. "Not found" sentences need no citation, and in `advisorySections` an
  * uncited line (a reference question, "confirm the role history") is allowed when the sources as a whole support
- * what it names. In `failSections` (litigation) any uncited or unsupported line fails the whole answer, and when
- * more than `maxDropShare` of the checked sentences go the answer fails too, so the caller can ask another model.
+ * what it names. In `failSections` (litigation) `failAfter` uncited or unsupported lines fail the whole answer (one by
+ * default), and when more than `maxDropShare` of the checked sentences go, or fewer than `minKept` stay, the answer
+ * fails too, so the caller can ask another model. `inherit`: a sentence without a marker rests on the nearest
+ * cited sentence of its own line. `elsewhere`: a fact the cited source lacks but another source tied to the subject
+ * gives is kept (a loose citation); only what no such source gives is removed.
  *
  * @param {string} content an answer that passed validateAnswer (sections and [Source n] markers normalised)
  * @param {Map<number, {text: string, weak?: boolean}>|Object} sources the text each source number stands for;
  *   `weak`: tied to the subject by name only
  * @param {{ failSections?: string[], advisorySections?: string[], weakDropSections?: string[], ignoreWords?: string[],
- *   maxDropShare?: number, emptySection?: string|null }} [opts]
+ *   maxDropShare?: number, emptySection?: string|null, inherit?: boolean, elsewhere?: boolean, failAfter?: number, minKept?: number }} [opts]
  * @returns {{ ok: boolean, content: string, checked: number, dropped: number, reasons: string[], reason?: string }}
  */
 export function checkClaims(content, sources, opts = {}) {
   const {
     failSections = [], advisorySections = [], weakDropSections = [], ignoreWords = [], maxDropShare = 0.2, emptySection = null,
+    inherit = false, elsewhere = false, failAfter = 1, minKept = 0,
   } = opts;
   const map = sources instanceof Map ? sources : new Map(Object.entries(sources || {}).map(([k, v]) => [Number(k), v]));
   const prepared = new Map([...map].map(([n, v]) => [n, prepareSource(v?.text || '')]));
   const everything = prepareSource([...map.values()].map((v) => v?.text || '').join(' \n '));
+  // every source that is tied to the subject by more than the name: what "said elsewhere" may rest on
+  const strong = prepareSource([...map.values()].filter((v) => !v?.weak).map((v) => v?.text || '').join(' \n '));
   const ignore = new Set(ignoreWords.flatMap((w) => String(w || '').split(/\s+/)).filter(Boolean).map(fold));
   const reasons = [];
   let checked = 0;
   let dropped = 0;
+  let kept_ = 0;
+  let failedLines = 0;
   let failed = null;
   let section = '';
   const lines = [];
@@ -221,13 +229,17 @@ export function checkClaims(content, sources, opts = {}) {
     if (!line.trim() || /^\s*\*[^*\n].*\*\s*$/.test(line) && !/\[Source \d+\]/.test(line)) { lines.push(line); continue; }
     const [, marker, body] = line.match(/^(\s*(?:[-*+•]\s*|\d{1,3}[.)]\s+)?)([\s\S]*)$/);
     const kept = [];
-    for (const sentence of lineSentences(body)) {
-      const cites = [...sentence.matchAll(/\[Source (\d+)\]/g)].map((x) => Number(x[1]));
-      const valid = [...new Set(cites.filter((n) => prepared.has(n)))];
+    const sentences = lineSentences(body);
+    const citesOf = sentences.map((sentence) => [...new Set([...sentence.matchAll(/\[Source (\d+)\]/g)].map((x) => Number(x[1])).filter((n) => prepared.has(n)))]);
+    sentences.forEach((sentence, i) => {
+      let valid = citesOf[i];
+      // Models often write two or three sentences and cite once at the end of the paragraph or bullet: a sentence
+      // with no marker of its own rests on the next cited sentence of the same line, or failing that the one before.
+      if (!valid.length && inherit) valid = citesOf.slice(i + 1).find((c) => c.length) || citesOf.slice(0, i).reverse().find((c) => c.length) || [];
       const claim = sentence.replace(/\s*\[Source \d+\]/g, '').trim();
       const { years, numbers } = claimNumbers(claim);
-      if (!claim || /^[.;,]$/.test(claim)) continue;
-      if (!valid.length && NEGATIVE.test(claim) && !years.length && !numbers.length) { kept.push(sentence); continue; }
+      if (!claim || /^[.;,]$/.test(claim)) return;
+      if (!valid.length && NEGATIVE.test(claim) && !years.length && !numbers.length) { kept.push(sentence); return; }
       checked += 1;
       const inFail = failSections.includes(section);
       let why = null;
@@ -237,17 +249,24 @@ export function checkClaims(content, sources, opts = {}) {
         why = 'cites only sources that match the name alone';
       } else {
         why = supports(prepareSource(valid.map((n) => map.get(n)?.text || '').join(' \n ')), claim, ignore);
+        // A fact the cited source lacks but another source about the person gives is a loose citation, not an
+        // invented fact: the sentence stays. A year, number or name that no such source gives is removed.
+        if (why && elsewhere && !supports(strong, claim, ignore)) why = null;
       }
       if (why) {
         dropped += 1;
         reasons.push(`${why}: ${claim.slice(0, 80)}`);
-        // a legal line that cites only name-only sources is dropped quietly; one that is unsupported fails the answer
-        if (inFail && why !== 'cites only sources that match the name alone' && !failed) failed = `an unsupported line under ${section.replace(/^#+\s*/, '')}`;
-        continue;
+        // a legal line that cites only name-only sources is dropped quietly; unsupported ones count against the answer
+        if (inFail && why !== 'cites only sources that match the name alone') {
+          failedLines += 1;
+          if (failedLines >= failAfter && !failed) failed = `${failedLines === 1 ? 'an unsupported line' : `${failedLines} unsupported lines`} under ${section.replace(/^#+\s*/, '')}`;
+        }
+        return;
       }
+      kept_ += 1;
       // citations to numbers that are not sources go; the valid ones stay
       kept.push(sentence.replace(/\s*\[Source (\d+)\]/g, (m, n) => (prepared.has(Number(n)) ? m : '')));
-    }
+    });
     if (kept.length) lines.push(`${marker}${kept.join(' ')}`);
   }
   let out = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
@@ -259,6 +278,7 @@ export function checkClaims(content, sources, opts = {}) {
   if (failed) return { ok: false, content: out, checked, dropped, reasons, reason: failed };
   if (checked > 0 && dropped / checked > maxDropShare) return { ok: false, content: out, checked, dropped, reasons, reason: `${dropped} of ${checked} lines were not supported by their sources` };
   if (checked > 0 && dropped === checked) return { ok: false, content: out, checked, dropped, reasons, reason: 'no line was supported by its sources' };
+  if (kept_ < minKept) return { ok: false, content: out, checked, dropped, reasons, reason: `only ${kept_} supported line${kept_ === 1 ? '' : 's'} were left` };
   return { ok: true, content: out, checked, dropped, reasons };
 }
 

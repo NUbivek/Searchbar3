@@ -296,3 +296,46 @@ describe('checkClaims keeps the shape of the answer', () => {
     expect(last.content).toMatch(/## EDUCATION\nNot found in the available sources\.$/);
   });
 });
+
+describe('a live model\'s way of writing is not refused wholesale (found on the preview, 2026-11-21)', () => {
+  const { checkClaims: check } = require('../../../src/server/search/answer');
+  const { checkFounderBrief: checkBrief } = require('../../../src/server/founderCheck');
+  const src = new Map([
+    [1, { text: 'Jane Doe - CEO - Acme Robotics | LinkedIn. Experience: Acme Robotics · Education: Stanford University' }],
+    [2, { text: 'Jane Doe raises $20M for Acme Robotics. Jane Doe co-founded Acme Robotics in 2019 and raised $20M in a Series A led by Example Ventures.' }],
+    [3, { text: 'John Doe of Initech was sued for fraud in 2011.', weak: true }],
+  ]);
+
+  test('one citation at the end of a paragraph covers the sentences before it', () => {
+    const text = '## SUMMARY\nJane Doe is the chief executive of Acme Robotics. She co-founded it in 2019 and raised $20M [Source 2].';
+    expect(check(text, src).ok).toBe(false); // read strictly, the first sentence has no citation
+    const out = check(text, src, { inherit: true });
+    expect(out).toMatchObject({ ok: true, dropped: 0 });
+    expect(out.content).toMatch(/chief executive of Acme Robotics\. She co-founded it in 2019/);
+  });
+
+  test('a fact another source about the person gives is a loose citation and stays; one no source gives goes', () => {
+    const text = '## SUMMARY\nJane Doe studied at Stanford University [Source 2].\nShe raised $45M in 2021 [Source 2].\nShe co-founded Acme Robotics in 2019 [Source 2].';
+    const strict = check(text, src, { maxDropShare: 1 });
+    expect(strict.dropped).toBe(2);
+    const out = check(text, src, { elsewhere: true, maxDropShare: 0.5 });
+    expect(out.ok).toBe(true);
+    expect(out.content).toMatch(/Stanford University/);
+    expect(out.content).not.toMatch(/\$45M|2021/);
+  });
+
+  test('a fact only a name-only source gives is never taken as said elsewhere', () => {
+    const out = check('## SUMMARY\nJane Doe co-founded Acme Robotics in 2019 [Source 2].\nShe was linked to Initech in 2011 [Source 2].', src, { elsewhere: true, maxDropShare: 0.5 });
+    expect(out.content).not.toMatch(/Initech/);
+  });
+
+  test('one unsupported legal line is removed and the brief stands; two refuse it', () => {
+    const body = (legal) => `## SUMMARY\nJane Doe co-founded Acme Robotics in 2019 [Source 2].\n## CAREER TIMELINE\n• 2019: Co-founded Acme Robotics [Source 2]\n## PAST COMPANIES AND ROLES\n• Acme Robotics [Source 1]\n## EDUCATION\n• Stanford University [Source 1]\n## LITIGATION AND REGULATORY\n${legal}\n## PRESS AND PUBLIC STATEMENTS\n• Raised $20M [Source 2]\n## RED FLAGS AND OPEN QUESTIONS\n• Confirm the role history with references.\nCONFIDENCE: Medium - few sources`;
+    const one = checkBrief(body('• Jane Doe was sued by Globex in 2022 [Source 2].'), src, { maxSource: 3, personWords: ['Jane Doe'] });
+    expect(one.ok).toBe(true);
+    expect(one.content).not.toMatch(/Globex/);
+    expect(one.content).toMatch(/## LITIGATION AND REGULATORY\nNot found in the available sources\./);
+    const two = checkBrief(body('• Jane Doe was sued by Globex in 2022 [Source 2].\n• She was fined by the regulator in 2023 [Source 2].'), src, { maxSource: 3, personWords: ['Jane Doe'] });
+    expect(two.ok).toBe(false);
+  });
+});
