@@ -22,9 +22,9 @@ import { getJson, mapLimit, htmlToText } from '../http';
 import { makeFinding, makeThread, severityFromText } from '../finding';
 import { threadsFromResult, profileFromUrl, mentions } from '../extract';
 import { nameTokens, matchSubject } from '../identity';
-import { isSensitive, mentionsMinor, redactPII } from '../guardrails';
+import { cleanSentences } from '../guardrails';
 import { companyKeys } from '../../founderCheck';
-import { personNameFits } from './scholar';
+import { personNameFits, knownCompanyOf, companyNamesOf } from './scholar';
 
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const count = (n) => Number(n || 0).toLocaleString('en-US');
@@ -33,7 +33,7 @@ const count = (n) => Number(n || 0).toLocaleString('en-US');
  * profile survives; e-mail addresses and the like in what is kept are removed
  * (it is also the text the grade is read from, which is stored with the record).
  */
-const safe = (s) => (isSensitive(s) || mentionsMinor(s) ? '' : clean(redactPII(clean(s))));
+const safe = (s) => clean(cleanSentences(clean(s)).text);
 const EMPTY = () => ({ findings: [], threads: [], notes: [] });
 const MATCH_RANK = { confirmed: 3, likely: 2, company: 2, possible: 1 };
 const SEVERITY_RANK = { high: 3, medium: 2, low: 1, info: 0 };
@@ -132,8 +132,13 @@ function gradeAccount(subject, { name, text, handle, samePlatform = false }) {
  * profile tells the subject from a namesake; a school alone does not (the
  * account was picked out of the namesakes), so it then stays "possible".
  */
-function gradeNamedAccount(subject, matchText, namesakes) {
+function gradeNamedAccount(subject, matchText, namesakes, selfDescribed = '') {
   const graded = matchSubject(subject, matchText);
+  // Anyone can open an account in someone's name and company: found by the name, what it says of itself makes it
+  // 'likely' at most, and the cap is kept when the record is graded again.
+  if (graded.level === 'confirmed' && selfDescribed) {
+    return { fields: { match: 'likely', matchReasons: [...graded.reasons.slice(0, 3), `self-described on ${selfDescribed}`] }, held: true };
+  }
   const telling = ['people', 'handles', 'domains'].some((kind) => [...subject.anchors[kind].values()].some((a) => a.test(matchText)));
   if (graded.level !== 'likely' || telling || namesakes < 2) return { fields: { matchText }, held: false };
   return { fields: { match: 'possible', matchReasons: [`${graded.reasons[0]}, but ${namesakes} accounts carry this name and a school alone does not tell them apart`] }, held: true };
@@ -190,19 +195,33 @@ const GITHUB = 'https://api.github.com';
 const GITHUB_LABEL = 'GitHub public profiles';
 const GITHUB_LOGIN = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
 const GITHUB_LIMIT_NOTE = "GitHub public profiles could not be read: the hourly allowance shared by this deployment's network address is used up, so they are missing from this check.";
-// Not retried: an allowance that is used up stays used up for the hour.
+// Not retried: an allowance that is used up stays used up for the hour. A deployment may set GITHUB_TOKEN (a
+// token with no scopes, which costs nothing) for a larger hourly allowance of its own; without it, calls share
+// the address's small one.
 const githubGet = (path, ctx) => getJson(`${GITHUB}${path}`, {
-  deadline: ctx.deadline, accept: 'application/vnd.github+json', headers: { 'X-GitHub-Api-Version': '2022-11-28' }, retries: 0,
+  deadline: ctx.deadline, accept: 'application/vnd.github+json', retries: 0,
+  headers: { 'X-GitHub-Api-Version': '2022-11-28', ...(process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {}) },
 });
 const rateLimited = (error) => error?.status === 403 || error?.status === 429;
 
 /** A website field that holds an e-mail address instead of a link is not kept. */
 const linkOnly = (s) => { const v = clean(s); return /^mailto:/i.test(v) || /^[^/\s]+@[^/\s]+$/.test(v) ? '' : v; };
 
-/** The parts of a profile that are used. Its e-mail address and location are not among them. */
+/**
+ * The city a profile states, and nothing finer: "Berlin, Germany" -> "Berlin". A location with a number in it
+ * (a street, a postcode) or more than a few words is not kept at all.
+ */
+export function cityOf(location) {
+  const first = clean(String(location || '').split(/[,;|/·•]/)[0]);
+  if (!first || first.length > 40 || /\d|@|https?:/i.test(first) || first.split(' ').length > 4) return '';
+  if (!/^[\p{L}][\p{L}' .-]*$/u.test(first)) return '';
+  return clean(cleanSentences(first, { kin: false }).text);
+}
+
+/** The parts of a profile that are used. Its e-mail address is not among them; of the location, only the city. */
 function githubProfile(p) {
   return {
-    type: clean(p.type), login: clean(p.login), name: clean(p.name), company: clean(p.company), bio: safe(p.bio), blog: linkOnly(p.blog),
+    type: clean(p.type), login: clean(p.login), name: clean(p.name), company: clean(p.company), bio: safe(p.bio), blog: linkOnly(p.blog), city: cityOf(p.location),
     x: clean(p.twitter_username), repos: Number(p.public_repos) || 0, followers: Number(p.followers) || 0,
     createdAt: clean(p.created_at), updatedAt: clean(p.updated_at),
   };
@@ -230,6 +249,88 @@ async function githubUser(login, ctx) {
 /** For tests: forget the profiles read so far. */
 export function __resetProfilesForTests() {
   profilesRead.clear();
+  workRead.clear();
+}
+
+const workRead = new Map(); // login -> { at, work }
+
+/**
+ * The public work behind an account: the organisations it is a public member
+ * of and its most recently pushed repositories of its own (not forks). Best
+ * effort: a part that cannot be read is left out, never shown as "none".
+ * @returns {{ orgs: string[]|null, repos: object[]|null, limited: boolean }}
+ */
+async function githubWork(login, ctx) {
+  const key = login.toLowerCase();
+  const hit = workRead.get(key);
+  if (hit && Date.now() - hit.at < PROFILE_TTL_MS) return hit.work;
+  const [orgs, repos] = await Promise.allSettled([
+    githubGet(`/users/${encodeURIComponent(login)}/orgs?per_page=30`, ctx),
+    githubGet(`/users/${encodeURIComponent(login)}/repos?sort=pushed&per_page=10&type=owner`, ctx),
+  ]);
+  const work = {
+    orgs: orgs.status === 'fulfilled' && Array.isArray(orgs.value) ? orgs.value.map((o) => clean(o?.login)).filter((l) => GITHUB_LOGIN.test(l)).slice(0, 12) : null,
+    repos: repos.status === 'fulfilled' && Array.isArray(repos.value)
+      ? repos.value.filter((r) => r && !r.fork && clean(r.name))
+        .map((r) => ({ name: clean(r.name), language: clean(r.language) || null, stars: Number(r.stargazers_count) || 0, pushedAt: clean(r.pushed_at).slice(0, 10) || null, description: safe(r.description).slice(0, 140) || null }))
+        .sort((a, b) => b.stars - a.stars).slice(0, 5)
+      : null,
+    limited: [orgs, repos].some((r) => r.status === 'rejected' && rateLimited(r.reason)),
+  };
+  if (work.orgs || work.repos) {
+    if (workRead.size >= 300) workRead.delete(workRead.keys().next().value);
+    workRead.set(key, { at: Date.now(), work });
+  }
+  return work;
+}
+
+/** The public work, added to the account's finding: organisations, top repositories and their languages. */
+function addWork(finding, work) {
+  if (!finding || !work) return;
+  const parts = [];
+  if (work.orgs?.length) parts.push(`Public organisations: ${work.orgs.join(', ')}`);
+  if (work.repos?.length) parts.push(`Repositories: ${work.repos.map((r) => `${r.name}${r.language || r.stars ? ` (${[r.language, r.stars ? `${count(r.stars)} stars` : ''].filter(Boolean).join(', ')})` : ''}`).join('; ')}`);
+  if (parts.length) finding.quote = [finding.quote, ...parts].filter(Boolean).join(' | ').slice(0, 700);
+  finding.data = {
+    ...(finding.data || {}),
+    ...(work.orgs ? { orgs: work.orgs } : {}),
+    ...(work.repos ? { topRepos: work.repos, languages: [...new Set(work.repos.map((r) => r.language).filter(Boolean))] } : {}),
+  };
+}
+
+const workLimitNote = (login) => `Part of the GitHub account ${login} (its organisations or repositories) could not be read: the hourly allowance shared by this deployment's network address is used up.`;
+
+const YEAR_MS = 365 * 24 * 3600 * 1000;
+/** An account with a history: over a year old, with public repositories or followers. */
+const established = (profile, now = Date.now()) => {
+  const t = Date.parse(profile.createdAt || '');
+  return Number.isFinite(t) && now - t > YEAR_MS && (profile.repos > 0 || profile.followers > 0);
+};
+
+/** Whether one of the account's public organisations is a known company of the subject. */
+function memberOfCompany(subject, orgs) {
+  if (!orgs?.length) return '';
+  for (const login of orgs) {
+    if (knownCompanyOf(subject, login)) return login;
+    for (const a of subject.anchors.companies.values()) {
+      if (companyNamesOf(subject, a).some((n) => compactName(n).length >= 4 && compactName(n) === compactName(login))) return login;
+    }
+  }
+  return '';
+}
+
+/** Whether the account's website is a known company's own domain (learned or written as the company's name). */
+function blogOfCompany(subject, blog) {
+  let host = '';
+  try { host = new URL(/^https?:\/\//i.test(blog) ? blog : `https://${blog}`).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; }
+  if (!host) return '';
+  const domains = [...(subject.anchors.aliases?.values() || [])].map((a) => a.value).concat([...(subject.anchors.domains?.values() || [])].map((a) => a.value)).map((d) => String(d).toLowerCase());
+  if (domains.some((d) => host === d || host.endsWith(`.${d}`))) return host;
+  const label = compactName(host.split('.')[0]);
+  for (const a of subject.anchors.companies.values()) {
+    if (companyNamesOf(subject, a).some((n) => compactName(n).length >= 4 && compactName(n) === label)) return host;
+  }
+  return '';
 }
 
 function githubFinding(subject, profile, grade) {
@@ -238,13 +339,15 @@ function githubFinding(subject, profile, grade) {
   return makeFinding(subject, {
     source: 'github', sourceLabel: GITHUB_LABEL, category: 'identity',
     title: `GitHub profile ${profile.login} (self-described: ${claims || 'no name or company stated'}): ${facts}`,
-    quote: [profile.name, profile.company && `Company: ${profile.company}`, profile.bio && `Bio: ${profile.bio}`, profile.blog && `Blog: ${profile.blog}`].filter(Boolean).join(' | '),
+    quote: [profile.name, profile.company && `Company: ${profile.company}`, profile.bio && `Bio: ${profile.bio}`, profile.blog && `Blog: ${profile.blog}`, profile.city && `City: ${profile.city}`].filter(Boolean).join(' | '),
     url: `https://github.com/${profile.login}`,
     date: profile.createdAt || null,
     severity: 'info',
     ...grade,
     data: {
       login: profile.login, name: profile.name, company: profile.company, blog: profile.blog, x: profile.x || null,
+      // what the profile says of its owner, for the profile page (self-described): bio, company and city
+      bio: profile.bio || null, city: profile.city || null,
       publicRepos: profile.repos, followers: profile.followers, createdAt: profile.createdAt || null, updatedAt: profile.updatedAt || null,
     },
   });
@@ -303,16 +406,14 @@ async function githubByName(subject, ctx) {
     }
   })).filter(Boolean);
   if (!read.length && failure && !limited) throw failure;
-  const findings = [];
-  const threads = [];
   const namesakes = Math.max(Number(search.total_count) || 0, search.items.length);
   const pairs = [];
   for (const profile of read) {
     if (profile.type !== 'User' || statedName(subject, profile.name) !== 'same') continue;
-    const grade = gradeNamedAccount(subject, `${subject.name}. ${profile.name}. ${githubText(subject, profile)} ${profile.login}`, namesakes);
+    const grade = gradeNamedAccount(subject, `${subject.name}. ${profile.name}. ${githubText(subject, profile)} ${profile.login}`, namesakes, 'the GitHub profile');
     const finding = githubFinding(subject, profile, grade.fields);
     if (!finding) continue;
-    if (grade.held) finding.matchFixed = true; // not upgraded later on the strength of the same school
+    if (grade.held) finding.matchFixed = true; // not upgraded later (the same school, or a self-described claim)
     pairs.push({ profile, finding });
   }
   pairs.sort((a, b) => MATCH_RANK[b.finding.match] - MATCH_RANK[a.finding.match] || b.profile.followers - a.profile.followers);
@@ -321,7 +422,23 @@ async function githubByName(subject, ctx) {
   // all are reported but only the most established one is followed.
   const tied = pairs.filter((p) => p.finding.match !== 'possible');
   if (tied.length > 1) notes.push(`${tied.length} GitHub accounts state this name and a known company (${tied.map((p) => p.profile.login).join(', ')}); only the most followed one, ${tied[0].profile.login}, is used to look further.`);
-  return { findings: pairs.map((p) => p.finding), threads: tied.length ? dedupeThreads(githubThreads(tied[0].profile, tied[0].finding)) : [], notes };
+  let threads = [];
+  if (tied.length) {
+    const top = tied[0];
+    const work = await githubWork(top.profile.login, ctx);
+    if (work.limited && !limited) notes.push(workLimitNote(top.profile.login));
+    addWork(top.finding, work);
+    // A self-described account's links become leads only when something beyond its own words backs it: a history
+    // (over a year old, with public work or followers), public membership of the company's organisation, or a
+    // website on the company's own domain. A new, empty account in someone's name is not followed.
+    const org = memberOfCompany(subject, work.orgs);
+    const site = blogOfCompany(subject, top.profile.blog);
+    if (org) top.finding.matchReasons = [...top.finding.matchReasons, `public member of the GitHub organisation ${org}`].slice(0, 5);
+    if (site) top.finding.matchReasons = [...top.finding.matchReasons, `website on ${site}`].slice(0, 5);
+    if (established(top.profile) || org || site) threads = dedupeThreads(githubThreads(top.profile, top.finding));
+    else notes.push(`The GitHub account ${top.profile.login} states this name and a known company, but it is new and shows no public work, so its links were not followed.`);
+  }
+  return { findings: pairs.map((p) => p.finding), threads, notes };
 }
 
 async function githubByHandle(subject, handle, ctx, samePlatform = false) {
@@ -336,7 +453,13 @@ async function githubByHandle(subject, handle, ctx, samePlatform = false) {
   const grade = gradeAccount(subject, { name: profile.name, text: githubText(subject, profile), handle: profile.login, samePlatform });
   if (!grade) return { findings: [], threads: [], notes: [`The GitHub account "${profile.login}" states a different name and was left out.`] };
   const finding = githubFinding(subject, profile, grade);
-  return { findings: [finding].filter(Boolean), threads: dedupeThreads(githubThreads(profile, finding), handle), notes: [] };
+  const notes = [];
+  if (finding && finding.match !== 'possible') {
+    const work = await githubWork(profile.login, ctx);
+    addWork(finding, work);
+    if (work.limited) notes.push(workLimitNote(profile.login));
+  }
+  return { findings: [finding].filter(Boolean), threads: dedupeThreads(githubThreads(profile, finding), handle), notes };
 }
 
 export const githubConnector = {

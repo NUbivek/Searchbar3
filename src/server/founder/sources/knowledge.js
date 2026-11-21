@@ -42,18 +42,25 @@
  */
 import { getJson, getText, mapLimit } from '../http';
 import { makeFinding, makeThread, severityFromText } from '../finding';
-import { nameTokens, matchSubject, companyKeyStrict, addAnchor, addRoleAnchor, addEventAnchor } from '../identity';
+import { companyKeys, isOrdinaryWordCompany } from '../names';
+import { nameTokens, matchSubject, companyKeyStrict, addAnchor, addRoleAnchor, addEventAnchor, addCompanyAlias } from '../identity';
 import { threadsFromResult, relativesFromText, associatesFromText, plausiblePersonName, mentions } from '../extract';
-import { isSensitive, mentionsMinor } from '../guardrails';
+import { isSensitive, mentionsMinor, cleanSentences } from '../guardrails';
 import { languageHints } from './web';
+import { knownCompanyOf, namesakeOrgs, maskOrgs, companyNamesOf, yearNumber } from './scholar';
 
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const unique = (list) => [...new Set(list.filter(Boolean))];
 const capitalise = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const thisYear = () => new Date().getUTCFullYear();
-/** Text the privacy rules would reject is left out, so the rest of the record survives. */
-const safe = (s) => (isSensitive(s) || mentionsMinor(s) ? '' : clean(s));
+/**
+ * Only the sentences the privacy rules reject are left out, so the rest of a
+ * description or label survives. Descriptions name relatives with their role
+ * ("son of ..."), which the relatives rule for prose would drop; family ties
+ * have their own stricter rules in this file.
+ */
+const safe = (s) => clean(cleanSentences(clean(s), { kin: false }).text);
 /** "American businessman (born 1982)" -> "American businessman": a birth year is never shown. */
 const noBirth = (s) => clean(String(s ?? '').replace(/\s*\((?:born|b\.)[^)]*\)/gi, '').replace(/\s*\(\s*\d{4}\s*[-–—]\s*(?:\d{4})?\s*\)/g, '').replace(/,?\s+born\s+(?:in\s+)?\d{4}\b/gi, ''));
 const SEVERITY_RANK = { high: 3, medium: 2, low: 1, info: 0 };
@@ -141,7 +148,7 @@ const WD_ID = 'wikidata';
 const WD_LABEL = 'Wikidata (public knowledge graph)';
 const WD_SEARCH = 'https://www.wikidata.org/w/api.php';
 const WD_SPARQL = 'https://query.wikidata.org/sparql';
-const MAX_CANDIDATES = 8;
+const MAX_CANDIDATES = 20;
 const MAX_RELATIVES = 12;
 
 const qidOf = (uri) => (String(uri || '').match(/Q\d+$/) || [''])[0];
@@ -169,7 +176,7 @@ const candidateQuery = (qids) => `SELECT ?c ?cLabel ?cDesc (MAX(?sl) AS ?sitelin
  * dates. The optimizer hint matters: without it the endpoint plans the
  * inverse links (organisation -> founded by -> person) badly and times out.
  */
-const profileQuery = (qid) => `SELECT ?kind ?st ?val ?valLabel ?jurLabel ?degreeLabel ?majorLabel ?ofLabel ?roleLabel ?start ?end ?pit ?inception ?otherFounder WHERE { hint:Query hint:optimizer "None" . VALUES ?person { wd:${qid} } { VALUES (?p ?ps ?kind) { (p:P108 ps:P108 'employer') (p:P69 ps:P69 'educated at') (p:P39 ps:P39 'position held') (p:P106 ps:P106 'occupation') (p:P1830 ps:P1830 'owner of') (p:P1399 ps:P1399 'convicted of') (p:P856 ps:P856 'official website') (p:P2002 ps:P2002 'X username') (p:P2037 ps:P2037 'GitHub username') (p:P6634 ps:P6634 'LinkedIn personal profile ID') (p:P2087 ps:P2087 'Crunchbase person ID') } ?person ?p ?st . ?st ?ps ?val . OPTIONAL { ?st pq:P512 ?degree . ?degree rdfs:label ?degreeLabel . FILTER(LANG(?degreeLabel)='en') } OPTIONAL { ?st pq:P812 ?major . ?major rdfs:label ?majorLabel . FILTER(LANG(?majorLabel)='en') } OPTIONAL { ?st pq:P642 ?of . ?of rdfs:label ?ofLabel . FILTER(LANG(?ofLabel)='en') } OPTIONAL { ?st pq:P39 ?role . ?role rdfs:label ?roleLabel . FILTER(LANG(?roleLabel)='en') } OPTIONAL { ?val wdt:P1001 ?jur . ?jur rdfs:label ?jurLabel . FILTER(LANG(?jurLabel)='en') } } UNION { VALUES (?ip ?ips ?kind) { (p:P112 ps:P112 'founded by') (p:P127 ps:P127 'owned by') (p:P169 ps:P169 'chief executive officer') (p:P488 ps:P488 'chairperson') (p:P3320 ps:P3320 'board member') (p:P1037 ps:P1037 'director / manager') } ?st ?ips ?person . ?val ?ip ?st . OPTIONAL { ?val wdt:P112 ?otherFounder } } ?st wikibase:rank ?rank . FILTER(?rank != wikibase:DeprecatedRank) OPTIONAL { ?st pq:P580 ?start } OPTIONAL { ?st pq:P582 ?end } OPTIONAL { ?st pq:P585 ?pit } OPTIONAL { ?val wdt:P571 ?inception } ${en('?val', '?valLabel')} } LIMIT 400`;
+const profileQuery = (qid) => `SELECT ?kind ?st ?val ?valLabel ?jurLabel ?degreeLabel ?majorLabel ?ofLabel ?roleLabel ?endCauseLabel ?start ?end ?pit ?inception ?otherFounder ?valSite WHERE { hint:Query hint:optimizer "None" . VALUES ?person { wd:${qid} } { VALUES (?p ?ps ?kind) { (p:P108 ps:P108 'employer') (p:P69 ps:P69 'educated at') (p:P39 ps:P39 'position held') (p:P106 ps:P106 'occupation') (p:P1830 ps:P1830 'owner of') (p:P1399 ps:P1399 'convicted of') (p:P856 ps:P856 'official website') (p:P2002 ps:P2002 'X username') (p:P2037 ps:P2037 'GitHub username') (p:P6634 ps:P6634 'LinkedIn personal profile ID') (p:P2087 ps:P2087 'Crunchbase person ID') (p:P166 ps:P166 'award received') (p:P463 ps:P463 'member of') (p:P496 ps:P496 'ORCID iD') (p:P5531 ps:P5531 'SEC CIK') (p:P1960 ps:P1960 'Google Scholar author ID') (p:P4012 ps:P4012 'Semantic Scholar author ID') (p:P793 ps:P793 'significant event') (p:P1477 ps:P1477 'birth name') } ?person ?p ?st . ?st ?ps ?val . OPTIONAL { ?st pq:P512 ?degree . ?degree rdfs:label ?degreeLabel . FILTER(LANG(?degreeLabel)='en') } OPTIONAL { ?st pq:P812 ?major . ?major rdfs:label ?majorLabel . FILTER(LANG(?majorLabel)='en') } OPTIONAL { ?st pq:P642 ?of . ?of rdfs:label ?ofLabel . FILTER(LANG(?ofLabel)='en') } OPTIONAL { ?st pq:P39 ?role . ?role rdfs:label ?roleLabel . FILTER(LANG(?roleLabel)='en') } OPTIONAL { ?st pq:P1534 ?endCause . ?endCause rdfs:label ?endCauseLabel . FILTER(LANG(?endCauseLabel)='en') } OPTIONAL { ?val wdt:P1001 ?jur . ?jur rdfs:label ?jurLabel . FILTER(LANG(?jurLabel)='en') } } UNION { VALUES (?ip ?ips ?kind) { (p:P112 ps:P112 'founded by') (p:P127 ps:P127 'owned by') (p:P169 ps:P169 'chief executive officer') (p:P488 ps:P488 'chairperson') (p:P3320 ps:P3320 'board member') (p:P1037 ps:P1037 'director / manager') } ?st ?ips ?person . ?val ?ip ?st . OPTIONAL { ?val wdt:P112 ?otherFounder } } ?st wikibase:rank ?rank . FILTER(?rank != wikibase:DeprecatedRank) OPTIONAL { ?st pq:P580 ?start } OPTIONAL { ?st pq:P582 ?end } OPTIONAL { ?st pq:P585 ?pit } OPTIONAL { ?val wdt:P571 ?inception } OPTIONAL { ?val wdt:P856 ?valSite } ${en('?val', '?valLabel')} } LIMIT 500`;
 
 /**
  * Relatives as the graph states them, from the person's page and from the
@@ -187,13 +194,18 @@ const rolesQuery = (qids) => `SELECT ?who ?role ?st ?org ?orgLabel ?jurLabel ?st
 
 const listOf = (s) => unique(String(s || '').split('|').map(clean));
 
-/** A candidate's fit with what is known about the subject: their companies first, then schools. */
+/**
+ * A candidate's fit with what is known about the subject: their companies first, then schools. An employer or
+ * organisation counts only when it IS a known company (knownCompanyOf): "Mercury Records" is not Mercury, so a
+ * record executive there is not the founder of Mercury. The same labels are masked in the description.
+ */
 function scoreCandidate(subject, c) {
   let score = 0;
-  const roles = [...c.employers, ...c.orgs].join(' | ');
+  const labels = [...c.employers, ...c.orgs];
+  const description = maskOrgs(c.description, namesakeOrgs(subject, [...labels, ...c.schools]));
   for (const a of subject.anchors.companies.values()) {
-    if (a.test(roles)) score += 4;
-    else if (a.test(c.description)) score += 3;
+    if (labels.some((l) => knownCompanyOf(subject, l) === a)) score += 4;
+    else if (a.test(description)) score += 3;
   }
   for (const a of subject.anchors.schools.values()) if (a.test(c.schools.join(' | '))) score += 2;
   for (const a of subject.anchors.people.values()) if (a.test(c.description)) score += 1;
@@ -206,7 +218,7 @@ const describe = (list) => list.slice(0, 5).map((c) => c.description || 'no desc
  * Pick the one entity that is the subject, or say why none was picked.
  * @returns {{ status: 'resolved'|'none'|'unclear', entity?: object, by?: 'context'|'name', note?: string }}
  */
-export function chooseCandidate(subject, candidates) {
+export function chooseCandidate(subject, candidates, { listed = 0, total = 0 } = {}) {
   const year = thisYear();
   const fits = candidates.filter((c) => c.label && (sameName(subject, c.label) || c.aliases.some((a) => sameName(subject, a)))
     // someone long dead is not the person an investor is asking about
@@ -221,8 +233,17 @@ export function chooseCandidate(subject, candidates) {
     return { status: 'unclear', note: `Wikidata lists more than one ${subject.name} tied to ${hints.slice(0, 2).join(' or ')} (${describe(ranked.filter((c) => c.score > 0))}). None was used, because the right one could not be told apart.` };
   }
   if (!hints.length && ranked.length === 1) return { status: 'resolved', entity: top, by: 'name' };
-  if (hints.length) return { status: 'unclear', note: `Wikidata lists ${people} named ${subject.name} (${describe(ranked)}), but nothing in ${ranked.length === 1 ? 'that record' : 'those records'} mentions ${hints.slice(0, 2).join(' or ')}. None was used.` };
-  return { status: 'unclear', note: `Wikidata lists ${people} named ${subject.name} (${describe(ranked)}). None was used: add the company so the right one can be picked.` };
+  // Honest coverage: when the graph lists more people under the name than were read, the note says so.
+  const more = total > listed && listed > 0 ? ` Wikidata lists ${total} people under this name; the first ${listed} and those tied to the company were read.` : '';
+  if (hints.length) {
+    return {
+      status: 'unclear',
+      note: `Wikidata lists ${people} named ${subject.name} (${describe(ranked)}), but nothing in ${ranked.length === 1 ? 'that record' : 'those records'} mentions ${hints.slice(0, 2).join(' or ')}. None was used.${more}`,
+      // the only person with the name: their Wikipedia article may still name the company
+      ...(ranked.length === 1 && top.article ? { single: top } : {}),
+    };
+  }
+  return { status: 'unclear', note: `Wikidata lists ${people} named ${subject.name} (${describe(ranked)}). None was used: add the company so the right one can be picked.${more}` };
 }
 
 const resolved = new Map(); // subject key -> { at, promise }
@@ -230,6 +251,53 @@ const RESOLVE_TTL_MS = 10 * 60 * 1000;
 /** Forget resolved entities (tests). */
 export function __resetKnowledgeForTests() {
   resolved.clear();
+  lsAnswers.clear();
+}
+
+/**
+ * People the graph ties to one of the subject's companies (founder, chief executive, chair, board member,
+ * director, employer, owner), whose English label is the subject's name. The company is found by its name and
+ * its learned legal names; only an item whose label IS the company counts. Best effort: a failure here leaves
+ * the name search alone, it is not a failure of the lookup.
+ */
+async function companyLinkedPeople(subject, ctx) {
+  const names = [...subject.anchors.companies.values()].flatMap((a) => companyNamesOf(subject, a)).slice(0, 3);
+  const orgs = [];
+  for (const name of names) {
+    const json = await getJson(`${WD_SEARCH}?action=wbsearchentities&search=${encodeURIComponent(name)}&language=en&type=item&limit=7&format=json`, { deadline: ctx.deadline });
+    for (const hit of Array.isArray(json?.search) ? json.search : []) {
+      const id = String(hit?.id || '');
+      if (/^Q\d+$/.test(id) && knownCompanyOf(subject, clean(hit.label)) && !orgs.includes(id)) orgs.push(id);
+    }
+    if (orgs.length >= 3) break;
+  }
+  if (!orgs.length) return [];
+  const rows = await sparql(`SELECT DISTINCT ?c ?l WHERE { VALUES ?org { ${wd(orgs.slice(0, 3))} } { ?org wdt:P112|wdt:P169|wdt:P488|wdt:P3320|wdt:P1037 ?c } UNION { ?c wdt:P108|wdt:P1830 ?org } ?c wdt:P31 wd:Q5 . ?c rdfs:label ?l . FILTER(LANG(?l)='en') } LIMIT 300`, ctx);
+  return unique(rows.filter((r) => sameName(subject, r.l)).map((r) => qidOf(r.c)));
+}
+
+const WP_API = 'https://en.wikipedia.org/w/api.php';
+/**
+ * Does the English article of the only Wikidata person with the name pair them with a known company? Only the
+ * lead and career sections are read, and only sentences that name the person (or the pronoun run after one):
+ * the company must be named as a company close to the name (matchSubject 'confirmed' on the company).
+ */
+async function articleNamesCompany(subject, article, ctx) {
+  const page = parseWikipediaUrl(article);
+  if (!page || page.lang !== 'en') return false;
+  const json = await getJson(`${WP_API}?action=query&prop=extracts&explaintext=1&exsectionformat=wiki&redirects=1&titles=${encodeURIComponent(page.title)}&format=json&formatversion=2`, { deadline: ctx.deadline });
+  const doc = json?.query?.pages?.[0];
+  if (!doc || doc.missing || !doc.extract) return false;
+  const sections = articleSections(String(doc.extract)).filter((x) => (!x.heading || WP_CAREER_SECTION.test(x.top)) && !WP_PRIVATE_SECTION.test(x.heading) && !WP_PRIVATE_SECTION.test(x.top));
+  // Articles call their subject by surname after the lead ("Quenneville co-founded ..."): the surname is read as
+  // the full name, which is safe because the article is about this one candidate. A possessive ("Quenneville's
+  // brother") is left alone, so a relative's company never resolves the entry.
+  const text = withPronouns(subject, withFullName(subject, sections.flatMap((x) => x.paragraphs).join(' ').slice(0, 20000), { possessive: false }));
+  // The sentence that pairs them is returned: the entry's records are graded with it (entityContext).
+  return sentencesIn(text).filter((x) => subject.hasName(x)).find((x) => {
+    const graded = matchSubject(subject, x);
+    return graded.level === 'confirmed' && (graded.basis || []).includes('company');
+  }) || false;
 }
 
 async function findEntity(subject, ctx) {
@@ -238,7 +306,11 @@ async function findEntity(subject, ctx) {
   const json = await getJson(url, { deadline: ctx.deadline });
   const hits = json?.query?.search;
   if (!Array.isArray(hits)) throw new Error('Wikidata search returned an answer that could not be read');
-  const qids = unique(hits.map((h) => String(h?.title || '')).filter((t) => /^Q\d+$/.test(t)));
+  const total = Number(json?.query?.searchinfo?.totalhits) || hits.length;
+  // A common name has hundreds of entries: the right one may rank below the first page, so the people the graph
+  // ties to the company are added to the name search.
+  const linked = subject.anchors.companies.size ? await companyLinkedPeople(subject, ctx).catch(() => []) : [];
+  const qids = unique([...linked, ...hits.map((h) => String(h?.title || '')).filter((t) => /^Q\d+$/.test(t))]).slice(0, MAX_CANDIDATES + 10);
   if (!qids.length) return { status: 'none' };
   const rows = await sparql(candidateQuery(qids), ctx);
   const candidates = rows.map((r) => ({
@@ -254,7 +326,13 @@ async function findEntity(subject, ctx) {
     deathYear: Number(r.deathYear) || null,
     article: /^https:\/\/en\.wikipedia\.org\/wiki\//.test(r.article || '') ? r.article : '',
   })).filter((c) => c.qid);
-  return chooseCandidate(subject, candidates);
+  const chosen = chooseCandidate(subject, candidates, { listed: hits.length, total });
+  if (chosen.status === 'unclear' && chosen.single) {
+    // The only person with the name, whose entry omits the company: their article may name it beside them.
+    const named = await articleNamesCompany(subject, chosen.single.article, ctx).catch(() => false);
+    if (named) return { status: 'resolved', entity: { ...chosen.single, evidence: named }, by: 'context', via: 'article' };
+  }
+  return chosen;
 }
 
 /** Resolve once per subject while the server instance is warm: the profile and family lookups share it. */
@@ -269,14 +347,33 @@ function resolveEntity(subject, ctx) {
   return promise;
 }
 
-/** What the grader is shown with every record of a resolved entity: the entity's own context. */
-const entityContext = (subject, e) => `${subject.name}. ${e.label}: ${e.description}. Employers: ${e.employers.join('; ')}. Organisations: ${e.orgs.join('; ')}. Schools: ${e.schools.join('; ')}.`;
+/**
+ * What the grader is shown with every record of a resolved entity: the entity's own context. Organisations that
+ * only begin with a known company's word ("Mercury Records" for Mercury) are masked, here and in each record's
+ * own text (entity.masked), so they never tie a record to the company.
+ */
+const entityContext = (subject, e) => `${subject.name}. ${e.label}: ${e.description}. Employers: ${e.employers.join('; ')}. Organisations: ${e.orgs.join('; ')}. Schools: ${e.schools.join('; ')}.${e.evidence ? ` Wikipedia article: ${e.evidence}` : ''}`;
 
-const wdFinding = (ctx, entity, f) => makeFinding(ctx.subject, {
-  source: WD_ID, sourceLabel: WD_LABEL, severity: 'info', ...f,
-  matchText: `${entityContext(ctx.subject, entity)} ${f.title} ${f.quote || ''}`,
-});
+/**
+ * An entry resolved through its Wikipedia article (entity.via 'article') is tied by the article sentence that
+ * names the company, not by the graph itself: its records are 'likely' at most, with that reason.
+ */
+const wdFinding = (ctx, entity, f) => {
+  const matchText = maskOrgs(`${entityContext(ctx.subject, entity)} ${f.title} ${f.quote || ''}`, entity.masked || []);
+  if (entity.via === 'article') {
+    const graded = matchSubject(ctx.subject, matchText);
+    if (graded.level === 'confirmed') {
+      return makeFinding(ctx.subject, {
+        source: WD_ID, sourceLabel: WD_LABEL, severity: 'info', ...f,
+        match: 'likely', matchReasons: ["full name; the person's Wikipedia article names the company", ...graded.reasons.slice(0, 2)],
+      });
+    }
+  }
+  return makeFinding(ctx.subject, { source: WD_ID, sourceLabel: WD_LABEL, severity: 'info', ...f, matchText });
+};
 
+/** Statements whose value is text or an id, not an item with a label. */
+const LITERAL_KINDS = /^(official website|X username|GitHub username|LinkedIn personal profile ID|Crunchbase person ID|ORCID iD|SEC CIK|Google Scholar author ID|Semantic Scholar author ID|birth name)$/;
 const INVERSE_KINDS = new Set(['founded by', 'owned by', 'chief executive officer', 'chairperson', 'board member', 'director / manager']);
 const ORG_KINDS = ['founded by', 'chief executive officer', 'chairperson', 'board member', 'director / manager', 'owned by', 'owner of', 'employer'];
 const ROLE_PHRASE = { 'founded by': 'founder', 'chief executive officer': 'chief executive officer', chairperson: 'chairperson', 'board member': 'board member', 'director / manager': 'director or manager', 'owned by': 'owner', 'owner of': 'owner', employer: 'employed' };
@@ -332,6 +429,7 @@ function mergeOffices(rows, labelKey = 'valLabel', idKey = 'val') {
 }
 
 const CEO_WORDS = /\b(?:chief executive|CEO)\b/i;
+const PARDON = /\b(?:pardon\w*|clemency|commut\w*)\b/i;
 /** The later of two partial ISO dates ("2008-05", "2010" -> "2010"): a tenure cannot start before the company existed. */
 const laterOf = (a, b) => (!a ? b : !b ? a : a.slice(0, 4) < b.slice(0, 4) ? b : a);
 
@@ -356,24 +454,71 @@ export function tenuresOf(o, rows, personQid, founded = '') {
   return out;
 }
 
+/**
+ * The structured roles at one organisation, for the profile (years as numbers or null): roles held
+ * (data.employers, with a board seat also in data.boards) and the founding (data.founded).
+ */
+function careerData(o, founded = '') {
+  const employers = [];
+  const boards = [];
+  const foundedList = [];
+  for (const r of o.rows) {
+    const from = yearNumber(r.start);
+    const to = yearNumber(r.end);
+    if (r.kind === 'founded by') { foundedList.push({ org: o.name, year: from || yearNumber(founded) }); continue; }
+    const title = r.kind === 'employer' ? clean(r.roleLabel) || null : ROLE_PHRASE[r.kind] || null;
+    employers.push({ org: o.name, title, from, to });
+    if (r.kind === 'board member') boards.push({ org: o.name, role: 'board member', from, to });
+  }
+  return {
+    ...(employers.length ? { employers } : {}),
+    ...(boards.length ? { boards } : {}),
+    ...(foundedList.length ? { founded: foundedList } : {}),
+  };
+}
+
 function profileResult(ctx, entity, rows) {
   const { subject } = ctx;
   const findings = [];
   const threads = [];
   const person = entity.label;
-  const usable = rows.filter((r) => r.kind && (r.valLabel || /^(official website|X username|GitHub username|LinkedIn personal profile ID|Crunchbase person ID)$/.test(r.kind)));
+  const usable = rows.filter((r) => r.kind && (r.valLabel || LITERAL_KINDS.test(r.kind)));
   const of = (kind) => usable.filter((r) => r.kind === kind);
   const push = (f) => { const made = wdFinding(ctx, entity, f); if (made) findings.push(made); return made; };
+  // Organisations named in the statements are masked like the entity's own lists when they only begin with a
+  // known company's word (entity.masked is read by wdFinding).
+  entity.masked = unique([...(entity.masked || []), ...namesakeOrgs(subject, unique(usable.flatMap((r) => [clean(r.valLabel), clean(r.ofLabel)])))]);
+  const literal = (kind, re) => of(kind).map((r) => clean(r.val)).find((v) => re.test(v)) || '';
+  const orcid = literal('ORCID iD', /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/);
+  const cik = literal('SEC CIK', /^\d{1,10}$/);
+  const scholarIds = {
+    googleScholar: literal('Google Scholar author ID', /^[A-Za-z0-9_-]{6,20}$/) || null,
+    semanticScholar: literal('Semantic Scholar author ID', /^\d{1,12}$/) || null,
+  };
+  // Other names the person went by (a birth name, a former name): only from an entry tied by more than the name.
+  const otherNames = entity.by === 'context'
+    ? unique([...of('birth name').map((r) => clean(r.val)), ...(entity.aliases || [])])
+      .filter((n) => /^[\p{L}][\p{L}'’.-]*(?:\s+[\p{L}][\p{L}'’.-]*){1,4}$/u.test(n) && !sameName(subject, n) && n.toLowerCase() !== person.toLowerCase())
+      .slice(0, 6)
+    : [];
 
   // Who this is
   const occupations = unique(of('occupation').map((r) => safe(r.valLabel))).filter((o) => !/donor/i.test(o)).slice(0, 8);
   const identity = push({
     category: 'identity',
     title: entity.description ? `${person}: ${entity.description}` : `${person} (Wikidata entry)`,
-    quote: [`${person}: ${entity.description || 'no description'}`, occupations.length ? `${person}: occupation ${occupations.join('; ')}` : ''].filter(Boolean).join('. '),
+    quote: [`${person}: ${entity.description || 'no description'}`, occupations.length ? `${person}: occupation ${occupations.join('; ')}` : '', otherNames.length ? `${person}: also known as ${otherNames.join('; ')}` : ''].filter(Boolean).join('. '),
     url: entityUrl(entity.qid),
     severity: severityFromText(entity.description),
-    data: { wikidataId: entity.qid },
+    data: {
+      wikidataId: entity.qid,
+      ...(orcid ? { orcid } : {}),
+      // An SEC filer id, for the filings sources: only from an entry resolved by more than the name
+      ...(cik && entity.by === 'context' ? { secCik: cik.padStart(10, '0') } : {}),
+      ...(scholarIds.googleScholar || scholarIds.semanticScholar ? { scholarIds } : {}),
+      ...(otherNames.length ? { otherNames } : {}),
+      ...(occupations.length ? { occupations } : {}),
+    },
   });
   const trusted = Boolean(identity) && identity.match !== 'possible';
 
@@ -396,6 +541,8 @@ function profileResult(ctx, entity, rows) {
       quote: s.rows.map((r) => statementText(r, person)).join('. '),
       url: statementUrl(best.st, entity.qid),
       date: findingDate(latest(s.rows.map((r) => r.end)) || earliest(s.rows.map((r) => r.start))),
+      // one entry per statement (a degree each), for the profile
+      data: { education: s.rows.map((r) => ({ school: s.name, degree: clean(r.degreeLabel) || null, field: clean(r.majorLabel) || null, from: yearNumber(r.start), to: yearNumber(r.end || r.pit) })) },
     });
     if (!SECONDARY_SCHOOL.test(s.name)) threads.push(makeThread('school', s.name, `educated at${inBrackets(when)} (Wikidata)`, { trusted }));
   }
@@ -419,16 +566,27 @@ function profileResult(ctx, entity, rows) {
     const first = shortDate(earliest(o.rows.map((r) => r.start)));
     // A role said to start before the company existed is a slip in the graph: shown as such, never as an event on the timeline
     const conflict = founded && first && first.slice(0, 4) < founded.slice(0, 4) ? `start date ${first} is earlier than the founding of ${o.name} (${founded})` : '';
+    const data = careerData(o, founded);
     const made = push({
       category: 'career',
       title: `${person} at ${o.name}: ${phrases.join('; ')}`,
       quote: o.rows.map((r) => statementText(r, person)).join('. '),
       url: statementUrl(o.rows[0].st, entity.qid),
       date: conflict ? null : findingDate(earliest(o.rows.map((r) => r.start)) || earliest(o.rows.map((r) => r.end || r.pit))),
-      ...(conflict ? { data: { dateConflict: conflict, founded } } : {}),
+      data: { ...data, ...(conflict ? { dateConflict: conflict, founded } : {}) },
     });
     if (made && confirmed && made.match !== 'possible') {
       for (const t of tenuresOf(o, rows, entity.qid, founded)) addRoleAnchor(subject, { ...t, origin: made.id });
+      // The company under its registered name ("Nikola Corporation") and its own website, from an entry tied to
+      // the person by more than the name: other sources then search and match by these too.
+      const known = knownCompanyOf(subject, o.name);
+      if (known) {
+        addCompanyAlias(subject, { company: known.value, alias: o.name, origin: made.id });
+        const site = unique(rows.filter((r) => r.val === o.rows[0].val).map((r) => clean(r.valSite)))[0];
+        let host = '';
+        try { host = site ? new URL(site).hostname.replace(/^www\./i, '') : ''; } catch { host = ''; }
+        if (host) addCompanyAlias(subject, { company: known.value, alias: host, origin: made.id });
+      }
     }
     // a university or ministry someone merely worked at is not a company to look into; one they founded or led is
     const onlyEmployed = o.rows.every((r) => r.kind === 'employer');
@@ -448,7 +606,7 @@ function profileResult(ctx, entity, rows) {
       quote: o.rows.slice(0, 4).map((r) => statementText(r, person)).join('. '),
       url: statementUrl(o.rows[0].st, entity.qid),
       date: findingDate(o.start || o.end),
-      data: { office: o.office, jurisdiction: o.jurisdiction || null },
+      data: { office: o.office, jurisdiction: o.jurisdiction || null, positions: [{ title: o.office, of: o.of || o.jurisdiction || null, from: yearNumber(o.start), to: yearNumber(o.end) }] },
     });
   }
   const otherPositions = offices.filter((x) => !x.political);
@@ -459,6 +617,7 @@ function profileResult(ctx, entity, rows) {
       quote: otherPositions.flatMap((o) => o.rows).slice(0, 6).map((r) => statementText(r, person)).join('. '),
       url: statementUrl(otherPositions[0].rows[0].st, entity.qid),
       date: findingDate(otherPositions[0].start || otherPositions[0].end),
+      data: { positions: otherPositions.slice(0, 12).map((o) => ({ title: o.office, of: o.of || null, from: yearNumber(o.start), to: yearNumber(o.end) })) },
     });
     // "position held: chief executive officer (of WeWork)": a tenure, one per statement
     if (made && confirmed && made.match !== 'possible') {
@@ -470,18 +629,56 @@ function profileResult(ctx, entity, rows) {
 
   // A conviction the graph records. On an entry tied to the subject, its date marks when later reports of the
   // conviction can be about the subject ('likely' at most, with the full name).
+  // A pardon or clemency the graph records (a 'significant event', or the conviction's end cause) is shown beside
+  // the conviction, never left out: a conviction without its pardon misstates the person's standing.
+  const pardons = of('significant event').filter((r) => PARDON.test(r.valLabel));
   for (const r of of('convicted of').slice(0, 4)) {
+    const pardonRow = PARDON.test(r.endCauseLabel || '') ? r : pardons[0];
+    const pardonWhen = pardonRow ? shortDate(pardonRow === r ? r.end : (pardonRow.pit || pardonRow.start)) : '';
+    const pardonWord = pardonRow ? (/commut/i.test(pardonRow === r ? r.endCauseLabel : pardonRow.valLabel) ? 'sentence commuted' : 'pardoned') : '';
     const made = push({
       category: 'litigation',
       severity: 'high',
-      title: `${person}: convicted of ${clean(r.valLabel)}${inBrackets(shortDate(r.pit) || span(r.start, r.end))}`,
-      quote: statementText(r, person),
+      title: `${person}: convicted of ${clean(r.valLabel)}${inBrackets(shortDate(r.pit) || span(r.start, r.end))}${pardonRow ? `; ${pardonWord}${inBrackets(pardonWhen)}` : ''}`,
+      quote: [statementText(r, person), pardonRow && pardonRow !== r ? statementText(pardonRow, person) : '', pardonRow === r ? `${person}: end cause ${clean(r.endCauseLabel)}` : ''].filter(Boolean).join('. '),
       url: statementUrl(r.st, entity.qid),
       date: findingDate(r.pit || r.start || r.end),
+      ...(pardonRow ? { data: { pardon: { text: pardonWord, year: yearNumber(pardonWhen) } } } : {}),
     });
     const when = shortDate(r.pit || r.start || r.end);
     if (made && confirmed && made.match !== 'possible' && when) {
       addEventAnchor(subject, { event: 'convicted', date: when, origin: made.id });
+      if (pardonWhen) addEventAnchor(subject, { event: 'pardoned', date: pardonWhen, origin: made.id });
+    }
+  }
+
+  // Awards and memberships: one record each, with every statement
+  const awards = of('award received').slice(0, 12);
+  if (awards.length) {
+    const list = awards.map((r) => ({ text: safe(r.valLabel), year: yearNumber(r.pit || r.start) })).filter((a) => a.text);
+    if (list.length) {
+      push({
+        category: 'career',
+        title: `${person}: awards, ${list.slice(0, 4).map((a) => `${a.text}${a.year ? ` (${a.year})` : ''}`).join('; ')}${list.length > 4 ? `; and ${list.length - 4} more` : ''}`,
+        quote: awards.slice(0, 8).map((r) => statementText(r, person)).join('. '),
+        url: statementUrl(awards[0].st, entity.qid),
+        date: null,
+        data: { awards: list },
+      });
+    }
+  }
+  const memberships = of('member of').filter((r) => !/\b(?:party|parti|partei)\b/i.test(r.valLabel)).slice(0, 12);
+  if (memberships.length) {
+    const list = memberships.map((r) => ({ org: safe(r.valLabel), from: yearNumber(r.start), to: yearNumber(r.end) })).filter((m) => m.org);
+    if (list.length) {
+      push({
+        category: 'career',
+        title: `${person}: member of ${list.slice(0, 4).map((m) => m.org).join('; ')}${list.length > 4 ? `; and ${list.length - 4} more` : ''}`,
+        quote: memberships.slice(0, 8).map((r) => statementText(r, person)).join('. '),
+        url: statementUrl(memberships[0].st, entity.qid),
+        date: null,
+        data: { memberships: list },
+      });
     }
   }
 
@@ -498,6 +695,10 @@ function profileResult(ctx, entity, rows) {
     threads.push(makeThread('url', `https://github.com/${github}`, 'github profile listed on Wikidata', { trusted, platform: 'github' }));
     threads.push(makeThread('handle', github, 'github handle listed on Wikidata', { trusted, platform: 'github' }));
   }
+  // The exact ORCID record, for the academic-record source: only from an entry tied by more than the name.
+  if (orcid) threads.push(makeThread('url', `https://orcid.org/${orcid}`, 'ORCID iD listed on Wikidata', { trusted: trusted && entity.by === 'context', platform: 'orcid' }));
+  // Other names the person went by, for the sources that search by name (a thread kind the loop may not yet take).
+  for (const n of otherNames.slice(0, 3)) threads.push(makeThread('alias', n, 'other name listed on Wikidata', { trusted }));
   const linkedin = idOf('LinkedIn personal profile ID');
   if (linkedin) threads.push(makeThread('url', `https://linkedin.com/in/${linkedin}`, 'linkedin profile listed on Wikidata', { trusted, platform: 'linkedin' }));
   const crunchbase = idOf('Crunchbase person ID');
@@ -680,7 +881,8 @@ export const wikidataConnector = {
     const { subject } = ctx;
     const found = await resolveEntity(subject, ctx);
     if (found.status !== 'resolved') return { findings: [], threads: [], notes: found.note ? [found.note] : [] };
-    const entity = { ...found.entity, by: found.by };
+    const entity = { ...found.entity, by: found.by, ...(found.via ? { via: found.via } : {}) };
+    entity.masked = namesakeOrgs(subject, [...entity.employers, ...entity.orgs, ...entity.schools]);
     const wantProfile = task.template !== 'family';
     const wantFamily = task.template !== 'profile';
     const out = { findings: [], threads: [], notes: [] };
@@ -801,11 +1003,12 @@ export function articleSections(extract) {
  * surname mentions are expanded first. Used for finding threads only: quoted
  * text is never altered.
  */
-function withFullName(subject, text) {
+function withFullName(subject, text, { possessive = true } = {}) {
   const tokens = String(subject.name || '').split(/\s+/);
   const surname = tokens[tokens.length - 1] || '';
   if (tokens.length < 2 || surname.length < 3) return text;
-  const re = new RegExp(`(?<![A-Za-zÀ-ÿ'’-])(?<![A-ZÀ-Þ][A-Za-zÀ-ÿ'’-]*\\s)(?<![A-Z]\\.\\s)${escapeRe(surname)}(?![A-Za-zÀ-ÿ-])(?!\\s+(?:[A-ZÀ-Þ][a-zà-ÿ]|II\\b|III\\b|IV\\b|Jr\\b|Sr\\b))`, 'g');
+  // possessive false: "Roe's brother" is left as it is (the sentence may be about a relative)
+  const re = new RegExp(`(?<![A-Za-zÀ-ÿ'’-])(?<![A-ZÀ-Þ][A-Za-zÀ-ÿ'’-]*\\s)(?<![A-Z]\\.\\s)${escapeRe(surname)}(?![A-Za-zÀ-ÿ-])${possessive ? '' : "(?!['’])"}(?!\\s+(?:[A-ZÀ-Þ][a-zà-ÿ]|II\\b|III\\b|IV\\b|Jr\\b|Sr\\b))`, 'g');
   return String(text).replace(re, subject.name);
 }
 
@@ -920,6 +1123,48 @@ function companyRolesFromText(subject, text) {
   return [...out.values()];
 }
 
+/**
+ * Whether one sentence of a company article pairs the person with a known company of theirs (a pronoun run was
+ * already rewritten to the name). The typed company is never added to the text: an article about a same-named
+ * company that mentions a namesake does not make its people trusted leads.
+ */
+function pairsPersonWithCompany(subject, sentences) {
+  // "the company" is never read as the typed company: an article about a same-named company (a 1960s record
+  // label called Mercury) that says "Jane Doe became the company's director" is about a namesake.
+  return sentences.some((sentence) => {
+    const graded = matchSubject(subject, sentence);
+    return graded.level === 'confirmed' && (graded.basis || []).includes('company');
+  });
+}
+
+const FOUNDING_WORDS = /\b(?:found(?:ed|ing)|co-?founded|establish(?:ed|ment)|incorporated|launched|started|formed)\b/i;
+/**
+ * Does an article about a company called by the subject's company name match something already known about
+ * that company, so it is the same company and not an older namesake? A known domain or legal name of it, a
+ * known person of the subject (a co-founder) other than the subject, or the year the person founded it, given
+ * in a sentence about its founding. An ordinary word ("Mercury", "Ramp") names many companies, so its article
+ * must pass this before any person in it becomes a trusted lead.
+ */
+function articleMatchesKnownFact(subject, company, text) {
+  const key = companyKeys(company)[0] || company.toLowerCase();
+  const lower = String(text).toLowerCase();
+  const aliases = [...(subject.anchors.aliases || new Map()).values()].filter((a) => a.of === key);
+  for (const a of aliases) {
+    const re = new RegExp(`(?<![A-Za-z0-9-])${escapeRe(a.value.toLowerCase())}(?![A-Za-z0-9-])`);
+    if (re.test(lower)) return true;
+  }
+  for (const a of (subject.anchors.domains || new Map()).values()) if (a.test(text)) return true;
+  for (const a of (subject.anchors.people || new Map()).values()) if (!subject.hasName(a.value) && a.test(text)) return true;
+  const years = [...(subject.anchors.roles || new Map()).values()]
+    .filter((r) => r.role === 'founder' && (companyKeys(r.org)[0] || r.org.toLowerCase()) === key && r.from)
+    .map((r) => r.from.slice(0, 4));
+  if (years.length) {
+    const said = sentencesIn(text).filter((x) => FOUNDING_WORDS.test(x));
+    if (said.some((x) => years.some((y) => new RegExp(`\\b${y}\\b`).test(x)))) return true;
+  }
+  return false;
+}
+
 /** A company the person founded or runs (or the one given); an affiliate (a stake, an investment) is not read. */
 const primaryCompany = (x) => x?.kind === 'company' && (!x.tie || x.tie === 'primary');
 
@@ -969,6 +1214,8 @@ async function wpCompany(task, ctx) {
   const key = companyKeyStrict(company);
   if (key.length < 3) return empty;
   const french = languageHints(subject).includes('fr');
+  // An ordinary word names many companies: its article must also match a fact already known about the company.
+  const ordinary = isOrdinaryWordCompany(company);
   const [doc, frDoc] = await Promise.all([
     companyArticle('en', company, key, ctx),
     // the other language is a supplement: its failure is no failure of the lookup
@@ -983,7 +1230,7 @@ async function wpCompany(task, ctx) {
     const about = sentencesIn(text).filter((x) => subject.hasName(x));
     if (about.length) {
       const title = clean(doc.title);
-      const trusted = matchSubject(subject, clean(`${subject.name}. ${company}. ${title}. ${about.join(' ')}`).slice(0, 3900)).level !== 'possible';
+      const trusted = pairsPersonWithCompany(subject, about) && (!ordinary || articleMatchesKnownFact(subject, company, text));
       for (const a of associatesFromText(subject, text).slice(0, 8)) threads.push(makeThread('associate', a.name, `${a.why} (Wikipedia article on ${title})`, { trusted }));
       const relatives = relativesFromText(subject, text).slice(0, 4);
       for (const r of relatives) {
@@ -1005,7 +1252,7 @@ async function wpCompany(task, ctx) {
     const about = sentencesIn(text).filter((x) => subject.hasName(x));
     if (about.length) {
       const title = clean(frDoc.title);
-      const trusted = matchSubject(subject, clean(`${subject.name}. ${company}. ${title}. ${about.join(' ')}`).slice(0, 3900)).level !== 'possible';
+      const trusted = pairsPersonWithCompany(subject, about) && (!ordinary || articleMatchesKnownFact(subject, company, text));
       for (const a of companyRolesFromFrench(subject, text, title.replace(/\s*\([^)]*\)\s*$/, '')).slice(0, 6)) {
         threads.push(makeThread('associate', a.name, `${a.role} of ${company} (French Wikipedia article on ${title})`, { trusted, role: a.role }));
       }
@@ -1214,10 +1461,22 @@ const lsPoliticalMoney = (r) => {
 const LS_PUBLIC_TYPES = /\b(Business Person|Political Candidate|Elected Representative|Public Official|Lobbyist|Philanthropist)\b/i;
 const LS_PUBLIC_BLURB = /\b(founder|co-?founder|CEO|CFO|COO|chief|chair\w*|president|director|board|trustee|partner at|managing partner|general partner|investor|owner|heir\w* to|executive|officer|politician|senator|congress\w*|representative|governor|mayor|minister|ambassador|judge|secretary|official|philanthropist|foundation|businessman|businesswoman|entrepreneur|financier|banker|developer|magnate|candidate)\b/i;
 
+/*
+ * The site asks for ten seconds between requests, so a lookup of four requests takes over thirty seconds; one cut
+ * short and run again would start over. Answers are kept for ten minutes in this server instance's memory (never
+ * in the database: they are about the person being checked), so a re-run resumes where the last one stopped.
+ */
+const LS_TTL_MS = 10 * 60 * 1000;
+const lsAnswers = new Map(); // path -> { at, data }
+
 /** LittleSis answers a few calls with a JSON body; anything else is a failure. */
 async function lsJson(path, ctx) {
+  const hit = lsAnswers.get(path);
+  if (hit && Date.now() - hit.at < LS_TTL_MS) return hit.data;
   const json = await getJson(`${LS_API}${path}`, { deadline: ctx.deadline });
   if (!json || !Array.isArray(json.data)) throw new Error('LittleSis returned an answer that could not be read');
+  if (lsAnswers.size >= 200) lsAnswers.delete(lsAnswers.keys().next().value);
+  lsAnswers.set(path, { at: Date.now(), data: json.data });
   return json.data;
 }
 
@@ -1283,10 +1542,16 @@ const lsCandidate = (e) => {
   };
 };
 
+/**
+ * How well an entry fits what is known: a known company counts when a relationship's organisation IS it
+ * (knownCompanyOf: "Mercury Public Affairs" is not Mercury) or when the entry's own words name it; organisations
+ * that only begin with the company's word are masked first.
+ */
 function lsScore(subject, c, rels) {
-  const text = [c.blurb, c.summary, ...(rels || []).map((r) => `${r.other.name} ${r.description}`)].join(' | ');
+  const orgs = (rels || []).map((r) => r.other.name);
+  const text = maskOrgs([c.blurb, c.summary, ...(rels || []).map((r) => `${r.other.name} ${r.description}`)].join(' | '), namesakeOrgs(subject, orgs));
   let score = 0;
-  for (const a of subject.anchors.companies.values()) if (a.test(text)) score += 4;
+  for (const a of subject.anchors.companies.values()) if (orgs.some((o) => knownCompanyOf(subject, o) === a) || a.test(text)) score += 4;
   for (const a of subject.anchors.schools.values()) if (a.test(text)) score += 2;
   for (const a of subject.anchors.people.values()) if (a.test(text)) score += 1;
   return score;
@@ -1298,20 +1563,33 @@ async function lsResolve(subject, ctx) {
   const named = hits.filter((c) => c.person && c.id && (sameName(subject, c.name) || c.aliases.some((x) => sameName(subject, x))));
   if (!named.length) return { status: 'none' };
   const hints = [...subject.anchors.companies.values(), ...subject.anchors.schools.values()].map((a) => a.value);
-  // The relationships of the two most likely entries are read anyway: they are what the findings come from, and they settle which entry is the subject.
-  const looked = named.slice(0, 2);
-  // One after another: the site asks for ten seconds between requests, so asking at once gains nothing
-  const rels = [];
-  for (const c of looked) rels.push(lsRelationships(await lsJson(`/entities/${c.id}/relationships`, ctx), c.id));
-  const ranked = looked.map((c, i) => ({ c, rels: rels[i], score: lsScore(subject, c, rels[i]) })).sort((a, b) => b.score - a.score);
+  // Every entry's own words first (they came with the search): the two that fit best are the ones read further.
+  const byBlurb = named.map((c, i) => ({ c, i, score: lsScore(subject, c, []) })).sort((a, b) => b.score - a.score || a.i - b.i);
+  const candidates = byBlurb.slice(0, 2);
+  // One after another: the site asks for ten seconds between requests, so asking at once gains nothing. The second
+  // entry is read only when the first does not decide: it fits and no other entry's own words also fit.
+  const ranked = [];
+  for (const [k, { c }] of candidates.entries()) {
+    const rels = lsRelationships(await lsJson(`/entities/${c.id}/relationships`, ctx), c.id);
+    ranked.push({ c, rels, score: lsScore(subject, c, rels) });
+    if (k === 0 && ranked[0].score >= 2 && byBlurb.slice(1).every((x) => x.score === 0)) break;
+  }
+  ranked.sort((a, b) => b.score - a.score);
   const [top, second] = ranked;
-  const others = named.length > looked.length;
+  const others = named.length > ranked.length;
   const what = ranked.map((r) => r.c.blurb || 'no description').join('; ');
+  // Honest coverage: say how many entries were read when not all were.
+  const read = others ? ` (the ${ranked.length === 1 ? 'entry' : `${ranked.length} entries`} that fit best on their own descriptions were read: ${what})` : ` (${what})`;
   if (top.score >= 2 && (!second || top.score - second.score >= 2)) return { status: 'resolved', by: 'context', entity: top.c, rels: top.rels };
   if (top.score >= 2) return { status: 'unclear', note: `LittleSis lists more than one ${subject.name} tied to ${hints.slice(0, 2).join(' or ')} (${what}). None was used, because the right one could not be told apart.` };
-  if (hints.length) return { status: 'unclear', note: `LittleSis lists ${named.length === 1 ? 'one person' : `${named.length} people`} named ${subject.name} (${what}), but nothing in ${named.length === 1 ? 'that entry' : 'those entries'} mentions ${hints.slice(0, 2).join(' or ')}. None was used.` };
+  if (hints.length) {
+    const none = others
+      ? `${ranked.length === 1 ? 'it does not mention' : 'neither mentions'} ${hints.slice(0, 2).join(' or ')}, and nor do the descriptions of the others`
+      : `nothing in ${named.length === 1 ? 'that entry' : 'those entries'} mentions ${hints.slice(0, 2).join(' or ')}`;
+    return { status: 'unclear', note: `LittleSis lists ${named.length === 1 ? 'one person' : `${named.length} people`} named ${subject.name}${read}, but ${none}. None was used.` };
+  }
   if (named.length === 1 && !others) return { status: 'resolved', by: 'name', entity: top.c, rels: top.rels };
-  return { status: 'unclear', note: `LittleSis lists ${named.length} people named ${subject.name} (${what}). None was used: add the company so the right one can be picked.` };
+  return { status: 'unclear', note: `LittleSis lists ${named.length} people named ${subject.name}${read}. None was used: add the company so the right one can be picked.` };
 }
 
 const LS_SPOUSE = /\b(wife|husband|spouse|ex-wife|ex-husband|former (?:wife|husband|spouse))\b/i;
@@ -1326,12 +1604,34 @@ const lsKin = (word) => (LS_SPOUSE.test(word) ? 'spouse' : LS_CHILD.test(word) &
 function lsResult(ctx, entity, rels, family) {
   const { subject } = ctx;
   const person = entity.name;
-  const context = `${subject.name}. ${person}: ${entity.blurb}. ${rels.filter((r) => r.category !== LS_FAMILY && r.category !== LS_PROFESSIONAL).map((r) => r.other.name).join('; ')}.`;
+  const orgNames = rels.filter((r) => r.category !== LS_FAMILY && r.category !== LS_PROFESSIONAL).map((r) => r.other.name);
+  // Organisations that only begin with a known company's word ("Mercury Public Affairs") are masked for the grader.
+  const masked = namesakeOrgs(subject, orgNames);
+  const context = `${subject.name}. ${person}: ${entity.blurb}. ${orgNames.join('; ')}.`;
   const findings = [];
   const threads = [];
-  const push = (f) => { const made = makeFinding(subject, { source: LS_ID, sourceLabel: LS_LABEL, severity: 'info', ...f, matchText: `${context} ${f.title} ${f.quote || ''}` }); if (made) findings.push(made); return made; };
+  const push = (f) => { const made = makeFinding(subject, { source: LS_ID, sourceLabel: LS_LABEL, severity: 'info', ...f, matchText: maskOrgs(`${context} ${f.title} ${f.quote || ''}`, masked) }); if (made) findings.push(made); return made; };
 
-  const identity = push({ category: 'identity', title: `${person}: ${entity.blurb || 'LittleSis entry'}`, quote: `${person}: ${entity.blurb || 'no description'}. Types: ${entity.types.join(', ')}`, url: entity.url, data: { littleSisId: entity.id } });
+  // The database's own curated paragraph about the person: read only for an entry tied by more than the name,
+  // and only sentences the privacy rules allow (it may give birth or family details).
+  const summary = entity.by === 'context'
+    ? sentencesIn(entity.summary).filter(quotable).map((x) => clean(cleanSentences(x).text)).filter((x) => x.length > 20)
+    : [];
+  const matters = summary.filter((x) => severityFromText(x, subject) !== 'info');
+  const about = fitSentences(summary.filter((x) => !matters.includes(x)).slice(0, 3), 360);
+  const identity = push({ category: 'identity', title: `${person}: ${entity.blurb || 'LittleSis entry'}`, quote: [`${person}: ${entity.blurb || 'no description'}. Types: ${entity.types.join(', ')}`, ...about].join(' '), url: entity.url, data: { littleSisId: entity.id } });
+  for (const x of matters.slice(0, 3)) {
+    push({
+      category: LEGAL_MATTER.test(x) ? 'litigation' : 'press',
+      severity: severityFromText(x, subject),
+      title: `${person} (LittleSis summary): ${x.length > 130 ? `${x.slice(0, 129).trimEnd()}…` : x}`,
+      quote: x,
+      // a text fragment opens the page at the sentence (a browser that cannot find it opens the page)
+      url: `${entity.url}#:~:text=${encodeURIComponent(x.split(/\s+/).slice(0, 6).join(' '))}`,
+      date: passageYear(x),
+      data: { section: 'summary' },
+    });
+  }
   const trusted = Boolean(identity) && identity.match !== 'possible' && entity.by === 'context';
 
   // Positions, board seats, ownership, membership, education
@@ -1405,14 +1705,28 @@ function lsResult(ctx, entity, rels, family) {
   return { findings, threads: threads.filter((t) => t && !seen.has(`${t.kind}|${t.value.toLowerCase()}`) && seen.add(`${t.kind}|${t.value.toLowerCase()}`)), notes };
 }
 
-/** The company's own entry: the person's roles there, read from the company's side. */
+/**
+ * Whether an organisation's name is the company of this lookup: one of the subject's known companies whose
+ * names include the task's company, or the task's company itself (compared as names, legal form aside).
+ */
+function isTaskCompany(subject, company, name) {
+  const anchor = knownCompanyOf(subject, name);
+  if (anchor && (knownCompanyOf(subject, company) === anchor || companyKeyStrict(anchor.value) === companyKeyStrict(company))) return true;
+  return Boolean(companyKeyStrict(name)) && companyKeyStrict(name) === companyKeyStrict(company);
+}
+
+/**
+ * The company's own entry: the person's roles there, read from the company's side. Only an entry whose name (or
+ * an alias) IS the company is read: "Mercury Public Affairs" is not Mercury, and there is no fallback to the
+ * first result. A role there under the person's full name is 'likely' (the tie is the entry, not the words).
+ */
 async function lsCompany(task, ctx) {
   const { subject } = ctx;
   const company = clean(task.value);
   const orgs = (await lsJson(`/entities/search?q=${encodeURIComponent(company)}`, ctx)).map(lsCandidate)
-    .filter((c) => !c.person && c.id && [c.name, ...c.aliases].some((n) => mentions(n, company) || mentions(company, n)));
+    .filter((c) => !c.person && c.id && [c.name, ...c.aliases].some((n) => isTaskCompany(subject, company, n)));
   if (!orgs.length) return { findings: [], threads: [], notes: [] };
-  const org = orgs.find((c) => [c.name, ...c.aliases].some((n) => n.toLowerCase() === company.toLowerCase())) || orgs[0];
+  const org = orgs[0];
   const rels = lsRelationships(await lsJson(`/entities/${org.id}/relationships`, ctx), org.id)
     .filter((r) => r.other.kind !== 'org' && sameName(subject, r.other.name) && [LS_POSITION, LS_OWNERSHIP, LS_MEMBERSHIP].includes(r.category));
   const findings = [];
@@ -1425,8 +1739,9 @@ async function lsCompany(task, ctx) {
       quote: r.description + (r.theirs ? `. ${r.theirs}` : ''),
       url: r.url,
       date: findingDate(lsDate(r.attrs.start_date)),
-      matchText: `${r.other.name} ${what} at ${org.name} (${company}). ${r.description}`,
-      data: { organisation: org.name, relationshipId: r.id },
+      match: 'likely',
+      matchReasons: [`listed with the full name as ${what} on the LittleSis entry of ${org.name}`],
+      data: { organisation: org.name, relationshipId: r.id, employers: [{ org: org.name, title: what, from: yearNumber(r.attrs.start_date), to: yearNumber(r.attrs.end_date) }] },
     });
     if (made) findings.push(made);
   }
@@ -1438,7 +1753,8 @@ export const littleSisConnector = {
   label: LS_LABEL,
   kinds: ['subject', 'company'],
   prior: 0.45,
-  timeoutMs: 36000,
+  // four requests ten seconds apart, after the company lookup may have used the host's turn
+  timeoutMs: 45000,
   /** subject: search, relationships of at most two entries, family; company: search, relationships. At most four requests. */
   async run(task, ctx) {
     if (task.kind === 'company') return lsCompany(task, ctx);
@@ -1486,6 +1802,14 @@ export function parse990(xml) {
 }
 
 const titleCase = (s) => String(s || '').toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+const FOUNDATION_TAIL = /\s+(?:charitable\s+)?(?:foundation|fund|trust|institute)(?:,?\s+(?:inc|incorporated|corp|corporation|ltd|limited|co))?\.?$/i;
+/** Whether a nonprofit's name is the company's own foundation: the company's name and a foundation word only. */
+export function companyFoundation(subject, company, name) {
+  const n = clean(name);
+  if (!FOUNDATION_TAIL.test(n)) return false;
+  const base = clean(n.replace(FOUNDATION_TAIL, ''));
+  return Boolean(base) && isTaskCompany(subject, company, base);
+}
 const NP_FOUNDATION = /\b(foundation|fund|trust|institute|charitable)\b/i;
 
 /** The organisation search of the filings site; it answers 404 when nothing matches. */
@@ -1532,6 +1856,7 @@ async function readFiling(objectId, ctx) {
 
 /** Findings for the organisations where the subject is listed, from the people search rows and (where read) the filing itself. */
 function nonprofitResult(ctx, rows, filings, { companyOnly = '' } = {}) {
+  // On the company's own foundation, the tie is the foundation (structural): 'likely', set by hand, never more.
   const { subject } = ctx;
   const findings = [];
   const threads = [];
@@ -1567,7 +1892,9 @@ function nonprofitResult(ctx, rows, filings, { companyOnly = '' } = {}) {
       quote,
       url: `${NP_SITE}/organizations/${o.ein}`,
       date: years.length ? years[years.length - 1] : null,
-      matchText: `${latest.name} ${roles.join(' ')} ${o.org}`,
+      ...(companyOnly
+        ? { match: 'likely', matchReasons: [`listed with the full name as ${roles[0] || 'an officer'} of ${o.org}, the foundation of ${companyOnly}`] }
+        : { matchText: `${latest.name} ${roles.join(' ')} ${o.org}` }),
       data: { organisation: o.org, ein: o.ein, roles, years, ...(orgSharesSurname ? { orgSharesSurname: true } : {}), ...(filing?.familyTies ? { familyOrBusinessTiesAmongOfficers: /^(1|true)$/i.test(filing.familyTies) } : {}) },
     });
     if (!made) continue;
@@ -1606,7 +1933,9 @@ export const nonprofitFilingsConnector = {
     if (task.kind === 'company') {
       const company = clean(task.value);
       const found = await npSearch(`"${company}"`, ctx);
-      const org = found.find((o) => mentions(o?.name, company) && NP_FOUNDATION.test(o?.name || ''));
+      // The company's own foundation: its name is the company's name plus a foundation word, nothing else
+      // ("Mercury Foundation", not "Mercury Marine Employees Foundation" nor "Freddie Mercury Foundation").
+      const org = found.find((o) => companyFoundation(subject, company, o?.name));
       if (!org) return { findings: [], threads: [], notes: [] };
       const read = await npLatestFiling(org, ctx);
       if (!read) return { findings: [], threads: [], notes: [] };

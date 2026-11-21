@@ -5,17 +5,18 @@
  */
 const { setTransport } = require('../../../src/server/founder/http');
 const { createSubject } = require('../../../src/server/founder/identity');
-const { trademarksConnector } = require('../../../src/server/founder/sources/ip');
+const { trademarkFindings } = require('../../../src/server/founder/sources/ip');
 
 const ctxFor = (subject) => ({ subject, deadline: Date.now() + 20000, known: () => ({}) });
 const tm = (id, wordmark, owners, filed, { alive = false } = {}) => ({
   id, source: { id, wordmark, ownerName: owners, filedDate: `${filed}T00:00:00`, alive, internationalClass: ['IC 036'] },
 });
 const answer = (hits) => ({ hits: { totalValue: hits.length, hits } });
-function network(body) {
-  setTransport(async (url) => ({ url, status: 200, headers: new Map(), text: async () => JSON.stringify(body) }));
-}
-const run = (value, subject) => trademarksConnector.run({ kind: 'company', value }, ctxFor(subject));
+// Round 3: the trademark search the connector used is no longer asked (terms); the matching is tested on the
+// filings directly, as a permitted feed would supply them.
+let filings = null;
+function network(body) { filings = { hits: body.hits.hits, totalValue: body.hits.totalValue }; }
+const run = async (value, subject) => trademarkFindings(value, filings, ctxFor(subject));
 
 beforeEach(() => setTransport(async (url) => { throw new Error(`unexpected request to ${url}`); }));
 afterEach(() => setTransport());

@@ -40,7 +40,7 @@ describe('source registry', () => {
 
   test('plans are well formed, and a lookup about a relative or associate always involves the subject or is a watchlist screen', () => {
     const subject = createSubject({ name: 'Elizabeth Holmes', company: 'Theranos' });
-    const samples = { subject: 'Elizabeth Holmes', company: 'Theranos', school: 'Stanford University', associate: 'Ramesh Balwani', relative: 'Christian Holmes', handle: 'eholmes', domain: 'theranos.com', url: 'https://www.linkedin.com/in/elizabeth-holmes' };
+    const samples = { subject: 'Elizabeth Holmes', company: 'Theranos', school: 'Stanford University', associate: 'Ramesh Balwani', relative: 'Christian Holmes', handle: 'eholmes', domain: 'theranos.com', url: 'https://www.linkedin.com/in/elizabeth-holmes', alias: 'Elizabeth Anne Holmes' };
     for (const c of CONNECTORS) {
       if (typeof c.plan !== 'function') continue;
       for (const kind of c.kinds) {
@@ -59,7 +59,7 @@ describe('source registry', () => {
   });
 
   test('only watchlists and joint lookups accept a relative or associate', () => {
-    const allowed = new Set(['sanctions-lists', 'offshore-leaks', 'web-search', 'doj-press-releases', 'wanted-lists', 'us-exclusions']);
+    const allowed = new Set(['sanctions-lists', 'offshore-leaks', 'web-search', 'doj-press-releases', 'wanted-lists', 'us-exclusions', 'us-bank-regulators', 'fincen-actions', 'mdb-debarment', 'opensanctions-lists', 'asic-banned']);
     const takers = CONNECTORS.filter((c) => c.kinds.includes('relative') || c.kinds.includes('associate')).map((c) => c.id);
     for (const id of takers) expect(allowed.has(id)).toBe(true);
   });

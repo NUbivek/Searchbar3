@@ -1,0 +1,241 @@
+{
+ "key": "profile",
+ "notes": "Replaying r8 findings through the current buildProfile does find Columbia University (the 'doing' rule), so the r8 report's empty education is from older code. Earlier employers are still dropped. There is no r9 JSON, only glyman.log, so the Ramp claims were tested with typical sentences. Fix finding 1 before widening the patterns (finding 5), or the wrong-person rate rises. A temporary Jest file was created and has been deleted.",
+ "omitted": 3,
+ "findings": [
+  {
+   "id": "profile-colleague-job",
+   "title": "Pattern profile credits a colleague's or interviewer's employer and school to the person",
+   "severity": "critical",
+   "kind": "wrong-person",
+   "file": "src/server/founder/profile.js",
+   "line": 294,
+   "evidence": "Replayed buildProfile in Jest. w1-w5 below all gave the other person's org; w3 'hired Jane Roe, who graduated from Stanford University' gave school Stanford. The model path is guarded (leadsToSomeoneElse); this path is not.",
+   "scenario": "Confirmed record: 'Eric Glyman co-founded Ramp with Karim Atiyeh, who previously worked at Goldman Sachs.' Earlier gets Goldman Sachs. Same for 'met Karim Atiyeh, a former engineer at Google' (Google, engineer), 'interviewed by Jane Roe, previously at Bloomberg', 'investors include Keith Rabois, formerly at PayPal'.",
+   "fix": "For each PRIOR and SCHOOL match, take the masked text before m.index. Reject the match when HANDOFF or RELATION hits, or when any NAME_RUN with isPersonRun appears that is not a joint subject ('• and Name'). In Jest this blocked w1-w5 and kept 'previously worked at', 'Before founding Ramp, X worked at' and 'X and Y worked at'. Move leadsToSomeoneElse into profile.js and share it.",
+   "filesToChange": [
+    "src/server/founder/profile.js",
+    "src/server/founder/profileModel.js"
+   ],
+   "dim": "profile",
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced in Jest. The opening sentence makes `theirs` true, and PRIOR and SCHOOL then run over the whole sentence. w1, w2, w4 and w5 gave Goldman Sachs, Google/engineer, Bloomberg and PayPal, and w3 gave Stanford University. The model path has a guard; the pattern path has none.",
+   "betterFix": "Apply the guard per match. Mask the subject, then reject the match when the text between the subject's mention and m.index contains a non-joint person run, a ', who|whose|a former|previously' appositive after another name, HANDOFF, RELATION or 'interviewed by|investors include'. Share it with profileModel's leadsToSomeoneElse, and add regression tests for w1-w5 plus the positive forms."
+  },
+  {
+   "id": "profile-byemployer-upgrade",
+   "title": "byEmployer raises name-only records to likely, including a record that says the person is NOT a founder",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/report.js",
+   "line": 427,
+   "evidence": "buildReport in Jest. With bio 'Shensi Ding previously worked at Expanse', the r8 YC record 'Expanse (founded 2025)… Shensi Ding is not on its founder list' became likely. With the colleague sentence above, a namesake BrokerCheck record at Goldman Sachs also became likely.",
+   "scenario": "A misread employer (finding 1), or a different company with the same name, turns namesake broker, registry or YC records into 'likely'. The code also matches the person's name inside a title the check wrote itself that denies the tie.",
+   "fix": "Upgrade only when the source's own text (quote or data.firms, not a title the check wrote) puts the full name and the employer together. Skip records whose text says not listed, not on, or no match. Require the employer to come from 2 or more independent tied records, or from a dated span that overlaps. Feed the dates of an upgraded BrokerCheck record back into the role.",
+   "filesToChange": [
+    "src/server/founder/report.js"
+   ],
+   "dim": "profile",
+   "verdict": "confirmed",
+   "verifyNote": "byEmployer tests subject.hasName and the employer regex on title plus quote. It checks no negation ('not on its founder list') and ignores where the title came from. Any employer misread by the pattern path (finding 1) therefore raises namesake possible records to likely, and the gate needs only one supporting record for non-serious records."
+  },
+  {
+   "id": "profile-interviewer-substack",
+   "title": "An interviewer's newsletter is shown as the person's own Substack profile",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/sources/web.js",
+   "line": 261,
+   "evidence": "r8 profile.links includes substack https://notanotherceo.substack.com, which belongs to David Politis's podcast. pageThreads mints a profile thread from any *.substack.com or medium.com/@x post whose title names the person. profile.js:333 then lists it with no handle check.",
+   "scenario": "Result 'Shensi Ding - Merge (#74) - by David Politis' at notanotherceo.substack.com/p/... becomes a trusted 'substack profile' thread. The Profile card shows it as her Substack. A Medium post about someone gives that author's @handle in the same way.",
+   "fix": "In pageThreads, mint a substack or medium profile thread only when handleFitsSubject(handle) is true, or when the URL is the profile root and the title names the person as its author. In buildProfile links, require handleFitsSubject unless the thread came from Wikidata or a schema.org sameAs whose Person is the subject.",
+   "filesToChange": [
+    "src/server/founder/sources/web.js",
+    "src/server/founder/profile.js"
+   ],
+   "dim": "profile",
+   "verdict": "confirmed",
+   "verifyNote": "pageThreads pushes profileFromUrl(result.url).url as a trusted profile thread whenever the result title names the person, with no handleFitsSubject check (extract.js uses one). buildProfile lists any trusted url thread. In Jest, a trusted notanotherceo.substack.com thread came out as the person's substack link."
+  },
+  {
+   "id": "profile-wikidata-ignored",
+   "title": "Wikidata employer, school, founder and board statements give nothing without a model",
+   "severity": "high",
+   "kind": "missed-information",
+   "file": "src/server/founder/profile.js",
+   "line": 25,
+   "evidence": "Jest: quotes in statementText form, 'X: educated at Stanford University (start time 2002…)', 'X: employer Capital One (…)', 'Acme Labs: founded by X', 'Foo Corp: board member X', all gave empty education and earlier. EDU_WORD has no 'educated', and no PRIOR pattern reads 'employer'.",
+   "scenario": "For any person with a Wikidata entry (Elizabeth Holmes), the structured career, degree, major, dates and board seats are found and cited but are missing from the Profile card whenever no model runs.",
+   "fix": "In knowledgeConnector profileResult, add data:{statements:[{kind, org, role, degree, major, start, end}]} to each education and career finding. In buildProfile, read those for wikidata records graded confirmed or likely. Map employer to a role with years, educated at to school with degree and field, founded by to founded, and board member, chairperson or director to boards. Add 'educated' to EDU_WORD as a fallback.",
+   "filesToChange": [
+    "src/server/founder/sources/knowledge.js",
+    "src/server/founder/profile.js",
+    "src/server/founder/report.js"
+   ],
+   "dim": "profile",
+   "verdict": "confirmed",
+   "verifyNote": "Jest: 'X: employer Capital One' and 'Paribus: founded by X' gave nothing. Education was read only because the 'academic degree' qualifier carries the word 'degree'; without that qualifier, 'educated at' alone fails EDU_WORD. profileResult saves only wikidataId and no structured statements.",
+   "betterFix": "As proposed, but only from records the subject is tied to (an entity matched 'confirmed' by context). Map 'position held … of Org' to a role as well. Keep NOT_A_COMPANY and SECONDARY_SCHOOL filtering. Map 'founded by' into founded, never into earlier."
+  },
+  {
+   "id": "profile-threads-and-patterns",
+   "title": "Earlier ventures and employers stated in tied records are dropped: missing patterns, and trusted threads are ignored",
+   "severity": "high",
+   "kind": "missed-information",
+   "file": "src/server/founder/profile.js",
+   "line": 37,
+   "evidence": "Jest: 'Previously, he co-founded Paribus, which was acquired by Capital One', 'Eric Glyman joined Capital One', 'Shensi worked at a startup called Expanse' all gave empty earlier. r8 has trusted threads 'Expanse' and 'Columbia University', but buildProfile reads only url threads.",
+   "scenario": "Ramp: Paribus and Capital One. Merge: Expanse sits in a confirmed page-reader record and a trusted thread, but r8 shows earlier=[]. founded is always [] in the pattern path.",
+   "fix": "Add patterns: '(co-)founded|started|launched X' (into founded when X is not the given company), 'joined X', 'a startup|company|firm called|named X', 'acquired by X' (as the venture's acquirer, plus a role only when the sentence says the person joined). Run each through the guard in finding 1. Also, for trusted company and school threads, find the tied record whose sentence about the person names the value, and add it with that record's id.",
+   "filesToChange": [
+    "src/server/founder/profile.js"
+   ],
+   "dim": "profile",
+   "verdict": "confirmed",
+   "verifyNote": "Jest: 'previously co-founded Paribus, which was acquired by Capital One' and 'joined Capital One in 2016' gave nothing. The ORG must be capitalised right after 'at', so 'at a startup called Expanse' fails. The profile has no founded field at all, and buildProfile reads only url threads.",
+   "betterFix": "Add the patterns behind the finding-1 guard. Never turn 'acquired by X' into an employer unless the sentence says the person joined X. Use trusted company or school threads only as a lookup to find the sentence in a tied record that names them, never as a source on their own."
+  },
+  {
+   "id": "profile-structured-data",
+   "title": "Structured fields already in records (page schema.org, BrokerCheck firms with dates) are not read",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/profile.js",
+   "line": 240,
+   "evidence": "page-reader saves data.structured {titles, employers, schools, foundersOf} (pages.js:435). BrokerCheck saves data.firms with dated quotes. buildProfile reads only title and quote text, so 'works for: X' does not become a role.",
+   "scenario": "A team page's schema.org Person says worksFor: [Merge, Expanse] and alumniOf: Columbia. Only the school (through the 'alumni' word) reaches the card. Employers and job titles are lost, and the exact 2015–2017 dates on a BrokerCheck record raised to likely never reach the role.",
+   "fix": "In buildProfile, for tied records read data.structured.employers as roles (the title from data.structured.titles when it names that org), data.structured.schools as education, and data.structured.foundersOf as founded. Rebuild the profile after the report's re-grading, so that firms and dates from a BrokerCheck record raised to likely fill the matching role.",
+   "filesToChange": [
+    "src/server/founder/profile.js",
+    "src/server/founder/report.js"
+   ],
+   "dim": "profile",
+   "verdict": "confirmed",
+   "verifyNote": "Jest: a structured record with 'works for: Ramp; Capital One; alumni of: Harvard University' gave only Harvard, and only through the 'alumni' word. data.structured and BrokerCheck data.firms are never read. The profile is also built before byEmployer re-grades records, so firms and dates from a raised record never reach a role.",
+   "betterFix": "Read data.structured only when the page's structured Person was matched to the subject (the finding is confirmed or likely). Read BrokerCheck firms and dates only from records that were confirmed originally or raised to likely by the hardened byEmployer, and never feed them back into the employer list that did the raising, which would be circular."
+  },
+  {
+   "id": "profile-wikipedia-surname",
+   "title": "Wikipedia career and education sentences that use the surname alone are dropped",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/profile.js",
+   "line": 262,
+   "evidence": "Jest: a wikipedia career record 'Holmes worked at the Genome Institute of Singapore. In 2003, Holmes founded Real-Time Cures.' gave nothing. The first-name rule applies only to data.kind 'bio', and Wikipedia uses surnames.",
+   "scenario": "For a person with a Wikipedia article, every career sentence after the lead ('Holmes …', 'Glyman …') is ignored. Only the model can read them.",
+   "fix": "For records from the subject's own Wikipedia article (source 'wikipedia', title equal to the subject), treat a sentence that opens on the surname as theirs, unless another person with that surname is named in the article (a relative). Mirror opensOnSubject's first-name rule with the surname.",
+   "filesToChange": [
+    "src/server/founder/profile.js"
+   ],
+   "dim": "profile",
+   "verdict": "confirmed",
+   "verifyNote": "Jest: a wikipedia record titled 'Elizabeth Holmes' whose sentences open with 'Holmes worked at…', 'Holmes founded…' and 'Holmes studied … at Stanford University' gave empty earlier and education. Only the first-name rule exists, and only for data.kind 'bio'."
+  },
+  {
+   "id": "profile-li-snippet-shapes",
+   "title": "LinkedIn snippet headline and compact snippet shapes are not parsed; headline only knows C-suite titles",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/profile.js",
+   "line": 246,
+   "evidence": "Jest: 'Co-Founder & CEO at Ramp · Experience: Ramp · Education: Harvard University' gave headline null. The Google-style 'Eric Glyman. Co-Founder & CEO at Ramp. Ramp Harvard University. New York, New York, United States.' gave nothing. TITLE has no partner, VP, engineer or investor.",
+   "scenario": "A partner at a fund, a VP, or anyone whose snippet carries only the headline line gets no headline. The school in the compact '<Company> <School>' line is lost.",
+   "fix": "On records whose URL is linkedin.com/in and whose title names the person: read 'Name - <Headline> - <Company> | LinkedIn' and a '<title> at <Org>' snippet line as the headline. In the compact form, read SCHOOL matches as education. Accept any title text up to 60 characters for the headline, keeping the C-suite list for voting.",
+   "filesToChange": [
+    "src/server/founder/profile.js"
+   ],
+   "dim": "profile",
+   "verdict": "confirmed",
+   "verifyNote": "Jest: 'Co-Founder & CEO at Ramp · Experience…' gave headline null, because the '·' and '|' splitting cuts it into sentences that do not name the person. The 'Partner - Founders Fund' title gave no headline; TITLE lacks partner, VP, engineer and investor.",
+   "betterFix": "Apply the snippet-field reading (as the Experience/Education/Location labels already are) only to linkedin.com/in records whose title names the person and whose URL handle passes handleFitsSubject. Take the headline from the title's ' - <Headline> - <Company> | LinkedIn' segment."
+  },
+  {
+   "id": "profile-degree-fields",
+   "title": "Degree, field, boards, founded, investments and recognition are hard-coded empty without a model",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/report.js",
+   "line": 738,
+   "evidence": "reportProfile sets degree:null and field:null, and boards, founded, investments and recognition to []. profile.js never parses degree text, although Wikidata quotes carry 'academic degree …; academic major …'.",
+   "scenario": "'She earned a B.S. in Computer Science from Columbia University' shows only 'Columbia University'. 'Forbes 30 Under 30 (2022)' and board seats in tied records never appear when no model runs.",
+   "fix": "In buildProfile, parse '(B.S.|BA|MBA|Ph.D|bachelor's|master's)[ degree] in <Field> from|at <School>' beside the matched school. Read 'board (member|of directors) of|at X' and 'advis(or|es) X' into boards, 'named to <Forbes 30 Under 30…> (year)' into recognition, and 'angel investor in X' into investments, each guarded as in finding 1. Pass them through reportProfile instead of empty lists.",
+   "filesToChange": [
+    "src/server/founder/profile.js",
+    "src/server/founder/report.js"
+   ],
+   "dim": "profile",
+   "verdict": "confirmed",
+   "verifyNote": "reportProfile hard-codes degree and field to null and boards, founded, investments and recognition to []. Jest: 'earned a B.A. in Economics from Harvard University' gave only the school. The new extractors must use the finding-1 guard, or they will mis-credit people the same way."
+  },
+  {
+   "id": "profile-honesty-note",
+   "title": "Profile card does not say when it was read by patterns only, so missing roles look like a full résumé",
+   "severity": "medium",
+   "kind": "honesty",
+   "file": "src/components/founder/DeepCheck.js",
+   "line": 285,
+   "evidence": "readProfile sets readBy:'model' (profileModel.js:393), but no UI code reads readBy. The card note always says 'a line no record states is left out'.",
+   "scenario": "With no model, the card shows the current role, one school and a city. The investor reads that as 'no earlier career'. The owner reported exactly this.",
+   "fix": "When profile.readBy is not 'model', show a line such as: 'Read by text patterns only; earlier roles, degrees and board seats may be missing. Check the records below.' Also show counts of records read and add a link to the career and education sections.",
+   "filesToChange": [
+    "src/components/founder/DeepCheck.js"
+   ],
+   "dim": "profile",
+   "verdict": "confirmed",
+   "verifyNote": "No component reads readBy (grep finds it only in profileModel.js). The card note always reads as complete. Adding a 'read by text patterns only' caveat follows the honest-coverage rule."
+  },
+  {
+   "id": "profile-linkedin-inventory",
+   "title": "LinkedIn field coverage: what is captured today and where each field could come from",
+   "severity": "low",
+   "kind": "missed-information",
+   "file": "src/server/founder/profile.js",
+   "line": 198,
+   "evidence": "Read profile.js, profileModel.js, report.js and DeepCheck.js. Tested the snippet shapes in Jest.",
+   "scenario": "Today without a model: headline only for C-suite titles at the given company; location yes (Location: line, 'based in'); about partly; experience partly (narrow patterns, years only for 'Org (2015–2017)'); education school only; boards, honours, founded, volunteering, publications, patents and languages none.",
+   "fix": "Sources: headline from LinkedIn snippet title. Experience from Wikidata P108/P39, schema.org worksFor, BrokerCheck firms, Form D and Form 4 officer roles, team pages. Education from Wikidata P69 with P512/P812, alumniOf. Boards from Wikidata P3320, LittleSis, Form 990, Form 4. Honours from search snippets. Publications and patents: link the existing Semantic Scholar, OpenAlex and patent records into card rows. Volunteering from Form 990. Languages: leave out.",
+   "filesToChange": [
+    "src/server/founder/profile.js",
+    "src/server/founder/report.js",
+    "src/components/founder/DeepCheck.js"
+   ],
+   "dim": "profile",
+   "verdict": "confirmed",
+   "verifyNote": "The inventory is accurate against the code and the Jest results. It is a coverage map rather than a separate defect; the work it lists overlaps the findings above. The listed sources (Wikidata, schema.org, BrokerCheck, EDGAR, Form 990, OpenAlex) are free and permitted. LittleSis is free but needs a name match only on tied entities."
+  },
+  {
+   "id": "profile-seed-collection",
+   "title": "Some employers are in no record at all: thin seed collection (Silver Lake appears 0 times in r8)",
+   "severity": "medium",
+   "kind": "improvement",
+   "file": "src/server/founder/sources/web.js",
+   "line": 119,
+   "evidence": "r8: only 12 web-search records. 'Silver Lake' 0 hits. 'Credit Suisse' only in a name-only BrokerCheck record. site: queries go only to DuckDuckGo or Brave (searchEngines.js:411), so q.linkedin competes for a handful of DDG lookups.",
+   "scenario": "No extractor can read Credit Suisse, Silver Lake or Expanse dates when no tied record states them. The r8 LinkedIn snippet carried only 'Experience: Merge'.",
+   "fix": "Add seeds: '\"Name\" site:linkedin.com/in' without the company (snippets often list Experience and Education). '\"Name\" (analyst OR associate OR \"investment banking\" OR \"private equity\" OR engineer OR \"product manager\")'. Snippet-only '\"Name\" site:theorg.com OR site:crunchbase.com/person', never fetched. Put q.linkedin and q.background first in DDG's allowance.",
+   "filesToChange": [
+    "src/server/founder/sources/web.js"
+   ],
+   "dim": "profile",
+   "verdict": "confirmed",
+   "verifyNote": "The q.linkedin and q.background seeds always include the company, and no role-word or company-free LinkedIn seed exists. Adding search-engine queries (snippets only, never fetching LinkedIn, theorg or Crunchbase pages) stays inside the rules. I could not check the r8 counts myself. Company-free queries raise namesake risk, so their results must stay 'possible' unless tied."
+  },
+  {
+   "id": "profile-link-pick",
+   "title": "Public profile link per platform is first-seen, not best-supported",
+   "severity": "low",
+   "kind": "wrong-person",
+   "file": "src/server/founder/profile.js",
+   "line": 333,
+   "evidence": "The links loop keeps the first trusted url thread per platform. The r9 log shows a second LinkedIn thread, linkedin.com/in/eric-glyman-81972a435, beside eric-glyman-; handleFitsSubject accepts any handle containing the name slug.",
+   "scenario": "When two LinkedIn URLs for the name are trusted (one a newer namesake account), the card may link the wrong profile, depending on thread order.",
+   "fix": "Rank candidate links per platform by thread support (evidence count), by whether a confirmed record (one naming the company) produced them, and by origin (Wikidata or sameAs first). Show a second link only with an 'also found' label.",
+   "filesToChange": [
+    "src/server/founder/profile.js"
+   ],
+   "dim": "profile",
+   "verdict": "confirmed",
+   "verifyNote": "Jest: with two trusted LinkedIn threads, buildProfile kept the first one seen (shensi-ding-123) and dropped the other. No ranking by support or origin. Realistic only when two trusted threads exist; the effect is a wrong link, not a wrong fact."
+  }
+ ]
+}

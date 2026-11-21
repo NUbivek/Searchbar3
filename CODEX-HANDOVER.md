@@ -11,15 +11,39 @@ state things are in and how to run the maintenance loop.
 | | |
 |---|---|
 | Live site | https://diligence.bivek.ai (Vercel project `searchbar3`, team `1bivekadhikari-1506s-projects`) |
-| Production branch | `openclaw-fixes` at `eb6ee9d` (merge of preview `5cd490a`), released 2026-11-17 at the owner's request |
+| Production branch | `openclaw-fixes`, released 2026-11-21 at the owner's request ("Push to production"): a merge of the preview branch as it stood after the third pass and the sign-in contact change. The release before it was `87b8248` (2026-11-17) |
 | Working branch | `claude/research-hub-fix` (every change lands here first) |
-| Tests | 1,735 passing (`npx jest`); production build compiles (`NEXT_DIST_DIR=.next-build npm run build`) |
+| Tests | 3,840 passing (`npx jest`); production build compiles (`NEXT_DIST_DIR=.next-build npm run build`) |
 
 Released on 2026-11-17 (all live):
 
 1. **Tavus removed** (component, config, docs, package). Restore from commit `ddeb651` if ever wanted.
 2. **Model chain: only models that cost nothing, strongest first** (`src/server/llm/providers.js`; README "AI models"). Gemini 4 Hydrogen leads. Guarantees are tested in `tests/unit/features/llmChain.test.js`. `GET /api/debug/llm-check` shows the order; `?run=chat|analysis|extract|json|brief|gaps` makes one small real call.
 3. **Deep background check** on the Founder Check page (`FOUNDER-CHECK.md`): about forty free public sources, a step-per-request loop, identity grading, privacy rules, a second reader, learning, and a report with red flags, company matters, possible namesakes, claims that changed, related parties, timeline and coverage. Sign-in required, 12 checks per hour per account.
+
+Changed on 2026-11-20 (released to production on 2026-11-21), after the owner reported the tab as broken: the quick brief keeps only pages about this person; the model chain switches service after a timeout; the deep check gained a page reader (`sources/pages.js`), a Profile card (`profile.js`) and a Public-record screens checklist; name-only records sit in one collapsed block. Details in `eval/founder/LOG.md` and FOUNDER-CHECK.md. Rule added by this work: profile lines (school, employer) are read only from sentences that open on the person, never from a sentence about a colleague or relative.
+
+Second pass on 2026-11-20 (same branch): 18 more sources (`sources/debarment.js`, `government.js`, `courtsMore.js`, `presence.js`), a model-read profile (`profileModel.js`), a deeper page reader, the Network Map pairing (`networkLink.js`, `NetworkLinks.js`, `api/founder/history.js`), and a quick brief that asks a second model service in parallel when the first is slow. One source is written but not listed pending the owner (FOUNDER-CHECK.md, "Choices the owner should know about"). Rules added: contacts never leave the account and only a company name may become a search term; a one-word company name matched on the name alone is a name match, not a company record; a lookup that was cut short or not run returns `partial`, never a clean result.
+
+Third pass on 2026-11-20 and 21 (same branch), after the owner asked for "100% robust" and "state of the art":
+
+- **Audit.** Sixteen auditors, each finding re-checked by a second reader, two report graders and four source researchers: 226 findings (`eval/founder/audit-2026-11-20/`, one file per area and per owner). Graded reports before the repair: Shensi Ding / Merge 36 of 100, Eric Glyman / Ramp 58.
+- **Repair, in three phases**, one engineer per file group:
+  - one shared matcher for names and companies (`names.js`, used by `identity.js` and by the quick brief), privacy rules that work sentence by sentence on every field (`guardrails.js`, `finding.js`), safe web requests (`http.js`: every redirect hop checked, private addresses refused, size and time limits);
+  - the loop (screens always run, anchors carry the strength of the record they came from, one request at a time per job, legal names learned and searched), the report (one page is one record, word-only matches set aside, honest screens), the résumé and company facts with no model (`profile.js`, `companyFacts.js`), the second reader (a model's proposal never confirms anything), the quick brief, every source group, the network pairing, sign-in allow-list and headers;
+  - the written brief (ten sections, with and without a model), the page (summary, résumé, company, filters, recent checks, resume, print and copy).
+- **28 new sources** (see FOUNDER-CHECK.md). Six are built and off until the owner agrees to their terms (`FOUNDER_SOURCES_ON`). Patents and US trademarks are off (terms).
+- **Independent review** of the repair (fifteen reviewers, each finding re-checked): 107 further findings (`eval/founder/review-2026-11-21/`), fixed in a second round together with nine found in live runs.
+- **Found live on the preview deployment and fixed:** one model service keeps its connection busy, so the per-request time limit never fired (every model request now has a wall-clock limit, and slow services are asked side by side with the others); the quick brief's new line-by-line check refused every real model answer (it now removes unsupported lines and refuses an answer only when most of it is unsupported); a check sat through empty steps for its last waiting lookups (at most two now).
+
+Rules added by this pass (they belong with section 2):
+
+- The full name must be the full name: middle names, initials, suffixes, accents, "Surname, Given" and register capitals are the same person; initials alone, a nickname, another given name or a longer surname are not.
+- The company must sit beside the name and must not be given to someone else in between. A company named with an ordinary word counts only when the text uses it as a company. A very common name needs the company or another fact in the same record.
+- A record graded `likely` never becomes the evidence that confirms other records or itself. Nothing a model proposes becomes an anchor, a role or an associate unless one sentence in a record tied to the person states it.
+- Watchlist, court and regulator screens always run, and one that failed, was cut short or could not run is shown as such, never as clear. A list copy is shown with its date.
+- An official court, prosecutor or regulator record is never dropped whole for a sensitive word: only the offending clause goes.
+- An unsupported line of a model-written brief never shows; a red-flag line needs a cited record tied to the person or the company.
 
 Quality so far, from graded live checks on public figures (`eval/founder/`):
 
@@ -116,33 +140,31 @@ Goal: keep the site healthy and keep improving the deep check's accuracy, withou
 
 ## 4. Known open items (start here)
 
-1. **OpenRouter key rejected.** On 2026-11-17 every OpenRouter model answered with a sign-in problem, so answers come from Gemini and Groq only. The owner must rotate `OPENROUTER_API_KEY` in Vercel. Codex never handles key values.
-2. **Round-4 open items.** The ranked plan in `eval/founder/open-items-round4.json` is not yet fully applied. The main remaining ones:
-   - archived federal dockets for the subject's own criminal case still grade `possible`;
-   - court case numbers missing without CourtListener;
-   - prior-venture lawsuits (state courts) not reachable;
-   - Wikipedia passage dating (uses the latest year named);
-   - the company's own /about and /team pages over time (archive);
-   - French register and BODACC queried for non-French companies;
-   - LittleSis blurb clauses about third parties.
-3. **CourtListener.** Full federal dockets need a free token (`COURTLISTENER_API_TOKEN`). The owner creates the account and sets the variable. Without it, only case titles are searched.
-4. **Owner decisions** (documented in FOUNDER-CHECK.md "Choices the owner should know about"):
-   - Google News feed on or off (`FOUNDER_SEARCH_GOOGLE_NEWS=0`);
-   - backup search service for the deep check (`FOUNDER_SEARCH_METERED=0`);
-   - Gemini for people checks (`LLM_SKIP_GEMINI_FOR_PEOPLE=true`).
-5. **Unused paid keys** in Vercel (Together, Perplexity, Cerebras) can be deleted by the owner.
-6. **Local database.** The local embedded database folder `.data/pglite-3009` was damaged by a crash. It may hold contacts the owner imported locally, so do not delete it. Saved checks and large list caches no longer use the local database. Use a fresh `PGLITE_DIR` for testing.
-7. **Not yet verified in a real browser window:** a complete check run end to end in the visible page. The report page has been verified by rendering a real finished report through the component in a test browser.
+1. **The contact declared to the SEC, the FTC and crates.io (no owner step since 2026-11-21).** These sites refuse automated readers that name no contact. The signed-in person's name and email from Google sign-in are now declared to those three hosts only, for the check they run (`src/server/founder/contact.js`); `SEC_USER_AGENT` or `FOUNDER_HTTP_CONTACT`, when the owner sets them, win and then no person's address is sent. The contact must never be saved in a job, a report, a log, an error, a cache key, or sent to any other host. Codex never handles these values.
+2. **Owner decisions** (documented in FOUNDER-CHECK.md "Choices the owner should know about"):
+   - the six sources that are built and off (`FOUNDER_SOURCES_ON`): OpenSanctions lists, Australia's banned-persons register, Hong Kong enforcement news, US Tax Court search, podcast episodes, infostealer exposure of a company's domain;
+   - patents and US trademarks: off; a permitted route needs a free USPTO Open Data Portal account;
+   - who may sign in (`FOUNDER_ALLOWED_EMAILS`; empty means any Google account);
+   - Google News feed on or off (`FOUNDER_SEARCH_GOOGLE_NEWS=0`), the backup search service (`FOUNDER_SEARCH_METERED=0`), Gemini for people checks (`LLM_SKIP_GEMINI_FOR_PEOPLE=true`).
+3. **Not yet verified signed in on a deployment.** The deep check needs a Google sign-in, so on preview only the quick brief and the diagnostics (`/api/debug/llm-check?run=chat|brief|profile|quick|gaps`) were run with real model and search services. The deep check was verified locally, where there is no model and search is throttled.
+4. **CourtListener.** Full federal dockets need a token (`COURTLISTENER_API_TOKEN`) from an account the owner creates. Without it, only archived case titles are searched.
+5. **Left open by the repair, on purpose:**
+   - the connection of a web request is checked against private addresses before each hop but not pinned to the checked address;
+   - pacing per site is kept per server instance, not shared across instances;
+   - US state trial courts, and German and Dutch judgments, have no permitted source.
+6. **Unused paid keys** in Vercel (Together, Perplexity, Cerebras) can be deleted by the owner.
+7. **Local database.** The local embedded database folder `.data/pglite-3009` was damaged by a crash. It may hold contacts the owner imported locally, so do not delete it. Use a fresh `PGLITE_DIR` for testing.
 
 ## 5. Where things are
 
 | What | Where |
 |---|---|
 | Deep check loop | `src/server/founder/deepCheck.js` |
-| Identity grading | `src/server/founder/identity.js` (`matchSubject`, `orgMatcher`, `addRoleAnchor`, `personKey`, `companyKeyStrict`) |
+| Names and identity grading | `src/server/founder/names.js` (the one matcher for names and companies), `identity.js` (`matchSubject`, anchors and their strength, company aliases, other names); notes in `eval/founder/audit-2026-11-20/api-identity.md` |
 | Privacy rules | `src/server/founder/guardrails.js` |
 | Finding shape and severity | `src/server/founder/finding.js` |
 | Report and brief | `src/server/founder/report.js` |
+| Résumé and company facts | `src/server/founder/profile.js`, `companyFacts.js`, `profileModel.js` |
 | Second reader | `src/server/founder/gaps.js` |
 | Sources | `src/server/founder/sources/*.js`; list in `sources/index.js`; contract at its top; `tests/unit/features/founderSources.registry.test.js` holds every source to it |
 | Pacing and HTTP | `src/server/founder/http.js` (per-host gaps; rests with `retryAt`), `sources/searchEngines.js` (engine allowances, `SEARCH_RESTING`) |
@@ -151,3 +173,4 @@ Goal: keep the site healthy and keep improving the deep check's accuracy, withou
 | API and page | `src/pages/api/founder/deep.js`, `src/components/founder/DeepCheck.js` |
 | Models | `src/server/llm/providers.js`, `src/pages/api/debug/llm-check.js` |
 | Evaluation | `eval/founder/run.mjs`, `eval/founder/ground-truth.md`, `eval/founder/open-items-round4.json`, `eval/founder/LOG.md` |
+| The 2026-11 audit and review | `eval/founder/audit-2026-11-20/` (findings by area and by owner, source research, notes on the shared functions), `eval/founder/review-2026-11-21/` |

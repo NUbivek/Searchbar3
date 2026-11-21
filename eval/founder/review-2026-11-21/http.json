@@ -1,0 +1,54 @@
+{
+ "key": "http",
+ "sound": "Checked: redirect:'manual' with every hop going through onHop, checkTarget and waitForHost; the 5-hop cap; non-http schemes refused; IPv4 and IPv6, mapped, NAT64, octal and hex forms and mixed DNS answers all blocked (reproduced); streamed size cap stops after 4 chunks; htmlToText runs in linear time on hostile input; Latin-1 decoding works; credential headers dropped across origins; cache failure hold, deadline-independent loader, 5xx retry and maxStaleMs; ICO crawl delay added. DNS rebinding remains, as the code documents.",
+ "findings": [
+  {
+   "id": "http-sitread-silent-fail",
+   "title": "Site read swallows any failure (network error, timeout, step deadline) and returns an empty result with no note",
+   "severity": "high",
+   "kind": "honesty",
+   "file": "src/server/founder/sources/pages.js",
+   "line": 650,
+   "reproduced": true,
+   "evidence": "Temp test: domain merge.dev, transport throws ECONNRESET on /about → {findings:[],threads:[],notes:[]}. Same with /about hanging and the step deadline 4s away (request aborted with code 'deadline'): empty, no note, nothing thrown.",
+   "scenario": "The company site times out or resets on /about, or the step deadline cuts the first request. readSite's `catch { break; }` returns zero findings and zero notes. The loop counts the lookup as done and never reruns it (deepCheck.js:1493 reruns only thrown cut-short errors). The report shows the team pages as read with nothing about the person, so a failed lookup looks clean and the profile is thinner.",
+   "fix": "In readSite, when openPage throws: if no page was read yet, rethrow (cut-short errors keep code 'deadline' so the loop reruns them; others count as a failed source). If some pages were read, add a note naming the paths that failed. Do the same for the `Date.now() > ctx.deadline - 3000` break: throw a 'deadline' HttpError when nothing was read, otherwise add a partial note.",
+   "area": "http",
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced. ECONNRESET gives empty findings with no notes. Worse: a 403 on /about (openPage throws, archiveFallback false) breaks the loop, so /team, which held a matching bio, is never asked. The result is no findings, no note, and a thinner profile.",
+   "betterFix": "In readSite, take each path's error on its own. A cut-short or resting error with nothing read yet is rethrown (code 'deadline' or retryAt), so the loop reruns it. A 403, 5xx or reset moves on to the next path instead of stopping, and its path goes on a failed list. End with a note naming the paths that could not be read. If every path failed, throw so the source counts as failed. The deadline-3000 break follows the same rule."
+  },
+  {
+   "id": "http-robots-cutshort-unknown",
+   "title": "A robots.txt load cut by the step deadline (or a resting host) becomes a permanent 'robots could not be read' and the page is never opened",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/pages.js",
+   "line": 178,
+   "reproduced": true,
+   "evidence": "Temp test: robots.txt answers after 2.5s, ctx.deadline is now+1.2s. readOne returns without throwing, with only the note 'did not say whether it allows automated reading … the page was not opened'.",
+   "scenario": "A tied bio page is planned late in a step, or its host is resting after a 429. cachedEntry rejects with 'Out of time' (code 'deadline') or 'resting', and `.catch(() => null)` turns it into 'unknown'. readOne returns a note and nothing else, so the lookup counts as finished and the loop never retries it. A true career or education page about the person is dropped for the whole check, and the note gives the wrong reason.",
+   "fix": "In robotsVerdict, catch only real robots failures. Rethrow an error when isCutShort(error) or error.code === 'resting', keeping its retryAt, so openPage and readOne throw and the loop reruns the lookup. Keep 'unknown' for genuine failures such as a 5xx or a refused redirect. Treat the onHop path the same way: a cut-short robots check on a hop should throw, not return 'refused'.",
+   "area": "http",
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced. robots.txt answers in 2.5s with a 1.2s deadline: readOne returns only a 'robots file could not be read' note and does not throw, so deepCheck's cut-short rerun never fires. robotsVerdict's .catch(()=>null) also turns 'resting' errors into 'unknown'.",
+   "betterFix": "robotsVerdict rethrows when isCutShort(error) or the error carries a retryAt or resting code, and keeps 'unknown' for real failures. For onHop, a cut-short robots check should abort the request with a deadline error, not report the hop as refused. readSite should then follow the rule from the first finding for these errors instead of the 'unknown' break."
+  },
+  {
+   "id": "http-cached-stale-silent",
+   "title": "cached() still serves copies up to 7 days stale with no signal, and two list sources use it for 'no match' screens",
+   "severity": "medium",
+   "kind": "honesty",
+   "file": "src/server/founder/cache.js",
+   "line": 220,
+   "reproduced": true,
+   "evidence": "Temp test: cached(key, 5ms) loads ok; after expiry the loader throws, and cached() returns the old value (cachedEntry gives fresh:false, which cached() drops). opensanctions.js:249 and fdaDebarment.js:212 load whole lists with cached(), and their notes say 'found no entry' / 'no match' with no list date.",
+   "scenario": "The OpenSanctions or FDA host is down for 5 days. cached() returns the 5-day-old index. The report says 'Searched for X and found no entry in: Interpol red notices…' or 'FDA debarment list: no match' as if current, so a designation added that week is missed silently. The cachedEntry fix only reached sources that switched to it. Per-name registry caches (registriesIntl, recalls, academicMore) also serve week-old answers unmarked.",
+   "fix": "Make cached() refuse stale copies by default: throw unless the caller passes allowStale:true, or have it return only fresh values. Move opensanctions loadDataset and FDA loadPage to cachedEntry, and add 'list as of <date>' plus a partial entry when fresh is false. Make those loaders use the deadline the cache passes them, not the caller's captured ctx.deadline, and pass { deadline } as an option.",
+   "area": "http",
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced: once the ttl has passed and the load fails, cached() returns the old value without saying so. opensanctions:383 and fdaDebarment:313-314 then state clean 'no entry' and 'no match' results with no list date, from copies up to 7 days old.",
+   "betterFix": "Do not make cached() throw on stale copies by default: 9 other callers would lose answers that are still useful. Move only the screening lists (OpenSanctions loadDataset, FDA loadPage) to cachedEntry. When fresh is false, add 'list as of <date>' and a partial entry to the clean note. Have their loaders use the deadline the cache passes in, and pass { deadline: ctx.deadline } as the option."
+  }
+ ]
+}

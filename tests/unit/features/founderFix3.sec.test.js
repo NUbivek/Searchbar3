@@ -3,6 +3,8 @@
  * SEC registrant number (CIK), severity read from the person's own sentences,
  * look-alike Form D issuers, and relatives' roles read from their own clause.
  */
+// The SEC's website answers only a declared contact; these tests read filing documents, so one is declared.
+process.env.SEC_USER_AGENT = 'Test Runner test@example.com';
 jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
 
 const { setTransport } = require('../../../src/server/founder/http');
@@ -62,7 +64,8 @@ describe('item 5: a filer tied to the person by its SEC registrant number', () =
     const all = await run(s, 'all');
     const rocketco = all.findings.find((f) => /Rocketco/.test(f.title));
     const other = all.findings.find((f) => /Unrelated Widgets/.test(f.title));
-    expect(rocketco.match).toBe('confirmed');
+    // A registry tie raises a read passage to 'likely', never to a hand-set 'confirmed' (round 3, rule 2).
+    expect(rocketco.match).toBe('likely');
     expect(rocketco.matchReasons.join(' ')).toMatch(/CIK 100/);
     expect(other.match).toBe('possible');
   });
@@ -78,7 +81,7 @@ describe('item 5: a filer tied to the person by its SEC registrant number', () =
     const r = await run(s, 'related');
     expect(calls.some((u) => u.includes('data.sec.gov/submissions/CIK0000000100.json'))).toBe(true);
     expect(r.findings).toHaveLength(1);
-    expect(r.findings[0].match).toBe('confirmed');
+    expect(r.findings[0].match).toBe('likely'); // round 3: never 'confirmed' by hand
     expect(r.findings[0].matchReasons[0]).toMatch(/The Rocket Company \(SEC CIK 100\), which also filed as Acme Rockets Corp/);
     const company = (v) => r.threads.find((t) => t.kind === 'company' && t.value === v);
     expect(company('The Rocket Company')).toMatchObject({ trusted: true });
@@ -151,11 +154,12 @@ describe('item 12: look-alike Form D issuers for a company', () => {
 
   test('a notice listing three or more people, none the person or a known associate, is dropped; a shorter one stays a company record', async () => {
     const s = newSubject();
-    fakeSec(notice('Flow Inc', '0000000710', [['Amy', 'Stone', 'Director'], ['Bo', 'Lane', 'Director'], ['Cy', 'Hart', 'Executive Officer']]));
-    expect((await secCompanyConnector.run(company('Flow'), ctx(s))).findings).toEqual([]);
+    // A distinctive name: "Flow" is an ordinary word, whose bare-word notices never count as the company's (round 3).
+    fakeSec(notice('Floqast Inc', '0000000710', [['Amy', 'Stone', 'Director'], ['Bo', 'Lane', 'Director'], ['Cy', 'Hart', 'Executive Officer']]));
+    expect((await secCompanyConnector.run(company('Floqast'), ctx(s))).findings).toEqual([]);
 
-    fakeSec(notice('Flow Inc', '0000000710', [['Amy', 'Stone', 'Director'], ['Bo', 'Lane', 'Director']]));
-    expect((await secCompanyConnector.run(company('Flow'), ctx(s))).findings.map((f) => f.match)).toEqual(['company']);
+    fakeSec(notice('Floqast Inc', '0000000710', [['Amy', 'Stone', 'Director'], ['Bo', 'Lane', 'Director']]));
+    expect((await secCompanyConnector.run(company('Floqast'), ctx(s))).findings.map((f) => f.match)).toEqual(['company']);
   });
 });
 

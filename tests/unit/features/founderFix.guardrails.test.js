@@ -31,8 +31,8 @@ describe('births and named children', () => {
 });
 
 describe('month and year of birth', () => {
-  test('born in a month and year keeps only the year', () => {
-    expect(redactPII('Jane Doe was born in March 1984 in Ohio.')).toBe('Jane Doe was born in 1984 in Ohio.');
+  test('born in a month and year: the date goes, the place stays (round 3: the year goes too)', () => {
+    expect(redactPII('Jane Doe was born in March 1984 in Ohio.')).toBe('Jane Doe was born in Ohio.');
     expect(redactPII('Jane Doe (born March 1984) is an American entrepreneur.')).toBe('Jane Doe is an American entrepreneur.');
   });
   test('a Companies House date of birth is removed', () => {
@@ -40,7 +40,7 @@ describe('month and year of birth', () => {
     expect(redactPII('DOB: 03/1984')).toBe('DOB [date removed]');
   });
   test('full dates still behave as before', () => {
-    expect(redactPII('born on March 3, 1984 in Lyon')).toBe('born in 1984 in Lyon');
+    expect(redactPII('born on March 3, 1984 in Lyon')).toBe('born in Lyon');
   });
 });
 
@@ -57,8 +57,11 @@ describe('the public-record exemption', () => {
     });
     expect(out.quote).toBe('Elizabeth Holmes was convicted of wire fraud.');
   });
-  test('an official record with nothing but sensitive text, or a sensitive title, is dropped', () => {
-    expect(sanitizeFinding({ source: 'court-dockets', category: 'litigation', title: 'United States v. Holmes', quote: 'She is pregnant.', url: 'https://example.com/d' })).toBeNull();
+  // Round 4 (2026-11-21): an official record is never dropped whole for a sensitive word. Its private sentences go and
+  // the case itself stays on its title; a title that is nothing but a private matter still drops it.
+  test('an official record with nothing but sensitive text keeps its title; a sensitive title with no case left is dropped', () => {
+    const kept = sanitizeFinding({ source: 'court-dockets', category: 'litigation', title: 'United States v. Holmes', quote: 'She is pregnant.', url: 'https://example.com/d' });
+    expect(kept).toEqual(expect.objectContaining({ title: 'United States v. Holmes', quote: '' }));
     expect(sanitizeFinding({ source: 'court-dockets', category: 'litigation', title: 'Holmes pregnant, court told', quote: 'Sentencing was delayed.', url: 'https://example.com/d' })).toBeNull();
   });
 });
@@ -79,7 +82,7 @@ describe('religion, citizenship, visas and locating details', () => {
     expect(isSensitive('Jane Doe funded a refugee resettlement charity.')).toBe(false);
   });
   test('UK street names and where someone lives are removed', () => {
-    expect(press('Jane Doe, 41, lives at 12 Kensington Gardens, London W8.').quote).toBe('Jane Doe, 41, [location removed].');
+    expect(press('Jane Doe, 41, lives at 12 Kensington Gardens, London W8.').quote).toBe('Jane Doe, [location removed].'); // round 3: the age beside the name goes too
     expect(redactPII('Her office is at 12 Kensington Gardens, London.')).toBe('Her office is at [address removed], London.');
     expect(redactPII('She lives in Palo Alto.')).toBe('She [location removed].');
   });

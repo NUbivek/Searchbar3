@@ -1,0 +1,770 @@
+[
+ {
+  "from": "fix:gaps",
+  "name": "verifyGaps",
+  "signature": "verifyGaps(state, records, data) -> { threads, searches, dropped }",
+  "meaning": "Unchanged signature. Threads now carry suggested:true and origin:'reader:<finding id>'. Companies may also carry statedRole. The why no longer has a role or parentheses. Searches are rebuilt as \"<subject.name>\" plus the other words."
+ },
+ {
+  "from": "fix:gaps",
+  "name": "findGaps",
+  "signature": "findGaps(state, { deadline, complete }) -> { threads, searches, dropped, model, note }",
+  "meaning": "Unchanged signature. The user message now holds <record n=\"i\" source=\"..\" date=\"..\"> blocks instead of [i] (label) lines, and the system prompt has a data boundary."
+ },
+ {
+  "from": "fix:courts",
+  "name": "PRIVATE_MATTER",
+  "signature": "export const PRIVATE_MATTER: RegExp (courts.js; re-exported unchanged by courtsMore.js)",
+  "meaning": "One shared list of private matters, now also covering Social Security/DIWC/SSID, prisoner petitions and medical malpractice. courtsMore.js still exports the same name."
+ },
+ {
+  "from": "fix:courts",
+  "name": "textNamesCompany / formCore",
+  "signature": "textNamesCompany(text, company) -> boolean; formCore(company) -> string (courts.js)",
+  "meaning": "Moved from courtsMore.js into courts.js. courtsMore.js re-exports textNamesCompany, and its companyCore export now equals formCore. Behaviour is unchanged."
+ },
+ {
+  "from": "fix:courts",
+  "name": "companyNames",
+  "signature": "companyNames(subject, company) -> { names, domains, legal }",
+  "meaning": "Every name the company is known by in the check: the typed name first, then the legal names learned via addCompanyAlias. Domains are returned separately."
+ },
+ {
+  "from": "fix:courts",
+  "name": "matchNames",
+  "signature": "matchNames(subject, company) -> string[]",
+  "meaning": "The names a record may match. Once a legal name is known, the bare ordinary word is excluded (for example 'Ramp' when 'Ramp Business Corporation' is known)."
+ },
+ {
+  "from": "fix:courts",
+  "name": "partyIsKnownCompany",
+  "signature": "partyIsKnownCompany(side, company, subject?) -> boolean",
+  "meaning": "partyIsCompany applied to every matchNames name. Without a subject it behaves as partyIsCompany."
+ },
+ {
+  "from": "fix:courts",
+  "name": "isCriminalCase",
+  "signature": "isCriminalCase(caseName, docketNumber?) -> boolean",
+  "meaning": "Newly exported. The whole first side must be the prosecuting government; civil enforcers are excluded."
+ },
+ {
+  "from": "fix:courts",
+  "name": "brokerCheckConnector",
+  "signature": "kinds ['subject','company']; plan(thread, subject); templates 'registrations.name' | 'adviser.firm'",
+  "meaning": "Now has a plan. Company threads get the Form ADV firm lookup only when the company is tied to the person and its name reads like an adviser or fund. Results can carry partial."
+ },
+ {
+  "from": "fix:courts",
+  "name": "delawareCourtsConnector template captions.archive",
+  "signature": "plan adds { template: 'captions.archive' } when dated anchors predate the span",
+  "meaning": "Searches Delaware years from 2000 (or the first year of known activity) up to the start of the regular span."
+ },
+ {
+  "from": "fix:courts",
+  "name": "connector results partial",
+  "signature": "{ findings, threads, notes, partial?: string[] }",
+  "meaning": "court-dockets, court-records-open, DOJ, BrokerCheck, Gazette, UK case law, BODACC and enforcement actions now return partial when a list was cut short or a sub-search failed."
+ },
+ {
+  "from": "fix:sec",
+  "name": "declaredSecAgent",
+  "signature": "declaredSecAgent() -> string",
+  "meaning": "The User-Agent sent to the SEC: SEC_USER_AGENT as written, otherwise 'diligence-research <email>' from an email in FOUNDER_HTTP_CONTACT, otherwise ''. An empty value means www.sec.gov is never asked."
+ },
+ {
+  "from": "fix:sec",
+  "name": "NOTE_UNDECLARED",
+  "signature": "const string",
+  "meaning": "The one plain investor-facing note used when no SEC contact is declared. It is also carried as error.note on the not-answered error."
+ },
+ {
+  "from": "fix:sec",
+  "name": "secPersonConnector.run errors",
+  "signature": "throws Error{code:'not-declared'|'refused', status:403, note}",
+  "meaning": "The enforcement and press templates throw this when www.sec.gov will not answer (no contact declared, or refused within the last 10 minutes), so the lookup counts as failed rather than clean."
+ },
+ {
+  "from": "fix:sec",
+  "name": "connector results",
+  "signature": "{ findings, threads, notes, partial?: string[] }",
+  "meaning": "SEC templates now return partial when filing texts could not be read because the website did not answer. Findings built from the index line only carry data.unread=true."
+ },
+ {
+  "from": "fix:sec",
+  "name": "secCompanyConnector.plan/run",
+  "signature": "template 'events'",
+  "meaning": "New company template, skipped for affiliates: 8-K items 1.03/3.01/4.01/4.02, NT 10-K/10-Q and SEC trading suspensions. Findings use match 'company' and source 'sec-company'."
+ },
+ {
+  "from": "fix:sec",
+  "name": "finding labels",
+  "signature": "sourceLabel for insider findings",
+  "meaning": "Changed to 'SEC insider and ownership reports (Forms 3, 4, 5, 144, Schedules 13D and 13G)'. Admin findings may carry data.sanctions and insider findings data.stakes."
+ },
+ {
+  "from": "fix:report",
+  "name": "cleanScreens",
+  "signature": "cleanScreens(coverage) -> string[]",
+  "meaning": "Same signature. It now returns coverage.clearScreens, the source labels of screens with status 'clear', instead of the fixed SCREENS phrases. Old coverage objects fall back to rows with no failure, waitedOut or partial."
+ },
+ {
+  "from": "fix:report",
+  "name": "reportProfile",
+  "signature": "reportProfile(profile, cite) -> object|null",
+  "meaning": "Publishes profile.resume: roles with basis, education with degree and field, founded, boards, investments, recognition (text plus title), leads, and readBy. Falls back to the older fields when resume is absent. earlier is kept."
+ },
+ {
+  "from": "fix:report",
+  "name": "reportCompanyFacts",
+  "signature": "reportCompanyFacts(facts, cite) -> object|null",
+  "meaning": "New export. Turns profile.companyFacts into report.companyFacts: legalNames, domains, founded, funding, investors and standing, each with cites."
+ },
+ {
+  "from": "fix:report",
+  "name": "buildReport",
+  "signature": "buildReport(state) -> report",
+  "meaning": "New fields: identityNote, commonName, companyFacts, wordOnly {count, items, omitted}, omitted {timeline, wikiOther, wordOnly, leads, placeholder}, coverage.clearScreens, totals.copiesMerged/wordOnly/companyUnconfirmed, records' alsoIn, redFlags' outcome, and related parties' screenedInPart/missedScreens. It reads state.screenedOk and state.screenFailed."
+ },
+ {
+  "from": "fix:report",
+  "name": "NOT_COVERED",
+  "signature": "NOT_COVERED: string[]",
+  "meaning": "Adds a sixth entry for the US state and foreign company registers that are not searched."
+ },
+ {
+  "from": "fix:quickbrief",
+  "name": "validateFounderInput",
+  "signature": "validateFounderInput({ name, company }) -> { ok:true, name, company } | { ok:false, error }",
+  "meaning": "New export of founderCheck.js: one input check for both founder routes (Unicode letters only, no emails, URLs, operators, digits, initials-only; company cleaned of operators and quotes)."
+ },
+ {
+  "from": "fix:quickbrief",
+  "name": "cleanSearchResult",
+  "signature": "cleanSearchResult(result) -> result | null",
+  "meaning": "New export: privacy-cleans a search result's title and text fields; null when the link is not http(s), blocked, or the text was all removed."
+ },
+ {
+  "from": "fix:quickbrief",
+  "name": "checkFounderBrief",
+  "signature": "checkFounderBrief(text, sources: Map<n,{text,weak}>, { maxSource?, personWords?, identityNote? }) -> { ok, content?, reason?, confidence?, checked?, dropped? }",
+  "meaning": "New export: privacy cleaner, structure/citation check, link stripping and line-by-line support check for a model's brief."
+ },
+ {
+  "from": "fix:quickbrief",
+  "name": "stripLinks",
+  "signature": "stripLinks(text) -> string",
+  "meaning": "New export: removes markdown link targets and bare web addresses, keeping only #source-n anchors."
+ },
+ {
+  "from": "fix:quickbrief",
+  "name": "runFounderCheck",
+  "signature": "runFounderCheck({ name, company, model, useLLM, deadline, brief='auto'|'none', cacheScope }, deps)",
+  "meaning": "Adds brief 'none' (sources only, cached 10 min per cacheScope) and result fields people (or null), namesakePages; briefInfo.mode may be 'choose' or 'pending'; evidence items may carry nameOnly."
+ },
+ {
+  "from": "fix:quickbrief",
+  "name": "runFounderBrief",
+  "signature": "runFounderBrief({ name, company, model, useLLM, deadline, cacheScope }, deps) -> { brief, briefInfo, fromCache, ... }",
+  "meaning": "New export: the brief for sources a brief:'none' call just found; reruns the full check when not cached."
+ },
+ {
+  "from": "fix:quickbrief",
+  "name": "checkClaims",
+  "signature": "checkClaims(content, sources: Map|Object, { failSections, advisorySections, weakDropSections, ignoreWords, maxDropShare=0.2, emptySection }) -> { ok, content, checked, dropped, reasons, reason? }",
+  "meaning": "New export of search/answer.js; generateAnswer does not use it, so Open Research behaviour is unchanged."
+ },
+ {
+  "from": "fix:quickbrief",
+  "name": "prepareChain",
+  "signature": "prepareChain() -> Promise<void>",
+  "meaning": "New export of providers.js: starts model lists, shared rests, stats and OpenRouter allowance; concurrent requests share those in-flight lookups. Never throws."
+ },
+ {
+  "from": "fix:quickbrief",
+  "name": "chatComplete effort option",
+  "signature": "chatComplete(messages, { ..., effort: 'low'|'medium'|'high'|null })",
+  "meaning": "New option: 'low' asks every model for a quick answer (Groq qwen reasoning none). Groq qwen now uses only none/default; gpt-oss gets a reasoning allowance."
+ },
+ {
+  "from": "fix:quickbrief",
+  "name": "/api/founder",
+  "signature": "POST {name, company?, model?, brief?: '0'|'only'} (GET still accepted same-site)",
+  "meaning": "No-store on all answers, 403 for cross-site GET, 429 with Retry-After past the fair-use limit; exports QUICK_LIMITS and __resetQuickLimitsForTests."
+ },
+ {
+  "from": "fix:knowledge",
+  "name": "knownCompanyOf",
+  "signature": "knownCompanyOf(subject, label) -> anchor|null (sources/scholar.js)",
+  "meaning": "Returns the known company that a structured organisation label IS. The label must equal the company or one of its learned legal names once the legal form is removed. A distinctive name may carry a tail or unit (Nikola Motor Company, Inria Saclay … Research Centre). An ordinary word never matches a longer name (Mercury Records is not Mercury)."
+ },
+ {
+  "from": "fix:knowledge",
+  "name": "namesakeOrgs / maskOrgs / companyNamesOf / yearNumber",
+  "signature": "namesakeOrgs(subject, labels) -> string[]; maskOrgs(text, labels) -> string; companyNamesOf(subject, anchor) -> string[]; yearNumber(v) -> number|null (sources/scholar.js)",
+  "meaning": "namesakeOrgs lists labels that contain a company's word without being that company. maskOrgs replaces them with 'another organisation' before grading. companyNamesOf gives a company's name plus its legal-name aliases. yearNumber turns a date into a year number."
+ },
+ {
+  "from": "fix:knowledge",
+  "name": "orcidIdFromUrl, dissertationFindings",
+  "signature": "orcidIdFromUrl(url) -> string; dissertationFindings(subject, works, { tiedOrcids }) -> Finding[] (scholar.js)",
+  "meaning": "academic-record now takes kind 'url' (template 'orcid-id', params.trusted) and reads an exact ORCID record as 'likely'. publications also searches OpenAlex dissertations."
+ },
+ {
+  "from": "fix:knowledge",
+  "name": "chooseCandidate",
+  "signature": "chooseCandidate(subject, candidates, { listed?, total? })",
+  "meaning": "The new optional third argument sets the note wording when Wikidata lists more people than were read. An 'unclear' result may now carry .single, the only candidate with an article."
+ },
+ {
+  "from": "fix:knowledge",
+  "name": "companyFoundation",
+  "signature": "companyFoundation(subject, company, name) -> boolean (knowledge.js)",
+  "meaning": "True when a nonprofit's name is the company's name plus only a foundation word."
+ },
+ {
+  "from": "fix:knowledge",
+  "name": "ownPostSeverity",
+  "signature": "ownPostSeverity(subject, text) -> severity (presence.js)",
+  "meaning": "Severity of the person's own post: capped at 'low' unless the sentence that reports the matter names their company or speaks in the first person."
+ },
+ {
+  "from": "fix:knowledge",
+  "name": "cityOf",
+  "signature": "cityOf(location) -> string (profiles.js)",
+  "meaning": "Returns the city part of a free-text location only. A string containing digits, a link or a street gives ''."
+ },
+ {
+  "from": "fix:knowledge",
+  "name": "finding.data structured fields",
+  "signature": "data.education [{school, degree, field, from, to}], data.employers [{org, title, from, to}], data.positions [{title, of, from, to}], data.awards [{text, year}], data.founded [{org, year}], data.memberships [{org, from, to}], data.boards [{org, role, from, to}], data.qualifications [{org, title, from, to}]",
+  "meaning": "Years are numbers or null. Written by Wikidata education, career, position, award and membership records; ORCID education and career records; theses (defended); OpenAlex dissertations (data.kind 'dissertation'); LittleSis company records (employers). Wikidata career records carry employers, boards and founded."
+ },
+ {
+  "from": "fix:knowledge",
+  "name": "identity and account data",
+  "signature": "wikidata identity data: { wikidataId, orcid?, secCik?, scholarIds?, otherNames?, occupations? }; conviction data.pardon {text, year}; github data: bio, city, orgs, topRepos [{name, language, stars, pushedAt, description}], languages; bluesky post data.ownStatement",
+  "meaning": "secCik and otherNames are set only for entries resolved by context. A conviction carries its recorded pardon or commutation, and the title says it too. Wikidata adds a url thread 'https://orcid.org/<iD>' with platform 'orcid'."
+ },
+ {
+  "from": "fix:knowledge",
+  "name": "littleSisConnector.timeoutMs",
+  "signature": "45000 (was 36000)",
+  "meaning": "Gives four requests ten seconds apart time to finish."
+ },
+ {
+  "from": "fix:watchlists",
+  "name": "gradeListedPerson",
+  "signature": "gradeListedPerson(subject, f, { tier, context, possibleTitle? }) -> finding|null  (sanctions.js)",
+  "meaning": "Grades a listed person for the subject. Tier 3 is always possible. Without the user-given company in the context, possible (fixed). Tier 1 with the given company, not a huge firm, keeps makeFinding's confirmed. Otherwise fixed at likely."
+ },
+ {
+  "from": "fix:watchlists",
+  "name": "companyNames",
+  "signature": "companyNames(subject, company, max = 3) -> string[]  (sanctions.js)",
+  "meaning": "The typed company name plus legal aliases learned through identity.addCompanyAlias for that company, without domains, deduplicated."
+ },
+ {
+  "from": "fix:watchlists",
+  "name": "screenNames",
+  "signature": "screenNames(task, ctx) -> string[]  (sanctions.js)",
+  "meaning": "The names a lookup screens: for a company, its known names; for a person, the name and its variants plus Latin spellings of Cyrillic or Greek names."
+ },
+ {
+  "from": "fix:watchlists",
+  "name": "transliterate",
+  "signature": "transliterate(text) -> string[]  (sanctions.js)",
+  "meaning": "Cyrillic or Greek text in Latin letters (ICAO 9303 and the common spelling), up to 2 forms. Returns [] for other text."
+ },
+ {
+  "from": "fix:watchlists",
+  "name": "isOneWordCompany",
+  "signature": "isOneWordCompany(name) -> boolean  (sanctions.js)",
+  "meaning": "True when the company is one distinctive word once the legal form is removed."
+ },
+ {
+  "from": "fix:watchlists",
+  "name": "matchPersonName",
+  "signature": "matchPersonName(variants, listed) -> 0|1|2|3  (changed)",
+  "meaning": "New tier 3 for name variants: another spelling, a nickname or one extra trailing surname. Tier 3 is always possible."
+ },
+ {
+  "from": "fix:watchlists",
+  "name": "screenIndex",
+  "signature": "screenIndex(index, names, mode) (changed)",
+  "meaning": "Company mode tries every name given, longest first, and returns via (the matched name). Person mode can return tier 3."
+ },
+ {
+  "from": "fix:watchlists",
+  "name": "personVariants",
+  "signature": "personVariants(name) (changed)",
+  "meaning": "Also adds names.js personNameVariants forms (no titles, suffixes or middle names), deduplicated."
+ },
+ {
+  "from": "fix:watchlists",
+  "name": "parseLeie / leieRows",
+  "signature": "parseLeie(text, { minRows = 1000 }) -> packed index; leieRows(index) -> { at, rows }  (sanctions.js, new)",
+  "meaning": "Reads the official HHS OIG LEIE CSV into a packed index and expands it into rows { n, t, g, s, x, d }. Birth dates, addresses, NPI and UPIN are never read."
+ },
+ {
+  "from": "fix:watchlists",
+  "name": "exclusionsConnector",
+  "signature": "kinds ['subject','company','associate','relative'], timeoutMs 25000",
+  "meaning": "Now also screens associates and relatives (SAM.gov plus LEIE). The excl.leie lookup reads the cached LEIE file instead of the search form."
+ },
+ {
+  "from": "fix:watchlists",
+  "name": "screenRows (debarment.js)",
+  "signature": "screenRows(index, names, mode) (changed)",
+  "meaning": "Company mode tries every known name and returns via. Person mode pre-filters by surname so tier-3 variants can match."
+ },
+ {
+  "from": "fix:watchlists",
+  "name": "knownNames / whichName (government.js)",
+  "signature": "knownNames(ctx, company, max = 3) -> string[]; whichName(registered, names) -> string",
+  "meaning": "The company's known names for searching, and which known name a registered name matches (longest first)."
+ },
+ {
+  "from": "fix:security",
+  "name": "parseAllowList",
+  "signature": "parseAllowList(raw = process.env.FOUNDER_ALLOWED_EMAILS) -> { emails: string[], domains: string[] }",
+  "meaning": "Reads the allow-list setting: whole addresses and domains (either '@x.com' or 'x.com'), lower-cased. Malformed entries are ignored."
+ },
+ {
+  "from": "fix:security",
+  "name": "allowListActive",
+  "signature": "allowListActive(list?) -> boolean",
+  "meaning": "Whether any allow-list is set. When it is not, nothing is restricted."
+ },
+ {
+  "from": "fix:security",
+  "name": "emailAllowed",
+  "signature": "emailAllowed(email, list?) -> boolean",
+  "meaning": "True when no list is set, or the address or its exact domain is on the list. Subdomains and look-alikes do not match."
+ },
+ {
+  "from": "fix:security",
+  "name": "getUserId / getUserEmail (changed behaviour)",
+  "signature": "unchanged",
+  "meaning": "A session whose email is not on an active allow-list counts as signed out (null or ''). The dev-only local test user is exempt."
+ },
+ {
+  "from": "fix:security",
+  "name": "requireFounderUser",
+  "signature": "async requireFounderUser(req, res) -> userId | null",
+  "meaning": "For background-check routes. Sends 401 when signed out, or 403 'The background check is not enabled for this account.' when the account is outside the list."
+ },
+ {
+  "from": "fix:security",
+  "name": "takeSlot",
+  "signature": "async takeSlot(bucket, who, { max = 10, windowMs = 3600000 }) -> { ok, count, retryAfter }",
+  "meaning": "Fixed-window hit counter. It counts in learning_stats under kind 'rate:<bucket>' with a hashed caller, so all instances share it. Without a database, or when it fails, it counts in memory."
+ },
+ {
+  "from": "fix:security",
+  "name": "callerAddress",
+  "signature": "callerAddress(req) -> string",
+  "meaning": "The client address the host set: x-real-ip, then x-vercel-forwarded-for, then the last x-forwarded-for hop, then the socket."
+ },
+ {
+  "from": "fix:security",
+  "name": "debugAccess",
+  "signature": "async debugAccess(req, res, { route, costly }) -> boolean",
+  "meaning": "Gate for /api/debug/*. Development is open. Previews need no site sign-in but are limited per caller and per deployment. Production needs a signed-in allowed account, else 404. Sends 404 or 429 itself."
+ },
+ {
+  "from": "fix:security",
+  "name": "sampleSearchers / SAMPLE_SUBJECT",
+  "signature": "sampleSearchers() -> deps.searchers object; SAMPLE_SUBJECT = { name, company }",
+  "meaning": "Fictional quick-brief searchers on example domains only, for llm-check run=quick."
+ },
+ {
+  "from": "fix:security",
+  "name": "llm-check run=quick and run=profile checks",
+  "signature": "GET /api/debug/llm-check?run=quick|profile",
+  "meaning": "quick returns { ok (mode ai), ms, mode, sources, briefInfo, brief }. profile adds checks{} and trace."
+ },
+ {
+  "from": "fix:network",
+  "name": "companySeed",
+  "signature": "companySeed(userId, name, typedCompany, { store, confirmedCompany }) -> { company, origin: 'network' } | null",
+  "meaning": "Returns null unless confirmedCompany is given and is still the one same-name contact's company. It no longer seeds silently."
+ },
+ {
+  "from": "fix:network",
+  "name": "seedSuggestion",
+  "signature": "seedSuggestion(userId, name, typedCompany, { store }) -> { company, question } | null",
+  "meaning": "New. Gives the question to ask the user before seeding from a contact's company. Returns only the company name."
+ },
+ {
+  "from": "fix:network",
+  "name": "networkForReport result",
+  "signature": "network.failed = { self, companies, titles, parties, investors }; groups[].more; people[].years/similar/mention; references[].reason; new group keys 'board','portfolio'",
+  "meaning": "Shows which lookups failed, how many rows were not listed and why each reference ranks where it does. Investors may now be passed as strings or as {name, of}."
+ },
+ {
+  "from": "fix:network",
+  "name": "lookupInvestorsForCompanies",
+  "signature": "lookupInvestorsForCompanies(companies[], { profileLoader, timeoutMs, max=3 }) -> { investors: [{name, of}], complete, missed }",
+  "meaning": "New. Looks up investors for several companies under one time limit and reports the missed ones. Sends company names only."
+ },
+ {
+  "from": "fix:network",
+  "name": "listFinishedChecks / listRunningChecks",
+  "signature": "-> [{ id, name, company, seededCompany, status, date, redFlags }]",
+  "meaning": "Each check now carries id, seededCompany and status, within the retention window. listRunningChecks is new."
+ },
+ {
+  "from": "fix:network",
+  "name": "GET /api/founder/history",
+  "signature": "-> { checks: [...done], running: [...], runningUnread? }",
+  "meaning": "checks still holds finished checks only, now with ids. running is new."
+ },
+ {
+  "from": "fix:network",
+  "name": "findContactsAtCompanies",
+  "signature": "findContactsAtCompanies(userId, names, opts?) opts: { strict, similar, investor, perCompany, detail }",
+  "meaning": "Without opts it behaves exactly as before. With opts it uses the careful path: per-company cap, 'similar' form matches and throwing on failure. detail returns {rows, truncated, incomplete}; rows carry match."
+ },
+ {
+  "from": "fix:network",
+  "name": "findContactsByTitleMention",
+  "signature": "findContactsByTitleMention(userId, companyNames, { limit }) -> rows with matchedCompany",
+  "meaning": "New. Finds contacts whose title names a distinctive company as a whole word. Scoped to the user, never selects email or location, throws on failure."
+ },
+ {
+  "from": "fix:network",
+  "name": "findContactsByNames error",
+  "signature": "throws Error with code 'too_many' over NAME_MATCH_LIMIT",
+  "meaning": "Lets callers retry names one at a time."
+ },
+ {
+  "from": "fix:network",
+  "name": "companyFormMatch / companyFormBase",
+  "signature": "companyFormMatch(contactKey, targetKey, { investor }) -> 'similar'|null; companyFormBase(key, { investor }) -> string",
+  "meaning": "New exports in parseContacts, used for Founder Check only. companyMatch is unchanged for the Network Map."
+ },
+ {
+  "from": "fix:network",
+  "name": "networkLink helpers",
+  "signature": "sameName (middle-initial conflict), placement(p), investorsOf(report, investors), yearsText(from, to, current), companiesOf entries now { from, to, current, aliases }",
+  "meaning": "New or changed pure helpers."
+ },
+ {
+  "from": "fix:loop",
+  "name": "startState",
+  "signature": "startState({ name, company='', website='', profile=null, place='', otherCompanies=[], school='', otherNames=[], mononym=false, assumedCompany='' })",
+  "meaning": "Old calls still work. The state gains missed, screened, given, otherNames and assumedCompany. assumedCompany is seeded with origin 'network', and identity.status becomes 'assumed'."
+ },
+ {
+  "from": "fix:loop",
+  "name": "validateCheckInput",
+  "signature": "validateCheckInput(body) -> { ok:true, value:{name,company,mononym,website,profile,place,school,otherCompanies,otherNames} } | { ok:false, error, field }",
+  "meaning": "New. One validator for every start input, with plain-language reasons."
+ },
+ {
+  "from": "fix:loop",
+  "name": "validatePersonName / validateOrgName / validateWebsite / validateProfileUrl / validatePlace / cleanInputText",
+  "signature": "validatePersonName(raw,{company}) -> {ok,name,mononym}|{ok:false,error}; validateOrgName(raw,{what}) -> {ok,value}|{ok:false,error}",
+  "meaning": "New exports from deepCheck.js. They use Unicode classes and strip control and bidi characters."
+ },
+ {
+  "from": "fix:loop",
+  "name": "isScreenTask, SCREEN_SOURCES, WATCHLIST_SOURCES, LEGAL_NAME_SOURCES, isStrongOrigin, statesVenture, stopCollecting",
+  "signature": "isScreenTask(task) -> boolean; statesVenture(subject,text,company) -> boolean; stopCollecting(state, reason) -> state",
+  "meaning": "New deepCheck exports. stopCollecting ends collecting and records every queued lookup as not run."
+ },
+ {
+  "from": "fix:loop",
+  "name": "state fields",
+  "signature": "state.missed: string[]; state.screened: {[personKey]:{name,ok:[],missed:[]}}; state.sources[id].notRun; state.legalNames; finding.assumedTie; finding.matchBasis; thread.venture; thread.suggested",
+  "meaning": "state.done now holds only lookups that answered in full. Failed, partial and not-run lookups go to missed. report.js should read screened and notRun."
+ },
+ {
+  "from": "fix:loop",
+  "name": "leaseJob / releaseLease",
+  "signature": "leaseJob(id,{owner,ms=55000}) -> {job,leaseId}|{busy:true}|null; releaseLease(id, leaseId)",
+  "meaning": "New jobStore exports: one request at a time per job. saveJob also ends the lease."
+ },
+ {
+  "from": "fix:loop",
+  "name": "findLatestJob / listJobs / purgeExpired",
+  "signature": "findLatestJob(owner,{name,company,status,withinMinutes}) -> job|null; listJobs(owner,{limit}) -> [{id,name,company,status,createdAt,updatedAt,redFlags}]; purgeExpired({force})",
+  "meaning": "New jobStore exports for resuming and listing checks. Both are scoped to the owner and hold to the 72h retention."
+ },
+ {
+  "from": "fix:loop",
+  "name": "getJob / saveJob",
+  "signature": "unchanged",
+  "meaning": "getJob returns null past 72h, and in memory it returns a deep copy. saveJob in memory enforces expectRev and returns false for a missing job."
+ },
+ {
+  "from": "fix:loop",
+  "name": "GET /api/founder/deep",
+  "signature": "?jobId= | ?name=&company= | ?list=1",
+  "meaning": "New lookups: by person (the latest unexpired job), and a list of the account's recent jobs without reports. A failed check returns failed:true."
+ },
+ {
+  "from": "fix:loop",
+  "name": "POST /api/founder/deep start",
+  "signature": "{action:'start', name, company, website?, profileUrl?, place?, otherCompanies?, school?, otherNames?, useNetworkCompany?} -> {jobId, progress, assumed?, resumed?}",
+  "meaning": "Errors return {error, field}. step and brief return 409 while another request holds the job. clientIp is exported."
+ },
+ {
+  "from": "fix:registries",
+  "name": "knownCompanyFor",
+  "signature": "knownCompanyFor(subject, registeredName) -> { company, tie: 'exact'|'branch'|'group', via, alias } | null",
+  "meaning": "Now exported from registries.js. Matches every known company name, including learned legal names. Adds a 'group' tie for coined one-word names plus group words (Airwallex Global Limited). Ordinary words never tie this way."
+ },
+ {
+  "from": "fix:registries",
+  "name": "knownCompanyNames",
+  "signature": "knownCompanyNames(subject) -> [{ name, of, alias }]",
+  "meaning": "New export in registries.js: the known companies plus their learned non-domain legal names, each pointing to the company it stands for."
+ },
+ {
+  "from": "fix:registries",
+  "name": "retieHeldRecords",
+  "signature": "retieHeldRecords(subject, findings) -> number",
+  "meaning": "New export in registries.js. Lifts held UK/FR register records (data.heldOnName) to likely when a name learned since ties them, together with the other appointments on the same officer record. Changes findings in place. The loop should call it."
+ },
+ {
+  "from": "fix:registries",
+  "name": "searchHasMorePages, parsePscPage, parseChargesPage, parseInsolvencyPage",
+  "signature": "(html) -> boolean | { owners, statements } | { total, outstanding, satisfied, partSatisfied, holders, summary } | { cases, types }",
+  "meaning": "New Companies House parsers in registries.js. parseCompanyPage now also returns accountsOverdue, confirmationOverdue, lastAccounts and tabs { charges, insolvency }."
+ },
+ {
+  "from": "fix:registries",
+  "name": "homeJurisdiction, usStateCode",
+  "signature": "homeJurisdiction(ctx) -> { code, from } | null; usStateCode(text) -> 'DE' | null",
+  "meaning": "New exports in registries.js: the company's US state of formation, read from tied LEI or SEC records."
+ },
+ {
+  "from": "fix:registries",
+  "name": "connector result 'partial'",
+  "signature": "run() may return { findings, threads, notes, partial: string[] }",
+  "meaning": "uk-companies-house, lei-register, us-state-registries (on any failure, not only timeouts) and trademarks now return partial lists."
+ },
+ {
+  "from": "fix:registries",
+  "name": "trademarkFindings / trademarksConnector",
+  "signature": "trademarkFindings(company, { hits, totalValue }, ctx) -> { findings, threads, notes }; trademarksConnector.enabled() === false",
+  "meaning": "ip.js: the matching is now a pure export. The connector makes no requests and is not enabled; its label is now 'US trademarks (USPTO)'."
+ },
+ {
+  "from": "fix:registries",
+  "name": "patentsConnector",
+  "signature": "enabled() requires FOUNDER_GOOGLE_PATENTS=on",
+  "meaning": "The summary title no longer includes the tied count; data.familyIds was added. Family findings may carry data.listedUnder and a hand-set grade (likely or possible)."
+ },
+ {
+  "from": "fix:registries",
+  "name": "foundingYearFor",
+  "signature": "foundingYearFor(domain, task, ctx) -> { year, from } | null",
+  "meaning": "New export in domains.js. Domain findings add data.foundedYear, foundedFrom, earlierHolder and excludeFromTimeline."
+ },
+ {
+  "from": "fix:registries",
+  "name": "exposure connectors",
+  "signature": "enabled(), unavailableReason on all three",
+  "meaning": "Grades can now be 'possible' (low severity) with data.excludeFromTimeline, data.companyNamesake and data.ownDomainChecked. nameMatch can be 'domain'."
+ },
+ {
+  "from": "fix:identity2",
+  "name": "createSubject",
+  "signature": "createSubject({ name, company?, otherNames? })",
+  "meaning": "New optional otherNames (typed former/maiden/other-script names, graded like the main name). New subject fields: otherNames, searchNames (all search forms), mononym, anchors.otherNames map. variants unchanged."
+ },
+ {
+  "from": "fix:identity2",
+  "name": "addNameAlias",
+  "signature": "addNameAlias(subject, { alias, origin }) -> boolean",
+  "meaning": "New. Learn another name of the person from a tied record; records naming only that name grade likely at most with basis 'alias'."
+ },
+ {
+  "from": "fix:identity2",
+  "name": "findNameAliases",
+  "signature": "findNameAliases(subject, text) -> [{ name, how }]",
+  "meaning": "New. Reads 'née', 'formerly known as', 'also known as', 'born X' right after the person's full name."
+ },
+ {
+  "from": "fix:identity2",
+  "name": "exportAnchors / restoreSubject",
+  "signature": "restoreSubject({ name, company, otherNames?, anchors })",
+  "meaning": "anchors.otherNames = [{ value, origin, typed }]; typed names restored as typed, found ones via addNameAlias."
+ },
+ {
+  "from": "fix:identity2",
+  "name": "matchSubject",
+  "signature": "unchanged",
+  "meaning": "Large-employer-only company gives likely without a second fact; mononym needs company (likely) or second fact (confirmed), else none; alias-only match capped at likely, basis 'alias'."
+ },
+ {
+  "from": "fix:identity2",
+  "name": "isLargeEmployer",
+  "signature": "isLargeEmployer(name) -> boolean (names.js)",
+  "meaning": "New. isBroadOrganisation plus more very large employers. isBroadOrganisation unchanged."
+ },
+ {
+  "from": "fix:identity2",
+  "name": "matterOutcome",
+  "signature": "matterOutcome(text, { person }) -> { outcome, role, phrase, rest } (names.js)",
+  "meaning": "New. Outcome of a legal matter and the person's part (defendant, plaintiff, witness, victim, juror)."
+ },
+ {
+  "from": "fix:identity2",
+  "name": "personNameMatcher",
+  "signature": "personNameMatcher(name).mononym",
+  "meaning": "New boolean; unspaced-script names are full names; new weak kind 'longer-name' for one-word names inside a longer name."
+ },
+ {
+  "from": "fix:identity2",
+  "name": "THREAD_KINDS",
+  "signature": "adds 'alias'",
+  "meaning": "Another name of the subject themselves."
+ },
+ {
+  "from": "fix:identity2",
+  "name": "nameTokens / slugCandidates / companyKeys / companyKeyStrict",
+  "signature": "unchanged",
+  "meaning": "Keep letters of all scripts; strip foreign legal forms at the end; slugCandidates returns [] for non-Latin names. Latin output unchanged otherwise."
+ },
+ {
+  "from": "fix:web",
+  "name": "keylessSearch",
+  "signature": "keylessSearch(query, { ...as before, needGeneral?, maxWaitMs? = 8 min }) -> { results, engine, tried, general, headlinesOnly, generalWaiting, generalRetryAt }",
+  "meaning": "New return fields say whether a general web search answered. headlinesOnly means only news feeds or Wikipedia answered. needGeneral throws SEARCH_RESTING (retryAt) rather than asking news feeds when a general engine is free within maxWaitMs. A site search no enabled engine can take throws 'Not run: ...'."
+ },
+ {
+  "from": "fix:web",
+  "name": "nextFreeAt",
+  "signature": "nextFreeAt(ids: string[], { siteSearch? }) -> number|null",
+  "meaning": "Now exported, with a changed signature (was internal nextFreeAt(news, only)). Earliest time one of the given engines can answer; no reserve subtracted for site searches."
+ },
+ {
+  "from": "fix:web",
+  "name": "resolveHeadline",
+  "signature": "resolveHeadline(title, host, { deadline }) -> Promise<string|null>",
+  "meaning": "New. Finds the publisher's own URL for a Google News headline via Bing News (exact title, same site)."
+ },
+ {
+  "from": "fix:web",
+  "name": "searchCoverageNote / SEARCH_COUNT_KEYS",
+  "signature": "searchCoverageNote({ general, headlines, none }) -> string; SEARCH_COUNT_KEYS = { general:'web-search:general', headlines:'web-search:headlines', none:'web-search:none' }",
+  "meaning": "New. Per-check coverage line built from the ctx.spend counters that web.js keeps."
+ },
+ {
+  "from": "fix:web",
+  "name": "REGION",
+  "signature": "export const REGION",
+  "meaning": "Now exported, with 12 more languages (news edition, DuckDuckGo region, Wikipedia language)."
+ },
+ {
+  "from": "fix:web",
+  "name": "engineHealth().note",
+  "signature": "engineHealth() -> { engines, metered, note }",
+  "meaning": "The note now names only engines that answered, plus paused and resting ones (text changed)."
+ },
+ {
+  "from": "fix:web",
+  "name": "languageHints",
+  "signature": "languageHints(subject) -> string[]",
+  "meaning": "Can now return pt, it, nl, sv, pl, ja, ko, zh, he, hi, id, tr as well as fr, de, es (still at most 2). Also reads subject.country/place/jurisdiction/countries and learned domain aliases."
+ },
+ {
+  "from": "fix:web",
+  "name": "companyNames / companyQueryRef",
+  "signature": "companyNames(subject, company) -> { short, legal[], domains[], ordinary }; companyQueryRef(subject, company) -> string",
+  "meaning": "New in web.js. Every known name of a company, and how a search names it. An ordinary word is never searched alone."
+ },
+ {
+  "from": "fix:web",
+  "name": "web.js constants",
+  "signature": "SEED_TEMPLATES (+q.linkedin-any), NEEDS_GENERAL, GENERAL_WAITS, RESOLVE_MAX",
+  "meaning": "There are new subject templates q.linkedin-any, q.allegations, q.roles and q.profiles, plus new news templates n.recognition and n.adverse-<lang>. q.company-investors is planned only when no funding anchor exists. webSearchConnector.run may return partial, noLearn and headlinesOnly."
+ },
+ {
+  "from": "fix:web",
+  "name": "pages.js exports",
+  "signature": "isWallPage(html), legalNameFromFooter(html, company), MAX_HTML_CHARS",
+  "meaning": "New. The page reader's onHop and new note statuses ('not-page'). readSite emits a data.kind 'legal-name' corporate finding, a company thread, and calls addCompanyAlias."
+ },
+ {
+  "from": "fix:web",
+  "name": "archive.js snapshot records",
+  "signature": "finding.data for kind 'snapshot': + claims { format, headline?, roles[], education[] }, and on the page's latest record first, last, captures, replay, versions[]",
+  "meaning": "There is no longer a separate 'archived N times' record. Its counts are on the latest version (title '<what> as of DATE: line (archived N times ...)', url web/*/page). describeChange adds 'degree added to ...'."
+ },
+ {
+  "from": "fix:web",
+  "name": "archiveClaims.js",
+  "signature": "bioClaimKeys(text), isPlaceholderText(s)",
+  "meaning": "New exports. compareClaims emits a bio change only when claims differ, and adds education added/removed changes with aspect 'degree'."
+ },
+ {
+  "from": "fix:profile",
+  "name": "buildProfile",
+  "signature": "buildProfile(subject, findings, threads = []) -> profile",
+  "meaning": "Old fields kept (headline, headlineIds, titles, basedIn, company, education, earlier, about, links). education gains degree and field; earlier items may carry via. New fields: resume {roles, education, founded, boards, investments, recognition, leads} (design decision 2), companyFacts, and readBy 'patterns'."
+ },
+ {
+  "from": "fix:profile",
+  "name": "publishProfile",
+  "signature": "publishProfile(profile, cite) -> object|null",
+  "meaning": "New. The report.profile form: ids become cites, with headline, roles, education, earlier, founded, boards, investments, recognition, leads, basedIn, about, links and readBy. report.js already has its own reportProfile, so this is optional."
+ },
+ {
+  "from": "fix:profile",
+  "name": "leadsToSomeoneElse",
+  "signature": "leadsToSomeoneElse(subject, textBeforeClaim) -> boolean",
+  "meaning": "New export of profile.js. The shared guard: true when, after the person's last mention, another person, appositive or hand-off stands before the claim."
+ },
+ {
+  "from": "fix:profile",
+  "name": "titlesIn / isOwnPage / wikidataStatements / orgKey",
+  "signature": "titlesIn(span); isOwnPage(subject, url); wikidataStatements(quote); orgKey(s)",
+  "meaning": "New profile.js helpers: standard titles (Co-CEO before CEO), whether a URL is the person's own profile page, parsed Wikidata statements, and an organisation key."
+ },
+ {
+  "from": "fix:profile",
+  "name": "opensOnSubject",
+  "signature": "opensOnSubject(subject, sentence, { firstName, surname })",
+  "meaning": "New surname option, for the person's own encyclopedia article."
+ },
+ {
+  "from": "fix:profile",
+  "name": "RELATION",
+  "signature": "RegExp",
+  "meaning": "Also matches 'my co-founder ...'."
+ },
+ {
+  "from": "fix:profile",
+  "name": "companyFacts.js",
+  "signature": "buildCompanyFacts(subject, findings, threads); publishCompanyFacts(facts, cite); learnCompanyNames(subject, findings, threads) -> string[]; companyNames(subject, findings, threads); startsWithCompany(name, company); clipAround(text, at, max)",
+  "meaning": "New module (design decision 1 and companyFacts). learnCompanyNames calls identity.addCompanyAlias with the source record id as the origin."
+ },
+ {
+  "from": "fix:profile",
+  "name": "recordsBlock / PROMPT",
+  "signature": "recordsBlock(records) -> string; PROMPT",
+  "meaning": "New profileModel exports. The records wrapped as <record> data elements, and the prompt that says record text is data."
+ },
+ {
+  "from": "fix:profile",
+  "name": "mergeProfile",
+  "signature": "mergeProfile(base, verified)",
+  "meaning": "Keeps leads and readBy. Founded keeps with and outcome, joining co-founders. Investments are keyed by org or text (model items get the text 'Investor in X'). Recognition is keyed by text or title."
+ },
+ {
+  "from": "fix:profile",
+  "name": "profileFromUrl",
+  "signature": "profileFromUrl(url)",
+  "meaning": "Substack and Medium give a profile only for the root or about path. Article paths now return null."
+ },
+ {
+  "from": "fix:profile",
+  "name": "handleFitsSubject",
+  "signature": "handleFitsSubject(subject, handle)",
+  "meaning": "Returns false instead of throwing when the subject has no slugs (the quick brief's subject)."
+ }
+]

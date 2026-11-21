@@ -17,7 +17,7 @@
  *   severity     'high' | 'medium' | 'low' | 'info'  (how much it matters if true)
  *   data         optional structured extras for the UI (case number, snapshot time, ...)
  *   matchFixed   true when the source set the grade by hand: it is never re-graded
- *   gradeText    the text the grade was read from (internal; stripped before the page sees it)
+ *   gradeText    the text the grade was read from, cleaned by the privacy rules (internal; stripped before the page sees it)
  *
  * Thread: something new worth pulling on, found while reading a source.
  *   { kind: 'company'|'school'|'associate'|'relative'|'handle'|'domain'|'url', value, why,
@@ -27,7 +27,8 @@
  * A connector's run() resolves to { findings: Finding[], threads: Thread[], notes: string[] }.
  */
 import { matchSubject } from './identity';
-import { sanitizeFinding, redactPII } from './guardrails';
+import { matterOutcome } from './names';
+import { sanitizeFinding, cleanSentences, isSafeUrl } from './guardrails';
 
 export const CATEGORIES = {
   identity: 'Identity',
@@ -52,8 +53,11 @@ export const SEVERITIES = ['high', 'medium', 'low', 'info'];
  * member the source places in a public business, political or
  * philanthropic role. Neither gets a background check of their own: they are
  * screened against watchlists and searched only together with the subject.
+ * 'alias' is another name of the subject themselves (a former or maiden name, a birth name, "also known as"),
+ * read from a record tied to them: records filed under it are searched and graded 'likely' at most
+ * (identity.addNameAlias).
  */
-export const THREAD_KINDS = ['company', 'school', 'associate', 'relative', 'handle', 'domain', 'url'];
+export const THREAD_KINDS = ['company', 'school', 'associate', 'relative', 'handle', 'domain', 'url', 'alias'];
 
 function hash(str) {
   let h = 5381;
@@ -115,6 +119,9 @@ const isoDate = (value) => {
 export function makeFinding(subject, f) {
   if (!f || !f.source || !f.url || !f.title) return null;
   if (!CATEGORIES[f.category]) throw new Error(`Unknown finding category: ${f.category}`);
+  // Only an absolute http(s) link is stored: the page renders it as <a href>, and a scraped javascript: or
+  // data: link would run script on the site with the investor's session.
+  if (!isSafeUrl(f.url)) return null;
   let match = f.match || null;
   let reasons = f.matchReasons || [];
   // A grade the source set by hand (a company record, a held 'possible') is final: the loop must not
@@ -123,37 +130,77 @@ export function makeFinding(subject, f) {
   const matchFixed = Boolean(match) || Boolean(f.matchFixed);
   // Title and quote on separate lines, so each is read as its own sentence.
   const text = f.matchText || `${f.title}\n${f.quote || ''}`;
-  const gradeText = match ? null : clipLines(redactPII(text), 1500);
+  // The grade text is cleaned by the same rules as the quote, so a re-grade never reads a private sentence.
+  const gradeText = match ? null : clipLines(cleanSentences(cleanText(text).slice(0, PRE_CLIP)).text, 1500);
   // The record's own date goes to the grade, so a role held at that time (a CEO tenure) can count.
   // A re-grade reads the same date back from the finding's `date`.
   const date = isoDate(f.date);
+  let basis = null;
   if (!match) {
     const graded = matchSubject(subject, text, { date });
     if (graded.level === 'none') return null;
     match = graded.level;
     reasons = graded.reasons;
+    // Which anchors carried the grade: a likely grade resting only on an encyclopedia link or an event another
+    // record reports must not make the record's threads trusted, nor (event only) a red flag.
+    if (Array.isArray(graded.basis) && graded.basis.length) basis = graded.basis;
   }
+  // The matter's outcome and the person's part in it (acquitted, dismissed, settled, pardoned; plaintiff, witness),
+  // kept so the report can show it beside the matter. Read from the cleaned grade text, never a private sentence.
+  let data = f.data || null;
+  if (!data?.outcome && subject && typeof subject.hasName === 'function') {
+    const read = gradeText || clipLines(cleanSentences(cleanText(text).slice(0, PRE_CLIP)).text, 1500);
+    const told = matterOutcome(read, { person: subject.hasName });
+    // "Convicted on three counts and acquitted on a fourth" is a conviction: the count that went the other way is
+    // kept as a note, never as the matter's outcome (a reader would be told a convicted person was acquitted).
+    const part = partOfConviction(read, told.outcome, subject.hasName);
+    if (told.outcome || told.role) {
+      data = { ...(data || {}), outcome: { outcome: part ? 'convicted' : told.outcome || null, role: told.role || null, ...(part ? { otherCounts: told.outcome } : {}) } };
+    }
+  }
+  // The privacy rules run on the full text before it is clipped: a phone number or a birth date cut in half
+  // at the clip would no longer be recognised. The text is only pre-cut to a bound the rules can read quickly.
   const finding = sanitizeFinding({
     id: `${f.source}-${hash(`${f.url}|${f.title}`)}`,
     source: f.source,
     sourceLabel: f.sourceLabel || f.source,
     category: f.category,
-    title: clip(f.title, 220),
-    quote: clip(f.quote || '', 700),
-    url: String(f.url),
+    title: clip(f.title, PRE_CLIP),
+    quote: clipLines(f.quote || '', PRE_CLIP),
+    url: String(f.url).trim(),
     date,
     match,
     matchReasons: reasons,
     severity: SEVERITIES.includes(f.severity) ? f.severity : 'info',
     ...(matchFixed ? { matchFixed: true } : {}),
-    ...(gradeText ? { gradeText } : {}),
-    ...(f.data ? { data: f.data } : {}),
+    ...(basis ? { matchBasis: basis } : {}),
+    ...(data ? { data } : {}),
   });
+  if (!finding) return null;
+  finding.title = clipClean(finding.title, 220);
+  finding.quote = clipClean(finding.quote, 700);
+  if (!finding.title) return null;
+  // The grade text is kept on the finding because a re-grade later in the run (also after the saved check is
+  // resumed) must read the same text. It holds only sentences that passed the privacy rules, and deep.js strips
+  // it before the page sees it.
+  if (gradeText) finding.gradeText = gradeText;
   return finding;
 }
 
+// How much raw text the privacy rules read before the final clip (well past the 700 shown, so nothing cut at
+// this bound can reach the page).
+const PRE_CLIP = 4000;
+
+// Clip text the rules have already cleaned. A run of digits the clip cuts at the end ("… 415-55…") is dropped:
+// the rules saw the whole number and did not call it a phone, but half a number is no use to anyone either.
+function clipClean(s, n) {
+  const out = clip(s, n);
+  if (!out.endsWith('…')) return out;
+  return out.replace(/(?<![\w/.-])\+?\(?\d[\d\s().-]{3,}…$/, (m) => ((m.match(/\d/g) || []).length >= 5 && /[\s().-]/.test(m.slice(0, -1)) ? '…' : m));
+}
+
 const HIGH = /\b(indict(?:s|ed|ments?)?|convict(?:s|ed|ions?)?|plead(?:ed|s)? guilty|pled guilty|found guilty|guilty verdict|guilty of|jailed|sentenced|imprison\w*|felony|criminal charges?|charged with|securities fraud|wire fraud|bank fraud|fraud charges|ponzi|embezzl\w*|money launder\w*|bribe\w*|racketeer\w*|insider trading|sanctioned|sanctions list|debarred|barred from|disqualified|banned from|arrest(?:ed)?|extradit\w*|wanted by|cease[- ]and[- ]desist)\b/i;
-const MEDIUM = /\b(landlord to|related[- ]party (?:transactions?|deals?)|self[- ]dealing|conflicts? of interest|bankrupt|chapter 11|lawsuits?|sued|sues|suing|class[- ]action|complaint filed|settle(?:d|s|ment)|investigat(?:ion|ed|ing)|probe|subpoena\w*|fined|penalt(?:y|ies)|bankruptc(?:y|ies)|insolven\w*|liquidat\w*|receivership|fraud|misconduct|misappropriat\w*|harass\w*|discriminat\w*|retaliat\w*|whistleblower|allegations?|alleged(?:ly)?|fired(?! up)|ousted|forced out|terminated for cause|(?:steps?|stepped|stepping) down (?:under|amid) (?:\w+ )?pressure|breach of (?:contract|fiduciary)|default judgment|judgments? against|damages awards?|ordered to pay|restitution|arbitrat\w*|claw(?:s|ed|ing)?[- ]?backs?|restraining order|data breach|ransomware)\b/i;
+const MEDIUM = /\b(landlord to|related[- ]party (?:transactions?|deals?)|self[- ]dealing|conflicts? of interest|bankrupt|chapter 11|lawsuits?|sued|sues|suing|class[- ]action|complaint filed|settle(?:d|s|ment)|investigat(?:ion|ed|ing)|probe|subpoena\w*|fined|penalt(?:y|ies)|bankruptc(?:y|ies)|insolven\w*|liquidat\w*|receivership|fraud|misconduct|misappropriat\w*|harass\w*|discriminat\w*|retaliat\w*|whistleblower|allegations?|alleged(?:ly)?|accus(?:ed|es|ing|ations?)|attorneys? general\b[^.;]{0,60}?\b(?:letters?|investigat\w*|demands?|subpoena\w*|inquir(?:y|ies)|probe)|fired(?! up)|ousted|forced out|terminated for cause|(?:steps?|stepped|stepping) down (?:under|amid) (?:\w+ )?pressure|breach of (?:contract|fiduciary)|default judgment|judgments? against|damages awards?|ordered to pay|restitution|arbitrat\w*|claw(?:s|ed|ing)?[- ]?backs?|restraining order|data breach|ransomware)\b/i;
 const LOW = /\b(resign(?:ed|s|ation)|stepped down|steps down|departed|controvers\w*|dispute[ds]?|layoffs?|shut(?:s|ting)? down|shutdown|wound down|dissolved|struck off|criticis\w*|criticiz\w*|backlash|restat(?:ed|ement))\b/i;
 
 // A probe or inquiry that a regulator declined, closed, dropped or cleared ("CMA decides not to
@@ -223,16 +270,104 @@ function withoutOtherPeoplesMatters(t, subject) {
   });
 }
 
+// Outcomes that end a matter in the person's favour.
+const EXCULPATORY = new Set(['acquitted', 'overturned', 'vacated', 'dismissed', 'dropped', 'won']);
+// The person was not the one accused.
+const NOT_ACCUSED = new Set(['plaintiff', 'witness', 'victim', 'juror']);
+// Words of a conviction and its sentence: a pardon follows one, so they are part of the pardoned matter.
+const CONVICTION_WORDS = /\b(?:convict(?:s|ed|ions?)?|found guilty|guilty verdict|plead(?:ed|s)? guilty|pled guilty|sentenced|imprison\w*|jailed)\b/gi;
+
+// Outcomes that can end some counts of a case while others end in a conviction.
+const COUNT_ENDS = new Set(['acquitted', 'dismissed', 'dropped']);
+// A statement that someone was convicted, found or pleaded guilty, or sentenced.
+const STATES_CONVICTION = /\b(?:convicted|found guilty|guilty verdicts?|plead(?:ed|s)? guilty|pled guilty|sentenced)\b/gi;
+// Words just before it that make it no statement at all: a denial ("never convicted") or a possibility ("could be
+// sentenced", "faces being sentenced", "if convicted").
+const NOT_A_STATEMENT = /\b(?:not|never|no|without|n['’]t|could|would|might|may|faces?|facing|if|unless|risks?|risking)\b(?:\s+[\p{L}'’]+){0,3}\s*$/iu;
+// A clearing outcome that ends the conviction itself: on appeal, at a retrial, the conviction overturned or vacated.
+const REVERSAL = /\b(?:on appeal|appeals? court|appellate|retrial|re-?tried|overturn\w*|quash\w*|revers\w*|vacat\w*|set aside)\b/i;
+// A person's name in a sentence, or a pronoun standing for one.
+const NAME_OR_PRONOUN = /\b(?:[Hh]e|[Ss]he|[Tt]hey|[Hh]im|[Hh]er|[Hh]is|[Tt]heir|[A-Z][\p{L}'’-]+ [A-Z][\p{L}'’-]+)\b/gu;
+// A headline in title case ("Former Nikola CEO Milton Convicted"): every capitalised pair looks like a name there,
+// so the nearest-name test cannot be read from it.
+const titleCase = (s) => {
+  const words = s.match(/\b\p{L}[\p{L}'’-]*/gu) || [];
+  return words.length >= 3 && words.filter((w) => /^\p{Lu}/u.test(w)).length / words.length > 0.6;
+};
+
+/**
+ * Whether a text states that the person (`hasName`, identity's subject.hasName) was convicted, found or pleaded
+ * guilty, or sentenced. A conviction told of another named person ("her co-founder John Doe was convicted") does
+ * not count: the nearest name before the words must be theirs, a pronoun, or none at all (a summary about them).
+ */
+export function statesConviction(text, hasName = null) {
+  const str = String(text || '');
+  for (const sentence of str.split(/(?<=[.;!?])\s+|\n+/)) {
+    for (const m of sentence.matchAll(STATES_CONVICTION)) {
+      const before = sentence.slice(0, m.index);
+      if (NOT_A_STATEMENT.test(before.slice(-40))) continue;
+      const near = titleCase(sentence) ? null : [...before.matchAll(NAME_OR_PRONOUN)].pop();
+      if (near && /\s/.test(near[0]) && typeof hasName === 'function' && !hasName(near[0])) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+/** A clearing outcome that ended a conviction itself (on appeal, at a retrial, quashed, reversed or vacated). */
+export function reversesConviction(text) {
+  return REVERSAL.test(String(text || ''));
+}
+
+/**
+ * Whether an acquittal, dismissal or drop a text reports ended only some counts of a case that, by the same text,
+ * ended in the person's conviction or sentence ("convicted on three counts and acquitted on a fourth"). Then the
+ * matter's outcome is the conviction, not the count that went the other way. An acquittal on appeal ends the
+ * conviction itself and is not such a part.
+ */
+export function partOfConviction(text, outcome, hasName = null) {
+  if (!COUNT_ENDS.has(outcome)) return false;
+  return statesConviction(text, hasName) && !reversesConviction(text);
+}
+
 /**
  * How much a record would matter if it is about the subject, judged from
  * its own words. Sources that know better (a sanctions list, a court
  * docket) set the severity themselves. With the subject, a criminal matter
  * told about another named person in an aside ("Jane Roe, who was convicted
  * of fraud") does not count against the subject.
+ * The outcome and the person's part are read too (names.matterOutcome): an acquittal, a dismissal, dropped charges,
+ * a vacated or overturned conviction or a case the person won is 'low' unless the text still reports another
+ * criminal matter; a pardon is 'medium'; the person as plaintiff, witness, victim or juror (and not accused) is
+ * 'low'. The outcome itself is for the finding's data (matterOutcome), so the report can show it beside the matter.
  */
 export function severityFromText(text, subject = null) {
   const t = withoutOtherPeoplesMatters(String(text || ''), subject);
-  const sev = rawSeverity(withoutClearedProbes(t));
+  const graded = gradeByOutcome(t, subject, rawSeverity(withoutClearedProbes(t)));
+  return graded;
+}
+
+function gradeByOutcome(t, subject, base) {
+  const person = subject && typeof subject.hasName === 'function' ? subject.hasName : null;
+  const { outcome, role, rest } = matterOutcome(t, { person });
+  if (outcome === 'pardoned') {
+    // What is left once the pardon and the conviction it ends are taken out: a new criminal matter keeps 'high'.
+    const left = rawSeverity(withoutClearedProbes(rest.replace(CONVICTION_WORDS, ' ')));
+    if (left === 'high') return disputedSeverity(t, base);
+    return 'medium';
+  }
+  // an acquittal, dismissal or drop of some counts beside a conviction does not soften the conviction
+  if (outcome && EXCULPATORY.has(outcome) && partOfConviction(t, outcome, person)) return disputedSeverity(t, base);
+  if (outcome && EXCULPATORY.has(outcome)) {
+    const left = rawSeverity(withoutClearedProbes(rest));
+    if (left === 'high') return disputedSeverity(t, base);
+    return left === 'medium' && !NOT_ACCUSED.has(role) && outcome !== 'won' ? 'medium' : 'low';
+  }
+  if (role && NOT_ACCUSED.has(role) && (base === 'high' || base === 'medium')) return 'low';
+  return disputedSeverity(t, base);
+}
+
+function disputedSeverity(t, sev) {
   if (sev === 'low' || sev === 'info') return sev;
   const disputed = t.match(DISPUTED_PUBLICATION);
   if (!disputed || DISPUTED_BLOCK.test(t)) return sev;
@@ -249,7 +384,9 @@ export function severityFromText(text, subject = null) {
 export function makeThread(kind, value, why = '', extra = {}) {
   const v = String(value || '').replace(/\s+/g, ' ').trim();
   if (!THREAD_KINDS.includes(kind) || v.length < 2 || v.length > 200) return null;
-  return { kind, value: v, why: clip(why, 160), ...extra };
+  // a url thread is fetched and may be shown as a link: http(s) only
+  if (kind === 'url' && !isSafeUrl(v)) return null;
+  return { kind, value: v, why: clip(cleanSentences(cleanText(why).slice(0, PRE_CLIP), { kin: false }).text, 160), ...extra };
 }
 
 /** Normalise whatever a connector returned into { findings, threads, notes }. */

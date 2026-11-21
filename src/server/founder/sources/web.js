@@ -16,9 +16,10 @@
  * the subject is dropped when it is graded (finding.js).
  */
 import { makeFinding, makeThread, severityFromText } from '../finding';
-import { threadsFromResult, relativesFromText, profileFromUrl, mentions } from '../extract';
+import { threadsFromResult, relativesFromText, profileFromUrl, mentions, handleFitsSubject } from '../extract';
 import { nameTokens } from '../identity';
-import { keylessSearch, ENGINES } from './searchEngines';
+import { isOrdinaryWordCompany, companyKeys, companyMention } from '../names';
+import { keylessSearch, ENGINES, engineHealth, resolveHeadline, SEARCH_COUNT_KEYS } from './searchEngines';
 
 const SEVERITY_RANK = { high: 3, medium: 2, low: 1, info: 0 };
 /** How many records that name only the company (not the person) one lookup may add: the most serious first. */
@@ -33,6 +34,31 @@ const onHost = (host, list) => list.some((h) => host === h || host.endsWith(`.${
 
 /** Lookups whose query pattern has at least this prior may use the metered search services when every keyless engine came back empty. */
 export const METERED_PRIOR = 0.7;
+/**
+ * The seed of a check: the person's profile, LinkedIn, education, background, interviews and earlier
+ * ventures. These run first (deepCheck.js orders them ahead of everything else in the first round) and
+ * may always use the backup search service, within its hourly limit. Other lookups that may use it leave
+ * SEED_RESERVE uses of the hour for the seed of the next check.
+ */
+export const SEED_TEMPLATES = ['q.profile', 'q.linkedin', 'q.linkedin-any', 'q.education', 'q.background', 'q.interviews', 'q.prior-ventures'];
+/**
+ * Web questions a news headline cannot answer well: the seed and the adverse questions. When every general web
+ * search is resting they wait for one (keylessSearch needGeneral) a couple of times in the check, rather than
+ * being answered from headlines and counted as searched.
+ */
+export const NEEDS_GENERAL = new Set([...SEED_TEMPLATES, 'q.lawsuit', 'q.fraud', 'q.allegations']);
+/** How many times in one check a lookup may wait for a general web search before it settles for the news feeds. */
+export const GENERAL_WAITS = 2;
+export const SEED_RESERVE = SEED_TEMPLATES.length;
+/** Is there room in this hour's backup-search uses for a lookup that is not part of a seed? */
+export function meteredRoomBeyondSeed() {
+  try {
+    const { metered } = engineHealth();
+    return metered.usedThisHour + SEED_RESERVE < metered.hourlyLimit;
+  } catch {
+    return true;
+  }
+}
 
 const LEGAL_SUFFIX = /[,\s]+(?:inc|incorporated|llc|l\.l\.c|ltd|limited|corp|corporation|co|plc|llp|lp|gmbh|ag|ug|kg|sas|sasu|sarl|sa|s\.a|s\.l|bv|b\.v|nv|oy|ab|pty|pte|holdings?)\.?$/i;
 /** "Theranos, Inc." -> "Theranos": the name people and the press actually use. */
@@ -48,39 +74,181 @@ const ADVERSE = {
   fr: any('procès', 'fraude', 'escroquerie', 'enquête', 'condamné', '"mis en examen"', 'liquidation'),
   de: any('Klage', 'Betrug', 'Ermittlungen', 'verurteilt', 'Insolvenz', 'Skandal'),
   es: any('demanda', 'fraude', 'estafa', 'investigación', 'condenado', 'quiebra'),
+  pt: any('processo', 'fraude', 'investigação', 'condenado', 'falência', 'preso'),
+  it: any('causa', 'truffa', 'frode', 'indagato', 'condannato', 'fallimento'),
+  nl: any('rechtszaak', 'fraude', 'oplichting', 'onderzoek', 'veroordeeld', 'faillissement'),
+  sv: any('stämning', 'bedrägeri', 'utredning', 'dömd', 'konkurs', 'åtal'),
+  pl: any('pozew', 'oszustwo', 'śledztwo', 'skazany', 'upadłość', 'zarzuty'),
+  ja: any('訴訟', '詐欺', '逮捕', '起訴', '破産', '不正'),
+  ko: any('소송', '사기', '체포', '기소', '파산', '횡령'),
+  zh: any('诉讼', '欺诈', '诈骗', '调查', '逮捕', '破产'),
+  // Taiwan and Hong Kong: Traditional characters, their own news edition
+  zt: any('訴訟', '欺詐', '詐騙', '調查', '逮捕', '破產'),
+  he: any('תביעה', 'הונאה', 'חקירה', '"כתב אישום"', 'הורשע', '"פשיטת רגל"'),
+  hi: any('मुकदमा', 'धोखाधड़ी', 'जांच', 'गिरफ्तार', 'दिवालिया'),
+  id: any('gugatan', 'penipuan', 'penyelidikan', 'ditangkap', 'divonis', 'pailit'),
+  tr: any('dava', 'dolandırıcılık', 'soruşturma', 'tutuklandı', 'mahkum', 'iflas'),
+  fi: any('oikeusjuttu', 'petos', 'tutkinta', 'tuomittu', 'konkurssi', 'syyte'),
 };
-const LANGUAGE_LABEL = { fr: 'French', de: 'German', es: 'Spanish' };
+const LANGUAGE_LABEL = { fr: 'French', de: 'German', es: 'Spanish', pt: 'Portuguese', it: 'Italian', nl: 'Dutch', sv: 'Swedish', pl: 'Polish', ja: 'Japanese', ko: 'Korean', zh: 'Chinese', zt: 'Chinese', he: 'Hebrew', hi: 'Hindi', id: 'Indonesian', tr: 'Turkish', fi: 'Finnish' };
 
 const FIRST_NAMES = {
   fr: 'jean pierre françois francois benoît benoit guillaume thibault thibaut timothée timothee antoine mathieu matthieu étienne etienne yann loïc loic cédric cedric aurélien aurelien jérôme jerome rémi remi hervé herve thierry pascal olivier stéphane stephane frédéric frederic ludovic gaël gael maxime clément clement hélène helene amélie amelie céline celine margaux océane'.split(' '),
-  de: 'jürgen juergen hans klaus wolfgang matthias günther gunther jörg joerg dieter heinz uwe rainer lutz detlef holger torsten thorsten björn bjoern friedrich ulrich manfred helmut heike ute anke silke'.split(' '),
+  de: 'jürgen juergen hans klaus wolfgang matthias günther gunther jörg joerg dieter heinz uwe rainer lutz detlef holger torsten thorsten friedrich ulrich manfred helmut heike ute anke silke'.split(' '),
+  // Nordic and Turkish first names: an ö or ü in such a name is Swedish, Finnish or Turkish, not German.
+  sv: 'björn bjorn anders lars nils niklas sven gustav gustaf johan mikael magnus fredrik henrik oskar axel ingrid astrid sigrid linnea ebba frida maja agneta birgitta'.split(' '),
+  fi: 'mikko jukka pekka juha jari timo antti matti heikki ilkka kimmo tuomas teemu sami ville ari jaakko risto aino tiina päivi paivi sanna satu riikka minna'.split(' '),
+  tr: 'gökhan gokhan mehmet ahmet mustafa emre burak murat hakan serkan cem can kerem selim oğuz oguz özgür ozgur ümit umit ayşe ayse fatma zeynep elif özge ozge şule sule ebru ece'.split(' '),
   es: 'josé jose juan carlos javier pablo diego alejandro santiago jorge luis miguel sergio andrés andres fernando rafael enrique ignacio álvaro alvaro gonzalo joaquín joaquin maría lucía mercedes pilar inés'.split(' '),
 };
 const LANGUAGE_SIGNS = {
   fr: { letters: /[çèêëàâùûîïôœ]/i, org: /\b(SAS|SASU|SARL|S\.A\.S\.?|S\.A\.R\.L\.?|France|Paris|Lyon|École|Ecole|Université|Sorbonne|HEC|ESSEC|Polytechnique|Sciences Po|INSEAD)\b/, tld: /\.fr$/ },
-  de: { letters: /[äöüß]/i, org: /\b(GmbH|mbH|AG|UG|KG|e\.V\.|Deutschland|Berlin|München|Hamburg|Universität|Hochschule|RWTH|WHU)\b/, tld: /\.(de|at)$/ },
+  // ä, ö and ü are also Swedish, Finnish and Turkish letters: they count for German only when nothing else spoke
+  // (languageHints), as é does for French. ß is German alone.
+  de: { letters: /ß/i, org: /\b(GmbH|mbH|AG|UG|KG|e\.V\.|Deutschland|Berlin|München|Hamburg|Universität|Hochschule|RWTH|WHU)\b/, tld: /\.(de|at)$/ },
   es: { letters: /[ñ¿¡]/i, org: /\b(S\.L\.U?\.?|S\.A\. de C\.V\.|España|Madrid|Barcelona|México|Universidad|IESE|ESADE|Tecnológico)\b/, tld: /\.(es|mx|ar|cl|pe)$/ },
+  // The other languages are judged from places and domains only: a first name says little about where someone works.
+  pt: { letters: /[ãõ]/i, org: /\b(Ltda\.?|Brasil|São Paulo|Rio de Janeiro|Lisboa|Portugal|Universidade)\b/, tld: /\.(br|pt)$/ },
+  it: { org: /\b(S\.r\.l\.?|S\.p\.A\.?|Srl|SpA|Italia|Milano|Roma|Torino|Bocconi|Politecnico di)\b/, tld: /\.it$/ },
+  nl: { org: /\b(B\.V\.|BV|N\.V\.|Nederland|Amsterdam|Rotterdam|Utrecht|Eindhoven|Universiteit)\b/, tld: /\.nl$/ },
+  // a Swedish surname ending (Zennström, Lindqvist) speaks as clearly as å
+  sv: { letters: /[å]|(?:ström|strom|qvist|kvist)(?:\s|$)/i, org: /\b(Aktiebolag|Sverige|Stockholm|Göteborg|Uppsala|KTH)\b/, tld: /\.se$/ },
+  fi: { org: /\b(Oyj?|Suomi|Finland|Helsinki|Espoo|Tampere|Aalto)\b/, tld: /\.fi$/ },
+  pl: { letters: /[ąęłńśźż]/i, org: /\b(Sp\. z o\.o\.|Polska|Warszawa|Kraków|Wrocław|Politechnika)\b/, tld: /\.pl$/ },
+  ja: { letters: /[぀-ヿ]/, org: /\b(K\.K\.|Kabushiki Kaisha|Japan|Tokyo|Osaka|Kyoto)\b|株式会社/, tld: /\.(jp)$/ },
+  ko: { letters: /[가-힯]/, org: /\b(Korea|Seoul|KAIST|Yonsei)\b|주식회사/, tld: /\.(kr)$/ },
+  zh: { letters: /[一-鿿]/, org: /\b(Beijing|Shanghai|Shenzhen|Hangzhou|Tsinghua|Peking University)\b|有限公司/, tld: /\.cn$/ },
+  zt: { org: /\b(Hong Kong|Taiwan|Taipei|Kowloon|Hsinchu)\b/, tld: /\.(tw|hk)$/ },
+  he: { letters: /[֐-׿]/, org: /\b(Israel|Tel Aviv|Jerusalem|Haifa|Technion)\b/, tld: /\.il$/ },
+  hi: { letters: /[ऀ-ॿ]/, org: /\b(Pvt\.? Ltd\.?|Private Limited|Bengaluru|Bangalore|Mumbai|New Delhi|Gurugram|IIM)\b/, tld: /\.in$/ },
+  id: { org: /\b(Tbk|Indonesia|Jakarta|Bandung|Surabaya)\b/, tld: /\.(id)$/ },
+  tr: { letters: /[ğışİ]/, org: /\b(A\.Ş\.|Türkiye|Turkey|Istanbul|İstanbul|Ankara|Boğaziçi)\b/, tld: /\.(tr)$/ },
 };
+/** Countries (as names or two-letter codes) a user or a register may give, and the language worth searching in. */
+const COUNTRY_LANG = {
+  fr: 'fr', france: 'fr', de: 'de', germany: 'de', deutschland: 'de', at: 'de', austria: 'de', es: 'es', spain: 'es', mx: 'es', mexico: 'es', ar: 'es', argentina: 'es', cl: 'es', chile: 'es', co: 'es', colombia: 'es',
+  br: 'pt', brazil: 'pt', brasil: 'pt', pt: 'pt', portugal: 'pt', it: 'it', italy: 'it', nl: 'nl', netherlands: 'nl', 'the netherlands': 'nl', se: 'sv', sweden: 'sv',
+  pl: 'pl', poland: 'pl', jp: 'ja', japan: 'ja', kr: 'ko', 'south korea': 'ko', korea: 'ko', cn: 'zh', china: 'zh', tw: 'zt', taiwan: 'zt', hk: 'zt', 'hong kong': 'zt',
+  il: 'he', israel: 'he', in: 'hi', india: 'hi', id: 'id', indonesia: 'id', tr: 'tr', turkey: 'tr', 'türkiye': 'tr', turkiye: 'tr',
+  fi: 'fi', finland: 'fi', suomi: 'fi',
+};
+/** The languages of the countries the subject carries (a place the user gave, a register's country), in order. */
+function countryLanguages(subject) {
+  const raw = [subject?.country, subject?.place, subject?.jurisdiction, ...(Array.isArray(subject?.countries) ? subject.countries : [])]
+    .filter(Boolean).map((v) => String(v).toLowerCase().trim());
+  const out = [];
+  for (const v of raw) {
+    // A US state register ("us_de", "US-CO") is English: its two letters are a state, not a country.
+    if (/^(?:us|usa|united states)(?:$|[\s_,-])/.test(v)) continue;
+    // "Paris, France": the last part names the country
+    const parts = [v, ...v.split(/[,/|]/).map((x) => x.trim())].filter(Boolean);
+    const lang = parts.map((x) => COUNTRY_LANG[x]).find(Boolean);
+    if (lang && !out.includes(lang)) out.push(lang);
+  }
+  return out;
+}
+
+/** The domains known for the subject's companies: the domain anchors and the domains learned as a company's names. */
+function knownDomains(subject) {
+  const out = [...(subject?.anchors?.domains?.values?.() || [])].map((a) => String(a.value).toLowerCase());
+  for (const a of subject?.anchors?.aliases?.values?.() || []) if (/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(String(a.value))) out.push(String(a.value).toLowerCase());
+  return [...new Set(out)];
+}
 
 /**
- * Languages worth a second, non-English pass, judged from the name, the
- * company and what is already known (schools, domains). A hint, not a fact:
- * at most two languages, and nothing when there is no sign at all.
- * @returns {Array<'fr'|'de'|'es'>}
+ * Languages worth a second, non-English pass, judged from a place the user gave or a register's country
+ * (subject.country / place / jurisdiction / countries), the company's domain, the name, the company and what is
+ * already known (schools, domains). A hint, not a fact: at most two languages (each costs a lookup or two), and
+ * nothing when there is no sign at all.
+ * @returns {string[]} language codes ('fr', 'pt', 'ja', ...)
  */
 export function languageHints(subject) {
   const first = String(subject?.name || '').trim().split(/\s+/)[0]?.toLowerCase() || '';
   const orgs = [subject?.company, ...[...(subject?.anchors?.companies?.values?.() || [])].map((a) => a.value), ...[...(subject?.anchors?.schools?.values?.() || [])].map((a) => a.value)].filter(Boolean).join(' | ');
-  const domains = [...(subject?.anchors?.domains?.values?.() || [])].map((a) => String(a.value).toLowerCase());
-  const out = [];
-  for (const lang of ['fr', 'de', 'es']) {
-    const sign = LANGUAGE_SIGNS[lang];
-    const companyAsDomain = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(String(subject?.company || '').trim()) && sign.tld.test(String(subject.company).trim().toLowerCase());
-    if (FIRST_NAMES[lang].includes(first) || sign.letters.test(subject?.name || '') || sign.org.test(orgs) || companyAsDomain || domains.some((d) => sign.tld.test(d))) out.push(lang);
+  const domains = knownDomains(subject);
+  const company = String(subject?.company || '').trim().toLowerCase();
+  const companyAsDomain = /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(company) ? company : '';
+  // A place stated outright comes first, then a company's own domain, then the softer signs.
+  const out = [...countryLanguages(subject)];
+  const push = (lang) => { if (!out.includes(lang)) out.push(lang); };
+  for (const [lang, sign] of Object.entries(LANGUAGE_SIGNS)) {
+    if ((companyAsDomain && sign.tld.test(companyAsDomain)) || domains.some((d) => sign.tld.test(d))) push(lang);
   }
-  // "é" alone is as French as it is Spanish: only count it when nothing else spoke.
+  for (const [lang, sign] of Object.entries(LANGUAGE_SIGNS)) {
+    if ((FIRST_NAMES[lang] || []).includes(first) || (sign.letters && sign.letters.test(subject?.name || '')) || sign.org.test(orgs)) push(lang);
+  }
+  // "é" alone is as French as it is Spanish, and ä, ö, ü as German as they are Swedish, Finnish or Turkish: each
+  // counts only when nothing else spoke (an ç or ü with no Turkish name is not enough for Turkish).
+  if (!out.length && /[äöü]/i.test(subject?.name || '')) out.push('de');
   if (!out.length && /é/i.test(subject?.name || '')) out.push('fr');
   return out.slice(0, 2);
+}
+
+/** The script local press writes names in, for the languages not written in Latin letters. */
+const NATIVE_SCRIPT = {
+  ja: /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u,
+  ko: /\p{Script=Hangul}/u,
+  zh: /\p{Script=Han}/u,
+  zt: /\p{Script=Han}/u,
+  he: /\p{Script=Hebrew}/u,
+  hi: /\p{Script=Devanagari}/u,
+};
+/**
+ * How the person is named in a question for the local press. Japanese, Korean, Chinese, Hebrew and Hindi
+ * papers print the name in their own script (孫正義, not Masayoshi Son): a name of the person in that script
+ * (typed by the user, or learned from a record tied to them) is searched beside the Latin one. Without one,
+ * the question still runs on the Latin name, but it is marked latinOnly: the caller reports the local press as
+ * not really searched, never as searched with nothing found.
+ * @returns {{ ref: string, latinOnly: boolean }}
+ */
+export function localNameRef(subject, lang) {
+  const latin = phrase(subject.name);
+  const script = NATIVE_SCRIPT[lang];
+  if (!script) return { ref: latin, latinOnly: false };
+  const names = [...(subject.otherNames || []), ...[...(subject.anchors?.otherNames?.values?.() || [])].map((a) => a.value)]
+    .map((n) => tidy(n)).filter((n) => n && script.test(n) && !/[A-Za-z]/.test(n));
+  const native = [...new Set(names)].slice(0, 2);
+  return native.length ? { ref: any(...native.map(phrase), latin), latinOnly: false } : { ref: latin, latinOnly: true };
+}
+const latinOnlyPartial = (lang) => `${LANGUAGE_LABEL[lang] || 'local'}-language press: the person's name is known only in Latin letters, which that press rarely prints`;
+
+/* ------------------------------------------------------------------ the company's names */
+
+const isDomainLike = (v) => /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(String(v || '').trim());
+const labelKey = (s) => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/**
+ * Every known name of a company: its short name, the legal names and domains learned for it (identity.js
+ * addCompanyAlias), and a known domain whose first label is the company's name ("merge.dev" for Merge).
+ * `ordinary`: the name is one ordinary word (Ramp, Merge), which on its own names a thousand things.
+ */
+export function companyNames(subject, company) {
+  const short = shortCompany(company);
+  const key = companyKeys(company)[0] || String(company || '').toLowerCase();
+  const aliases = [...(subject?.anchors?.aliases?.values?.() || [])].filter((a) => a.of === key || a.of === (companyKeys(short)[0] || '')).map((a) => String(a.value));
+  const legal = [...new Set(aliases.filter((a) => !isDomainLike(a)))];
+  const own = labelKey(short);
+  const domains = [...new Set([
+    ...aliases.filter(isDomainLike).map((d) => d.toLowerCase()),
+    ...[...(subject?.anchors?.domains?.values?.() || [])].map((a) => String(a.value).toLowerCase()).filter((d) => own.length >= 3 && [own, `${own}hq`, `get${own}`, `${own}app`, `try${own}`].includes(d.split('.')[0])),
+  ])];
+  return { short, legal, domains, ordinary: isOrdinaryWordCompany(short) };
+}
+
+/**
+ * How a search names a company. A distinctive name is searched by every known name ("Theranos" OR "Theranos,
+ * Inc."). An ordinary word is never searched alone: by its legal names and domain when they are known
+ * ("Ramp Business Corporation" OR "ramp.com"), else together with the person's name.
+ */
+export function companyQueryRef(subject, company) {
+  const { short, legal, domains, ordinary } = companyNames(subject, company);
+  const strong = [...legal.map(phrase), ...domains.map(phrase)];
+  if (ordinary) {
+    if (strong.length) return strong.length === 1 ? strong[0] : any(...strong.slice(0, 4));
+    return `${phrase(short)} ${phrase(subject.name)}`;
+  }
+  const all = [phrase(short), ...strong].slice(0, 4);
+  return all.length === 1 ? all[0] : any(...all);
 }
 
 function subjectTemplates(subject) {
@@ -94,19 +262,38 @@ function subjectTemplates(subject) {
   const add = (id, query, prior, why, extra = {}) => out.push({ template: `q.${id}`, params: { query, ...extra }, prior, why });
   const reference = { prefer: 'reference' }; // when the web engines are resting: an encyclopedia entry before headlines
 
-  add('profile', co ? `${name} ${co}` : name, 0.8, 'who they are and what they run', reference);
-  add('linkedin', `${name}${co ? ` ${co}` : ''} site:linkedin.com/in`, 0.75, 'their LinkedIn profile');
+  // The seed: the lookups that build the profile (who they are, where they worked and studied, their own
+  // words). They run first in a check and may use the backup search service when the keyless engines are
+  // resting (SEED_TEMPLATES). LinkedIn and the earlier-career question come first among them: their snippets
+  // carry the experience and education lines no other source gives.
+  const seed = { seed: true };
+  add('profile', co ? `${name} ${co}` : name, 0.8, 'who they are and what they run', { ...reference, ...seed });
+  add('linkedin', `${name}${co ? ` ${co}` : ''} site:linkedin.com/in`, 0.8, 'their LinkedIn profile', seed);
+  // Without the company: the snippet of their profile often lists earlier employers and schools. Only searched for
+  // a name that is not common (a common name's profiles are mostly namesakes'); the results are graded as usual.
+  if (co && !subject.common) add('linkedin-any', `${name} site:linkedin.com/in`, 0.72, 'their LinkedIn profile, as search snippets show it', seed);
   add('lawsuit', `${name} ${any('lawsuit', 'sued', 'court', 'complaint')}`, 0.7, 'lawsuits and court cases that name them');
   add('fraud', `${name} ${any('fraud', 'scam', 'investigation', 'indicted', 'charged')}`, 0.7, 'fraud allegations, investigations and charges');
-  add('prior-ventures', `${name} ${any('founder', '"co-founder"', 'CEO')}${company ? ` -${phrase(company)}` : ''}`, 0.6, 'companies they founded or ran before', reference);
+  // Misconduct headlines say "accused of" or "allegations"; criminal outcomes "arrested", "convicted", "sentenced".
+  add('allegations', `${name} ${any('accused', 'allegations', 'arrested', 'convicted', 'sentenced', '"pleaded guilty"', '"class action"', 'sanctioned')}`, 0.68, 'accusations, arrests, convictions and class actions');
+  // Earlier ventures: coverage of them nearly always names the famous company too, so it stays in the query
+  // (excluding it left mostly namesakes who are founders). Without a company, the plain founder question.
+  if (co) add('prior-ventures', `${name} ${co} ${any('"previously founded"', '"before founding"', '"serial entrepreneur"', '"first company"', '"sold his"', '"sold her"', '"co-founded"', 'acquired')}`, 0.6, 'companies they founded or ran before', { ...reference, ...seed });
+  else add('prior-ventures', `${name} ${any('founder', '"co-founder"', 'CEO')}`, 0.6, 'companies they founded or ran before', { ...reference, ...seed });
   // what they started next, and who backed it: coverage of a later venture usually names the famous one too, so nothing is excluded
   add('later-ventures', `${name} ${any('raises', 'funding', '"backed by"', 'launches', '"new company"')}`, 0.55, 'companies they started later and who invested in them');
   add('employment', `${name} ${any('fired', 'ousted', 'resigned', 'harassment', 'misconduct')}`, 0.55, 'how they left earlier roles');
-  add('regulatory', `${name} ${any('SEC', 'FTC', 'regulator', 'fine', 'settlement')}`, 0.55, 'regulators, fines and settlements');
-  add('education', `${name} ${any('graduated', 'alumni', 'degree', 'university')}`, 0.5, 'where they studied', reference);
+  add('regulatory', `${name} ${any('SEC', 'FTC', 'regulator', 'fine', 'settlement', '"attorney general"')}`, 0.55, 'regulators, fines and settlements');
+  add('education', `${name}${co ? ` ${co}` : ''} ${any('graduated', 'alumni', 'degree', 'university', 'studied')}`, co ? 0.7 : 0.5, 'where they studied', { ...reference, ...seed });
+  add('background', `${name}${co ? ` ${co}` : ''} ${any('previously', 'formerly', '"prior to"', '"before founding"', '"worked at"')}`, 0.78, 'where they worked before', { ...reference, ...seed });
+  // Early-career roles a founder profile skips ("analyst at Credit Suisse"): no company, so namesakes are graded down.
+  add('roles', `${name} ${any('analyst', 'associate', '"investment banking"', '"private equity"', 'engineer', '"product manager"', 'consultant')}`, 0.5, 'earlier jobs and titles');
+  // Org-chart and company-database pages: their search snippets list a title and an employer. Snippets only:
+  // the page reader never opens these sites.
+  add('profiles', `${name} ${any('site:theorg.com', 'site:crunchbase.com')}`, 0.45, 'their title on org-chart and company-database pages, as search snippets show it');
   add('insolvency', `${name} ${any('bankruptcy', 'insolvency', 'liquidation', '"shut down"')}`, 0.5, 'bankruptcies and companies that were wound up');
   add('resume', `${name} ${any('resume', 'CV', '"curriculum vitae"')}`, 0.45, 'a published resume or CV');
-  add('interviews', `${name} ${any('interview', 'podcast', 'keynote')}`, 0.45, 'interviews and talks, in their own words');
+  add('interviews', `${name} ${any('interview', 'podcast', 'keynote', 'TEDx', 'speaker', 'fireside')}`, 0.45, 'interviews and talks, in their own words', seed);
   add('family', `${name} ${any('"son of"', '"daughter of"', 'father', 'mother', 'brother', 'sister', 'married')}`, 0.4, 'family members in public business or political roles', { family: true, ...reference });
   add('forums', `${name} ${any('site:reddit.com', 'site:news.ycombinator.com')}`, 0.4, 'what forums say about them');
   if (surname && tokens.length > 1) {
@@ -114,7 +301,9 @@ function subjectTemplates(subject) {
   }
   add('related-party', `${name} ${any('"family office"', '"related party"', 'trust', 'nominee')}`, 0.35, 'family offices, trusts and related parties');
   for (const lang of languageHints(subject)) {
-    add(`adverse-${lang}`, `${name} ${ADVERSE[lang]}`, 0.4, `lawsuits and fraud allegations reported in ${LANGUAGE_LABEL[lang]}`, { lang });
+    if (!ADVERSE[lang]) continue;
+    const { ref, latinOnly } = localNameRef(subject, lang);
+    add(`adverse-${lang}`, `${ref} ${ADVERSE[lang]}`, 0.4, `lawsuits and fraud allegations reported in ${LANGUAGE_LABEL[lang]}`, { lang, ...(latinOnly ? { latinOnly: true } : {}) });
   }
   return out;
 }
@@ -125,19 +314,26 @@ const PRIOR_VENTURE = /\(past\)|\bearlier\b|\bformer(?:ly)?\b|\bprevious(?:ly)?\
 
 function companyTemplates(companyName, subject, thread = {}) {
   const short = shortCompany(companyName);
-  const c = phrase(short);
+  // Every known name of the company, and never an ordinary word on its own (companyQueryRef)
+  const c = companyQueryRef(subject, companyName);
+  const { domains, legal } = companyNames(subject, companyName);
+  const person = subject?.name ? phrase(subject.name) : '';
   const out = [
-    { template: 'q.company-legal', params: { query: `${c} ${any('lawsuit', 'fraud', 'investigation')}` }, prior: 0.55, why: 'lawsuits and investigations at this company' },
+    // State attorneys general write to companies in letters and demands the news rarely carries: asked here too
+    { template: 'q.company-legal', params: { query: `${c} ${any('lawsuit', 'fraud', 'investigation', '"class action"', 'sanctions', '"attorney general"')}` }, prior: 0.55, why: 'lawsuits, investigations and attorney-general actions at this company' },
     { template: 'q.company-leadership', params: { query: `${c} ${any('founder', 'CEO')}`, prefer: 'reference' }, prior: 0.5, why: 'who founded and ran this company' },
     { template: 'q.company-distress', params: { query: `${c} ${any('shutdown', 'layoffs', 'bankruptcy')}` }, prior: 0.45, why: 'whether this company shut down, cut staff or went bankrupt' },
     // no separate data-breach lookup: the breach registers (another source) cover it, and the search allowance is shared by the whole check
   ];
-  // A one-word name ("Flow") is also an ordinary word: its funding news is only found next to the person's name.
-  if (!/\s/.test(short) && subject?.name) {
-    out.push({ template: 'q.company-funding', params: { query: `${c} ${phrase(subject.name)} ${any('funding', 'raises', 'investors', 'led')}` }, prior: 0.45, why: 'who invested in this company, with the person named' });
+  // Funding rounds: the company with its domain or legal name (press releases carry both). A one-word name with
+  // neither is asked with the person's name; a distinctive name is asked as it is (q.company-investors).
+  const fundingAnchor = domains[0] ? phrase(domains[0]) : legal[0] ? phrase(legal[0]) : !/\s/.test(short) && person ? person : '';
+  if (fundingAnchor) {
+    out.push({ template: 'q.company-funding', params: { query: `${phrase(short)} ${fundingAnchor} ${any('raises', '"Series A"', '"Series B"', '"seed round"', '"led by"', 'valuation')}` }, prior: 0.5, why: 'the funding rounds of this company and who led them' });
   }
   out.push({ template: 'q.company-backers', params: { query: `${c} ${any('adviser', 'advisor', 'shareholder', 'board')}` }, prior: 0.5, why: 'advisers, shareholders and board members of this company' });
-  out.push({ template: 'q.company-investors', params: { query: `${c} ${any('"led by"', '"lead investor"', '"Series A"', '"Series B"', '"Series C"')}` }, prior: 0.45, why: 'who led and joined the funding rounds of this company' });
+  // the funding lookup above already asks who led the rounds when it runs
+  if (!fundingAnchor) out.push({ template: 'q.company-investors', params: { query: `${c} ${any('"led by"', '"lead investor"', '"Series A"', '"Series B"', '"Series C"')}` }, prior: 0.45, why: 'who led and joined the funding rounds of this company' });
   // A French company's advisers, shareholders and conflicts of interest are often reported only in French.
   if (languageHints(subject).includes('fr')) {
     out.push({ template: 'q.company-backers-fr', params: { query: `${c} ${any('actionnaire', 'conseiller', '"ancien ministre"', `"conflit d'intérêts"`)}`, lang: 'fr' }, prior: 0.4, why: 'advisers, shareholders and conflicts of interest at this company, reported in French' });
@@ -145,7 +341,7 @@ function companyTemplates(companyName, subject, thread = {}) {
   // An earlier venture: an old lawsuit about it is found with an encyclopedia or a general web search, not a recent news feed.
   const given = subject?.company ? companyKey(subject.company) : '';
   if (subject?.name && thread.tie !== 'affiliate' && companyKey(companyName) !== given && PRIOR_VENTURE.test(String(thread.why || ''))) {
-    out.push({ template: 'q.company-prior-legal', params: { query: `${c} ${phrase(subject.name)} ${any('sued', 'lawsuit', 'judgment')}`, prefer: 'reference', allowMetered: true }, prior: 0.55, why: 'lawsuits about an earlier venture that name the person' });
+    out.push({ template: 'q.company-prior-legal', params: { query: `${phrase(short)} ${phrase(subject.name)} ${any('sued', 'lawsuit', 'judgment')}`, prefer: 'reference', allowMetered: true }, prior: 0.55, why: 'lawsuits about an earlier venture that name the person' });
   }
   return out;
 }
@@ -196,6 +392,38 @@ export function categoryFor(host, text, task = {}) {
 }
 
 const BIO_PATH = /\/(?:team|our-team|about|about-us|people|leadership|management|founders|staff|who-we-are|bios?|speakers?|profiles?|authors?|partners|board)(?:\/|$|[-_.])/i;
+/** Podcast show notes, interviews and talks: pages in the person's own words, usually with an introduction of their career. */
+const TALK_PATH = /\/(?:podcasts?|podcast-episodes?|episodes?|show-?notes|interviews?|fireside(?:-chats?)?|talks?|webinars?|conversations?)(?:\/|$|[-_.])/i;
+/**
+ * Established publications and press-release wires: an article there whose search snippet names the
+ * person is worth opening even when its headline does not (founder profiles, funding stories, appointment
+ * announcements). Paywalled titles are left out (nothing to read), and every page is still opened only
+ * when the site's robots.txt allows it (pages.js).
+ */
+export const PRESS_HOSTS = ['techcrunch.com', 'venturebeat.com', 'geekwire.com', 'sifted.eu', 'fortune.com', 'fastcompany.com', 'inc.com', 'forbes.com', 'businessinsider.com', 'cnbc.com', 'axios.com', 'theverge.com', 'wired.com', 'siliconangle.com', 'news.crunchbase.com', 'theguardian.com', 'bbc.com', 'bbc.co.uk', 'prnewswire.com', 'businesswire.com', 'globenewswire.com', 'eu-startups.com', 'tech.eu', 'maddyness.com', 'lesechos.fr', 'yourstory.com', 'inc42.com', 'techinasia.com', 'betakit.com', 'builtin.com', 'entrepreneur.com', 'thenextweb.com', 'protocol.com', 'semafor.com'];
+const companyLabelKey = (s) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+/** Is this host the company's own site? Its first label is the company's name ("merge.dev" for Merge, "acmerobotics.com" for Acme Robotics). */
+function companySite(subject, host) {
+  const label = host.split('.')[0];
+  if (label.length < 3) return false;
+  const names = [subject.company, ...[...(subject.anchors?.companies?.values?.() || [])].filter((a) => a.origin === 'given').map((a) => a.value)].filter(Boolean);
+  return names.some((n) => { const k = companyLabelKey(shortCompany(n)); return k.length >= 3 && (label === k || label === `${k}hq` || label === `get${k}` || label === `${k}app`); });
+}
+/** Is the address the profile page itself (not a post, an episode or an article under it)? */
+function isProfileRoot(url, profile) {
+  try {
+    const u = new URL(String(url));
+    const root = new URL(profile.url);
+    return u.hostname.toLowerCase().replace(/^www\./, '') === root.hostname.toLowerCase().replace(/^www\./, '') && u.pathname.replace(/\/+$/, '') === root.pathname.replace(/\/+$/, '');
+  } catch { return false; }
+}
+/** Does the title start with the person's name ("Arthur Mensch - Mistral AI | LinkedIn"), as a profile's own title does? */
+function titleOpensWithName(subject, title) {
+  const t = String(title || '');
+  const first = typeof subject.hasName.positions === 'function' ? subject.hasName.positions(t)[0] : null;
+  if (first) return first.start <= 2;
+  return subject.hasName(t) && t.trim().length < 120 && subject.hasName(t.split(/\s[-|–—·:]\s/)[0]);
+}
 const RESUME_WORDS = /\b(?:resume|résumé|cv|curriculum[-_ ]?vitae)\b/i;
 
 /**
@@ -215,11 +443,22 @@ function pageThreads(subject, result, finding) {
   const add = (why, extra = {}) => out.push(makeThread('url', page, why, { trusted, ...extra }));
 
   const profile = profileFromUrl(result.url);
+  const namesThem = subject.hasName(result.title) || subject.hasName(result.snippet || '');
+  const deep = path.split('/').filter(Boolean).length;
   if (profile) {
-    // a profile whose address does not carry the name ("/in/amensch"): only when the result itself names the person
-    if (subject.hasName(result.title)) out.push(makeThread('url', profile.url, `${profile.platform} profile`, { trusted, platform: profile.platform }));
+    // A profile whose address does not carry the name ("/in/amensch"): only when the result is the profile page
+    // itself and its title opens with the person's name (its owner). A post on someone else's newsletter or blog
+    // ("Shensi Ding - Merge (#74) - by David Politis" on notanotherceo.substack.com) names the guest, not the
+    // owner: the interviewer's newsletter is never the person's own.
+    if (handleFitsSubject(subject, profile.handle) || (isProfileRoot(result.url, profile) && titleOpensWithName(subject, result.title))) {
+      out.push(makeThread('url', profile.url, `${profile.platform} profile`, { trusted, platform: profile.platform }));
+    }
+    // A newsletter post or essay (substack.com/p/..., medium.com/@x/...) that names them: often an interview
+    if ((profile.platform === 'substack' || profile.platform === 'medium') && finding.match === 'confirmed' && namesThem && deep >= 2) add('interview or article page about them');
     return out.filter(Boolean);
   }
+  // The company's own site, seen on a record tied to the person: its about and team pages are read (pages.js)
+  if (finding.match === 'confirmed' && companySite(subject, host)) out.push(makeThread('domain', host, 'company website', { trusted }));
   if (onHost(host, ['indeed.com']) && (/^\/(?:r|me)\//.test(path) || /^(?:profile|resumes?)\./.test(host))) add('Indeed resume', { platform: 'indeed' });
   else if (onHost(host, ['crunchbase.com']) && /^\/person\//.test(path)) add('crunchbase profile', { platform: 'crunchbase' });
   else if (onHost(host, ['wellfound.com', 'angel.co']) && /^\/(?:u|p|people)\//.test(path)) add('wellfound profile', { platform: 'wellfound' });
@@ -233,6 +472,16 @@ function pageThreads(subject, result, finding) {
       add('personal site');
       out.push(makeThread('domain', host, 'personal site', { trusted }));
     } else if (!result.host && !result.publisher && BIO_PATH.test(path) && path.split('/').filter(Boolean).length <= 4) add('team or bio page');
+    // A page whose own headline names the person (a profile, an interview, a founder story) is about them:
+    // worth opening for what it says of their career and education. Never the front page of a site.
+    else if (finding.match === 'confirmed' && subject.hasName(result.title) && deep >= 1 && !/news\.google\.com$/.test(host)) add('page about them');
+    // Podcast show notes and interviews: the guest's introduction usually tells their career
+    else if (finding.match === 'confirmed' && namesThem && !result.host && !result.publisher && TALK_PATH.test(path) && deep >= 2) add('podcast or interview page');
+    // A newsletter post or essay on someone's Substack or Medium that names them (often an interview): read for
+    // what it says, never taken as their own newsletter (the shared extractor no longer reads a post as a profile)
+    else if (finding.match === 'confirmed' && namesThem && ((/\.substack\.com$/.test(host) && /^\/p\//.test(path)) || (host === 'medium.com' && /^\/@[^/]+\/[^/]+/.test(path))) && deep >= 2) add('interview or article page about them');
+    // An established publication's article whose snippet names them, though its headline does not
+    else if (finding.match === 'confirmed' && namesThem && !result.host && onHost(host, PRESS_HOSTS) && deep >= 1) add('article naming them');
   }
   return out.filter(Boolean);
 }
@@ -270,6 +519,14 @@ const SURNAME_NEAR_WORDS = 5;
 function companyTest(task, subject) {
   const company = task.kind === 'company' ? shortCompany(task.value) : '';
   if (!company) return null;
+  // An ordinary word ("Ramp", "Merge") names a boat ramp or an Ethereum upgrade as easily as the company: a record
+  // that does not name the person is the company's only when it gives a learned legal name or domain, a legal form
+  // right after the word ("Ramp Business Corporation"), or is on the company's own site. Never the bare word.
+  const ordinary = isOrdinaryWordCompany(company);
+  const known = ordinary ? companyNames(subject || {}, task.value) : null;
+  const strongMention = ordinary
+    ? (text) => { const m = companyMention(task.value, String(text), { aliases: [...known.legal, ...known.domains], person: subject?.hasName || null, personWords: nameTokens(subject?.name || '') }); return m.named && m.strength === 'strong'; }
+    : null;
   const re = new RegExp(`(?<![A-Za-z0-9])${escapeRe(company)}(?![A-Za-z0-9])`, 'gi');
   if (/\s/.test(company)) return (text) => String(text).search(re) >= 0;
   // "We", "AI", "Flo": too short or too plain to be read as the company from its capital letter alone
@@ -284,6 +541,10 @@ function companyTest(task, subject) {
   const lowerRe = company !== company.toLowerCase() ? new RegExp(`(?<![A-Za-z0-9])${escapeRe(company.toLowerCase())}(?![A-Za-z0-9])`) : null;
   return (text, { title = null, host = '' } = {}) => {
     const str = String(text);
+    if (ordinary) {
+      if (host && known.domains.length && onHost(host, known.domains)) return true;
+      if (strongMention(str)) return true; // a learned legal name or domain, or a legal form right after the word
+    }
     if (fullRe && fullRe.test(str)) return true; // the full name as given ("We Holdings Ltd")
     const mentions = [...str.matchAll(re)].filter((m) => /^[A-Z0-9]/.test(m[0]));
     if (!mentions.length) return false;
@@ -307,7 +568,9 @@ function companyTest(task, subject) {
     for (const m of mentions) {
       if (LEGAL_FORM_AFTER.test(after(m))) return true; // "Nikola Corp", "We, Inc."
       if (surnameNear(m)) return true; // "Founder Milton: Nikola settles"
-      if (weakHere || m.index < titleEnd) continue;
+      // An ordinary word is never placed by its capital or the word after it ("a lawsuit against Ramp" may be a
+      // boat ramp's operator): only by what ties it above.
+      if (ordinary || weakHere || m.index < titleEnd) continue;
       // the last word of the title is followed by the snippet, not by a word of the same name
       const next = m.index + m[0].length === snippetStart - 1 ? '' : nextWord(m);
       if (next && COMPANY_WORD.test(next)) return true; // "Nikola Motors", "Square Inc"
@@ -505,6 +768,58 @@ function priorOf(task, subject, templates) {
   if (mine) return mine.prior;
   return Number.isFinite(Number(task.prior)) ? Number(task.prior) : 0;
 }
+/** Is the task one of the seed lookups about the person? Read from our own patterns, never from what the task carries. */
+function isSeed(task, subject) {
+  if (task.kind !== 'subject' || !SEED_TEMPLATES.includes(task.template)) return false;
+  return Boolean(webTemplates({ kind: 'subject', value: task.value }, subject).find((t) => t.template === task.template)?.params?.seed);
+}
+/** May this lookup use the backup search service? Seeds always may; other high-value lookups while the seed reserve is left. */
+function meteredAllowed(task, subject, planned) {
+  if (isSeed(task, subject)) return true;
+  if (!(priorOf(task, subject, webTemplates) >= METERED_PRIOR || Boolean(planned.allowMetered))) return false;
+  return meteredRoomBeyondSeed();
+}
+
+/**
+ * Count one open-web question in the check's own tally (ctx.spend): answered by a general web search, by the news
+ * feeds or the encyclopedia only ("headlines"), or not at all ("none"). The report's coverage line is built from
+ * these (searchEngines.searchCoverageNote), so a question only headlines answered is never called searched.
+ */
+function tally(ctx, kind) {
+  try { if (typeof ctx?.spend === 'function') ctx.spend(SEARCH_COUNT_KEYS[kind], 1, Infinity); } catch { /* counting is best effort */ }
+}
+/** Has this lookup already waited for a general web search as often as one check allows? Takes one wait when not. */
+function mayWait(ctx, task) {
+  if (typeof ctx?.spend !== 'function') return false;
+  try { return ctx.spend(`web-search:wait|${task.template}|${String(task.value || '').toLowerCase()}`, 1, GENERAL_WAITS); } catch { return false; }
+}
+const HEADLINES_NOTE = 'Some open-web questions were answered from news headlines or the encyclopedia only, because no general web search was available to take them; those questions are listed as not searched on the open web.';
+
+/** How many Google News headlines one check may look up on Bing News to find the article's own address. */
+export const RESOLVE_MAX = 3;
+const RESOLVE_KEY = 'web-search:resolve';
+/**
+ * Google News gives a forwarding link and no snippet, so the page reader never reads the article. For a
+ * headline that names the person, on an established publication, tied to them: ask Bing News for the same
+ * headline on the same site (a few per check), and hand the article's own address to the page reader.
+ */
+async function articleThreads(subject, results, findings, ctx) {
+  const out = [];
+  for (const r of results) {
+    if (!r.host || !/(^|\.)news\.google\.com$/i.test(hostOf(r.url)) || !onHost(r.host, PRESS_HOSTS) || !subject.hasName(r.title)) continue;
+    const f = findings.find((x) => x.url === r.url);
+    if (!f || f.match !== 'confirmed') continue;
+    if (ctx?.deadline && ctx.deadline - Date.now() < 4000) break;
+    if (typeof ctx?.spend === 'function' && !ctx.spend(RESOLVE_KEY, 1, RESOLVE_MAX)) break;
+    // eslint-disable-next-line no-await-in-loop
+    const url = await resolveHeadline(r.title, r.host, { deadline: ctx?.deadline }).catch(() => null);
+    if (url) {
+      const t = makeThread('url', url, 'article naming them', { trusted: true });
+      if (t) out.push(t);
+    }
+  }
+  return out;
+}
 
 export const webSearchConnector = {
   id: WEB_ID,
@@ -520,15 +835,39 @@ export const webSearchConnector = {
     if (!query) return { findings: [], threads: [], notes: [] };
     // Another person is only ever searched together with the subject.
     if ((task.kind === 'associate' || task.kind === 'relative') && !query.includes(phrase(subject.name))) query = `${phrase(subject.name)} ${phrase(task.value)}`;
+    // The seed and the adverse questions wait for a general web search (twice at most in a check) instead of
+    // settling for headlines; past that they take what the news feeds give, and say so.
+    const needGeneral = task.kind === 'subject' && NEEDS_GENERAL.has(task.template) && !planned.news && mayWait(ctx, task);
 
-    const { results, tried } = await keylessSearch(query, {
-      news: Boolean(planned.news), withinDays: planned.withinDays, num: 10, deadline: ctx.deadline,
-      // the metered services are kept for the lookups that matter most
-      allowMetered: priorOf(task, subject, webTemplates) >= METERED_PRIOR || Boolean(planned.allowMetered),
-      lang: planned.lang, prefer: planned.prefer, accept: acceptFor(subject, task),
-    });
+    let search;
+    try {
+      search = await keylessSearch(query, {
+        news: Boolean(planned.news), withinDays: planned.withinDays, num: 10, deadline: ctx.deadline,
+        // the metered services are kept for the lookups that matter most: the seed first
+        allowMetered: meteredAllowed(task, subject, planned),
+        lang: planned.lang, prefer: planned.prefer, accept: acceptFor(subject, task), needGeneral,
+        // how long the check may still wait for a general search (deepCheck gives it, when it does): a wait the
+        // check would not take is not asked for, and a wait it would take is not refused
+        ...(typeof ctx.waitLeftMs === 'function' && Number.isFinite(ctx.waitLeftMs()) ? { maxWaitMs: Math.max(0, ctx.waitLeftMs()) } : {}),
+      });
+    } catch (error) {
+      if (error?.code !== 'SEARCH_RESTING') tally(ctx, 'none');
+      throw error;
+    }
+    const { results, tried } = search;
     const { findings, threads } = collect(subject, task, results, { source: WEB_ID, sourceLabel: WEB_LABEL, family: Boolean(planned.family), companyOnlyMax: COMPANY_ONLY_MAX.web, knownWiki: knownWikiPages(ctx), backgroundKept: backgroundWikiCount(ctx) });
-    return { findings, threads, notes: pauseNotes(tried) };
+    threads.push(...await articleThreads(subject, results, findings, ctx));
+    const notes = pauseNotes(tried);
+    if (search.headlinesOnly) {
+      tally(ctx, 'headlines');
+      notes.push(HEADLINES_NOTE);
+      // Not searched on the open web: listed as such (deepCheck reports `partial` parts as not searched), and the
+      // pattern is not scored on it (a headline feed finding nothing says nothing about the question).
+      return { findings, threads, notes, partial: [`open web: ${planned.why || task.template || 'a question'} (news headlines or the encyclopedia only)`], noLearn: true, headlinesOnly: true };
+    }
+    tally(ctx, search.general ? 'general' : 'none');
+    if (planned.latinOnly) return { findings, threads, notes, partial: [latinOnlyPartial(planned.lang)], noLearn: true };
+    return { findings, threads, notes };
   },
 };
 
@@ -549,8 +888,10 @@ export const COMPANY_NEWS_WINDOWS = [
 ];
 /** The person's windows that also get a plain pass (no trouble words): a later venture's funding news is often 3 to 8 years old; older plain coverage rarely changes the picture. */
 const PLAIN_WINDOWS = new Set(['recent', '1-3y', '3-8y']);
-const NEWS_ADVERSE = any('lawsuit', 'fraud', 'investigation', 'charged', 'bankruptcy', 'scandal', 'fired', 'settlement');
-const COMPANY_ADVERSE = any('lawsuit', 'fraud', 'investigation', 'bankruptcy', 'layoffs', '"shut down"', 'scandal', 'settlement');
+// Misconduct headlines say "accused" or "allegations"; criminal outcomes "arrested", "convicted", "sentenced".
+// The news feeds take far more questions than the general web search, so the wider terms go here.
+const NEWS_ADVERSE = any('lawsuit', 'fraud', 'investigation', 'charged', 'accused', 'allegations', 'arrested', 'convicted', 'sentenced', 'bankruptcy', 'scandal', 'fired', 'settlement');
+const COMPANY_ADVERSE = any('lawsuit', 'fraud', 'investigation', 'bankruptcy', 'layoffs', '"shut down"', 'scandal', 'settlement', 'sanctions', '"class action"', '"attorney general"');
 
 /** The dates of a window, counted back from today: { after, before } as ISO days. */
 export function windowDates(id, now = Date.now()) {
@@ -561,9 +902,10 @@ export function windowDates(id, now = Date.now()) {
 }
 
 /**
- * News lookups for a thread. The person: an adverse-terms pass for every
- * window, and a plain pass for the three most recent. A company: an
- * adverse-terms pass for the last three years and one for everything older.
+ * News lookups for a thread. The person: an adverse-terms pass for every window, and a plain pass for the
+ * three most recent; board seats, investments, awards and lists (the profile's boards, investments and
+ * recognition); and an adverse pass in the local press of each language languageHints gives (its own news
+ * edition). A company: an adverse-terms pass for the last three years and one for everything older.
  */
 export function newsTemplates(thread, subject) {
   if (!subject?.name || !thread?.kind) return [];
@@ -577,11 +919,19 @@ export function newsTemplates(thread, subject) {
       if (PLAIN_WINDOWS.has(w.id)) out.push({ template: `n.${w.id}`, params: { query: co ? `${name} ${co}` : name, window: w.id, news: true }, prior: w.prior, why: `press coverage from ${w.label}` });
       out.push({ template: `n.${w.id}-adverse`, params: { query: `${name} ${NEWS_ADVERSE}`, window: w.id, news: true }, prior: Math.round((w.prior + 0.03) * 100) / 100, why: `lawsuits, investigations and scandals reported ${w.id === 'recent' ? 'in' : ''} ${w.label}`.replace(/\s+/g, ' ') });
     }
+    // One question for the positive footprint (the news feeds take long OR groups): board seats, investments, awards and lists
+    out.push({ template: 'n.recognition', params: { query: `${name} ${any('"joins board"', '"board of directors"', 'trustee', '"angel investor"', '"invested in"', '"30 Under 30"', '"40 Under 40"', 'award', '"named to"', 'honoree')}`, news: true }, prior: 0.35, why: 'board seats, investments, awards and lists reported in the press' });
+    for (const lang of languageHints(subject)) {
+      if (!ADVERSE[lang]) continue;
+      const { ref, latinOnly } = localNameRef(subject, lang);
+      out.push({ template: `n.adverse-${lang}`, params: { query: `${ref} ${ADVERSE[lang]}`, news: true, lang, ...(latinOnly ? { latinOnly: true } : {}) }, prior: 0.4, why: `lawsuits and fraud allegations in the ${LANGUAGE_LABEL[lang]}-language press` });
+    }
     return out;
   }
   if (thread.kind === 'company' && tidy(thread.value)) {
     // For a company only the adverse pass: general company news says little about the person and would use up the lookup budget.
-    const c = phrase(shortCompany(thread.value));
+    // An ordinary word is never searched alone (companyQueryRef).
+    const c = companyQueryRef(subject, thread.value);
     for (const w of COMPANY_NEWS_WINDOWS) {
       out.push({ template: `n.company-${w.id}`, params: { query: `${c} ${COMPANY_ADVERSE}`, window: w.id, news: true }, prior: w.prior, why: `trouble at this company reported ${w.id === 'last-3y' ? 'in' : ''} ${w.label}`.replace(/\s+/g, ' ') });
     }
@@ -605,8 +955,12 @@ export const newsArchiveConnector = {
     const query = tidy(planned?.query);
     if (!query) return { findings: [], threads: [], notes: [] };
     const { after, before } = windowDates(planned.window);
-    const { results, tried } = await keylessSearch(query, { news: true, after, before, num: 15, deadline: ctx.deadline, accept: acceptFor(subject, task) });
+    const { results, tried } = await keylessSearch(query, { news: true, after, before, num: 15, deadline: ctx.deadline, lang: planned.lang, accept: acceptFor(subject, task) });
     const { findings, threads } = collect(subject, task, results, { source: NEWS_ID, sourceLabel: NEWS_LABEL, category: 'press', companyOnlyMax: COMPANY_ONLY_MAX.news, knownWiki: knownWikiPages(ctx), backgroundKept: backgroundWikiCount(ctx) });
+    // Google News gives no snippet and a forwarding link: find the article itself for the page reader
+    threads.push(...await articleThreads(subject, results, findings, ctx));
+    // The local press asked with the Latin name only: not counted as searched (latinOnly, localNameRef).
+    if (planned.latinOnly) return { findings, threads, notes: pauseNotes(tried), partial: [latinOnlyPartial(planned.lang)], noLearn: true };
     return { findings, threads, notes: pauseNotes(tried) };
   },
 };

@@ -1,0 +1,297 @@
+{
+ "key": "ui",
+ "notes": "Scope files read in full. I confirmed two findings with a temporary jest file, now deleted: makeFinding keeps a 'javascript:' URL, and extractProfiles accepts a namesake's LinkedIn profile. Colour classes use tokens (slate, rose and amber map to CSS variables), and the code has no hex colours or dark: variants. Every screen status matches SCREEN_CHIP. zzAudit.courts and zzAudit.llm test files from other auditors are still in tests/unit/features.",
+ "omitted": 5,
+ "findings": [
+  {
+   "id": "ui-quick-profiles-namesakes",
+   "title": "Quick brief lists namesakes' LinkedIn/Crunchbase profiles as the person's, and seeds the network helper with their company",
+   "severity": "low",
+   "kind": "wrong-person",
+   "file": "src/pages/founder.js",
+   "line": 280,
+   "scenario": "Name 'Trevor Milton', company 'Nikola'. A search result 'Trevor Milton - Sales Manager - Acme Plumbing | LinkedIn' appears under 'Public profiles' as 'Sales Manager at Acme Plumbing · Boise' with no namesake chip. NetworkHelpers then uses profiles[0].company and the profiles' companies as 'related', so 'Who can help diligence' lists the investor's contacts at Acme Plumbing.",
+   "evidence": "Temp jest run: extractProfiles([...'Sales Manager - Acme Plumbing'...]) returned a profile with company 'Acme Plumbing'. extractProfiles only checks hasName(title); the Public profiles list renders no Flag; founder.js 298-299 feeds profiles into NetworkHelpers.",
+   "fix": "Server: in extractProfiles mark possibleDifferentPerson when a company was typed and the profile's title/snippet does not name it. UI: list only matching profiles under 'Public profiles'; put the rest in a collapsed 'Name matches only' list with the existing warning chip; never pass unmatched profile companies to NetworkHelpers (company or related).",
+   "filesToChange": [
+    "src/server/founderCheck.js",
+    "src/pages/founder.js"
+   ],
+   "dim": "ui",
+   "verdict": "refuted",
+   "verifyNote": "With a company typed, founderCheck.js 756-761 drops any result whose text lacks the company unless its profile is already tied by a page that names it, so the Acme Plumbing profile never reaches extractProfiles. The auditor's test called extractProfiles directly and skipped that filter. Only the no-company case shows namesake profiles, and that case already carries a disambiguation warning.",
+   "betterFix": "Residual, low: when no company is typed and the profiles name two or more distinct companies, give each profile the 'may be someone else' chip, and do not seed NetworkHelpers from profiles[0].company."
+  },
+  {
+   "id": "ui-green-zero-flags",
+   "title": "Green '0 red flags' chip when courts and watchlists did not answer",
+   "severity": "high",
+   "kind": "honesty",
+   "file": "src/components/founder/DeepCheck.js",
+   "line": 402,
+   "scenario": "Web search and Wikipedia answer; sanctions lists, court records, DOJ and SEC all fail. coverage.searched is non-empty, so the header chip and the Red flags count chip turn green '0 red flags', reading as a clean result next to the person's name. The caveat is only in body text below.",
+   "evidence": "Line 402 and 417: tone is chip-good whenever coverage.searched.length > 0; coverage.searched is any source that answered once (report.js answered()).",
+   "fix": "Never use chip-good for zero red flags. Use a neutral chip and add 'N screens did not answer' (chip-warn) whenever any screen in the Sanctions and Courts groups has status failed or not-run. Apply the same rule to the Network Map 'Checked' chip (network.js CheckMark).",
+   "filesToChange": [
+    "src/components/founder/DeepCheck.js",
+    "src/pages/network.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "Lines 402 and 417 use chip-good whenever coverage.searched is non-empty, whatever the sanctions or courts screens returned. network.js 140 and 1055 also show green for 0 red flags. That breaks rule 5 (honest coverage)."
+  },
+  {
+   "id": "ui-resume-lost",
+   "title": "Closing the tab, or waiting 30 minutes, starts a new check instead of reopening the saved one",
+   "severity": "medium",
+   "kind": "robustness",
+   "file": "src/components/founder/DeepCheck.js",
+   "line": 97,
+   "scenario": "Investor starts a check, closes the tab, reopens /founder?name=..&company=.. (or clicks the Network Map 'Checked' chip an hour later). sessionStorage is empty or older than RESUME_MINUTES=30, so a fresh 3-5 minute check starts and uses one of 12 hourly checks, though the server keeps the job 72 hours.",
+   "evidence": "savedJob reads window.sessionStorage (per tab) with a 30-minute cutoff; history.js returns name/company/date but no jobId; network.js checkHref links to /founder with no job reference.",
+   "fix": "Add a server lookup (GET /api/founder/deep?name=&company=) returning the owner's newest job for that normalised name+company, running or done within 72h. The page resumes it, shows 'Report from <date>' with 'Run again'. Return jobId from history.js and link the Network Map chip with it. Keep sessionStorage only as a hint.",
+   "filesToChange": [
+    "src/components/founder/DeepCheck.js",
+    "src/pages/api/founder/deep.js",
+    "src/pages/api/founder/history.js",
+    "src/server/founder/networkLink.js",
+    "src/pages/network.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "savedJob reads per-tab sessionStorage with a 30-minute cutoff. GET only takes a jobId, history returns no jobId, and network.js checkHref has no job reference, yet jobs are kept for 72h (RETENTION_HOURS). Each rerun spends one of the 12 checks allowed per hour. Nothing is wrong in the data itself, so medium.",
+   "betterFix": "As proposed. Scope the lookup to the owner, and match on the normalised name plus the typed company (state.networkSeed can rewrite the company, so store the typed value)."
+  },
+  {
+   "id": "ui-unsafe-href",
+   "title": "Record links render any URL scheme; nothing rejects javascript: links",
+   "severity": "medium",
+   "kind": "security",
+   "file": "src/server/founder/finding.js",
+   "line": 143,
+   "scenario": "A source scrapes an href (e.g. courts.js case-law feed attr('href'), archive originals) that is 'javascript:fetch(...)'. makeFinding stores it unchanged; Record renders <a href> and React 18 only warns, so a click runs script on the site origin with the investor's session.",
+   "evidence": "Temp jest run: makeFinding(subject, { url: 'javascript:alert(1)', ... }).url === 'javascript:alert(1)'. React is ^18. No scheme check in finding.js, report.js or DeepCheck.js.",
+   "fix": "In makeFinding return null unless /^https?:\\/\\//i matches the URL. Add a safeHref() helper (http/https only, else render plain text) used for f.url, m.url, profile links, NetworkLinks p.profileUrl and the quick brief's Sources list.",
+   "filesToChange": [
+    "src/server/founder/finding.js",
+    "src/components/founder/DeepCheck.js",
+    "src/components/founder/NetworkLinks.js",
+    "src/pages/founder.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "makeFinding stores String(f.url) with no scheme check. isBlockedUrl only checks the host and returns false when there is none. Feed links (courts.js 1088, the RSS and web results in the quick brief) flow straight into <a href>, and React 18 only warns on javascript: links. It needs a hostile or compromised source, but no guard exists anywhere."
+  },
+  {
+   "id": "ui-print-export",
+   "title": "No export; printing to PDF drops most of the report",
+   "severity": "medium",
+   "kind": "improvement",
+   "file": "src/components/founder/DeepCheck.js",
+   "line": 173,
+   "scenario": "Investor uses the browser's Print to PDF to file the report with an IC memo. Closed <details> blocks (records by kind, related parties, timeline, name matches, What was searched) print collapsed, and open lists stop at 12-15 records. The PDF omits most evidence and the coverage caveats.",
+   "evidence": "Block renders <details> closed by default; Records slices to first 12/15; globals.css @media print only swaps colours. No copy or export control in the report header.",
+   "fix": "Add 'Save as PDF' and 'Copy as text' buttons beside 'Run again'. PDF: set a printing state that opens every Block and shows all records, then window.print(), with print CSS hiding buttons. Copy: plain-text memo (name, date, brief, red flags, screens, gaps, numbered sources with URLs) to the clipboard.",
+   "filesToChange": [
+    "src/components/founder/DeepCheck.js",
+    "src/styles/globals.css"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "Block renders a closed <details> by default, Records cuts the list at 12 or 15, and the @media print block in globals.css only swaps the palette. No export or copy control exists."
+  },
+  {
+   "id": "ui-one-screen-summary",
+   "title": "Red flags sit below the profile and three network sections; no one-minute summary",
+   "severity": "low",
+   "kind": "improvement",
+   "file": "src/components/founder/DeepCheck.js",
+   "line": 414,
+   "scenario": "Signed-in investor with contacts imported: after the brief come Profile (open), In your network, People you know (open), Who to call (open), then Red flags and screens. On a phone, red flags are several screens down; there is no single block stating identity confidence, flags, failed screens and namesakes.",
+   "evidence": "Report renders Profile, NetworkLinks, then Red flags (lines 414-427), then Screens.",
+   "fix": "Add a summary strip under the header: identity confidence with reason, red flag count and top three titles with cites, screens as 'X no match · Y did not answer', namesakes to rule out, key gaps. Move Red flags and Public-record screens directly after it, before Profile and network.",
+   "filesToChange": [
+    "src/components/founder/DeepCheck.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "The report renders the header, then Profile, then NetworkLinks, then Red flags (lines 414-427). The order is a real gap, but it is a layout improvement, not a defect."
+  },
+  {
+   "id": "ui-rerun-diff",
+   "title": "'Run again' discards the report at once and shows no changes",
+   "severity": "medium",
+   "kind": "improvement",
+   "file": "src/components/founder/DeepCheck.js",
+   "line": 392,
+   "scenario": "Investor clicks 'Run again' on last week's report. The report vanishes for 3-5 minutes; if the hourly limit is reached it is replaced by an error card. When the new report arrives, nothing shows which red flags or records are new or gone.",
+   "evidence": "run({ fresh: true }) calls setState({ report: null, phase: 'running' }) immediately; no comparison with the previous report.",
+   "fix": "Ask for confirmation; keep the previous report visible with progress above it; show a 429 inline without hiding the report. When done, diff by finding id: 'new since <date>' chips on records and red flags, and a 'No longer found' list.",
+   "filesToChange": [
+    "src/components/founder/DeepCheck.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "run() at line 567 calls setState({report:null, phase:'running'}) straight away. A 429 then replaces the report with an error card. Nothing compares the new report with the previous one."
+  },
+  {
+   "id": "ui-two-reports-numbering",
+   "title": "Quick brief and deep report share [n] numbering and equal weight on one page",
+   "severity": "medium",
+   "kind": "wrong-person",
+   "file": "src/pages/founder.js",
+   "line": 211,
+   "scenario": "After the deep report finishes, the quick brief still renders in full below it. Its [3] points to quick source 3, while the deep report's [3] is a different record. Its 'Companies and roles' and 'Press' include items flagged only by a small 'company not mentioned' chip, contradicting the deep report's identity grading.",
+   "evidence": "founder.js renders DeepCheck and the quick sections together; Cite uses #source-n, the deep report uses #deep-source-n, both shown as [n].",
+   "fix": "When the deep report is done, collapse the quick brief into a closed 'First look (not identity-checked)' block. Label its citations Q1, Q2. Inside it, move items with possibleDifferentPerson into a 'May be someone else' sublist.",
+   "filesToChange": [
+    "src/pages/founder.js",
+    "src/components/founder/DeepCheck.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "founder.js renders DeepCheck and the full quick brief together. Both show bare [n]: the quick brief links to #source-n and the deep report to #deep-source-n, so the same number points to different records. The quick brief's flagged items get only a small chip."
+  },
+  {
+   "id": "ui-signin-callback",
+   "title": "Sign-in link drops the person being checked",
+   "severity": "medium",
+   "kind": "ux",
+   "file": "src/components/founder/DeepCheck.js",
+   "line": 638,
+   "scenario": "Signed-out investor on /founder?name=Elizabeth%20Holmes&company=Theranos clicks 'Sign in to run it'. signin.js falls back to callbackUrl '/', so after Google sign-in they land on the home page and must type the name again.",
+   "evidence": "Link href='/signin' with no callbackUrl; signin.js uses router.query.callbackUrl starting with '/', otherwise '/'.",
+   "fix": "Use href={`/signin?callbackUrl=${encodeURIComponent(router.asPath)}`} (useRouter in DeepCheck). After returning, the check starts automatically.",
+   "filesToChange": [
+    "src/components/founder/DeepCheck.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "Line 638 links to /signin with no callbackUrl, and signin.js falls back to '/'. On return, DeepCheck starts by itself on mount when the name is in the URL, so the proposed fix works.",
+   "betterFix": "Also harden signin.js: it accepts any callbackUrl that starts with '/', which includes '//evil.example'. The plain 'Continue' link would then send the user off-site. Require the value to start with '/' but not '//' or '/\\'."
+  },
+  {
+   "id": "ui-favicon-leak",
+   "title": "Every source host is sent to Google from the investor's browser",
+   "severity": "medium",
+   "kind": "privacy",
+   "file": "src/pages/founder.js",
+   "line": 24,
+   "scenario": "A quick brief for a private founder lists their personal site and niche pages. The page loads google.com/s2/favicons?domain=<host> for each source, telling Google (with the investor's IP and cookies) which hosts this investor is researching.",
+   "evidence": "Favicon component builds an img src at www.google.com/s2/favicons for every source in the Sources list.",
+   "fix": "Remove the third-party favicon. Show a neutral icon by source type, or the host name as text. If icons are wanted, fetch them server-side through a cached same-origin route that never passes the person's name.",
+   "filesToChange": [
+    "src/pages/founder.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "Favicon (lines 19-31) loads google.com/s2/favicons for every source host from the investor's browser. That tells Google which niche hosts are being researched. The fix is simple and costs nothing."
+  },
+  {
+   "id": "ui-cite-popovers",
+   "title": "Citations jump away with no preview or way back",
+   "severity": "low",
+   "kind": "improvement",
+   "file": "src/components/founder/DeepCheck.js",
+   "line": 352,
+   "scenario": "While reading the brief, the investor clicks [27]. The page scrolls to record 27 deep in a section. preventDefault means no history entry, so Back leaves the page instead of returning to the brief. Checking ten claims means ten scroll trips.",
+   "evidence": "Document click handler calls event.preventDefault() and scrollIntoView; no hash push and no 'back to brief' control.",
+   "fix": "Make each [n] a button that opens a small popover (aria-expanded, Escape closes): title, source, date, match grade and reasons, quote, 'Open source' and 'Show in report'. When jumping, push the hash to history and add a 'Back to where you were' link near the record.",
+   "filesToChange": [
+    "src/components/founder/DeepCheck.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "The click handler at line 358 calls preventDefault and scrollIntoView with no history entry, preview or way back. It is a usability improvement, not a defect."
+  },
+  {
+   "id": "ui-filters",
+   "title": "No filtering or search across hundreds of records",
+   "severity": "low",
+   "kind": "improvement",
+   "file": "src/components/founder/DeepCheck.js",
+   "line": 497,
+   "scenario": "A check on a well-covered founder returns 300+ records across a dozen collapsed sections. The investor wants only 'serious' items tied to the person from court sources. They must open every section and click 'Show all' in each.",
+   "evidence": "Sections render per kind with Records slices; no filter, sort or text search controls exist in Report.",
+   "fix": "Add a filter bar above the sections: severity chips (serious, notable, minor), match chips (same person, likely, company, name only), a source select, and a text search. Show counts per chip, apply to every section, and keep the choice in the URL query.",
+   "filesToChange": [
+    "src/components/founder/DeepCheck.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "Report has no filter, sort or search controls; sections are per kind with sliced lists. A feasible client-side improvement."
+  },
+  {
+   "id": "ui-a11y-live",
+   "title": "Progress region re-announces everything every step; headings sit inside summary",
+   "severity": "low",
+   "kind": "ux",
+   "file": "src/components/founder/DeepCheck.js",
+   "line": 196,
+   "scenario": "A screen-reader user waits for a 4-minute check. The whole Progress section is aria-live, so every step re-reads chips, counts and log lines. The progressbar has no name. Section h2s are inside <summary>, which screen readers expose as a button, so heading navigation skips report sections.",
+   "evidence": "<section aria-live='polite'> wraps the chips and log; role='progressbar' has no aria-label or aria-valuetext; Block puts <h2> inside <summary>.",
+   "fix": "Drop aria-live from the section. Add one sr-only polite line updated once per round ('Round 3: 84 lookups, 41 records'). Give the bar aria-label='Deep check progress' and aria-valuetext. Put the h2 above or around the details, with the summary as the toggle.",
+   "filesToChange": [
+    "src/components/founder/DeepCheck.js",
+    "src/components/founder/NetworkLinks.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "The Progress section is aria-live='polite' around the chips and the log. The progressbar at line 203 has no aria-label or valuetext. Block puts its h2 inside <summary>, as stated."
+  },
+  {
+   "id": "ui-progress-backwards",
+   "title": "Progress bar moves backwards as new threads queue lookups",
+   "severity": "low",
+   "kind": "ux",
+   "file": "src/components/founder/DeepCheck.js",
+   "line": 192,
+   "scenario": "Round 1: 20 run, 5 queued shows 80%. A new company thread queues 35 lookups: 22 of 57 shows 39%. The investor reads it as the check going wrong.",
+   "evidence": "pct = tasksRun / (tasksRun + queued), recomputed each step with no floor.",
+   "fix": "Keep the highest percentage shown so far (useRef), or show an indeterminate bar with the text '84 lookups done, 30 queued, round 3'.",
+   "filesToChange": [
+    "src/components/founder/DeepCheck.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "Line 192 sets pct = tasksRun/(tasksRun+queued) with no floor, so newly queued lookups drop the bar."
+  },
+  {
+   "id": "ui-limit-message",
+   "title": "Hourly limit and bad-name errors offer a 'Try again' that cannot work",
+   "severity": "low",
+   "kind": "ux",
+   "file": "src/components/founder/DeepCheck.js",
+   "line": 649,
+   "scenario": "After 12 checks in an hour, the card says 'Try again later' with no time, and 'Try again' re-sends at once and fails again. A link like /founder?name=Madonna skips form validation; the deep card shows the 400 error and a useless 'Try again'.",
+   "evidence": "deep.js returns 429 with no time; DeepCheck shows the same Try again button for every error; founder.js mounts DeepCheck for any qName.",
+   "fix": "Return retryAfter (minutes) with the 429 and show 'You can start another check at 3:40 pm'; disable the button until then. Mount DeepCheck only when qName has two or more words, and otherwise show the form hint.",
+   "filesToChange": [
+    "src/components/founder/DeepCheck.js",
+    "src/pages/api/founder/deep.js",
+    "src/pages/founder.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "deep.js line 199 returns a 429 with no time. The error card always offers 'Try again', which calls run() at once. founder.js line 211 mounts DeepCheck for any qName, so a one-word name from a link gets the 400 and a pointless retry."
+  },
+  {
+   "id": "ui-brief-free-word",
+   "title": "Brief prompt uses 'free', so the AI brief can show a banned word",
+   "severity": "low",
+   "kind": "rule-breach",
+   "file": "src/server/founder/report.js",
+   "line": 850,
+   "scenario": "The model is told 'Not covered by any free source: ...' and asked about sources that 'do not exist for free'. A brief echoing 'no free source covers state courts' is rendered in the report, breaking the UI wording rule.",
+   "evidence": "report.js line 775 and 850 contain 'free' in the text sent to the model; the brief is rendered as is in DeepCheck line 409.",
+   "fix": "Reword both prompt strings to 'Not covered by the public sources this check uses' and 'sources this check cannot reach'. Add a check that rewrites or drops banned words (free, paid, API, key, token, tier, quota) in the brief.",
+   "filesToChange": [
+    "src/server/founder/report.js"
+   ],
+   "dim": "ui",
+   "verdict": "confirmed",
+   "verifyNote": "The brief prompt contains 'do not exist for free' (report.js 775) and 'Not covered by any free source' (850). The brief is rendered unfiltered, so the model can echo the word and break rule 6.",
+   "betterFix": "Reword both prompt strings. Do not strip the bare word 'free' from the brief: that would garble legitimate text such as 'free cash flow' or 'Free Press'. Rewrite only phrases about the check's own sources (free source/model, paid, quota, tier, API key) after generation."
+  }
+ ]
+}

@@ -4,6 +4,8 @@
  * company's own prospectus (item 3), and the registrant tie applied to the
  * plain mentions of the person (item 17).
  */
+// The SEC's website answers only a declared contact; these tests read filing documents, so one is declared.
+process.env.SEC_USER_AGENT = 'Test Runner test@example.com';
 jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
 
 const { setTransport } = require('../../../src/server/founder/http');
@@ -183,7 +185,7 @@ describe('item 17: the registrant tie and the person\'s company in the plain men
     ]);
     const r = await secCompanyConnector.run({ kind: 'company', value: 'Zeta Labs', template: 'joint', depth: 1 }, ctx(s));
     expect(r.findings).toHaveLength(1);
-    expect(r.findings[0].match).toBe('confirmed');
+    expect(r.findings[0].match).toBe('likely'); // round 3: a registry tie never sets 'confirmed' by hand
     expect(r.findings[0].matchReasons[0]).toMatch(/CIK 100/);
   });
 

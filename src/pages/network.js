@@ -18,7 +18,7 @@ import {
 import PageShell from '../components/layout/PageShell';
 import NetworkGraph, { SOURCE_COLORS } from '../components/network/NetworkGraph';
 import {
-  parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, MAX_CONTACTS,
+  parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, normalizeCompanyKey, companyMatch, companyFormMatch, MAX_CONTACTS,
 } from '../utils/network/parseContacts';
 import { buildAtlas, pathTo, personNodeId, seniority, LAYERS, NO_COMPANY_KEY, ROOT_ID } from '../utils/network/atlas';
 import { classifyContact, roleStats, LENSES } from '../utils/network/roles';
@@ -102,6 +102,90 @@ function SourceBadge({ source }) {
   );
 }
 
+// ---- founder checks already run (from /api/founder/history): contacts with a finished check are marked.
+const ChecksContext = React.createContext(null);
+// Titles before a name and degrees after it are not part of it: "Dr. Jane Roe, PhD" is "jane roe". "Jr" and "Sr"
+// stay, since they tell a father from a son.
+const HONORIFIC = /^(?:dr|mr|mrs|ms|mx|miss|prof|professor|sir|dame)\s+/;
+const DEGREES = new Set(['phd', 'mba', 'md', 'jd', 'cfa', 'cpa', 'pe', 'esq', 'msc', 'ma', 'bsc', 'ba', 'bs', 'ms', 'mph', 'dds', 'rn', 'pmp']);
+const checkNameKey = (name) => {
+  let key = String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\([^)]*\)/g, ' ').split(',')[0].replace(/['’`.]/g, '').replace(/[^a-z0-9\- ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  for (let prev = ''; prev !== key;) { prev = key; key = key.replace(HONORIFIC, ''); }
+  const words = key.split(' ');
+  while (words.length > 2 && DEGREES.has(words[words.length - 1])) words.pop();
+  return words.join(' ');
+};
+/** The same company written two ways: equal, a longer name containing a two-word one, or only form words added. */
+const sameCompany = (a, b) => {
+  const x = normalizeCompanyKey(a);
+  const y = normalizeCompanyKey(b);
+  return Boolean(x && y) && Boolean(companyMatch(x, y) || companyFormMatch(x, y));
+};
+/**
+ * The finished check for this contact: same full name, and the same company
+ * when the check had one. A check run without a company is only tied to a
+ * contact when no other loaded contact carries that full name (nameCounts:
+ * name key -> how many loaded contacts carry it); otherwise it may be about
+ * a namesake, and nothing is shown.
+ */
+export function findCheck(checks, name, company, nameCounts) {
+  const key = checkNameKey(name);
+  if (!key || !Array.isArray(checks)) return null;
+  const sameName = checks.filter((c) => checkNameKey(c.name) === key);
+  const withCompany = sameName.find((c) => String(company || '').trim() && String(c.company || '').trim() && sameCompany(c.company, company));
+  if (withCompany) return withCompany;
+  const unique = nameCounts && typeof nameCounts.get === 'function' && nameCounts.get(key) === 1;
+  return unique ? (sameName.find((c) => !String(c.company || '').trim()) || null) : null;
+}
+/** name key -> how many of these contacts carry that full name. */
+export function contactNameCounts(contacts) {
+  const counts = new Map();
+  for (const c of Array.isArray(contacts) ? contacts : []) {
+    const key = checkNameKey(c?.name);
+    if (key) counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+/**
+ * The finished check itself (?job=), so the Founder Check page reopens it instead of starting a new one; the
+ * name and company stay in the link for a check the server no longer keeps. A check anchored on a company it
+ * was given (seededCompany) keeps that company.
+ */
+export const checkHref = (c) => {
+  const q = new URLSearchParams({ name: String(c.name || '') });
+  const company = c.company || c.seededCompany;
+  if (company) q.set('company', String(company));
+  if (c.id) q.set('job', String(c.id));
+  return `/founder?${q}`;
+};
+/**
+ * The "Checked" chip for a finished check: { className, text, title }. Never green: the list does not say
+ * whether every court and watchlist screen answered, so 0 red flags is not a clean result. Serious records
+ * held "if this is the right person" (the check assumed the company) make it amber and are said.
+ */
+export function checkChip(check) {
+  const flags = Number(check?.redFlags) || 0;
+  const held = Number(check?.ifRightPerson) || 0;
+  return {
+    className: flags ? 'chip chip-bad' : held > 0 ? 'chip chip-warn' : 'chip',
+    text: `Checked${flags ? ` · ${flags} red flag${flags === 1 ? '' : 's'}` : ''}${held > 0 ? ` · ${held} serious if right person` : ''}`,
+    title: `Founder check finished ${formatDate(check?.date)}. Open the report to see which screens answered.${held > 0 ? ` ${held} serious matter${held === 1 ? ' holds' : 's hold'} if this is the right person.` : ''}`,
+  };
+}
+function CheckMark({ name, company }) {
+  const ctx = React.useContext(ChecksContext);
+  const check = findCheck(ctx?.checks, name, company, ctx?.nameCounts);
+  if (!check) {
+    // A check still running is shown as running, so opening it picks it up instead of starting another.
+    const running = findCheck(ctx?.running, name, company, ctx?.nameCounts);
+    return running ? <Link href={checkHref(running)} className="chip" title="A founder check of this person is still running. Open it to follow it.">Running</Link> : null;
+  }
+  const chip = checkChip(check);
+  return (
+    <Link href={checkHref(check)} className={chip.className} title={chip.title}>{chip.text}</Link>
+  );
+}
+
 function ContactActions({ name, company }) {
   if (!company && !name) return null;
   return (
@@ -135,6 +219,7 @@ function ResultRow({ item, onShow }) {
             {c.company && <span className="chip">{c.company}</span>}
             {item.roleLabel && item.role !== 'other' && <span className="chip chip-active">{item.roleLabel}</span>}
             {c.relationship === 'firm' && <span className="chip chip-warn">Firm{c.via ? ` · via ${c.via}` : ''}</span>}
+            <CheckMark name={c.name} company={c.company} />
           </div>
           <div className="mt-0.5 truncate text-sm text-slate-600">{c.position || (c.company ? '' : 'No title or company listed')}</div>
           {item.reasons.length > 0 && <p className="mt-1 text-xs text-muted">{item.reasons.join(' · ')}</p>}
@@ -192,6 +277,19 @@ export default function NetworkPage() {
   const [panelSort, setPanelSort] = useState('senior');
   const [peopleShown, setPeopleShown] = useState(PEOPLE_PAGE);
   const [dragging, setDragging] = useState(false);
+
+  const [checks, setChecks] = useState([]); // founder checks this user has finished
+  const [runningChecks, setRunningChecks] = useState([]); // and the ones still running
+  useEffect(() => {
+    if (sessionStatus !== 'authenticated') { setChecks([]); setRunningChecks([]); return undefined; }
+    let live = true;
+    fetch('/api/founder/history').then((r) => (r.ok ? r.json() : { checks: [] })).then((d) => {
+      if (!live) return;
+      setChecks(Array.isArray(d.checks) ? d.checks : []);
+      setRunningChecks(Array.isArray(d.running) ? d.running : []);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [sessionStatus]);
 
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
@@ -567,6 +665,9 @@ export default function NetworkPage() {
   // LinkedIn's export has no location, so grouping by country is only offered once some contact has one.
   const hasLocations = useMemo(() => contacts.some((c) => countryOf(c) !== UNKNOWN_COUNTRY), [contacts]);
 
+  // A check run without a company marks a contact only when that contact's full name is unique here.
+  const checksContext = useMemo(() => ({ checks, running: runningChecks, nameCounts: contactNameCounts(contacts) }), [checks, runningChecks, contacts]);
+
   const answerKeys = useMemo(() => {
     if (!answer) return null;
     const keys = new Set();
@@ -721,6 +822,19 @@ export default function NetworkPage() {
     ask(text);
   };
 
+  // A link from a report ("Ask your network about Acme") arrives as ?ask=: run it once, when the contacts are in.
+  const askedFromLink = useRef(false);
+  useEffect(() => {
+    if (askedFromLink.current || !router.isReady || mode === 'loading' || !contacts.length) return;
+    const q = String(router.query?.ask || '').trim().slice(0, 300);
+    if (!q) return;
+    askedFromLink.current = true;
+    setQuestion(q);
+    ask(q);
+    // `ask` is a new function each render; the ref keeps this to one run
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.isReady, router.query, mode, contacts.length]);
+
   const lastImport = (source) => (mode === 'saved' ? stats?.lastImportBySource?.[source] : memoryImports[source]);
   const lastImportAny = mode === 'saved' ? stats?.lastImportAt : Object.values(memoryImports).sort().pop();
   const filtersShown = answer?.filters;
@@ -837,6 +951,7 @@ export default function NetworkPage() {
             )}
             {classifyContact(selected.contact).lenses.map((l) => <span key={l} className="chip">{LENSES[l].short}</span>)}
             {selected.contact.relationship === 'firm' && <span className="chip chip-warn" title="A firm-wide CRM contact, not your own connection">Firm contact{selected.contact.via ? ` · via ${selected.contact.via}` : ''}</span>}
+            <CheckMark name={selected.contact.name} company={selected.contact.company} />
           </p>
           <dl className="mt-3 space-y-1 text-xs text-muted">
             {selected.contact.location && <div><dt className="inline font-medium text-slate-700">Location: </dt><dd className="inline">{selected.contact.location}</dd></div>}
@@ -891,6 +1006,7 @@ export default function NetworkPage() {
   );
 
   return (
+    <ChecksContext.Provider value={checksContext}>
     <PageShell flows
       title="Network Map"
       wide
@@ -980,6 +1096,30 @@ export default function NetworkPage() {
               )}
             </div>
           </section>
+        )}
+
+        {/* ---------------------------------------------------- founder checks run */}
+        {signedIn && checks.length > 0 && (
+          <details className="card card-pad group">
+            <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+              <h2 className="section-title">Founder checks you have run</h2>
+              <span className="chip">{checks.length}</span>
+              <span className="ml-auto text-xs text-muted group-open:hidden">Show</span>
+              <span className="ml-auto hidden text-xs text-muted group-open:inline">Hide</span>
+            </summary>
+            <p className="muted mt-3 text-xs">Finished deep checks from the last three days. Contacts with one are marked “Checked”.</p>
+            <ul className="mt-2 divide-y divide-line">
+              {checks.map((c) => (
+                <li key={`${c.name}|${c.company}`} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+                  <Link href={checkHref(c)} className="font-medium text-ink hover:text-brand-600 hover:underline">{c.name}</Link>
+                  {c.company && <span className="chip">{c.company}</span>}
+                  {/* Same rule as the Checked chip: matters held "if right person" are never shown as 0 red flags alone */}
+                  {typeof c.redFlags === 'number' && <span className={c.redFlags ? 'chip chip-bad' : Number(c.ifRightPerson) > 0 ? 'chip chip-warn' : 'chip'}>{c.redFlags} red flag{c.redFlags === 1 ? '' : 's'}{Number(c.ifRightPerson) > 0 ? ` · ${c.ifRightPerson} serious if right person` : ''}</span>}
+                  {c.date && <span className="ml-auto text-xs text-muted">{formatDate(c.date)}</span>}
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
 
         {/* ---------------------------------------------------- sources */}
@@ -1440,5 +1580,6 @@ export default function NetworkPage() {
 
       </div>
     </PageShell>
+    </ChecksContext.Provider>
   );
 }

@@ -85,7 +85,9 @@ describe('wikidataConnector', () => {
     const calls = fakeNetwork(wikidataRoutes());
     const subject = createSubject({ name: 'Jane Roe', company: 'Acme Robotics' });
     const r = await K.wikidataConnector.run({ kind: 'subject', value: 'Jane Roe', template: 'profile' }, ctxFor(subject));
-    expect(calls).toHaveLength(3);
+    // R3: plus one search for the company's own item (people tied to it are added to the candidates)
+    expect(calls).toHaveLength(4);
+    expect(calls[1]).toContain('action=wbsearchentities');
     const identity = r.findings.find((f) => f.category === 'identity');
     expect(identity).toMatchObject({ match: 'confirmed', url: 'https://www.wikidata.org/wiki/Q100', source: 'wikidata' });
     expect(identity.title).toBe('Jane Roe: American engineer, founder of Acme Robotics');
@@ -114,7 +116,7 @@ describe('wikidataConnector', () => {
     const calls = fakeNetwork(wikidataRoutes());
     const subject = createSubject({ name: 'Jane Roe', company: 'Acme Robotics' });
     const r = await K.wikidataConnector.run({ kind: 'subject', value: 'Jane Roe', template: 'family' }, ctxFor(subject));
-    expect(calls).toHaveLength(4); // search, candidates, relatives, roles
+    expect(calls).toHaveLength(5); // search, the company's item, candidates, relatives, roles
 
     const related = r.findings.filter((f) => f.category === 'related');
     const father = related.find((f) => f.title.startsWith('Father:'));
@@ -145,7 +147,7 @@ describe('wikidataConnector', () => {
     expect(r.findings).toEqual([]);
     expect(r.threads).toEqual([]);
     expect(r.notes[0]).toMatch(/Wikidata lists 2 people named Jane Roe .*Initech.*None was used/);
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3); // R3: search, the company's item, candidates
   });
 
   test('namesakes: two candidates equally tied to the company -> none is picked', () => {
@@ -197,7 +199,7 @@ const ARTICLE = [
   'In 2022, a former employee filed a lawsuit against Roe over unpaid wages at the company. The case was settled in 2023.',
   '',
   '== Personal life ==',
-  'Roe married Sam Roe in 2010 and they live in Palo Alto. Her father, John Roe, is the chairman of Roe Industries.',
+  'Roe grew up in Ohio. Her father, John Roe, is the chairman of Roe Industries. Roe married Sam Roe in 2010 and they live in Palo Alto.',
   '',
   '== References ==',
 ].join('\n');
@@ -357,7 +359,8 @@ describe('littleSisConnector', () => {
     const r = await K.littleSisConnector.run({ kind: 'company', value: 'Acme Robotics' }, ctxFor(subject));
     expect(calls).toHaveLength(2);
     expect(r.findings).toHaveLength(1);
-    expect(r.findings[0]).toMatchObject({ title: 'Jane Roe: Chief Executive Officer at Acme Robotics (from 2015)', match: 'confirmed' });
+    // R3: a structural tie (the company's own entry lists the full name) is 'likely', set by hand, never more
+    expect(r.findings[0]).toMatchObject({ title: 'Jane Roe: Chief Executive Officer at Acme Robotics (from 2015)', match: 'likely' });
   });
 
   test('the source failing makes run() reject', async () => {
@@ -438,7 +441,8 @@ describe('nonprofitFilingsConnector', () => {
     const r = await K.nonprofitFilingsConnector.run({ kind: 'company', value: 'Acme Robotics' }, ctxFor(subject));
     expect(calls).toHaveLength(3);
     expect(r.findings).toHaveLength(1);
-    expect(r.findings[0]).toMatchObject({ match: 'confirmed', url: 'https://projects.propublica.org/nonprofits/organizations/222' });
+    // R3: the company's own foundation is a structural tie: 'likely', never more
+    expect(r.findings[0]).toMatchObject({ match: 'likely', url: 'https://projects.propublica.org/nonprofits/organizations/222' });
     expect(JSON.stringify(r)).not.toContain('Private Lane');
   });
 

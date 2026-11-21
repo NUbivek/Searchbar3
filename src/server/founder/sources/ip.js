@@ -3,33 +3,37 @@
  * for checking "holds N patents" and "founded in ..." against the record.
  *
  *   patents      patent families naming the person as inventor (worldwide,
- *                from Google Patents). The USPTO's Patent Public Search is not
- *                asked: it answers only its own web page, not other programs,
- *                and this check does not pretend to be that page. When Google
- *                Patents does not answer (it turns away busy addresses), the
- *                lookup fails and the coverage statement says so; when one of
- *                its two searches answers, a note says which is missing.
- *   trademarks   US trademark filings owned by a company tied to the person:
- *                how many, the earliest filing date, live against dead.
+ *                from Google Patents). Google's terms bar automated querying
+ *                and it turns automated callers away; no permitted patent
+ *                search answers without registration (the USPTO's Open Data
+ *                Portal, PatentsView and the EPO's services all need one). So
+ *                the lookup runs only where the owner allows Google Patents
+ *                (FOUNDER_GOOGLE_PATENTS=on); elsewhere the screen says it is
+ *                not enabled. When Google turns the lookup away it fails, and
+ *                the coverage statement says patents were not checked.
+ *   trademarks   not enabled: the only search by owner was the USPTO
+ *                trademark web application's internal backend, removed for
+ *                terms reasons. trademarkFindings keeps the matching for a
+ *                permitted feed of filings.
  *
  * Identity. Inventor search is by name, so namesakes are the main risk. A
  * patent is kept only when the inventor's first and last names are the
  * subject's (middle names and "Last First" order allowed). It is then graded
- * by finding.js from the assignee: a patent assigned to a known company of
- * the subject is confirmed, anything else stays a possible namesake. A patent
- * the search returns for that company as assignee counts as assigned to it
- * even when the record now prints a later owner, and says so. When the
- * confirmed patents all write the inventor with the same middle initial,
- * name-only records with a different middle name are left out.
+ * from the assignee: a patent whose printed assignee is a known company of the
+ * subject (the register rule of registries.js, legal names learned for it
+ * included) is graded by the identity check; one the company search returns
+ * under another owner is "likely" at most (reassigned), or "possible" when that
+ * owner only resembles the company ("Flow Hair Salon Inc" for Flow). Threads
+ * are followed only from families whose printed owner is the user's company or
+ * a domain-anchored one. When the confirmed patents all write the inventor
+ * with the same middle initial, name-only records with a different middle name
+ * are left out.
  *
  * Trademark owners are matched on the whole owner name (legal form aside),
  * never on a word inside it: "Stripe" must not pick up "Blue Stripe, LLC" or
- * "Stripe International Inc.", and "Flow" must not pick up "Flow Companies
- * Inc". A one-word name other than the company the user gave is graded
- * possible and kept out of the timeline. Where several owners carry the name, only the
- * one with the most filings is counted and the rest are listed as left out;
- * so is a filing that lapsed years before the others began (an earlier user
- * of the name).
+ * "Stripe International Inc.", "Flow" must not pick up "Flow Companies Inc",
+ * and an owner named only by an ordinary word ("RAMP CORPORATION", owner of
+ * HEALTHRAMP) is never Ramp's.
  *
  * Privacy: only names of inventors, assignees and owning companies, titles
  * and dates are read. Inventor city, trademark owner address and attorney
@@ -42,14 +46,17 @@ import { getJson, htmlToText } from '../http';
 import { makeFinding, makeThread } from '../finding';
 import { nameTokens, companyKeyStrict } from '../identity';
 import { companyKeys } from '../../founderCheck';
+import { isOrdinaryWordCompany } from '../names';
+import { knownCompanyFor, knownCompanyNames, nameTie } from './registries';
 
 const switchedOff = (id) => String(process.env.FOUNDER_SOURCES_OFF || '').split(',').map((s) => s.trim()).filter(Boolean).includes(id);
+/** The owner's choice to allow Google Patents, which bars automated querying in its terms (off unless set). */
+const googlePatentsAllowed = () => /^(on|1|true|yes)$/i.test(String(process.env.FOUNDER_GOOGLE_PATENTS || '').trim());
 
 const MAX_FAMILIES = 25; // patent families reported per person
 const MAX_NAME_ONLY = 10; // of which, at most this many matched by name alone
 const MAX_THREADS = 5;
 const MAX_MARKS = 8;
-const TRADEMARK_PAGE = 250;
 
 const clean = (s) => htmlToText(String(s || '').replace(/&hellip;/gi, '…')).replace(/\s+/g, ' ').trim();
 const day = (s) => (/^\d{4}-\d{2}-\d{2}/.test(String(s || '')) ? String(s).slice(0, 10) : null);
@@ -133,7 +140,19 @@ function fromGoogle(result) {
 
 /** One Google Patents query: the records on the first page (up to 100, newest first) and the inventor facet. */
 async function googleSearch(fields, deadline) {
-  const data = await getJson(googleUrl(fields), { deadline, timeoutMs: 9000 });
+  let data;
+  try {
+    data = await getJson(googleUrl(fields), { deadline, timeoutMs: 9000 });
+  } catch (error) {
+    // Google answers automated callers with a 429 or a 503 "unusual traffic" page: the patents were not checked
+    if (error?.status === 429 || error?.status === 503) {
+      const refused = new Error(`Google Patents turned the lookup away (HTTP ${error.status}); patents were not checked`);
+      refused.status = error.status;
+      refused.code = 'refused';
+      throw refused;
+    }
+    throw error;
+  }
   const results = data?.results;
   if (!results || typeof results !== 'object') throw new Error('Unexpected answer from Google Patents');
   return {
@@ -189,19 +208,20 @@ function groupFamilies(records) {
 }
 
 /**
- * One finding for a patent family. `listedUnder` is the subject's company
- * when the patent search returned the family for that assignee although the
- * assignee printed on the record is now someone else (patents are sold and
- * reassigned: Theranos' are held by Labrador Diagnostics today).
+ * One finding for a patent family. `held` is a grade the connector sets by hand: "likely" when the patent search
+ * listed the family under the subject's company as assignee although the record now prints another owner (patents
+ * are sold and reassigned: Theranos' are held by Labrador Diagnostics today), "possible" when the printed owner only
+ * resembles the company ("Flow Hair Salon Inc" for Flow). "Listed under" is a note on the record, never part of the
+ * text the grader reads: the grader must not see the company named where the record does not name it.
  */
-function familyFinding(subject, who, family, connector, listedUnder = null) {
+function familyFinding(subject, who, family, connector, held = null) {
   const { rep } = family;
   const others = family.members.filter((m) => m !== rep).map((m) => m.number);
   const assignees = family.assignees.length ? `${family.assignees.length > 1 ? 'assignees' : 'assignee'}: ${family.assignees.join(' / ')}` : 'no assignee recorded';
   const quote = [
     // the name is kept in a form the identity check recognises, so the record can be re-graded when more companies become known
     `Inventor named: ${subject.hasName(rep.inventor) ? rep.inventor : `${rep.inventor} (searched as ${who.display})`}`,
-    listedUnder ? `${assignees} (listed under assignee ${listedUnder.short})` : assignees,
+    held?.listedUnder ? `${assignees} (listed under assignee ${held.listedUnder})` : assignees,
     family.priority ? `priority ${family.priority}` : null,
     rep.filed ? `filed ${rep.filed}` : null,
     rep.granted ? `granted ${rep.granted}` : null,
@@ -210,11 +230,44 @@ function familyFinding(subject, who, family, connector, listedUnder = null) {
   const build = (title) => makeFinding(subject, {
     source: connector.id, sourceLabel: connector.label, category: 'ip', severity: 'info',
     title, quote, url: rep.url, date: family.priority || family.date || rep.filed || rep.granted,
-    matchText: [who.display, ...family.inventorForms, ...family.assignees, listedUnder ? `listed under assignee ${listedUnder.name}` : ''].filter(Boolean).join(' | '),
-    data: { publicationNumber: rep.number, inventorAsRecorded: rep.inventor, assignees: family.assignees, priorityDate: family.priority, filingDate: rep.filed, grantDate: rep.granted, publications: family.members.map((m) => m.number) },
+    matchText: [who.display, ...family.inventorForms, ...family.assignees].filter(Boolean).join(' | '),
+    ...(held ? { match: held.match, matchReasons: [held.reason] } : {}),
+    data: {
+      publicationNumber: rep.number, inventorAsRecorded: rep.inventor, assignees: family.assignees, priorityDate: family.priority, filingDate: rep.filed, grantDate: rep.granted, publications: family.members.map((m) => m.number),
+      ...(held?.listedUnder ? { listedUnder: held.listedUnder } : {}),
+      ...(held?.match === 'possible' ? { excludeFromTimeline: true } : {}),
+    },
   });
   // The privacy filter drops text with medical words; a patent title is not about the person, so keep the record without it.
   return build(`${rep.number}: ${rep.title}`) || build(`${rep.number}: patent record (title not shown)`);
+}
+
+/**
+ * Is a printed assignee a known company of the subject? The register rule (registries.js knownCompanyFor: the
+ * name itself, its country arm or holding, an arm of a coined name, or a learned legal name), plus, for a coined
+ * name only, the company's name followed by other words ("Theranos IP Company, LLC"). An ordinary word
+ * ("Flow Hair Salon Inc" for Flow) never ties this way.
+ */
+function assigneeCompany(subject, assignee) {
+  const tie = knownCompanyFor(subject, assignee);
+  if (tie) return tie.company;
+  const hit = knownCompanyNames(subject).find((n) => nameTie(n.name, assignee) === 'prefix' && !isOrdinaryWordCompany(n.name) && legalNorm(n.name).length >= 4);
+  return hit ? hit.of : null;
+}
+/** Does the printed assignee carry the company's word without being it ("Flowserve", "Flow Hair Salon" for Flow)? */
+const resemblesCompany = (assignee, company) => {
+  const word = legalNorm(company).replace(/\s+/g, '');
+  return word.length >= 3 && legalNorm(assignee).replace(/\s+/g, '').includes(word);
+};
+/** The user's own company, or one whose web domain the check knows: the only companies whose patents' threads are followed. */
+function isAnchoredCompany(subject, company) {
+  if (!company) return false;
+  if (legalNorm(company) === legalNorm(subject.company)) return true;
+  const key = companyKeys(company)[0] || company.toLowerCase();
+  const aliasDomain = [...(subject.anchors?.aliases?.values?.() || [])].some((a) => a.of === key && /\.[a-z]{2,}$/i.test(a.value) && !/\s/.test(a.value));
+  const label = legalNorm(company).replace(/\s+/g, '');
+  const domain = [...(subject.anchors?.domains?.values?.() || [])].some((d) => String(d.value || '').toLowerCase().replace(/^www\./, '').split('.')[0].replace(/-/g, '') === label);
+  return aliasDomain || domain;
 }
 
 /** Number of single-character edits between two short strings (used to spot one name misspelt in a register). */
@@ -252,7 +305,11 @@ export const patentsConnector = {
   kinds: ['subject'],
   prior: 0.4,
   timeoutMs: 18000,
-  enabled: () => !switchedOff('patents'),
+  // Google's terms bar automated querying and it turns automated callers away, and no permitted patent search
+  // answers without registration (the USPTO's Open Data Portal, PatentsView and the EPO's services all need one).
+  // So the patent lookup runs only where the owner has chosen to allow Google Patents (FOUNDER_GOOGLE_PATENTS=on);
+  // everywhere else the screen says it is not enabled, never "no patents".
+  enabled: () => !switchedOff('patents') && googlePatentsAllowed(),
   unavailableReason: 'Patent records are not enabled on this deployment.',
 
   async run(task, ctx) {
@@ -292,9 +349,31 @@ export const patentsConnector = {
       byNumber.set(r.number, { ...r, middleInitial: hit.middleInitial });
     }
 
-    // 4. One finding per family, graded from the assignee.
-    const listedUnder = (family) => (company && family.underCompany && !family.assignees.some(known) ? { name: company, short: companyShort } : null);
-    let graded = groupFamilies([...byNumber.values()]).map((family) => ({ family, finding: familyFinding(subject, who, family, this, listedUnder(family)) })).filter((x) => x.finding);
+    // 4. One finding per family, graded from the assignee. A family whose printed assignee is a known company is
+    //    graded by the identity check from its own text. One the company search returned under another owner is
+    //    "likely" at most (a reassigned patent), or "possible" when that owner only resembles the company.
+    // The short names of every known company (the one typed, anchors, learned legal names): an assignee that only
+    // contains one of them is a look-alike, never the company.
+    const lookalikeNames = [...new Set([companyShort, ...knownCompanyNames(subject).map((n) => withoutLegalForm(n.name))].filter(Boolean))];
+    const heldGrade = (family) => {
+      if (family.assignees.some((a) => assigneeCompany(subject, a))) return null;
+      if (company && family.underCompany) {
+        if (family.assignees.length && family.assignees.every((a) => !resemblesCompany(a, companyShort))) {
+          return { match: 'likely', reason: `the patent search lists it under assignee ${companyShort}; the record now prints ${family.assignees.join(' / ')} (patents are often sold or reassigned)`, listedUnder: companyShort };
+        }
+        return { match: 'possible', reason: `the assignee only resembles ${companyShort}: it may be another company`, listedUnder: companyShort };
+      }
+      // A name-only family is left to the grader (so a company learned later can tie it), unless its owner merely
+      // resembles a known company: that must never be read as the company.
+      if (family.assignees.some((a) => known(a) && !assigneeCompany(subject, a))) return { match: 'possible', reason: 'matched by name; the assignee only resembles a known company of this person' };
+      // The same for an owner that carries a known company's word without being it ("Flow Hair Salon Inc",
+      // "Flowserve Corp" for Flow) although the company matcher does not read it as the company: left to the grader,
+      // the company's word in the text would tie a namesake inventor's patent to the person.
+      const lookalike = family.assignees.find((a) => lookalikeNames.some((n) => resemblesCompany(a, n)));
+      if (lookalike) return { match: 'possible', reason: `matched by name; the assignee ${lookalike} only resembles ${lookalikeNames.find((n) => resemblesCompany(lookalike, n))}: it may be another company` };
+      return null;
+    };
+    let graded = groupFamilies([...byNumber.values()]).map((family) => ({ family, finding: familyFinding(subject, who, family, this, heldGrade(family)) })).filter((x) => x.finding);
     const tied = () => graded.filter((x) => x.finding.match !== 'possible');
     // A middle initial that every company-tied patent agrees on marks name-only records with another one as namesakes.
     const learned = [...new Set(tied().flatMap((x) => x.family.middleInitials))];
@@ -312,6 +391,9 @@ export const patentsConnector = {
     const nameOnly = graded.filter((x) => x.finding.match === 'possible').sort(newest);
     const shown = [...confirmed.slice(0, MAX_FAMILIES), ...nameOnly.slice(0, Math.min(MAX_NAME_ONLY, Math.max(0, MAX_FAMILIES - confirmed.length)))];
     if (shown.length < graded.length) notes.push(`Patents: the ${shown.length} most relevant of ${graded.length} patent families naming ${who.display} are listed.`);
+    // Families whose printed owner is exactly a known company that is the user's own or domain-anchored: the only
+    // ones whose other owners and co-inventors are followed.
+    const trustedFamilies = confirmed.filter((x) => x.finding.match === 'confirmed' && x.family.assignees.some((a) => isAnchoredCompany(subject, assigneeCompany(subject, a))));
 
     // 5. The summary: how many, with whom, and how many are tied to a company we know.
     const tally = (items) => {
@@ -327,8 +409,10 @@ export const patentsConnector = {
       return [...counts.values()].sort((a, b) => b.n - a.n).map((row) => [row.name, row.n]);
     };
     // Co-inventors: the people named on the patents the search returned for the company (most frequent first).
+    // For a company named with one ordinary word the search also returns look-alike owners' patents, so their
+    // inventors are not the person's co-inventors.
     const coInventors = [];
-    if (byCompany && !byCompany.error && confirmed.length) {
+    if (byCompany && !byCompany.error && trustedFamilies.length && !isOrdinaryWordCompany(companyShort)) {
       const seen = new Set();
       for (const n of byCompany.inventors) {
         if (!LATIN.test(n) || n.split(' ').length < 2 || matchInventor(n, who)) continue;
@@ -340,29 +424,33 @@ export const patentsConnector = {
     }
     const dates = graded.map((x) => x.family.date).filter(Boolean).sort();
     const quote = [
-      confirmed.length ? `Assignees on the ${plural(confirmed.length, 'family', 'families')} tied to a known company: ${tally(confirmed).slice(0, 5).map(([a, n]) => `${a} (${n})`).join(' / ')}.` : null,
+      confirmed.length ? `Assignees on the ${plural(confirmed.length, 'family', 'families')} tied to a known company when searched: ${tally(confirmed).slice(0, 5).map(([a, n]) => `${a} (${n})`).join(' / ')}.` : null,
       nameOnly.length ? `${plural(nameOnly.length, 'family matches', 'families match')} by name only and may belong to a namesake${tally(nameOnly).length ? ` (assignees include ${tally(nameOnly).slice(0, 4).map(([a]) => a).join(' / ')})` : ''}.` : null,
       coInventors.length ? `Co-inventors on the ${companyShort} patents: ${coInventors.slice(0, 8).join(', ')}.` : null,
       dates.length ? `Priority dates run from ${dates[0]} to ${dates[dates.length - 1]}.` : null,
       !byName.error ? `Google Patents returns ${plural(byName.total, 'result', 'results')} for inventor ${who.query}${partial ? '; only the newest 100 of each search were read, so the counts here are a minimum' : ''}.` : null,
       otherPeople ? `${plural(otherPeople, 'record', 'records')} naming an inventor with a different middle name ${otherPeople === 1 ? 'was' : 'were'} left out.` : null,
     ].filter(Boolean).join(' ');
+    // The title carries no count of tied families: companies learned later tie more of them, and the report counts
+    // them again from the family records (data.familyIds). The text graded holds every assignee, so the summary is
+    // re-graded with the families.
     const summary = makeFinding(subject, {
       source: this.id, sourceLabel: this.label, category: 'ip', severity: 'info',
-      title: `${who.display}: named inventor on ${partial ? 'at least ' : ''}${plural(graded.length, 'patent family', 'patent families')} (${confirmed.length ? `${confirmed.length} tied to a known company` : 'none tied to a known company'})`,
+      title: `${who.display}: named inventor on ${partial ? 'at least ' : ''}${plural(graded.length, 'patent family', 'patent families')}`,
       quote,
       url: googleSearchPage(company && confirmed.length ? { inventor: who.query, assignee: companyShort } : { inventor: who.query }),
-      matchText: [who.display, ...(confirmed.length ? [company, ...tally(confirmed).map(([a]) => a)] : [])].filter(Boolean).join(' | '),
-      data: { families: graded.length, tiedToKnownCompany: confirmed.length, nameOnly: nameOnly.length, countsAreMinimum: partial, coInventors: coInventors.slice(0, 12) },
+      matchText: [who.display, ...tally(graded.filter((x) => !heldGrade(x.family) || heldGrade(x.family).match !== 'possible')).map(([a]) => a)].filter(Boolean).join(' | '),
+      data: { families: graded.length, tiedToKnownCompany: confirmed.length, nameOnly: nameOnly.length, countsAreMinimum: partial, coInventors: coInventors.slice(0, 12), familyIds: shown.map((x) => x.finding.id) },
     });
 
-    // 6. Threads. Followed (trusted) only from families tied to the subject: other owners of those patents, and the co-inventors.
+    // 6. Threads. Followed (trusted) only from families whose printed owner is exactly a known, anchored company:
+    //    the other owners of those patents, and the co-inventors.
     const threads = [];
     const companyNames = (items, limit) => {
       // A name one or two letters away from a commoner one is the register's typo, not another company.
       const picked = [];
       for (const [a] of tally(items)) {
-        if (known(a) || matchInventor(a, who) || !looksLikeCompany(a)) continue;
+        if (known(a) || assigneeCompany(subject, a) || matchInventor(a, who) || !looksLikeCompany(a)) continue;
         const key = legalNorm(a);
         if (picked.some((p) => p.key === key || (Math.min(p.key.length, key.length) >= 8 && editDistance(p.key, key) <= 2))) continue;
         picked.push({ key, name: a });
@@ -370,9 +458,15 @@ export const patentsConnector = {
       }
       return picked.map((p) => p.name);
     };
-    if (confirmed.length) {
-      for (const a of companyNames(confirmed, MAX_THREADS)) threads.push(makeThread('company', a, `joint, earlier or later owner of a ${companyShort || 'known-company'} patent naming ${who.display} as inventor`, { trusted: true }));
-      for (const n of coInventors.slice(0, MAX_THREADS)) threads.push(makeThread('associate', withoutMiddleInitials(n), `co-inventor on ${companyShort} patents`, { trusted: true }));
+    const followed = new Set();
+    for (const a of companyNames(trustedFamilies, MAX_THREADS)) {
+      followed.add(legalNorm(a));
+      threads.push(makeThread('company', a, `joint, earlier or later owner of a ${companyShort || 'known-company'} patent naming ${who.display} as inventor`, { trusted: true }));
+    }
+    for (const n of coInventors.slice(0, MAX_THREADS)) threads.push(makeThread('associate', withoutMiddleInitials(n), `co-inventor on ${companyShort} patents`, { trusted: true }));
+    // The printed owner of a reassigned family: recorded, not followed
+    for (const a of companyNames(confirmed.filter((x) => !trustedFamilies.includes(x)), 3)) {
+      if (!followed.has(legalNorm(a))) threads.push(makeThread('company', a, `owner now printed on a patent the search lists under ${companyShort || 'a known company'} (naming ${who.display} as inventor)`, { trusted: false }));
     }
     // Assignees on name-only patents may be a namesake's employer: recorded, never followed.
     for (const a of companyNames(nameOnly, 3)) threads.push(makeThread('company', a, `assignee on a patent naming an inventor ${who.display} (name match only)`, { trusted: false }));
@@ -382,9 +476,12 @@ export const patentsConnector = {
 
 /* --------------------------------------------------------------- trademarks */
 
-const TM_SEARCH = 'https://tmsearch.uspto.gov/prod-stage-v1-0-0/tmsearch';
-// Never ask for ownerFullText or ownerNameAndAddress (street addresses) or the attorney fields.
-const TM_FIELDS = ['id', 'wordmark', 'ownerName', 'filedDate', 'registrationDate', 'registrationId', 'abandonDate', 'cancelDate', 'alive', 'internationalClass'];
+// The connector used to ask the USPTO trademark web application's own search backend. That is the "USPTO web
+// app's internal search" the owner removed for terms reasons, so it is never asked again. No permitted route
+// searches by owner without registration (the USPTO's documented trademark services look a filing up by its
+// serial number, and its bulk files need a registered download), so the source is not enabled on this
+// deployment. The matching below is kept, tested on filings given to it, for a permitted feed of filings.
+// Fields read from a filing: never an owner's address or the attorney fields.
 const markPage = (serial) => `https://tsdr.uspto.gov/statusview/sn${encodeURIComponent(serial)}`;
 
 /** "Mistral AI (SOCIÉTÉ PAR ACTIONS SIMPLIFIÉE (SAS); FRANCE)" -> { name: 'Mistral AI', kind: 'SOCIÉTÉ PAR ACTIONS SIMPLIFIÉE (SAS)', raw } */
@@ -490,151 +587,165 @@ function splitAtLongGaps(marks) {
   return runs.map((r) => r.marks);
 }
 
+/**
+ * Trademark filings of a company, from filings a permitted source supplies ({ hits: [{ source: {...} }],
+ * totalValue }). The owner must be the company: its whole name, a fuller name the check already holds, or a
+ * legal name learned for it ("Ramp Business Corporation" for Ramp). A filing whose owner carries only the bare
+ * ordinary word ("RAMP CORPORATION", owner of HEALTHRAMP) is never the company's: with a legal name known it is
+ * left out, and without one the filings are counted in a note, never shown as the company's.
+ */
+export function trademarkFindings(companyName, data, ctx, connector = trademarksConnector) {
+  const company = String(companyName || '').replace(/\s+/g, ' ').trim();
+  const strictKey = legalNorm(company);
+  const looseKey = companyKeys(company)[0] || '';
+  const beginsWithLoose = Boolean(looseKey) && (strictKey === looseKey || strictKey.startsWith(`${looseKey} `));
+  const tokens = (beginsWithLoose || !strictKey ? looseKey : strictKey).split(' ').filter(Boolean);
+  if (!tokens.length || !Array.isArray(data?.hits)) return { findings: [], threads: [], notes: [] };
+    const { hits } = data;
+  const marks = hits.map(fromTrademarkHit).filter(Boolean);
+  const notes = [];
+
+  // The owner must be the company: the whole name, legal form aside, never only its core word ("WE, INC." is not
+  // "WeWork"; "Flow Companies Inc" is not "Flow"). The one other name accepted is a fuller name of the same company
+  // that the check already holds (given or found: "Mistral AI" when the thread reads "Mistral").
+  const given = fullKey(ctx?.subject?.company);
+  const known = [ctx?.subject?.company, ...[...(ctx?.subject?.anchors?.companies?.values?.() || [])].map((a) => a?.value)]
+    .filter((v) => v && ((looseKey && companyKeys(v)[0] === looseKey) || (fullKey(company) && fullKey(v).startsWith(`${fullKey(company)} `))));
+  const accepted = new Map([[fullKey(company), company]]);
+  for (const v of known) if (fullKey(v) && !accepted.has(fullKey(v))) accepted.set(fullKey(v), v);
+  // Legal names learned for this company (a Form D's issuer, the site's legal footer) are its names too
+  const legalNames = ctx?.subject ? knownCompanyNames(ctx.subject).filter((n) => n.alias && ((looseKey && companyKeys(n.of)[0] === looseKey) || legalNorm(n.of) === strictKey)) : [];
+  for (const n of legalNames) if (fullKey(n.name) && !accepted.has(fullKey(n.name))) accepted.set(fullKey(n.name), n.name);
+  // One ordinary word ("Ramp", "Merge") is a name many businesses own marks under. With a legal name known, an
+  // owner named only that word is another business; without one, nothing can tell, unless the user typed the
+  // company with its legal form ("Stripe, Inc.").
+  const bare = isOrdinaryWordCompany(company) && !fullKey(company).includes(' ');
+  const typedLegal = ctx?.subject?.company && fullKey(ctx.subject.company) === fullKey(company) && withoutLegalForm(ctx.subject.company) !== String(ctx.subject.company).trim();
+  if (bare && legalNames.length) accepted.delete(fullKey(company));
+  accepted.delete('');
+  const ownedBy = (test) => marks.map((m) => {
+    const owners = m.owners.filter((o) => test(o.name));
+    return owners.length ? { ...m, owner: owners[0], ownerKeys: [...new Set(owners.map((o) => ownerKey(o.name)))] } : null;
+  }).filter(Boolean);
+  const matched = ownedBy((name) => accepted.has(fullKey(name)));
+  const viaKeys = [...new Set(matched.map((m) => fullKey(m.owner.name)))];
+  const via = viaKeys.length === 1 ? accepted.get(viaKeys[0]) : company;
+  const reason = via === company || fullKey(via) === fullKey(company) ? `trademark owner name matches ${company}` : `trademark owner name matches ${via}, a known name of ${company}`;
+  // A one-word name that is not the company the user gave ("We Co." beside "WE, INC.") is shared by many unrelated
+  // owners: such a match is kept as possible, fixed, and out of the timeline.
+  const oneWordOnly = viaKeys.length > 0 && viaKeys.every((k) => !k.includes(' ') && k !== given);
+  if (!matched.length) {
+    // Say what was seen and not counted, so a near miss is visible (organisations only: people are never named).
+    const near = [...new Map(marks.flatMap((m) => m.owners).filter((o) => ORGANISATION_OWNER.test(o.kind) && legalNorm(o.name).startsWith(tokens.join(' '))).map((o) => [legalNorm(o.name), o.name])).values()];
+    if (near.length && !notes.length) notes.push(`No US trademark owner is named exactly ${company}. Owners with longer names were not counted, as they may be other companies: ${near.slice(0, 4).join('; ')}${near.length > 4 ? ` and ${near.length - 4} more` : ''}.`);
+    return { findings: [], threads: [], notes };
+  }
+  if (Number(data.totalValue) > hits.length) notes.push(`The trademark list for ${company} may be incomplete: many owners have names that begin the same way.`);
+  if (bare && !legalNames.length && !typedLegal && viaKeys.every((k) => k === fullKey(company))) {
+    const spelled = new Map(); // one spelling per owner, the first seen
+    for (const m of matched) if (!spelled.has(ownerKey(m.owner.name))) spelled.set(ownerKey(m.owner.name), m.owner.name);
+    const owners = [...spelled.values()];
+    notes.push(`${plural(matched.length, 'US trademark filing is', 'US trademark filings are')} owned by ${owners.length === 1 ? 'a business' : `${owners.length} businesses`} named ${company} (${owners.slice(0, 3).join('; ')}). "${company}" is an ordinary word many businesses use, so none is shown as the company's; a search under the company's full legal name can tell.`);
+    return { findings: [], threads: [], notes };
+  }
+
+  // Same name, another company: report the owner with the most filings and say what was left out.
+  const [largest, ...otherOwners] = groupByOwnerName(matched);
+  const runs = splitAtLongGaps(largest);
+  const main = runs.reduce((best, r) => (r.length >= best.length ? r : best), runs[0]);
+  const span = (g) => (g.length === 1 || g[0].filed === g[g.length - 1].filed ? `on ${g[0].filed || 'an unrecorded date'}` : `from ${g[0].filed} to ${g[g.length - 1].filed}`);
+  const leftOut = [
+    ...otherOwners.map((g) => ({ owner: g[0].owner.name, filings: g.length, earliestFiled: g[0].filed, text: `${g[0].owner.name} (${plural(g.length, 'filing', 'filings')}${g[0].filed ? `, earliest ${g[0].filed}` : ''})` })),
+    ...runs.filter((r) => r !== main).map((g) => ({ owner: g[0].owner.name, filings: g.length, earliestFiled: g[0].filed, text: `${plural(g.length, 'filing', 'filings')} under the same name ${span(g)}, years apart from the rest` })),
+  ];
+  if (leftOut.length) notes.push(`Trademarks: more than one owner may be using the name ${company}. The owner with the most filings is reported; not counted: ${leftOut.slice(0, 4).map((x) => x.text).join('; ')}.`);
+
+  const [earliest] = main;
+  const latest = main[main.length - 1];
+  const live = main.filter((m) => m.alive).length;
+  const count = (key) => main.filter((m) => m[key]).length;
+  // The owner as the register writes it; spellings that differ only in capitals are shown once, commonest first.
+  const spellings = new Map();
+  for (const m of main) {
+    const key = m.owner.raw.toLowerCase();
+    spellings.set(key, { raw: spellings.get(key)?.raw || m.owner.raw, n: (spellings.get(key)?.n || 0) + 1 });
+  }
+  const owners = [...spellings.values()].sort((a, b) => b.n - a.n).map((o) => o.raw);
+  const named = (m) => (m.wordmark ? m.wordmark : 'a design mark');
+  const base = oneWordOnly
+    ? { source: connector.id, sourceLabel: connector.label, category: 'ip', severity: 'info', match: 'possible', matchReasons: [`${reason}, a one-word name other companies also use: may be another company`] }
+    : { source: connector.id, sourceLabel: connector.label, category: 'ip', severity: 'info', match: 'company', matchReasons: [reason] };
+  const timeline = oneWordOnly ? { excludeFromTimeline: true } : {};
+  // The privacy filter can reject a mark for a word in it; the filing is then kept without the mark text.
+  const withTimeline = (f) => (f.data ? { ...f, data: { ...f.data, ...timeline } } : f);
+  const build = (withMark, without) => makeFinding(ctx?.subject, withTimeline(withMark)) || makeFinding(ctx?.subject, withTimeline({ ...withMark, ...without }));
+  const ownerLine = `Owner on record: ${owners.slice(0, 3).join(' / ')}${owners.length > 3 ? ` and ${plural(owners.length - 3, 'more spelling', 'more spellings')}` : ''}.`;
+  const tallyLine = `${count('registered')} registered; ${count('abandoned')} abandoned; ${count('cancelled')} cancelled.`;
+  const leftOutLine = leftOut.length ? `Not counted, as they may belong to another company of the same name: ${leftOut.slice(0, 3).map((x) => x.text).join('; ')}.` : null;
+
+  const summary = build({
+    ...base,
+    title: `${company}: ${plural(main.length, 'US trademark filing', 'US trademark filings')}${earliest.filed ? `, earliest filed ${earliest.filed}` : ''}; ${live} live, ${main.length - live} no longer live`,
+    quote: [
+      ownerLine,
+      `Earliest filing: ${named(earliest)}, serial ${earliest.id}${earliest.filed ? `, filed ${earliest.filed}` : ''} (${markStatus(earliest)}).`,
+      main.length > 1 ? `Latest filing: ${named(latest)}, serial ${latest.id}${latest.filed ? `, filed ${latest.filed}` : ''}.` : null,
+      tallyLine,
+      leftOutLine,
+    ].filter(Boolean).join(' '),
+    url: markPage(earliest.id), // the filing behind the earliest date
+    date: earliest.filed,
+    data: {
+      company, filings: main.length, live, notLive: main.length - live, earliestFiled: earliest.filed, latestFiled: latest.filed, owners: owners.slice(0, 5),
+      sameNameNotCounted: leftOut.slice(0, 6).map(({ owner, filings, earliestFiled }) => ({ owner, filings, earliestFiled })),
+    },
+  }, { quote: [ownerLine, tallyLine, leftOutLine].filter(Boolean).join(' ') });
+
+  // Individual marks: one per distinct mark text, earliest first. The earliest filing is already cited by the summary.
+  const markKey = (m) => (m.wordmark ? m.wordmark.toUpperCase() : `design-${m.id}`);
+  const seen = new Set([markKey(earliest)]);
+  const individual = [];
+  for (const m of main) {
+    if (m === earliest) continue;
+    const key = markKey(m);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    individual.push(m);
+    if (individual.length >= MAX_MARKS) break;
+  }
+  const findings = [summary, ...individual.map((m) => build({
+    ...base,
+    title: `Trademark ${named(m)} (serial ${m.id}): filed ${m.filed || 'on an unrecorded date'}; ${markStatus(m)}`,
+    quote: [
+      `Owner: ${m.owner.raw}`,
+      m.filed ? `filed ${m.filed}` : null,
+      m.registered ? `registered ${m.registered}${m.registrationId ? ` (registration ${m.registrationId})` : ''}` : null,
+      m.abandoned ? `abandoned ${m.abandoned}` : null,
+      m.cancelled ? `cancelled ${m.cancelled}` : null,
+      `status: ${m.alive ? 'live' : 'no longer live'}`,
+      m.classes.length ? `classes: ${m.classes.join(', ')}` : null,
+    ].filter(Boolean).join('; '),
+    url: markPage(m.id),
+    date: m.filed,
+    data: { serial: m.id, wordmark: m.wordmark || null, live: m.alive, filed: m.filed, registered: m.registered, abandoned: m.abandoned, cancelled: m.cancelled, classes: m.classes },
+  }, { title: `Trademark filing (serial ${m.id}): filed ${m.filed || 'on an unrecorded date'}; ${markStatus(m)}`, data: { serial: m.id, live: m.alive, filed: m.filed } }))];
+  return { findings: findings.filter(Boolean), threads: [], notes };
+}
+
 export const trademarksConnector = {
   id: 'trademarks',
-  label: 'US trademarks (USPTO trademark search)',
+  label: 'US trademarks (USPTO)',
   kinds: ['company'],
   prior: 0.35,
   timeoutMs: 12000,
-  enabled: () => !switchedOff('trademarks'),
-  unavailableReason: 'Trademark records are not enabled on this deployment.',
+  // No permitted search by owner is available (see above): the screen says "not enabled", never "no trademarks".
+  enabled: () => false,
+  unavailableReason: 'US trademark records are not enabled on this deployment.',
 
-  async run(task, ctx) {
+  async run(task) {
     const company = String(task?.value || '').replace(/\s+/g, ' ').trim();
     if (task?.kind !== 'company' || company.length < 2) return { findings: [], threads: [], notes: [] };
-    const strictKey = legalNorm(company);
-    const looseKey = companyKeys(company)[0] || '';
-    // Search on the shorter form when the full name begins with it ("Mistral" for "Mistral AI"), so that an owner
-    // recorded with one generic word more or less is still seen; otherwise on the full name.
-    const beginsWithLoose = Boolean(looseKey) && (strictKey === looseKey || strictKey.startsWith(`${looseKey} `));
-    const tokens = (beginsWithLoose || !strictKey ? looseKey : strictKey).split(' ').filter(Boolean);
-    if (!tokens.length) return { findings: [], threads: [], notes: [] };
-
-    // Owners whose name starts with the company's name; the exact comparison is done below.
-    const term = (t) => ({ span_term: { ownerName: t } });
-    const search = (query) => getJson(TM_SEARCH, {
-      method: 'POST', deadline: ctx?.deadline, timeoutMs: 9000,
-      body: { query, size: TRADEMARK_PAGE, from: 0, track_total_hits: true, sort: [{ filedDate: 'asc' }], _source: TM_FIELDS },
-    });
-    let data = await search({ span_first: { match: tokens.length === 1 ? term(tokens[0]) : { span_near: { clauses: tokens.map(term), slop: 0, in_order: true } }, end: tokens.length } });
-    if (!Array.isArray(data?.hits?.hits)) throw new Error('Unexpected answer from the USPTO trademark search');
-    // A name with accents, apostrophes or symbols may be split into words differently by the register: ask once more by phrase.
-    if (!data.hits.hits.length && /[^A-Za-z0-9 .,]/.test(company)) {
-      data = await search({ bool: { must: [{ match_phrase: { ownerName: withoutLegalForm(company) } }] } });
-      if (!Array.isArray(data?.hits?.hits)) throw new Error('Unexpected answer from the USPTO trademark search');
-    }
-    const { hits } = data.hits;
-    const marks = hits.map(fromTrademarkHit).filter(Boolean);
-    const notes = [];
-
-    // The owner must be the company: the whole name, legal form aside, never only its core word ("WE, INC." is not
-    // "WeWork"; "Flow Companies Inc" is not "Flow"). The one other name accepted is a fuller name of the same company
-    // that the check already holds (given or found: "Mistral AI" when the thread reads "Mistral").
-    const given = fullKey(ctx?.subject?.company);
-    const known = [ctx?.subject?.company, ...[...(ctx?.subject?.anchors?.companies?.values?.() || [])].map((a) => a?.value)]
-      .filter((v) => v && ((looseKey && companyKeys(v)[0] === looseKey) || (fullKey(company) && fullKey(v).startsWith(`${fullKey(company)} `))));
-    const accepted = new Map([[fullKey(company), company]]);
-    for (const v of known) if (fullKey(v) && !accepted.has(fullKey(v))) accepted.set(fullKey(v), v);
-    accepted.delete('');
-    const ownedBy = (test) => marks.map((m) => {
-      const owners = m.owners.filter((o) => test(o.name));
-      return owners.length ? { ...m, owner: owners[0], ownerKeys: [...new Set(owners.map((o) => ownerKey(o.name)))] } : null;
-    }).filter(Boolean);
-    const matched = ownedBy((name) => accepted.has(fullKey(name)));
-    const viaKeys = [...new Set(matched.map((m) => fullKey(m.owner.name)))];
-    const via = viaKeys.length === 1 ? accepted.get(viaKeys[0]) : company;
-    const reason = via === company || fullKey(via) === fullKey(company) ? `trademark owner name matches ${company}` : `trademark owner name matches ${via}, a known name of ${company}`;
-    // A one-word name that is not the company the user gave ("We Co." beside "WE, INC.") is shared by many unrelated
-    // owners: such a match is kept as possible, fixed, and out of the timeline.
-    const oneWordOnly = viaKeys.length > 0 && viaKeys.every((k) => !k.includes(' ') && k !== given);
-    if (!matched.length) {
-      // Say what was seen and not counted, so a near miss is visible (organisations only: people are never named).
-      const near = [...new Map(marks.flatMap((m) => m.owners).filter((o) => ORGANISATION_OWNER.test(o.kind) && legalNorm(o.name).startsWith(tokens.join(' '))).map((o) => [legalNorm(o.name), o.name])).values()];
-      if (near.length && !notes.length) notes.push(`No US trademark owner is named exactly ${company}. Owners with longer names were not counted, as they may be other companies: ${near.slice(0, 4).join('; ')}${near.length > 4 ? ` and ${near.length - 4} more` : ''}.`);
-      return { findings: [], threads: [], notes };
-    }
-    if (Number(data.hits.totalValue) > hits.length) notes.push(`The trademark list for ${company} may be incomplete: many owners have names that begin the same way.`);
-
-    // Same name, another company: report the owner with the most filings and say what was left out.
-    const [largest, ...otherOwners] = groupByOwnerName(matched);
-    const runs = splitAtLongGaps(largest);
-    const main = runs.reduce((best, r) => (r.length >= best.length ? r : best), runs[0]);
-    const span = (g) => (g.length === 1 || g[0].filed === g[g.length - 1].filed ? `on ${g[0].filed || 'an unrecorded date'}` : `from ${g[0].filed} to ${g[g.length - 1].filed}`);
-    const leftOut = [
-      ...otherOwners.map((g) => ({ owner: g[0].owner.name, filings: g.length, earliestFiled: g[0].filed, text: `${g[0].owner.name} (${plural(g.length, 'filing', 'filings')}${g[0].filed ? `, earliest ${g[0].filed}` : ''})` })),
-      ...runs.filter((r) => r !== main).map((g) => ({ owner: g[0].owner.name, filings: g.length, earliestFiled: g[0].filed, text: `${plural(g.length, 'filing', 'filings')} under the same name ${span(g)}, years apart from the rest` })),
-    ];
-    if (leftOut.length) notes.push(`Trademarks: more than one owner may be using the name ${company}. The owner with the most filings is reported; not counted: ${leftOut.slice(0, 4).map((x) => x.text).join('; ')}.`);
-
-    const [earliest] = main;
-    const latest = main[main.length - 1];
-    const live = main.filter((m) => m.alive).length;
-    const count = (key) => main.filter((m) => m[key]).length;
-    // The owner as the register writes it; spellings that differ only in capitals are shown once, commonest first.
-    const spellings = new Map();
-    for (const m of main) {
-      const key = m.owner.raw.toLowerCase();
-      spellings.set(key, { raw: spellings.get(key)?.raw || m.owner.raw, n: (spellings.get(key)?.n || 0) + 1 });
-    }
-    const owners = [...spellings.values()].sort((a, b) => b.n - a.n).map((o) => o.raw);
-    const named = (m) => (m.wordmark ? m.wordmark : 'a design mark');
-    const base = oneWordOnly
-      ? { source: this.id, sourceLabel: this.label, category: 'ip', severity: 'info', match: 'possible', matchReasons: [`${reason}, a one-word name other companies also use: may be another company`] }
-      : { source: this.id, sourceLabel: this.label, category: 'ip', severity: 'info', match: 'company', matchReasons: [reason] };
-    const timeline = oneWordOnly ? { excludeFromTimeline: true } : {};
-    // The privacy filter can reject a mark for a word in it; the filing is then kept without the mark text.
-    const withTimeline = (f) => (f.data ? { ...f, data: { ...f.data, ...timeline } } : f);
-    const build = (withMark, without) => makeFinding(ctx?.subject, withTimeline(withMark)) || makeFinding(ctx?.subject, withTimeline({ ...withMark, ...without }));
-    const ownerLine = `Owner on record: ${owners.slice(0, 3).join(' / ')}${owners.length > 3 ? ` and ${plural(owners.length - 3, 'more spelling', 'more spellings')}` : ''}.`;
-    const tallyLine = `${count('registered')} registered; ${count('abandoned')} abandoned; ${count('cancelled')} cancelled.`;
-    const leftOutLine = leftOut.length ? `Not counted, as they may belong to another company of the same name: ${leftOut.slice(0, 3).map((x) => x.text).join('; ')}.` : null;
-
-    const summary = build({
-      ...base,
-      title: `${company}: ${plural(main.length, 'US trademark filing', 'US trademark filings')}${earliest.filed ? `, earliest filed ${earliest.filed}` : ''}; ${live} live, ${main.length - live} no longer live`,
-      quote: [
-        ownerLine,
-        `Earliest filing: ${named(earliest)}, serial ${earliest.id}${earliest.filed ? `, filed ${earliest.filed}` : ''} (${markStatus(earliest)}).`,
-        main.length > 1 ? `Latest filing: ${named(latest)}, serial ${latest.id}${latest.filed ? `, filed ${latest.filed}` : ''}.` : null,
-        tallyLine,
-        leftOutLine,
-      ].filter(Boolean).join(' '),
-      url: markPage(earliest.id), // the filing behind the earliest date
-      date: earliest.filed,
-      data: {
-        company, filings: main.length, live, notLive: main.length - live, earliestFiled: earliest.filed, latestFiled: latest.filed, owners: owners.slice(0, 5),
-        sameNameNotCounted: leftOut.slice(0, 6).map(({ owner, filings, earliestFiled }) => ({ owner, filings, earliestFiled })),
-      },
-    }, { quote: [ownerLine, tallyLine, leftOutLine].filter(Boolean).join(' ') });
-
-    // Individual marks: one per distinct mark text, earliest first. The earliest filing is already cited by the summary.
-    const markKey = (m) => (m.wordmark ? m.wordmark.toUpperCase() : `design-${m.id}`);
-    const seen = new Set([markKey(earliest)]);
-    const individual = [];
-    for (const m of main) {
-      if (m === earliest) continue;
-      const key = markKey(m);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      individual.push(m);
-      if (individual.length >= MAX_MARKS) break;
-    }
-    const findings = [summary, ...individual.map((m) => build({
-      ...base,
-      title: `Trademark ${named(m)} (serial ${m.id}): filed ${m.filed || 'on an unrecorded date'}; ${markStatus(m)}`,
-      quote: [
-        `Owner: ${m.owner.raw}`,
-        m.filed ? `filed ${m.filed}` : null,
-        m.registered ? `registered ${m.registered}${m.registrationId ? ` (registration ${m.registrationId})` : ''}` : null,
-        m.abandoned ? `abandoned ${m.abandoned}` : null,
-        m.cancelled ? `cancelled ${m.cancelled}` : null,
-        `status: ${m.alive ? 'live' : 'no longer live'}`,
-        m.classes.length ? `classes: ${m.classes.join(', ')}` : null,
-      ].filter(Boolean).join('; '),
-      url: markPage(m.id),
-      date: m.filed,
-      data: { serial: m.id, wordmark: m.wordmark || null, live: m.alive, filed: m.filed, registered: m.registered, abandoned: m.abandoned, cancelled: m.cancelled, classes: m.classes },
-    }, { title: `Trademark filing (serial ${m.id}): filed ${m.filed || 'on an unrecorded date'}; ${markStatus(m)}`, data: { serial: m.id, live: m.alive, filed: m.filed } }))];
-    return { findings: findings.filter(Boolean), threads: [], notes };
+    // Never a request: a lookup not run is reported as not run
+    return { findings: [], threads: [], notes: [`US trademark records were not searched for ${company}: they are not enabled on this deployment.`], partial: ['US trademarks (not enabled)'] };
   },
 };

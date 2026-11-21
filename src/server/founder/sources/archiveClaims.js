@@ -413,6 +413,8 @@ export const looksLikeTitle = (line) => TITLE_WORDS.test(String(line || '')) && 
  * that is "Jane Roe, Chief Scientist" followed by her paragraph.
  * `person` is a name or a matcher with .positions(text).
  */
+/** A line that is only a name: two to four capitalised words, no sentence punctuation ("Bob Lee", "Mary-Ann O'Neil"). */
+const NAME_LINE = /^\p{Lu}[\p{L}'’.-]*(?:\s+\p{Lu}[\p{L}'’.-]*){1,3}$/u;
 function aroundName(html, person) {
   if (!person) return null;
   const body = String(html || '').replace(/<head\b[\s\S]*?<\/head>/i, ' ');
@@ -436,15 +438,21 @@ function aroundName(html, person) {
   const bio = [];
   let size = 0;
   if (sameLine && !headline) { bio.push(`${text.slice(lineStart, hit.end)} ${sameLine}`.trim()); size = bio[0].length; }
+  const nextLine = (i) => { for (let j = i + 1; j < lines.length; j += 1) { const l = clean(lines[j]); if (l) return l; } return ''; };
+  const isThem = (line) => (typeof person === 'function' ? Boolean(person(line)) : clean(line).toLowerCase() === String(person).trim().toLowerCase());
   for (let i = from; i < lines.length && bio.length < 6 && size < 900; i += 1) {
     const line = clean(lines[i]);
     if (!line) continue;
     if (line.length <= 60 && size >= 160) break; // the next heading: another person or section
+    // The next person on a team page: a short name line with a title under it ("Bob Lee" / "CTO"), however short
+    // the bio before it was; and after a paragraph of bio, any name-like line is the next heading. Their bio is
+    // never read as this person's.
+    if (NAME_LINE.test(line) && !isThem(line) && (looksLikeTitle(nextLine(i)) || bio.some((l) => l.length > 30))) break;
     if (line.length <= 30 && !bio.length && i > from + 1) break;
     bio.push(line);
     size += line.length;
   }
-  return { name: clean(hit.text), headline, bioText: bio.filter((l) => l.length > 30).join(' ') };
+  return { name: clean(hit.text), headline, bioText: bio.filter((l) => l.length > 30).join(' '), bioAnchored: bio.some((l) => l.length > 30) };
 }
 
 function generic($, html, person) {
@@ -461,6 +469,9 @@ function generic($, html, person) {
     roles: own?.roles || [],
     education: own?.education || [],
     bioText: near?.bioText || own?.bioText || (near || !person ? description : ''),
+    // the bio was read from the lines under the person's own name line (a team or personal page): it is theirs
+    // even when it only says "she" or "I"
+    ...(person && near?.bioText && near.bioAnchored ? { bioAnchored: true } : {}),
     format: 'page',
     blocked: null,
     named: person ? Boolean(near || own) : null,
@@ -570,8 +581,9 @@ export function extractClaims(html, url = '', { person = null } = {}) {
   // An address read as a role is one of the page's own links (only a profile address is followed from there).
   if (reader && moved.length) links = [...new Set([...links, ...moved.filter((u) => u.length < 300)])].slice(0, 12);
   const education = claims.education.map((e) => ({ school: short(e.school, 160), degree: short(e.degree, 200), dates: short(e.dates, 60) })).filter((e) => e.school && !genericSchool(e.school) && !isAddress(e.school));
-  const headline = isSensitive(claims.headline) || mentionsMinor(claims.headline) ? '' : short(claims.headline, 300);
-  const bioText = safeText(stripPageChrome(unmask(claims.bioText)), 1200);
+  const headline = isSensitive(claims.headline) || mentionsMinor(claims.headline) || isPlaceholderText(claims.headline) ? '' : short(claims.headline, 300);
+  const rawBio = isPlaceholderText(claims.bioText) ? '' : claims.bioText;
+  const bioText = safeText(stripPageChrome(unmask(rawBio)), 1200);
   return {
     name: short(claims.name, 120),
     headline,
@@ -582,6 +594,7 @@ export function extractClaims(html, url = '', { person = null } = {}) {
     blocked: claims.blocked || null,
     links,
     ...(masked ? { masked: true } : {}),
+    ...(claims.bioAnchored && bioText ? { bioAnchored: true } : {}),
     ...(claims.named === undefined ? {} : { named: claims.named }),
   };
 }
@@ -619,17 +632,41 @@ const normText = (s) => stripAccents(s).toLowerCase().replace(/&/g, ' and ').rep
 /** "Theranos, Inc." = "theranos"; "we work" = "WeWork". */
 export const orgKey = (s) => normText(s).replace(ORG_SUFFIX, ' ').replace(/\s+/g, '');
 
+/**
+ * A dotted or spaced abbreviation written letter by letter is one word: "A.B." = "AB", "J. D." = "JD", and a
+ * degree letter before a short subject abbreviation too ("B.Eng." = "BEng", "M. Phil" = "MPhil").
+ */
+const DEGREE_TAIL = new Set(['eng', 'sc', 'tech', 'phil', 'com', 'ed', 'des', 'arch', 'fa', 'ba', 'pa', 'pp', 'res', 'litt']);
+function collapseLetters(t) {
+  const words = String(t || '').split(' ').filter(Boolean);
+  const out = [];
+  for (let i = 0; i < words.length; i += 1) {
+    const w = words[i];
+    if (w.length === 1 && /[a-z]/.test(w)) {
+      let run = w;
+      let j = i + 1;
+      while (j < words.length && words[j].length === 1 && /[a-z]/.test(words[j])) { run += words[j]; j += 1; }
+      if (run.length === 1 && /^[bmdl]$/.test(w) && j < words.length && DEGREE_TAIL.has(words[j])) { run += words[j]; j += 1; }
+      if (run.length > 1) { out.push(run); i = j - 1; continue; }
+    }
+    out.push(w);
+  }
+  return out.join(' ');
+}
+
 const TITLE_SYNONYMS = [
   [/\bchief executive officer\b/g, 'ceo'], [/\bchief technology officer\b|\bchief technical officer\b/g, 'cto'], [/\bchief operating officer\b/g, 'coo'],
   [/\bchief financial officer\b/g, 'cfo'], [/\bchief product officer\b/g, 'cpo'], [/\bchief scientific officer\b|\bchief science officer\b/g, 'cso'],
   [/\bvice president\b/g, 'vp'], [/\bchair(?:man|woman|person)?(?: of the board)?\b/g, 'chair'], [/\bfounders\b/g, 'founder'], [/\bsr\b/g, 'senior'], [/\bjr\b/g, 'junior'],
   [/\bbachelor of science\b|\bb sc\b|\bb s\b|\bbsc\b/g, 'bs'], [/\bbachelor of arts\b|\bb a\b/g, 'ba'], [/\bmaster of science\b|\bm sc\b|\bm s\b|\bmsc\b/g, 'ms'],
+  [/\bbachelor of engineering\b/g, 'beng'], [/\bmaster of engineering\b/g, 'meng'], [/\bbachelor of laws\b/g, 'llb'], [/\bmaster of laws\b/g, 'llm'],
+  [/\bjuris doctor(?:ate)?\b|\bdoctor of law\b/g, 'jd'], [/\bdoctor of medicine\b/g, 'md'],
   [/\bmaster of business administration\b|\bm b a\b/g, 'mba'], [/\bmaster of arts\b|\bm a\b/g, 'ma'], [/\bdoctor of philosophy\b|\bph d\b|\bdphil\b/g, 'phd'], [/\bbachelor s\b|\bbachelors\b/g, 'bachelor'], [/\bmaster s\b|\bmasters\b/g, 'master'],
 ];
 const STOP = new Set(['and', 'of', 'the', 'at', 'a', 'an', 'for', 'in', 'to', 'degree']);
 /** Order, case, punctuation and common spellings do not matter: "Chairman, CEO, and Founder" = "Founder, Chief Executive Officer & Chairman". */
 function phraseKey(s) {
-  let t = normText(s);
+  let t = collapseLetters(normText(s));
   for (const [re, to] of TITLE_SYNONYMS) t = t.replace(re, to);
   return [...new Set(t.split(' ').filter((w) => w && !STOP.has(w)))].sort().join(' ');
 }
@@ -672,6 +709,10 @@ function similarity(a, b) {
 
 function diffEntries(older, newer, { field, nameOf, detailOf, text, detailAspect, goneAspect }) {
   const out = [];
+  const edu = field === 'education';
+  // A degree that drops out of an unchanged school is reported only when the newer copy shows degrees for
+  // other schools: a view that hides every degree (signed out, archived, masked) says nothing.
+  const newerShowsDegrees = (except) => newer.some((x) => x !== except && phraseKey(detailOf(x)));
   const group = (items) => {
     const m = new Map();
     for (const item of items) {
@@ -705,11 +746,27 @@ function diffEntries(older, newer, { field, nameOf, detailOf, text, detailAspect
     for (const item of olds) {
       const want = phraseKey(detailOf(item));
       let i = news.findIndex((x) => phraseKey(detailOf(x)) === want);
-      if (i < 0 && field === 'education') i = news.findIndex((x) => sameDegree(detailOf(item), detailOf(x)));
-      if (i < 0 && !want) i = 0; // the older copy gave no detail to compare
-      if (i < 0) i = news.findIndex((x) => !phraseKey(detailOf(x)));
+      if (i < 0 && edu) i = news.findIndex((x) => sameDegree(detailOf(item), detailOf(x)));
+      let degreeAdded = false;
+      let degreeDropped = false;
+      if (i < 0 && !want) {
+        // The older copy gave no detail to compare: the same entry without a degree first; for a school, one
+        // that now carries a degree is a degree added (a doctorate appearing is how credentials grow).
+        const bare = news.findIndex((x) => !phraseKey(detailOf(x)));
+        i = bare >= 0 ? bare : 0;
+        degreeAdded = edu && bare < 0;
+      }
+      if (i < 0) {
+        i = news.findIndex((x) => !phraseKey(detailOf(x)));
+        degreeDropped = edu && i >= 0;
+      }
       if (i < 0) { unmatched.push(item); continue; }
       const [same] = news.splice(i, 1);
+      if (degreeAdded) {
+        out.push({ field, change: 'added', before: text(item), after: text(same), about: nameOf(item), aspect: 'degree', severity: SENIOR_DEGREE.test(phraseKey(detailOf(same))) ? 'medium' : 'low' });
+      } else if (degreeDropped && newerShowsDegrees(same)) {
+        out.push({ field, change: 'removed', before: text(item), after: text(same), about: nameOf(item), aspect: 'degree', severity: 'low' });
+      }
       if (datesMoved(item.dates, same.dates)) out.push({ field, change: 'changed', before: text(item), after: text(same), about: nameOf(item), aspect: 'dates', severity: 'low' });
     }
     while (unmatched.length && news.length) {
@@ -773,18 +830,71 @@ function sameStanding(before, after) {
 /** Words that only say at what level a subject was studied: "Undergraduate, Entrepreneurship" claims the same as "Entrepreneurship". */
 const DEGREE_LEVEL = new Set(['undergraduate', 'undergrad', 'graduate', 'postgraduate', 'grad', 'studies', 'program', 'programme', 'coursework']);
 /**
+ * Degrees by level. "Bachelor's degree" (the generic word LinkedIn writes) claims the same as any bachelor's
+ * degree ("BS", "BA", "BSc"), and "Master's degree" the same as any master's ("MS", "MA") but not an MBA,
+ * which is its own claim. Two specific degrees ("BA" and "BS") stay different: that is a real change.
+ */
+const DEGREE_KIND = {
+  bachelor: new Set(['bs', 'ba', 'ab', 'sb', 'bsc', 'bse', 'bsee', 'beng', 'bba', 'bfa', 'bcom', 'bsba', 'llb', 'btech', 'bachelor']),
+  master: new Set(['ms', 'ma', 'sm', 'msc', 'mse', 'meng', 'mphil', 'mfa', 'mpa', 'mpp', 'mres', 'mtech', 'llm', 'master']),
+  // degrees of their own kind: "Master's degree" is not an MBA, and a doctorate is not a master's
+  business: new Set(['mba', 'emba']),
+  doctorate: new Set(['phd', 'dphil', 'edd', 'dba']),
+  professional: new Set(['jd', 'md']),
+};
+/** Words a degree's own name already says: "BEng, Mechanical" claims the same as "BEng, Mechanical Engineering". */
+const DEGREE_IMPLIES = {
+  beng: ['engineering'], meng: ['engineering'], bse: ['engineering'], mse: ['engineering'], btech: ['technology', 'engineering'], mtech: ['technology', 'engineering'],
+  bs: ['science'], bsc: ['science'], ms: ['science'], msc: ['science'], sb: ['science'], sm: ['science'],
+  ba: ['arts'], ab: ['arts'], ma: ['arts'], bfa: ['arts', 'fine'], mfa: ['arts', 'fine'],
+  bba: ['business', 'administration'], mba: ['business', 'administration'], emba: ['business', 'administration', 'executive'],
+  jd: ['law'], llb: ['law'], llm: ['law'], md: ['medicine'], bcom: ['commerce'],
+};
+const GENERIC_DEGREE = new Set(['bachelor', 'master']);
+const degreeLevelOf = (w) => Object.keys(DEGREE_KIND).find((k) => DEGREE_KIND[k].has(w)) || '';
+/**
  * One degree written twice: the same words once a level word is set aside, and only one copy gives a level
- * (word order is already ignored). "Undergraduate" becoming "Graduate" is a different claim.
+ * (word order is already ignored). "Undergraduate" becoming "Graduate" is a different claim. A generic degree
+ * word on one side matches any specific degree of the same level on the other.
  */
 function sameDegree(before, after) {
   const split = (s) => {
     const words = [...keyWords(s)];
-    return { level: words.filter((w) => DEGREE_LEVEL.has(w)), rest: words.filter((w) => !DEGREE_LEVEL.has(w)).sort().join(' ') };
+    const degrees = words.filter((w) => degreeLevelOf(w));
+    const rest = words.filter((w) => !DEGREE_LEVEL.has(w) && !degreeLevelOf(w));
+    return { level: words.filter((w) => DEGREE_LEVEL.has(w)), degrees, restWords: rest, rest: rest.sort().join(' ') };
   };
   const a = split(before);
   const b = split(after);
-  return Boolean(a.rest) && a.rest === b.rest && (!a.level.length || !b.level.length);
+  if (a.level.length && b.level.length && a.level.sort().join() !== b.level.sort().join()) return false;
+  // Neither names a degree: the same field, and only one copy gives a level
+  if (!a.degrees.length && !b.degrees.length) return Boolean(a.rest) && a.rest === b.rest && (!a.level.length || !b.level.length);
+  // One copy names a degree and the other only the field: the same for a bachelor's or master's; a doctorate,
+  // an MBA or a law or medical degree appearing beside a field is a claim of its own.
+  if (!a.degrees.length || !b.degrees.length) {
+    const withDegree = a.degrees.length ? a : b;
+    if (withDegree.degrees.some((w) => ['business', 'doctorate', 'professional'].includes(degreeLevelOf(w)))) return false;
+    return Boolean(a.rest) && a.rest === b.rest;
+  }
+  // the degrees: the same, or one side generic and the other a degree of that level
+  const specific = (list) => list.filter((w) => !GENERIC_DEGREE.has(w));
+  const sa = specific(a.degrees);
+  const sb = specific(b.degrees);
+  const levels = (list) => [...new Set(list.map(degreeLevelOf))].sort().join();
+  const degreesAgree = sa.length && sb.length ? sa.sort().join() === sb.sort().join() : levels(a.degrees) === levels(b.degrees);
+  if (!degreesAgree) return false;
+  if (a.rest === b.rest) return true;
+  // The same degree with its field given on one copy only ("Bachelor's degree" and "BA, Economics", "MBA" and
+  // "MBA, Finance"): nothing was claimed differently.
+  if (!a.rest || !b.rest) return true;
+  // or a field that only adds a word the degree's name already says ("Mechanical" and "Mechanical Engineering")
+  const implied = new Set([...a.degrees, ...b.degrees].flatMap((w) => DEGREE_IMPLIES[w] || []));
+  const core = (x) => x.restWords.filter((w) => !implied.has(w)).sort().join(' ');
+  return Boolean(core(a)) && core(a) === core(b);
 }
+
+/** A doctorate, an MBA or a professional degree: one that appears on an unchanged school is worth a closer look. */
+const SENIOR_DEGREE = /\b(?:phd|dphil|doctor\w*|edd|dba|md|jd|mba|emba)\b/;
 
 const SEVERITY_ORDER = { medium: 0, low: 1, info: 2 };
 
@@ -835,12 +945,52 @@ export function compareClaims(older, newer) {
     for (const e of nEdu.slice(0, 3)) out.push({ field: 'education', change: 'added', before: '', after: educationText(e), about: e.school, aspect: 'school', severity: 'info' });
   }
 
-  if (o.bioText && n.bioText && normText(o.bioText) !== normText(n.bioText) && similarity(o.bioText, n.bioText) < 0.6) {
+  // A rewritten bio is a change only when what it claims differs (an employer, a school, a degree, a title, a
+  // year): new marketing copy with the same claims ("classmates and best friends" becoming "turned their shared
+  // frustration into innovation") is not a claim that changed.
+  if (o.bioText && n.bioText && normText(o.bioText) !== normText(n.bioText) && similarity(o.bioText, n.bioText) < 0.6 && bioClaimsDiffer(o.bioText, n.bioText)) {
     out.push({ field: 'bio', change: 'changed', before: clip(o.bioText, 300), after: clip(n.bioText, 300), aspect: 'bio', severity: 'info' });
   }
 
   return out.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 }
+
+/** Capitalised words that open a sentence or a clause without naming anything. */
+const PLAIN_CAPS = new Set('a an the i he she they we you it its his her their our my this that these those in on at as by for from of to with and but or so if when while after before since during today currently now previously formerly prior also then there here what who why how where former current based outside besides beyond'.split(' '));
+const BIO_TITLE = /\b(?:co-?founder|founder|ceo|cto|coo|cfo|cpo|chief\s+\w+\s+officer|president|chair(?:man|woman|person)?|managing director|director|vp|vice president|general partner|partner|principal|professor|analyst|associate|engineer|manager|head of \w+)\b/gi;
+const BIO_TITLE_ONE = new RegExp(`^(?:${BIO_TITLE.source})$`, 'i');
+const BIO_DEGREE = /\b(?:ph\.?d|mba|m\.?s|b\.?s|b\.?a|m\.?a|bsc|msc|jd|md|bachelor'?s?|master'?s?|doctorate)\b/gi;
+/**
+ * The claims a bio makes, as a set of keys: years, degrees, titles, and the names it gives (capitalised words
+ * that are not a sentence's plain opener). Two bios with the same keys say the same thing in other words.
+ */
+export function bioClaimKeys(text) {
+  const t = String(text || '');
+  const keys = new Set();
+  for (const m of t.matchAll(/\b(?:19|20)\d{2}\b/g)) keys.add(`y:${m[0]}`);
+  for (const m of t.matchAll(BIO_DEGREE)) keys.add(`d:${m[0].toLowerCase().replace(/[.'’]/g, '').replace(/s$/, '')}`);
+  for (const m of t.matchAll(BIO_TITLE)) keys.add(`t:${m[0].toLowerCase().replace(/[\s-]+/g, '')}`);
+  for (const m of t.matchAll(/(?<![\p{L}\p{N}])\p{Lu}[\p{L}\p{N}&'’.-]+/gu)) {
+    const w = m[0].replace(/[.'’]+$/, '');
+    if (w.length < 2 || PLAIN_CAPS.has(w.toLowerCase()) || BIO_TITLE_ONE.test(w)) continue;
+    keys.add(`n:${stripAccents(w).toLowerCase()}`);
+  }
+  return keys;
+}
+function bioClaimsDiffer(before, after) {
+  const a = bioClaimKeys(before);
+  const b = bioClaimKeys(after);
+  if (a.size !== b.size) return true;
+  for (const k of a) if (!b.has(k)) return true;
+  return false;
+}
+
+/**
+ * Web-builder placeholder text a template ships with ("This is some text inside of a div block."): a page that
+ * says only this says nothing, and it is never a bio or a title.
+ */
+const PLACEHOLDER = /\b(?:this is some text inside of a div block|lorem ipsum|heading goes here|your (?:text|title|content) here|add your (?:text|title|content)|click (?:here )?to edit|sample text|placeholder text|insert text here)\b/i;
+export const isPlaceholderText = (s) => PLACEHOLDER.test(String(s || ''));
 
 /** Two copies that say the same thing (after the same normalisation the comparison uses). */
 export function claimsSignature(claims) {

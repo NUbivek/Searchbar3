@@ -54,8 +54,9 @@
 import { load } from 'cheerio';
 import { getJson, getText, request, mapLimit } from '../http';
 import { makeFinding, makeThread } from '../finding';
-import { nameTokens, matchSubject } from '../identity';
-import { cached } from '../cache';
+import { nameTokens, addCompanyAlias } from '../identity';
+import { isOrdinaryWordCompany, companyKeys } from '../names';
+import { cachedEntry } from '../cache';
 import { profileFromUrl } from '../extract';
 import { languageHints } from './web';
 
@@ -139,25 +140,63 @@ function isBranchOf(company, registered) {
 }
 
 const knownCompanies = (subject) => uniqueBy([subject.company, ...[...(subject.anchors?.companies?.values?.() || [])].map((a) => a.value)].filter(Boolean), (v) => legalNorm(v));
+const isDomainName = (v) => /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(String(v || '')) && /\.[a-z]{2,}$/i.test(String(v || ''));
+/**
+ * Every name the check knows a company of the subject by: the company as typed or found, and each fuller
+ * legal name learned for it later (identity.addCompanyAlias, from a Form D, a register entry naming the
+ * person, the company's own legal footer). `of` is the company the name stands for. Domains are left out:
+ * they are not names a register prints.
+ */
+export function knownCompanyNames(subject) {
+  const companies = knownCompanies(subject || {});
+  const out = companies.map((company) => ({ name: company, of: company, alias: false }));
+  for (const a of subject?.anchors?.aliases?.values?.() || []) {
+    if (!a?.value || isDomainName(a.value)) continue;
+    const owner = companies.find((c) => (companyKeys(c)[0] || c.toLowerCase()) === a.of) || subject?.anchors?.companies?.get?.(a.of)?.value;
+    if (owner) out.push({ name: a.value, of: owner, alias: true });
+  }
+  return uniqueBy(out, (x) => legalNorm(x.name));
+}
+// Words a group adds to a coined one-word name for an arm of itself ("Airwallex Global Limited", "Theranos UK
+// Ltd"). Words that make a new brand ("Labs", "Tech", "Hair Salon") are not among them.
+const GROUP_WORDS = new Set([...BRANCH_WORDS, 'global', 'international', 'group', 'worldwide', 'operations', 'europe', 'emea', 'apac', 'asia', 'pacific', 'australia', 'canada', 'singapore', 'hong', 'kong', 'ireland', 'netherlands', 'india', 'japan']);
+/**
+ * Does a registered name add to a coined one-word company name ("Airwallex", not "Ramp") only words for an
+ * arm of the group? An ordinary word ("Flow UK Ltd", "Merge Ltd") never ties this way: thousands of
+ * unrelated businesses carry it.
+ */
+function isGroupArmOf(company, registered) {
+  if (nameTie(company, registered) !== 'prefix') return false;
+  const known = legalNorm(company);
+  if (known.split(' ').length !== 1 || isOrdinaryWordCompany(company) || known.length < 4) return false;
+  const extra = legalNorm(registered).slice(known.length).trim().split(' ').filter(Boolean);
+  return extra.length > 0 && extra.every((w) => GROUP_WORDS.has(w));
+}
 /**
  * The known company of the subject that a registered name IS, or null. A name
  * that only starts with a known one ("Flow Hair Salon Limited" for "Flow") is
  * not enough: with a namesake officer it would pin a stranger's company on the
  * subject. Such a company is tied only through a known associate (ukCompany).
- * The one exception is the company's own country arm or holding (isBranchOf).
+ * The exceptions are the company's own country arm or holding (isBranchOf), an
+ * arm of a coined one-word name ("Airwallex Global Limited"), and the same
+ * forms of a legal name learned for the company ("RAMP BUSINESS UK LTD" once
+ * "Ramp Business Corp" is known as Ramp's legal name).
+ * @returns {{ company: string, tie: 'exact'|'branch'|'group', via: string, alias: boolean } | null}
  */
-function knownCompanyFor(subject, registered) {
-  const companies = knownCompanies(subject);
-  for (const company of companies) {
-    if (nameTie(company, registered) === 'exact') return { company, tie: 'exact' };
-  }
-  for (const company of companies) {
-    if (isBranchOf(company, registered)) return { company, tie: 'branch' };
-  }
+export function knownCompanyFor(subject, registered) {
+  const names = knownCompanyNames(subject);
+  for (const n of names) if (nameTie(n.name, registered) === 'exact') return { company: n.of, tie: 'exact', via: n.name, alias: n.alias };
+  for (const n of names) if (isBranchOf(n.name, registered)) return { company: n.of, tie: 'branch', via: n.name, alias: n.alias };
+  for (const n of names) if (isGroupArmOf(n.name, registered)) return { company: n.of, tie: 'group', via: n.name, alias: n.alias };
   return null;
 }
 /** Does a registered name start with a known company's name? Used to order records only, never to grade them. */
-const resemblesKnown = (subject, registered) => knownCompanies(subject).some((company) => nameTie(company, registered));
+const resemblesKnown = (subject, registered) => knownCompanyNames(subject).some((n) => nameTie(n.name, registered));
+/** Is this company name one ordinary word that no learned legal name backs up ("Ramp", "Merge")? */
+function bareOrdinaryWord(company) {
+  // A fuller legal name ("Ramp Business Corporation") is not bare, even when it starts with an ordinary word
+  return isOrdinaryWordCompany(company) && legalNorm(company).split(' ').length === 1;
+}
 
 // Titles some registers print before the given names ("Dr Patrick Malcolm COLLISON", "COLLISON, Dr Patrick")
 const HONORIFICS = new Set(['mr', 'mrs', 'ms', 'miss', 'mx', 'dr', 'prof', 'professor', 'sir', 'dame', 'lord', 'lady', 'rev', 'revd', 'hon', 'baroness', 'baron']);
@@ -249,19 +288,56 @@ const roleSeverity = (status) => (DISTRESSED.test(status) || GONE.test(status) ?
  * company rule: when the general grader would accept a company that only
  * resembles a known one, the record is held at "possible" for good.
  */
-function personAtCompany(subject, registeredCompany, fields, context = '') {
+function personAtCompany(subject, registeredCompany, fields, context = '', sameRecord = null) {
   const tie = knownCompanyFor(subject, registeredCompany);
-  // Separated so the grader never reads "Arthur Mensch MISTRAL AI" as one longer name
-  const matchText = [subject.name, registeredCompany, context].filter(Boolean).join('; ');
-  const loose = matchSubject(subject, `${subject.name}; ${registeredCompany}`).level;
-  const hold = !tie && !context && loose !== 'possible';
+  // Separated so the grader never reads "Arthur Mensch MISTRAL AI" as one longer name. A tie through a learned
+  // legal name puts that name beside the register's, so the grader sees the company it stands for.
+  const matchText = [subject.name, registeredCompany, tie?.alias ? `${tie.via} (${tie.company})` : '', context].filter(Boolean).join('; ');
+  // With no tie and no structured context the record is held at "possible" for good: a regrade must never lift
+  // it on the strength of a look-alike name. retieHeldRecords lifts it to "likely" if a legal name learned later
+  // ties it. An appointment on the same register record (the same Companies House officer) as one that does tie
+  // is the same person's, and is graded "likely".
+  const hold = !tie && !context;
   const finding = makeFinding(subject, {
     ...fields,
     matchText,
-    ...(hold ? { match: 'possible', matchReasons: ['matched by name; the company name only resembles a known company of this person'] } : {}),
+    ...(hold && sameRecord ? { match: 'likely', matchReasons: [sameRecord] }
+      : hold ? { match: 'possible', matchReasons: ['matched by name; the company name only resembles a known company of this person, or is not one'] } : {}),
+    data: { ...(fields.data || {}), registeredCompany, ...(hold ? { heldOnName: true } : {}) },
   });
   if (finding && hold) finding.matchFixed = true;
   return finding;
+}
+
+/**
+ * Register records held at "possible" because their company was not then a known one of the subject, looked at
+ * again with what is known now: a legal name learned later ("Ramp Business Corp") ties "RAMP BUSINESS UK LTD".
+ * Such a record, and the other appointments on the same Companies House officer record, rise to "likely" (a
+ * source never sets "confirmed" by hand). Changes the findings in place; returns how many were lifted. The loop
+ * calls it after it learns a company name or alias.
+ */
+export function retieHeldRecords(subject, findings) {
+  let lifted = 0;
+  const list = Array.isArray(findings) ? findings : [];
+  const heldRegister = (f) => f && f.data?.heldOnName && f.match === 'possible' && (f.source === 'uk-companies-house' || f.source === 'fr-companies');
+  const tiedOfficers = new Map();
+  for (const f of list) {
+    if (!heldRegister(f)) continue;
+    const tie = knownCompanyFor(subject, f.data.registeredCompany);
+    if (!tie) continue;
+    f.match = 'likely';
+    f.matchReasons = [`the register's company ${f.data.registeredCompany} is ${tie.alias ? `${tie.via}, a legal name of ${tie.company}` : tie.company}${tie.tie === 'exact' ? '' : ` (${tie.tie === 'branch' ? 'its country arm or holding' : 'an arm of the group'})`}`];
+    f.matchFixed = true;
+    lifted += 1;
+    if (f.data.officerId) tiedOfficers.set(f.data.officerId, f.data.registeredCompany);
+  }
+  for (const f of list) {
+    if (!heldRegister(f) || !f.data.officerId || !tiedOfficers.has(f.data.officerId)) continue;
+    f.match = 'likely';
+    f.matchReasons = [`same Companies House officer record as the appointment at ${tiedOfficers.get(f.data.officerId)}`];
+    lifted += 1;
+  }
+  return lifted;
 }
 
 /* ------------------------------------------------------------------ UK Companies House */
@@ -352,6 +428,11 @@ export function parseCompanyPage(html) {
     if (!name) break;
     previousNames.push({ name, period: clean($(`#previous-date-${n}`).text()) });
   }
+  // The filing blocks ("Accounts", "Confirmation statement") say OVERDUE when a filing is late
+  const block = (heading) => clean($('h2').filter((i, h) => new RegExp(`^${heading}$`, 'i').test(clean($(h).text()))).first().parent().text());
+  const accounts = block('Accounts');
+  const confirmation = block('Confirmation statement');
+  const lastAccounts = (accounts.match(/Last accounts made up to\s+(\d{1,2} [A-Za-z]+ \d{4})/i) || [])[1] || null;
   return {
     name: clean($('.company-header h1, p.heading-xlarge, #company-name').first().text()),
     number: (clean($('#company-number').text()).match(/([A-Z0-9]{6,10})\s*$/) || [])[1] || '',
@@ -360,7 +441,75 @@ export function parseCompanyPage(html) {
     incorporated: ukDate($('#company-creation-date').text()),
     dissolved: ukDate($('#cessation-date').text()),
     previousNames,
+    // block text runs words of separate elements together ("OVERDUELast"), so no word boundary is asked for
+    accountsOverdue: /overdue/i.test(accounts),
+    confirmationOverdue: /overdue/i.test(confirmation),
+    lastAccounts,
+    // which further pages the register has for this company (it shows a tab only when there is something)
+    tabs: { charges: $('#charges-tab').length > 0, insolvency: $('#insolvency-tab').length > 0 },
   };
+}
+
+/**
+ * The register of persons with significant control: each owner's name, whether a person or a company, the
+ * nature of control and the dates. Birth month and year, nationality, country of residence and addresses are
+ * on the page and are never read (fields are picked by id).
+ */
+export function parsePscPage(html) {
+  const $ = load(html);
+  if (!$('#company-pscs, .appointments-list, #company-number').length) throw new Error('Companies House returned a page that could not be read');
+  const owners = [];
+  const statements = [];
+  for (let n = 1; n <= 40; n += 1) {
+    const statement = clean($(`#psc-statement-${n}`).text());
+    if (statement && !/ceased/i.test(clean($(`#statement-status-tag-${n}`).text()))) statements.push(statement);
+    const nameEl = $(`#psc-name-${n}`);
+    if (!nameEl.length) continue;
+    const raw = clean(nameEl.text());
+    if (!raw) continue;
+    const box = nameEl.closest(`.appointment-${n}`).length ? nameEl.closest(`.appointment-${n}`) : $(`.appointment-${n}`);
+    const control = box.find('[id*="nature-of-control"], [id*="natures-of-control"]').toArray().map((el) => clean($(el).text())).filter((t) => t && t.length < 160);
+    const name = dropTitles(raw.split(' '), 2).join(' ');
+    owners.push({
+      name,
+      // a company or other legal entity is registered with a legal form; a person is listed with a title or plainly
+      kind: new RegExp(`\\b(?:${LEGAL_FORMS}|corporation|incorporated|limited|trust|partnership|holdings?|group|fund|foundation|bank)\\b\\.?`, 'i').test(name) ? 'company' : 'person',
+      control: [...new Set(control)],
+      notified: clean($(`#psc-notified-on-${n}`).text()) || null,
+      ceased: clean($(`#psc-ceased-on-${n}`).text()) || null,
+    });
+  }
+  return { owners, statements };
+}
+
+/** Charges (secured lending): how many, how many still outstanding, and who holds them. */
+export function parseChargesPage(html) {
+  const $ = load(html);
+  const head = clean($('#company-mortgages').text());
+  if (!head && !$('#company-number').length) throw new Error('Companies House returned a page that could not be read');
+  const total = Number((head.match(/(\d+)\s+charges?/i) || [])[1]) || 0;
+  const breakdown = clean($('#company-mortgages-breakdown').text());
+  const num = (re) => Number((breakdown.match(re) || [])[1]) || 0;
+  const holders = $('[id*="persons-entitled"]').toArray().flatMap((el) => {
+    const items = $(el).find('li').toArray().map((li) => clean($(li).text()));
+    return items.length ? items : [clean($(el).text())];
+  }).filter((t) => t && t.length < 120 && !/^persons entitled/i.test(t));
+  return {
+    total, outstanding: num(/(\d+)\s+outstanding/i), satisfied: num(/(\d+)\s+satisfied/i), partSatisfied: num(/(\d+)\s+part satisfied/i),
+    holders: uniqueBy(holders, (h) => legalNorm(h)),
+    summary: [head || `${total} charges registered`, breakdown].filter(Boolean).join(': '),
+  };
+}
+
+const INSOLVENCY_TYPES = /(creditors[’']? voluntary liquidation|members[’']? voluntary liquidation|compulsory liquidation|administration order|in administration|administrative receiver(?:ship)?|receivership|receiver manager|company voluntary arrangement|moratorium|winding[- ]up order|scheme of arrangement|restructuring plan)/gi;
+/** Insolvency cases: how many and of what kind. Practitioners' names and addresses are not read. */
+export function parseInsolvencyPage(html) {
+  const $ = load(html);
+  const text = clean($('.govuk-tabs__panel, #content-container, main').first().text());
+  if (!text) throw new Error('Companies House returned a page that could not be read');
+  const cases = new Set((text.match(/Case number\s+(\d+)/gi) || []).map((m) => m.replace(/\D/g, ''))).size;
+  const types = [...new Set((text.match(INSOLVENCY_TYPES) || []).map((t) => t.toLowerCase()))];
+  return { cases: cases || (types.length ? 1 : 0), types };
 }
 
 const CORPORATE_OFFICER = new RegExp(`\\b(?:${LEGAL_FORMS}|secretaries|nominees|services|trustees?|partnership|group|holdings|gmbh|s\\.a|verein)\\b\\.?$`, 'i');
@@ -439,7 +588,7 @@ const lower = (s) => clean(s).toLowerCase();
 const statusPhrase = (status) => (status ? `, ${GONE.test(status) || DISTRESSED.test(status) ? status.toUpperCase() : lower(status)}` : '');
 
 /** One record for a person's appointments at one UK company (several roles there are listed together). */
-function ukAppointmentFinding(subject, registeredName, group, context = '') {
+function ukAppointmentFinding(subject, registeredName, group, context = '', { officerId = '', sameRecord = null } = {}) {
   const [first] = group;
   const status = first.companyStatus || '';
   const term = (a) => `appointed ${a.appointed || 'on an unstated date'}${a.resigned ? `, resigned ${a.resigned}` : ''}`;
@@ -457,30 +606,73 @@ function ukAppointmentFinding(subject, registeredName, group, context = '') {
     data: {
       company: first.company, companyNumber: first.number, companyStatus: status || null,
       appointments: group.map((a) => ({ role: a.role, appointed: ukDate(a.appointed), resigned: ukDate(a.resigned) })),
+      ...(officerId ? { officerId } : {}),
     },
-  }, context);
+  }, context, sameRecord);
 }
+
+/** Whether a Companies House search page links to a further page of results. */
+export function searchHasMorePages(html) {
+  const $ = load(html);
+  return $('a[href*="page="]').toArray().some((a) => {
+    const href = $(a).attr('href') || '';
+    const rel = String($(a).attr('rel') || '').toLowerCase();
+    const label = clean($(a).text()).toLowerCase();
+    // Only the "Next" link counts: the numbered links are there on the last page too
+    return /[?&]page=\d+/.test(href) && (rel === 'next' || $(a).attr('id') === 'next-page' || /^next\b/.test(label));
+  });
+}
+
+const MAX_SEARCH_PAGES = 3; // pages of officer search results read for one name
 
 async function ukOfficersByName(ctx) {
   const { subject, deadline } = ctx;
   const mine = nameTokens(subject.name);
-  const rows = parseOfficerSearch(await chPage(`/search/officers?q=${encodeURIComponent(subject.name)}`, deadline));
-  const namesakes = rows.filter((r) => sameName(registryTokens(r.name), mine));
-  if (!namesakes.length) return { findings: [], threads: [], notes: [] };
+  const notes = [];
+  const partial = [];
+  // The search is fuzzy and returns 20 rows a page: for a common name the person's own record can be on page 2.
+  const firstHtml = await chPage(`/search/officers?q=${encodeURIComponent(subject.name)}`, deadline);
+  const rows = parseOfficerSearch(firstHtml);
+  let more = searchHasMorePages(firstHtml);
+  let read = 1;
+  while (more && read < MAX_SEARCH_PAGES) {
+    let html;
+    try { html = await chPage(`/search/officers?q=${encodeURIComponent(subject.name)}&page=${read + 1}`, deadline); } catch { break; }
+    rows.push(...parseOfficerSearch(html));
+    more = searchHasMorePages(html);
+    read += 1;
+  }
+  if (more) {
+    notes.push(`Companies House has more than ${read} pages of officer results for ${subject.name}; only the first ${read} were read, so an appointment under this name may be missing.`);
+    partial.push('Companies House officer search (first pages only)');
+  }
+  const namesakes = uniqueBy(rows.filter((r) => sameName(registryTokens(r.name), mine)), (r) => r.href);
+  if (!namesakes.length) return partial.length ? { findings: [], threads: [], notes, partial } : { findings: [], threads: [], notes };
   const opened = namesakes.slice(0, MAX_OFFICER_PAGES);
   const pages = await mapLimit(opened, 3, async (o) => parseAppointments(await chPage(o.href, deadline)));
   if (pages.every((p) => !p)) throw new Error('Companies House officer records could not be opened');
+  // A page that failed must not read as "no appointments": say how many were not read
+  const failed = pages.filter((p) => !p).length;
+  if (failed) {
+    notes.push(`${plural(failed, 'Companies House officer record', 'Companies House officer records')} under the name ${subject.name} could not be opened, so ${failed === 1 ? 'its' : 'their'} appointments are not listed.`);
+    partial.push('Companies House officer records');
+  }
 
   const candidates = [];
   pages.forEach((page, i) => {
     if (!page) return;
+    const officerId = (opened[i].href.match(/^\/officers\/([A-Za-z0-9_-]+)\//) || [])[1] || '';
     const byCompany = new Map();
     for (const a of page.appointments) byCompany.set(a.number, [...(byCompany.get(a.number) || []), a]);
+    // Companies House files one person's appointments under one officer record: when one of them is at a known
+    // company of the subject, the others on the same record are that person's too ("likely", never more).
+    const anchorAppointment = [...byCompany.values()].find((g) => knownCompanyFor(subject, g[0].company));
     let untied = 0;
     for (const group of byCompany.values()) {
-      const tied = resemblesKnown(subject, group[0].company); // ordering only: the grade is personAtCompany's
+      const tied = resemblesKnown(subject, group[0].company) || Boolean(anchorAppointment); // ordering only
       if (!tied) { untied += 1; if (untied > MAX_UNTIED_PER_OFFICER) continue; }
-      candidates.push({ group, tied, registeredName: page.officerName || opened[i].name });
+      const sameRecord = anchorAppointment && anchorAppointment !== group ? `same Companies House officer record as the appointment at ${anchorAppointment[0].company}` : null;
+      candidates.push({ group, tied, registeredName: page.officerName || opened[i].name, officerId, sameRecord });
     }
   });
   // Records at a known company first, then companies that are gone, then the rest
@@ -494,15 +686,14 @@ async function ukOfficersByName(ctx) {
     if (findings.length >= MAX_APPOINTMENTS) break;
     const number = c.group[0].number;
     if (seen.has(number)) continue;
-    const finding = ukAppointmentFinding(subject, c.registeredName, c.group);
+    const finding = ukAppointmentFinding(subject, c.registeredName, c.group, '', { officerId: c.officerId, sameRecord: c.sameRecord });
     if (!finding) continue;
     seen.add(number);
     findings.push(finding);
     threads.push(makeThread('company', withoutLegalForm(c.group[0].company), `UK ${lower(c.group[0].role) || 'officer'} appointment (Companies House)`, { trusted: finding.match !== 'possible' }));
   }
-  const notes = [];
-  if (namesakes.length > opened.length) notes.push(`Companies House lists ${namesakes.length} officer records under the name ${subject.name} on its first page of results; the first ${opened.length} were opened.`);
-  return { findings, threads, notes };
+  if (namesakes.length > opened.length) notes.push(`Companies House lists ${namesakes.length} officer records under the name ${subject.name} in the results read; the first ${opened.length} were opened.`);
+  return partial.length ? { findings, threads, notes, partial } : { findings, threads, notes };
 }
 
 async function ukDisqualifications(ctx) {
@@ -560,21 +751,53 @@ function officerTie(subject, people) {
   return null;
 }
 
+/** Read one extra page of a tied company; a page that fails is noted, never taken for "nothing there". */
+async function companyExtra(path, parse, deadline, missing, what) {
+  try {
+    return parse(await chPage(path, deadline));
+  } catch (error) {
+    if (error?.status === 404) return null; // the register has no such page for this company
+    missing.push(what);
+    return null;
+  }
+}
+
+/** The register's own facts about a tied company beyond its officers: owners, charges, insolvency. */
+async function ukCompanyExtras(c, info, deadline) {
+  const missing = [];
+  const owners = await companyExtra(`/company/${c.number}/persons-with-significant-control`, parsePscPage, deadline, missing, 'persons with significant control');
+  const charges = info?.tabs?.charges ? await companyExtra(`/company/${c.number}/charges`, parseChargesPage, deadline, missing, 'charges') : null;
+  const insolvency = info?.tabs?.insolvency ? await companyExtra(`/company/${c.number}/insolvency`, parseInsolvencyPage, deadline, missing, 'insolvency') : null;
+  return { owners, charges, insolvency, missing };
+}
+
+const pscLine = (p) => `${p.name}${p.control.length ? ` (${p.control.slice(0, 3).join('; ')})` : ''}${p.ceased ? `, ceased ${p.ceased}` : p.notified ? `, notified ${p.notified}` : ''}`;
+
 async function ukCompany(task, ctx) {
   const { subject, deadline } = ctx;
   const wanted = withoutLegalForm(task.value);
   if (legalNorm(task.value).length < 2) return { findings: [], threads: [], notes: [] };
   const rows = parseCompanySearch(await chPage(`/search/companies?q=${encodeURIComponent(wanted)}`, deadline));
-  const rank = { exact: 0, former: 1, prefix: 2 };
+  // A known company's own arm, or a legal name learned for it, comes right after the exact name
+  const rank = { exact: 0, known: 1, former: 2, prefix: 3 };
   const candidates = rows.map((row) => {
     const tie = nameTie(task.value, row.name);
     const former = row.previousNames.find((p) => nameTie(task.value, p) === 'exact');
-    return { ...row, kind: tie === 'exact' ? 'exact' : former ? 'former' : tie, former: former || null };
+    const kind = tie === 'exact' ? 'exact' : former ? 'former' : tie === 'prefix' && knownCompanyFor(subject, row.name) ? 'known' : tie;
+    return { ...row, kind, former: former || null };
   }).filter((c) => c.kind).sort((a, b) => rank[a.kind] - rank[b.kind]).slice(0, 3);
   if (!candidates.length) return { findings: [], threads: [], notes: [] };
 
   const pages = await mapLimit(candidates, 3, async (c) => parseCompanyOfficers(await chPage(`/company/${c.number}/officers`, deadline)));
   if (pages.every((p) => !p)) throw new Error('Companies House officer lists could not be opened');
+  const notes = [];
+  const partial = [];
+  // An officer list that could not be opened is not "no officer matches": say which company was not read
+  const unread = candidates.filter((c, i) => !pages[i]);
+  if (unread.length) {
+    notes.push(`The Companies House officer list of ${unread.map((c) => `${c.name} (${c.number})`).join(' and ')} could not be opened, so ${unread.length === 1 ? 'that company was' : 'those companies were'} not checked for the person.`);
+    partial.push(...unread.map((c) => `Companies House: ${c.name}`));
+  }
 
   const judged = candidates.map((c, i) => {
     const page = pages[i];
@@ -583,9 +806,10 @@ async function ukCompany(task, ctx) {
     // A name that only starts with the wanted one is tied through a known associate on its board, never
     // through an officer who merely shares the subject's name: that is how a namesake's company slips in
     // (a known company's own country arm, "Mistral AI UK Ltd", is tied by the subject's seat like the company itself)
-    const tie = found && (c.kind !== 'prefix' || found.associate || (found.self.length && knownCompanyFor(subject, c.name))) ? found : null;
+    const prefixed = c.kind === 'prefix' || c.kind === 'known';
+    const tie = found && (!prefixed || found.associate || (found.self.length && knownCompanyFor(subject, c.name))) ? found : null;
     const namesake = found && !tie ? found : null;
-    return { ...c, page, people, tie, namesake, nameOnly: !found && c.kind !== 'prefix' };
+    return { ...c, page, people, tie, namesake, nameOnly: !found && !prefixed };
   }).filter((c) => c.page && (c.tie || c.namesake || c.nameOnly));
   // The register's own tie first; a bare name match last
   judged.sort((a, b) => Number(Boolean(b.tie)) - Number(Boolean(a.tie)));
@@ -593,17 +817,23 @@ async function ukCompany(task, ctx) {
   // too common to show: say so in a note instead of a record. An officer sharing the person's name is kept
   // (held at possible) for a company the person runs: it is something for the reader to check
   const shown = judged.filter((c) => c.tie || (!isAffiliate(task) && (c.namesake || distinctiveMatch(task.value, [c.name, c.former].filter(Boolean)))));
-  const notes = shown.length < judged.length && !judged.some((c) => c.tie) ? [untiedNote('UK', wanted, task)] : [];
+  if (shown.length < judged.length && !judged.some((c) => c.tie)) notes.push(untiedNote('UK', wanted, task));
   const kept = shown.slice(0, 2);
-  if (!kept.length) return { findings: [], threads: [], notes };
-
-  let detail = null;
-  try { detail = parseCompanyPage(await chPage(`/company/${kept[0].number}`, deadline)); } catch { detail = null; }
-
+  const done = () => (partial.length ? { findings, threads, notes, partial } : { findings, threads, notes });
   const findings = [];
   const threads = [];
+  if (!kept.length) return done();
+
+  // The overview of every company shown (its status and filing flags), and for a company the register ties to
+  // the person, its owners, charges and insolvency cases.
+  const details = await mapLimit(kept, 2, async (c) => parseCompanyPage(await chPage(`/company/${c.number}`, deadline)));
+  const extras = await mapLimit(kept, 2, async (c, i) => (c.tie ? ukCompanyExtras(c, details[i], deadline) : null));
+  // The company the task is about, as the check knows it ("Ramp" for a task on "Ramp Business Corp")
+  const knownForTask = knownCompanyFor(subject, task.value)?.company || null;
+
   kept.forEach((c, i) => {
-    const info = i === 0 && detail ? detail : null;
+    const info = details[i] || null;
+    const extra = extras[i] || null;
     const status = info?.status || (c.dissolved ? 'Dissolved' : c.statusHint || '');
     const incorporated = info?.incorporated || c.incorporated;
     const dissolved = info?.dissolved || c.dissolved;
@@ -611,9 +841,13 @@ async function ukCompany(task, ctx) {
     const officers = (c.page.officers || []).map((o) => ({ name: displayPerson(o.name), role: o.role, status: o.status, appointed: ukDate(o.appointed), resigned: ukDate(o.resigned) }));
     const officerLine = (o) => `${o.name} (${o.role || 'Officer'}, ${o.resigned ? `${o.appointed} to ${o.resigned}` : `appointed ${o.appointed || 'date not stated'}`})`;
     const gone = GONE.test(status) || DISTRESSED.test(status);
+    const overdue = [info?.accountsOverdue ? 'accounts overdue' : '', info?.confirmationOverdue ? 'confirmation statement overdue' : ''].filter(Boolean);
+    const cases = extra?.insolvency?.cases || 0;
     const facts = [
       status ? (gone ? `${status.toUpperCase()}${dissolved ? ` on ${longDate(dissolved)}` : ''}` : lower(status)) : '',
       incorporated ? `incorporated ${longDate(incorporated)}` : '',
+      ...(c.tie ? overdue.map((o) => o.toUpperCase()) : []),
+      c.tie && cases ? `${plural(cases, 'INSOLVENCY CASE', 'INSOLVENCY CASES')}` : '',
     ].filter(Boolean).join(', ');
     const title = c.tie
       ? `UK company record: ${c.name}${facts ? `, ${facts}` : ''}`
@@ -623,6 +857,14 @@ async function ukCompany(task, ctx) {
     const untiedReason = c.namesake
       ? `name begins with ${wanted} and an officer shares the name ${subject.name}; no known associate is on its board, so it may be another person's company`
       : `same name as ${wanted}; no listed officer matches the person`;
+    const owners = extra?.owners?.owners || [];
+    const charges = extra?.charges || null;
+    const severityOf = () => {
+      if (!c.tie) return companySeverity(status);
+      if (cases || DISTRESSED.test(status)) return 'medium';
+      if (overdue.length) return companySeverity(status) === 'info' ? 'low' : companySeverity(status);
+      return companySeverity(status);
+    };
     const finding = makeFinding(subject, {
       source: 'uk-companies-house',
       sourceLabel: CH_LABEL,
@@ -635,21 +877,46 @@ async function ukCompany(task, ctx) {
         incorporated ? `Incorporated on ${longDate(incorporated)}` : '',
         dissolved ? `Dissolved on ${longDate(dissolved)}` : '',
         previous.length ? `Previous company names: ${previous.join('; ')}` : '',
+        info?.lastAccounts ? `Last accounts made up to ${info.lastAccounts}` : '',
+        c.tie && overdue.length ? `The register shows: ${overdue.join(', ')}` : '',
         c.page.summary || '',
         (c.page.officers || []).slice(0, 12).map(officerLine).join('; '),
+        owners.length ? `Persons with significant control: ${owners.slice(0, 5).map(pscLine).join('; ')}` : '',
+        extra?.owners?.statements?.length ? `Statement on control: ${extra.owners.statements[0]}` : '',
+        charges ? `Charges: ${charges.summary}${charges.holders.length ? `; held by ${charges.holders.slice(0, 4).join(', ')}` : ''}` : '',
+        cases ? `Insolvency: ${plural(cases, 'case', 'cases')}${extra.insolvency.types.length ? ` (${extra.insolvency.types.join('; ')})` : ''}` : '',
+        extra?.missing?.length ? `Not read: ${extra.missing.join(', ')}` : '',
       ].filter(Boolean).join(' — '),
       url: `${CH}/company/${c.number}`,
       date: incorporated,
-      severity: companySeverity(status),
+      severity: severityOf(),
       match: c.tie ? 'company' : 'possible',
       matchReasons: [c.tie ? c.tie.reason : untiedReason],
       data: {
         companyNumber: c.number, status: status || null, type: info?.type || null, incorporated: incorporated || null, dissolved: dissolved || null,
         previousNames: previous, officers: officers.slice(0, 40), ...(c.kind === 'former' ? { formerName: c.former } : {}),
+        ...(c.tie ? {
+          accountsOverdue: Boolean(info?.accountsOverdue), confirmationStatementOverdue: Boolean(info?.confirmationOverdue), lastAccounts: info?.lastAccounts || null,
+          owners: owners.slice(0, 10).map((p) => ({ name: p.name, kind: p.kind, control: p.control, notified: ukDate(p.notified), ceased: ukDate(p.ceased) })),
+          charges: charges ? { total: charges.total, outstanding: charges.outstanding, satisfied: charges.satisfied, partSatisfied: charges.partSatisfied, holders: charges.holders.slice(0, 8) } : null,
+          insolvencyCases: cases, insolvencyTypes: extra?.insolvency?.types || [],
+          notRead: extra?.missing || [],
+        } : {}),
       },
     });
     if (finding) findings.push(c.tie ? finding : untiedRecord(finding));
+    if (extra?.missing?.length) partial.push(...extra.missing.map((m) => `Companies House ${m}: ${c.name}`));
     if (!c.tie) return;
+
+    // A register entry tied to the person (their own seat, or a known associate's) gives a fuller legal name of
+    // the company: the check then searches and matches by it too. So does a corporate owner whose name starts
+    // with the company's ("Ramp Business Corporation" owning RAMP BUSINESS UK LTD).
+    if (finding && knownForTask) {
+      addCompanyAlias(subject, { company: knownForTask, alias: c.name, origin: finding.id });
+      for (const o of owners.filter((p) => p.kind === 'company')) {
+        if (nameTie(knownForTask, o.name) || knownCompanyFor(subject, o.name)) addCompanyAlias(subject, { company: knownForTask, alias: o.name, origin: finding.id });
+      }
+    }
 
     // The subject's own seat on this board: the company is one the check already ties to them
     if (c.tie.self.length) {
@@ -665,8 +932,13 @@ async function ukCompany(task, ctx) {
       (p) => fold(p.short),
     ).slice(0, MAX_CO_DIRECTORS);
     for (const p of coDirectors) threads.push(makeThread('associate', p.short, `${p.resigned ? 'former ' : ''}${lower(p.role)} of ${c.name} (UK Companies House)`, { trusted: true }));
+    // Owners: a person who controls the company is an associate; a company that owns it is a company to look into
+    for (const p of owners.filter((x) => !x.ceased).slice(0, 4)) {
+      if (p.kind === 'person' && !subject.hasName(p.name)) threads.push(makeThread('associate', p.name, `person with significant control of ${c.name} (UK Companies House)`, { trusted: true }));
+      if (p.kind === 'company' && !knownCompanyFor(subject, p.name)) threads.push(makeThread('company', withoutLegalForm(p.name), `owner of ${c.name} (UK register of persons with significant control)`, { trusted: true }));
+    }
   });
-  return { findings, threads, notes };
+  return done();
 }
 
 export const ukCompaniesConnector = {
@@ -871,6 +1143,9 @@ async function frByCompany(task, ctx) {
     });
     if (finding) findings.push(tie ? finding : untiedRecord(finding));
     if (!tie) continue;
+    // The register ties it to the person: its registered name is a known name of the company from now on
+    const knownForTask = knownCompanyFor(subject, task.value)?.company;
+    if (finding && knownForTask) addCompanyAlias(subject, { company: knownForTask, alias: c.name, origin: finding.id });
     if (tie.self.length) {
       const seat = frRoleFinding(subject, c, tie.self[0], task.value);
       if (seat) findings.push(seat);
@@ -1043,6 +1318,65 @@ async function queryStateRegister(state, wanted, deadline) {
   return rows;
 }
 
+const US_STATES = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', DC: 'District of Columbia', FL: 'Florida', GA: 'Georgia',
+  HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan',
+  MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
+  NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee',
+  TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming',
+};
+const STATE_BY_NAME = new Map(Object.entries(US_STATES).map(([code, name]) => [fold(name), code]));
+/** "DE", "Delaware", "DELAWARE", "US-DE" -> "DE"; anything else (a country, blank) -> null. */
+export function usStateCode(text) {
+  const t = clean(text).replace(/^US-/i, '').replace(/\.$/, '');
+  if (/^[A-Za-z]{2}$/.test(t) && US_STATES[t.toUpperCase()]) return t.toUpperCase();
+  return STATE_BY_NAME.get(fold(t)) || null;
+}
+
+/**
+ * The US state `company` was formed in, when a record tied to that very company says so: a tied LEI record
+ * ("US-DE") whose legal name is the company, or a Form D or company filing whose issuer is a known name of the
+ * company, naming its jurisdiction of incorporation. A record of another of the person's companies never counts
+ * (a second company is not formed where the first one is). Null when nothing tied to this company says: no home
+ * state means no "another business" demotion. `company` defaults to the subject's company.
+ */
+export function homeJurisdiction(ctx, company = '') {
+  let findings = [];
+  try { findings = typeof ctx?.findings === 'function' ? ctx.findings() || [] : []; } catch { findings = []; }
+  const subject = ctx?.subject;
+  const wanted = clean(company || subject?.company || '');
+  if (!subject || !wanted) return null;
+  const target = knownCompanyFor(subject, wanted)?.company || companyKeys(wanted)[0] || '';
+  // The registered name is this company itself (its exact name or a learned legal name), not an arm or a namesake
+  const isThisCompany = (name) => {
+    const hit = clean(name) ? knownCompanyFor(subject, name) : null;
+    return Boolean(hit && hit.tie === 'exact' && target && hit.company === target);
+  };
+  for (const f of findings) {
+    if (!f || f.match === 'possible') continue;
+    if (f.source === 'lei-register' && f.match === 'company') {
+      const code = /^US-/i.test(String(f.data?.jurisdiction || '')) ? usStateCode(f.data.jurisdiction) : null;
+      const legalName = f.data?.legalName || (String(f.quote || '').match(/^(.+?) — LEI /) || [])[1] || '';
+      if (code && isThisCompany(legalName)) return { code, from: 'the LEI register' };
+    }
+    if (/^sec-/.test(String(f.source || ''))) {
+      const stated = f.data?.jurisdiction || f.data?.stateOfIncorporation;
+      const issuer = f.data?.issuer || '';
+      if (stated && usStateCode(stated) && issuer && isThisCompany(issuer)) return { code: usStateCode(stated), from: 'an SEC filing' };
+      // "Issuer: Ramp Business Corp (Corporation, DELAWARE)" in a Form D record
+      const m = String(f.quote || '').match(/Issuer:\s*([^(;]+?)\s*\(([^)]*)\)/);
+      if (m && isThisCompany(m[1])) {
+        const code = m[2].split(',').map((p) => usStateCode(p)).find(Boolean);
+        if (code) return { code, from: 'an SEC filing' };
+      }
+    }
+  }
+  return null;
+}
+
+const OTHER_STATES = Object.keys(US_STATES).length - 5;
+const statesCoverage = (wanted) => `US state registers searched for ${wanted}: Colorado, New York, Connecticut, Oregon and Texas. Not searched: Delaware, where most US start-ups are formed, California and the other ${OTHER_STATES - 2} states, whose registers cannot be searched by this check; a company missing here may be registered there.`;
+
 export const usStateRegistriesConnector = {
   id: 'us-state-registries',
   label: US_LABEL,
@@ -1062,14 +1396,14 @@ export const usStateRegistriesConnector = {
     if (answers.every((a) => a.error)) throw new Error(`None of the state registers answered (${String(answers[0].error?.message || answers[0].error)})`);
 
     const findings = [];
-    const notes = [];
+    const notes = [statesCoverage(wanted)];
     const lookalikes = [];
     const perState = [];
-    const partial = []; // states that did not answer in time: the search is partial, not "nothing found"
+    const partial = []; // states that did not answer: the search is partial, not "nothing found"
     for (const { state, rows, error } of answers) {
       if (error) {
         const late = /^Timed out/.test(String(error?.message || '')) || /^Out of time/.test(String(error?.message || ''));
-        if (late) partial.push(state.name);
+        partial.push(state.name);
         notes.push(late
           ? `The ${state.name} business register did not answer in time.`
           : `The ${state.name} business register could not be read (${String(error?.message || error)}).`);
@@ -1077,49 +1411,77 @@ export const usStateRegistriesConnector = {
       }
       // A name reservation is not a company: Connecticut lists them beside real entities
       const entities = uniqueBy(rows.map((row) => ({ ...state.read(row), rowId: String(row[':id'] || '') })).filter((e) => e.name && e.rowId && !/reservation/i.test(e.status)), (e) => String(e.number || e.name));
-      const exact = entities.filter((e) => nameTie(task.value, e.name) === 'exact');
+      const exact = entities.filter((e) => nameTie(task.value, e.name) === 'exact').map((e) => ({ ...e, formedIn: usStateCode(e.jurisdiction) || (e.jurisdiction ? clean(e.jurisdiction) : null) }));
       const similar = entities.filter((e) => nameTie(task.value, e.name) === 'prefix');
       if (similar.length) lookalikes.push(`${state.name}: ${similar.slice(0, 2).map((e) => e.name).join(', ')}${similar.length > 2 ? ` and ${similar.length - 2} more` : ''}`);
       perState.push({ state, exact });
     }
-    // These registers list no officers, so a legal name is all that ties an entity to the company. That is
-    // enough only when one entity in all five states carries the name; with several, any of them may be
-    // another business, and its status must not read as the company's.
-    const sameNamed = perState.reduce((n, s) => n + s.exact.length, 0);
-    const tiedByName = sameNamed === 1;
-    for (const { state, exact } of perState) {
-      for (const e of exact.slice(0, MAX_PER_STATE)) {
-        const notGood = GONE.test(e.status) || DISTRESSED.test(e.status) || LAPSED.test(e.status);
-        const when = e.formed ? `${e.formedWord} ${longDate(e.formed)}` : '';
-        const where = e.jurisdiction && fold(e.jurisdiction) !== fold(state.code) && fold(e.jurisdiction) !== fold(state.name) ? `home jurisdiction ${e.jurisdiction}` : '';
-        const title = notGood
-          ? `${state.name} business register shows ${e.name} as ${e.status.toUpperCase()}${e.statusDate ? ` since ${longDate(e.statusDate)}` : ''}${when ? `; ${when}` : ''}${where ? `, ${where}` : ''}`
-          : `${state.name} business register: ${e.name}, ${(/\bcode\b/.test(e.status) ? e.status : lower(e.status)) || 'listed'}${when ? `, ${when}` : ''}${where ? `, ${where}` : ''}`;
-        const finding = makeFinding(subject, {
-          source: 'us-state-registries',
-          sourceLabel: US_LABEL,
-          category: 'corporate',
-          title,
-          quote: [
-            `${e.name} — ${state.name} register number ${e.number || 'not stated'}`,
-            e.status ? `Status: ${e.status}${e.statusDate ? ` (${longDate(e.statusDate)})` : ''}` : '',
-            e.type ? `Type: ${e.type}` : '',
-            e.formed ? `${e.formedWord[0].toUpperCase()}${e.formedWord.slice(1)}: ${longDate(e.formed)}` : '',
-            e.jurisdiction ? `Jurisdiction of formation: ${e.jurisdiction}` : '',
-            e.extra || '',
-            state.activeOnly ? 'This register lists active entities only' : '',
-          ].filter(Boolean).join(' — '),
-          url: `https://${state.host}/resource/${state.dataset}/${encodeURIComponent(e.rowId)}.json`,
-          date: e.formed,
-          severity: tiedByName ? companySeverity(e.status) : 'info',
-          match: tiedByName ? 'company' : 'possible',
-          matchReasons: [tiedByName
-            ? `legal name matches ${wanted}; the register lists no officers, so the tie rests on the name`
-            : `same legal name as ${wanted}; the register lists no officers and ${sameNamed} entities in the state registers share the name, so it may be another business`],
-          data: { state: state.code, registerNumber: e.number || null, status: e.status || null, type: e.type || null, formed: e.formed, jurisdiction: e.jurisdiction || null },
-        });
-        if (finding) findings.push(finding);
-      }
+    const all = perState.flatMap((s) => s.exact.map((e) => ({ ...e, state: s.state })));
+
+    // One ordinary word ("Merge", "Ramp") with no fuller legal name: every same-named entity is someone else's
+    // business as far as the register can tell. Counted in one line, never shown as the company's.
+    if (bareOrdinaryWord(task.value) && all.length) {
+      const byState = perState.filter((s) => s.exact.length).map((s) => `${s.state.name} ${s.exact.length}`).join(', ');
+      notes.push(`State registers list ${plural(all.length, 'business', 'businesses')} named ${wanted} (${byState}). "${wanted}" is an ordinary word many businesses use, and these registers list no officers, so none is shown as the company; a search under the company's full legal name can tell.`);
+      if (lookalikes.length) notes.push(`State registers also list companies whose names begin with "${wanted}" (${lookalikes.join('; ')}); they are not reported.`);
+      return partial.length ? { findings, threads: [], notes, partial } : { findings, threads: [], notes };
+    }
+
+    // These registers list no officers, so a legal name and the state the entity was formed in are all that tie
+    // it to the company. With the company's home state known (a tied LEI record or Form D), only a registration of
+    // an entity formed there ties. Without it, a domestic entity of these states never ties on its name (the
+    // company may be formed elsewhere and the local one a namesake); foreign registrations tie only when every
+    // same-named entity with a known place of formation was formed in one and the same place.
+    const home = homeJurisdiction(ctx, task.value);
+    const places = new Set(all.map((e) => e.formedIn).filter(Boolean));
+    const domesticHere = (e) => e.formedIn === e.state.code;
+    const tiedRow = (e) => {
+      if (!e.formedIn) return false; // Texas gives no place of formation
+      if (home) return e.formedIn === home.code;
+      return !domesticHere(e) && places.size === 1 && !all.some((x) => domesticHere(x));
+    };
+    const shownRows = perState.flatMap((s) => s.exact.slice(0, MAX_PER_STATE).map((e) => ({ ...e, state: s.state })));
+    for (const e of shownRows) {
+      const tied = tiedRow(e);
+      const state = e.state;
+      const notGood = GONE.test(e.status) || DISTRESSED.test(e.status) || LAPSED.test(e.status);
+      const when = e.formed ? `${e.formedWord} ${longDate(e.formed)}` : '';
+      const where = e.jurisdiction && fold(e.jurisdiction) !== fold(state.code) && fold(e.jurisdiction) !== fold(state.name) ? `home jurisdiction ${e.jurisdiction}` : '';
+      const title = notGood
+        ? `${state.name} business register shows ${e.name} as ${e.status.toUpperCase()}${e.statusDate ? ` since ${longDate(e.statusDate)}` : ''}${when ? `; ${when}` : ''}${where ? `, ${where}` : ''}`
+        : `${state.name} business register: ${e.name}, ${(/\bcode\b/.test(e.status) ? e.status : lower(e.status)) || 'listed'}${when ? `, ${when}` : ''}${where ? `, ${where}` : ''}`;
+      const formedText = e.formedIn ? (usStateCode(e.formedIn) ? US_STATES[e.formedIn] : e.formedIn) : '';
+      const reason = tied
+        ? (home
+          ? `legal name matches ${wanted} and the entity was formed in ${US_STATES[home.code]}, the company's home state according to ${home.from}; the register lists no officers`
+          : `legal name matches ${wanted} and every same-named entity in these registers was formed in ${formedText}; the register lists no officers, so the tie rests on the name`)
+        : home && e.formedIn
+          ? `same legal name as ${wanted}, but formed in ${formedText}, while the company is formed in ${US_STATES[home.code]} (${home.from}): another business`
+          : !e.formedIn
+            ? `same legal name as ${wanted}; the register gives no place of formation and lists no officers, so it may be another business`
+            : `same legal name as ${wanted}; ${domesticHere(e) ? `a ${state.name} entity, and the company is not known to be formed there` : `${plural(places.size, 'place of formation', 'places of formation')} among the same-named entities`}; the register lists no officers, so it may be another business`;
+      const finding = makeFinding(subject, {
+        source: 'us-state-registries',
+        sourceLabel: US_LABEL,
+        category: 'corporate',
+        title,
+        quote: [
+          `${e.name} — ${state.name} register number ${e.number || 'not stated'}`,
+          e.status ? `Status: ${e.status}${e.statusDate ? ` (${longDate(e.statusDate)})` : ''}` : '',
+          e.type ? `Type: ${e.type}` : '',
+          e.formed ? `${e.formedWord[0].toUpperCase()}${e.formedWord.slice(1)}: ${longDate(e.formed)}` : '',
+          e.jurisdiction ? `Jurisdiction of formation: ${e.jurisdiction}` : '',
+          e.extra || '',
+          state.activeOnly ? 'This register lists active entities only' : '',
+        ].filter(Boolean).join(' — '),
+        url: `https://${state.host}/resource/${state.dataset}/${encodeURIComponent(e.rowId)}.json`,
+        date: e.formed,
+        severity: tied ? companySeverity(e.status) : 'info',
+        match: tied ? 'company' : 'possible',
+        matchReasons: [reason],
+        data: { state: state.code, registerNumber: e.number || null, status: e.status || null, type: e.type || null, formed: e.formed, jurisdiction: e.jurisdiction || null, ...(home ? { homeState: home.code } : {}) },
+      });
+      if (finding) findings.push(tied ? finding : untiedRecord(finding));
     }
     if (lookalikes.length) notes.push(`State registers also list companies whose names begin with "${wanted}" (${lookalikes.join('; ')}). Only exact legal names are reported, because a similar name may be an affiliate or an unrelated business.`);
     return partial.length ? { findings, threads: [], notes, partial } : { findings, threads: [], notes };
@@ -1130,6 +1492,7 @@ export const usStateRegistriesConnector = {
 
 const LEI_SEARCH = 'https://api.gleif.org/api/v1/lei-records';
 const LEI_LABEL = 'Legal Entity Identifier register (GLEIF)';
+const LEI_PAGE = 100; // results read per search (the register allows up to 200)
 const regionName = (() => { try { const names = new Intl.DisplayNames(['en'], { type: 'region' }); return (code) => { try { return names.of(code) || code; } catch { return code; } }; } catch { return (code) => code; } })();
 const jurisdictionName = (code) => { const [country, region] = String(code || '').split('-'); return country ? `${regionName(country)}${region ? ` (${code})` : ''}` : ''; };
 /** GLEIF dates are UTC instants of a local midnight, so they can read a day early: round to the nearest day. */
@@ -1151,18 +1514,25 @@ export const leiConnector = {
     if (task.kind !== 'company') return { findings: [], threads: [], notes: [] };
     const wanted = withoutLegalForm(task.value);
     if (legalNorm(task.value).length < 3) return { findings: [], threads: [], notes: [] };
-    const qs = `filter%5Bentity.legalName%5D=${encodeURIComponent(wanted)}&page%5Bsize%5D=15`;
+    const qs = `filter%5Bentity.legalName%5D=${encodeURIComponent(wanted)}&page%5Bsize%5D=${LEI_PAGE}`;
     const data = await getJson(`${LEI_SEARCH}?${qs}`, { deadline, timeoutMs: 8000, accept: 'application/vnd.api+json' });
     if (!Array.isArray(data?.data)) throw new Error('Unexpected answer from the LEI register');
     const matching = data.data.filter((d) => {
       const e = d?.attributes?.entity;
       return /^[A-Z0-9]{20}$/.test(String(d?.id || '')) && e && [e.legalName?.name, ...(e.otherNames || []).map((n) => n?.name)].filter(Boolean).some((n) => nameTie(task.value, n) === 'exact');
     });
+    // The search is by words, not exact names: when it holds more entities than one page, an entity with the same
+    // exact name may be among those not read, so "only one carries the name" cannot be said.
+    const total = Number(data?.meta?.pagination?.total) || data.data.length;
+    const readInPart = total > data.data.length;
+    const notes = readInPart ? [`The LEI register holds ${total} entities whose names contain "${wanted}"; the first ${data.data.length} were read, so none is tied to the company on its name alone.`] : [];
+    const partial = readInPart ? ['LEI register (first page of results only)'] : [];
     const records = matching.slice(0, 3);
-    if (!records.length) return { findings: [], threads: [], notes: [] };
+    if (!records.length) return partial.length ? { findings: [], threads: [], notes, partial } : { findings: [], threads: [], notes };
     // The register lists no officers: a legal name ties a record to the company only when no other entity,
-    // in any country, carries it. With several, none is graded the company and no parents are read.
-    const tied = matching.length === 1;
+    // in any country, carries it, every result was read, and the name is not one ordinary word ("Merge", "Ramp")
+    // that a business anywhere may use. With several, none is graded the company and no parents are read.
+    const tied = matching.length === 1 && !readInPart && !bareOrdinaryWord(task.value);
 
     // Parents of the tied record only (one or two more lookups)
     const parentLinks = tied ? ['direct-parent', 'ultimate-parent'].map((rel) => ({ rel, url: records[0].relationships?.[rel]?.links?.['lei-record'] || null })) : [];
@@ -1207,17 +1577,19 @@ export const leiConnector = {
         match: tied ? 'company' : 'possible',
         matchReasons: [tied
           ? `legal name matches ${wanted}; the register lists no officers, so the tie rests on the name`
-          : `same legal name as ${wanted}${place ? ` in ${place}` : ''}; ${matching.length} registered entities share it`],
+          : matching.length > 1 ? `same legal name as ${wanted}${place ? ` in ${place}` : ''}; ${matching.length} registered entities share it`
+            : readInPart ? `same legal name as ${wanted}${place ? ` in ${place}` : ''}; the register holds more same-word entities than were read`
+              : `same legal name as ${wanted}${place ? ` in ${place}` : ''}; "${wanted}" is an ordinary word other businesses also use, and the register lists no officers`],
         data: {
-          lei: d.id, jurisdiction: e.jurisdiction || null, status: e.status || null, created, registeredAs: e.registeredAs || null, registrationStatus: reg.status || null,
+          lei: d.id, legalName: name || null, jurisdiction: e.jurisdiction || null, status: e.status || null, created, registeredAs: e.registeredAs || null, registrationStatus: reg.status || null,
           ...(tied && i === 0 ? { parents: (parents || []).filter((p) => p?.reported).map((p) => ({ relation: p.rel, name: p.name, lei: p.lei })) } : {}),
         },
       });
-      if (finding) findings.push(finding);
+      if (finding) findings.push(tied ? finding : untiedRecord(finding));
     });
     // A parent is recorded but not followed: the tie to the subject's company rests on a name match
     for (const p of uniqueBy((parents || []).filter((x) => x?.reported), (x) => x.lei)) threads.push(makeThread('company', withoutLegalForm(p.name), `${p.rel === 'direct-parent' ? 'direct' : 'ultimate'} parent of ${clean(records[0].attributes.entity.legalName?.name)} in the LEI register`, { trusted: false }));
-    return { findings, threads, notes: [] };
+    return partial.length ? { findings, threads, notes, partial } : { findings, threads, notes };
   },
 };
 
@@ -1251,10 +1623,18 @@ async function downloadYcList(deadline) {
   return list;
 }
 
-/** The compact index kept in the cache: [name, slug, former names, website host, batch, status] per company. */
-const ycIndex = (deadline) => cached(YC_CACHE_KEY, YC_TTL_MS, async () => (await downloadYcList(deadline))
-  .filter((c) => c && c.name && c.slug)
-  .map((c) => [clean(c.name), String(c.slug), (Array.isArray(c.former_names) ? c.former_names : []).map(clean).filter(Boolean), hostOf(c.website || ''), clean(c.batch), clean(c.status)]));
+/**
+ * The compact index kept in the cache: [name, slug, former names, website host, batch, status] per company.
+ * The download gets its own time (the cache's loader deadline), not the first caller's, so a caller short of
+ * time does not leave the list failed for everyone. Returns { index, asOf } where asOf is set when an older
+ * copy stood in for a failed refresh.
+ */
+async function ycIndex(deadline) {
+  const entry = await cachedEntry(YC_CACHE_KEY, YC_TTL_MS, async ({ deadline: loadDeadline } = {}) => (await downloadYcList(loadDeadline))
+    .filter((c) => c && c.name && c.slug)
+    .map((c) => [clean(c.name), String(c.slug), (Array.isArray(c.former_names) ? c.former_names : []).map(clean).filter(Boolean), hostOf(c.website || ''), clean(c.batch), clean(c.status)]), { deadline });
+  return { index: entry.value, asOf: entry.fresh ? '' : new Date(entry.at).toISOString().slice(0, 10) };
+}
 
 /** Directory entries whose name, former name or slug is the wanted company. */
 function ycLookup(index, wanted) {
@@ -1305,16 +1685,19 @@ async function ycForCompany(company, ctx, { personOnly = false } = {}) {
   const { subject, deadline } = ctx;
   if (legalNorm(company).length < 2) return { findings: [], threads: [], notes: [] };
   let entries = null;
+  const notes = [];
   try {
-    entries = ycLookup(await ycIndex(deadline), company);
+    const { index, asOf } = await ycIndex(deadline);
+    entries = ycLookup(index, company);
+    if (asOf && entries.length) notes.push(`The Y Combinator directory list could not be refreshed; the copy of ${asOf} was used.`);
   } catch {
     entries = null; // the list is a mirror and may be down: fall back to the page the name would have
   }
-  if (entries && !entries.length) return { findings: [], threads: [], notes: [] };
+  if (entries && !entries.length) return { findings: [], threads: [], notes };
   const slugs = entries ? entries.map((e) => e.slug) : [slugify(withoutLegalForm(company))].filter(Boolean);
   const pages = (await Promise.all(slugs.map((slug) => ycCompanyPage(slug, deadline)))).filter(Boolean)
-    .filter((p, i) => (entries ? true : nameTie(company, p.name) === 'exact') && (i === 0 || true));
-  if (!pages.length) return { findings: [], threads: [], notes: [] };
+    .filter((p) => (entries ? true : nameTie(company, p.name) === 'exact'));
+  if (!pages.length) return { findings: [], threads: [], notes };
 
   const mine = nameTokens(subject.name);
   const judged = pages.map((p) => {
@@ -1324,11 +1707,20 @@ async function ycForCompany(company, ctx, { personOnly = false } = {}) {
       const friend = p.founders.find((f) => [...(subject.anchors?.people?.values?.() || [])].some((a) => a.test(f.name)));
       if (friend) reason = `${friend.name}, a known associate, is on its founder list`;
     }
-    if (!reason && p.website && [...(subject.anchors?.domains?.values?.() || [])].some((a) => hostOf(a.value) === p.website)) reason = `its website (${p.website}) is a known domain of the company`;
-    return { p, self, reason };
+    const knownDomains = [...(subject.anchors?.domains?.values?.() || []), ...[...(subject.anchors?.aliases?.values?.() || [])].filter((a) => isDomainName(a.value))].map((a) => hostOf(a.value));
+    if (!reason && p.website && knownDomains.includes(p.website)) reason = `its website (${p.website}) is a known domain of the company`;
+    const entry = (entries || []).find((e) => e.slug === p.slug);
+    return { p, self, reason, viaFormerName: Boolean(entry?.formerName) };
   });
-  // If one of two same-named companies is tied to the subject, the other is not theirs
-  const kept = judged.some((j) => j.reason) ? judged.filter((j) => j.reason) : judged;
+  // If one of two same-named companies is tied to the subject, the other is not theirs. An untied company is
+  // shown only for the company the user gave, under its current name: a company that merely used the name once
+  // ("Versine, formerly Merge"), or a namesake of an earlier employer ("Expanse"), is not this person's and adds
+  // nothing but noise. It is counted in a note instead.
+  const anyTied = judged.some((j) => j.reason);
+  const given = subject.company && legalNorm(subject.company) === legalNorm(company);
+  const kept = judged.filter((j) => j.reason || (!anyTied && given && !j.viaFormerName));
+  const left = judged.filter((j) => !kept.includes(j) && !j.reason);
+  if (left.length && !personOnly) notes.push(`The Y Combinator directory lists ${left.map((j) => `${j.p.name}${j.viaFormerName ? ` (once called ${company})` : ''}`).join(' and ')}; nothing ties ${left.length === 1 ? 'it' : 'them'} to ${subject.name}, so ${left.length === 1 ? 'it is' : 'they are'} not reported.`);
 
   const findings = [];
   const threads = [];
@@ -1345,7 +1737,7 @@ async function ycForCompany(company, ctx, { personOnly = false } = {}) {
         category: 'corporate',
         title: reason
           ? (gone ? `Y Combinator directory shows ${p.name} as INACTIVE${facts ? ` (${facts})` : ''}` : `Y Combinator directory: ${p.name}${facts ? `, ${facts}` : ''}${p.status ? `, status ${lower(p.status)}` : ''}`)
-          : `Y Combinator lists a company named ${p.name}${facts ? ` (${facts}${p.status ? `, ${lower(p.status)}` : ''})` : ''}; ${subject.name} is not on its founder list`,
+          : `Y Combinator lists a company named ${p.name}${facts ? ` (${facts}${p.status ? `, ${lower(p.status)}` : ''})` : ''}; its founder list does not include ${subject.name} (the directory may list only some founders)`,
         quote: [
           `${p.name}${entry?.formerName ? ` (formerly ${entry.formerName})` : ''}${p.oneLiner ? ` — ${p.oneLiner}` : ''}`,
           p.batch ? `Batch: ${p.batch}` : '', p.status ? `Status: ${p.status}` : '', p.yearFounded ? `Year founded: ${p.yearFounded}` : '',
@@ -1355,7 +1747,7 @@ async function ycForCompany(company, ctx, { personOnly = false } = {}) {
         date: p.yearFounded ? String(p.yearFounded) : null,
         severity: gone ? 'low' : 'info',
         match: reason ? 'company' : 'possible',
-        matchReasons: [reason || `same company name; ${subject.name} is not on the founder list`],
+        matchReasons: [reason || `same company name; the directory's founder list does not include ${subject.name}`],
         data: { slug: p.slug, batch: p.batch || null, status: p.status || null, yearFounded: p.yearFounded, teamSize: p.teamSize, website: p.website || null, founders: p.founders.map((f) => ({ name: f.name, title: f.title, active: f.active })) },
       });
       if (finding) findings.push(finding);
@@ -1378,6 +1770,9 @@ async function ycForCompany(company, ctx, { personOnly = false } = {}) {
       if (seat) {
         findings.push(seat);
         const trusted = seat.match !== 'possible';
+        // The directory's own website for a company the person is a listed founder of is a domain of that company
+        const knownAs = knownCompanyFor(subject, p.name)?.company || knownCompanyFor(subject, company)?.company;
+        if (trusted && knownAs && p.website) addCompanyAlias(subject, { company: knownAs, alias: p.website, origin: seat.id });
         for (const link of [self.linkedin, self.twitter]) {
           const profile = profileFromUrl(link);
           if (!profile) continue;
@@ -1388,7 +1783,7 @@ async function ycForCompany(company, ctx, { personOnly = false } = {}) {
       }
     }
   }
-  return { findings, threads, notes: [] };
+  return { findings, threads, notes };
 }
 
 export const ycDirectoryConnector = {

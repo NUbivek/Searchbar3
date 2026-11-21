@@ -13,16 +13,16 @@ jest.mock('../../../src/server/search/retrieve', () => ({
 jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
 jest.mock('../../../src/server/founder/sources/searchEngines', () => {
   const actual = jest.requireActual('../../../src/server/founder/sources/searchEngines');
-  return { ...actual, keylessSearch: jest.fn(actual.keylessSearch) };
+  return { ...actual, keylessSearch: jest.fn(actual.keylessSearch), engineHealth: jest.fn(actual.engineHealth) };
 });
 
 import { setTransport } from '../../../src/server/founder/http';
 import { createSubject, addAnchor } from '../../../src/server/founder/identity';
 import { CATEGORIES } from '../../../src/server/founder/finding';
-import { keylessSearch, __resetEnginesForTests } from '../../../src/server/founder/sources/searchEngines';
+import { keylessSearch, engineHealth, __resetEnginesForTests } from '../../../src/server/founder/sources/searchEngines';
 import {
   webSearchConnector, newsArchiveConnector, webTemplates, newsTemplates, categoryFor, languageHints, shortCompany,
-  windowDates, NEWS_WINDOWS, METERED_PRIOR,
+  windowDates, NEWS_WINDOWS, METERED_PRIOR, SEED_TEMPLATES, SEED_RESERVE,
 } from '../../../src/server/founder/sources/web';
 
 const actualEngines = jest.requireActual('../../../src/server/founder/sources/searchEngines');
@@ -103,6 +103,8 @@ beforeEach(() => {
   __resetEnginesForTests();
   keylessSearch.mockReset();
   keylessSearch.mockImplementation(actualEngines.keylessSearch);
+  engineHealth.mockReset();
+  engineHealth.mockImplementation(actualEngines.engineHealth);
 });
 afterEach(() => setTransport());
 
@@ -120,8 +122,9 @@ describe('web-search: query patterns', () => {
     const subject = holmes();
     const templates = webSearchConnector.plan({ kind: 'subject', value: subject.name }, subject);
     expect(templates.map((t) => t.template)).toEqual([
-      'q.profile', 'q.linkedin', 'q.lawsuit', 'q.fraud', 'q.prior-ventures', 'q.later-ventures', 'q.employment', 'q.regulatory', 'q.education',
-      'q.insolvency', 'q.resume', 'q.interviews', 'q.family', 'q.forums', 'q.family-business', 'q.related-party',
+      // R3: linkedin-any, allegations, roles and profiles added (profile-seed-collection, web-adverse-terms-gaps)
+      'q.profile', 'q.linkedin', 'q.linkedin-any', 'q.lawsuit', 'q.fraud', 'q.allegations', 'q.prior-ventures', 'q.later-ventures', 'q.employment', 'q.regulatory', 'q.education', 'q.background',
+      'q.roles', 'q.profiles', 'q.insolvency', 'q.resume', 'q.interviews', 'q.family', 'q.forums', 'q.family-business', 'q.related-party',
     ]);
     expect(new Set(templates.map((t) => t.template)).size).toBe(templates.length);
     for (const t of templates) {
@@ -142,14 +145,18 @@ describe('web-search: query patterns', () => {
     expect(q['q.profile']).toBe('"Elizabeth Holmes" Theranos');
     expect(q['q.linkedin']).toBe('"Elizabeth Holmes" Theranos site:linkedin.com/in');
     expect(q['q.resume']).toBe('"Elizabeth Holmes" (resume OR CV OR "curriculum vitae")');
-    expect(q['q.prior-ventures']).toBe('"Elizabeth Holmes" (founder OR "co-founder" OR CEO) -"Theranos"');
-    expect(q['q.education']).toBe('"Elizabeth Holmes" (graduated OR alumni OR degree OR university)');
+    // R3: the known company stays in the earlier-ventures question (web-prior-ventures-excludes-company)
+    expect(q['q.prior-ventures']).toBe('"Elizabeth Holmes" Theranos ("previously founded" OR "before founding" OR "serial entrepreneur" OR "first company" OR "sold his" OR "sold her" OR "co-founded" OR acquired)');
+    expect(q['q.linkedin-any']).toBe('"Elizabeth Holmes" site:linkedin.com/in');
+    expect(q['q.allegations']).toBe('"Elizabeth Holmes" (accused OR allegations OR arrested OR convicted OR sentenced OR "pleaded guilty" OR "class action" OR sanctioned)');
+    expect(q['q.education']).toBe('"Elizabeth Holmes" Theranos (graduated OR alumni OR degree OR university OR studied)');
+    expect(q['q.background']).toBe('"Elizabeth Holmes" Theranos (previously OR formerly OR "prior to" OR "before founding" OR "worked at")');
     expect(q['q.lawsuit']).toBe('"Elizabeth Holmes" (lawsuit OR sued OR court OR complaint)');
     expect(q['q.fraud']).toBe('"Elizabeth Holmes" (fraud OR scam OR investigation OR indicted OR charged)');
     expect(q['q.employment']).toBe('"Elizabeth Holmes" (fired OR ousted OR resigned OR harassment OR misconduct)');
     expect(q['q.insolvency']).toBe('"Elizabeth Holmes" (bankruptcy OR insolvency OR liquidation OR "shut down")');
-    expect(q['q.regulatory']).toBe('"Elizabeth Holmes" (SEC OR FTC OR regulator OR fine OR settlement)');
-    expect(q['q.interviews']).toBe('"Elizabeth Holmes" (interview OR podcast OR keynote)');
+    expect(q['q.regulatory']).toBe('"Elizabeth Holmes" (SEC OR FTC OR regulator OR fine OR settlement OR "attorney general")');
+    expect(q['q.interviews']).toBe('"Elizabeth Holmes" (interview OR podcast OR keynote OR TEDx OR speaker OR fireside)');
     expect(q['q.family']).toBe('"Elizabeth Holmes" ("son of" OR "daughter of" OR father OR mother OR brother OR sister OR married)');
     expect(q['q.family-business']).toBe('"Holmes family" (business OR heir OR dynasty) (Elizabeth OR Theranos)');
     expect(q['q.related-party']).toBe('"Elizabeth Holmes" ("family office" OR "related party" OR trust OR nominee)');
@@ -198,14 +205,14 @@ describe('web-search: query patterns', () => {
   test('a company: legal trouble, leadership, distress (no separate data-breach lookup: the breach registers cover it)', () => {
     const subject = holmes();
     const templates = webTemplates({ kind: 'company', value: 'Theranos, Inc.' }, subject);
-    expect(templates.map((t) => t.template)).toEqual(['q.company-legal', 'q.company-leadership', 'q.company-distress', 'q.company-funding', 'q.company-backers', 'q.company-investors']);
+    // R3: the funding question asks who led the rounds, so the separate investors question is only asked without it
+    expect(templates.map((t) => t.template)).toEqual(['q.company-legal', 'q.company-leadership', 'q.company-distress', 'q.company-funding', 'q.company-backers']);
     expect(templates.map((t) => t.params.query)).toEqual([
-      '"Theranos" (lawsuit OR fraud OR investigation)',
+      '"Theranos" (lawsuit OR fraud OR investigation OR "class action" OR sanctions OR "attorney general")',
       '"Theranos" (founder OR CEO)',
       '"Theranos" (shutdown OR layoffs OR bankruptcy)',
-      '"Theranos" "Elizabeth Holmes" (funding OR raises OR investors OR led)',
+      '"Theranos" "Elizabeth Holmes" (raises OR "Series A" OR "Series B" OR "seed round" OR "led by" OR valuation)',
       '"Theranos" (adviser OR advisor OR shareholder OR board)',
-      '"Theranos" ("led by" OR "lead investor" OR "Series A" OR "Series B" OR "Series C")',
     ]);
   });
 
@@ -251,7 +258,7 @@ describe('web-search: the search a lookup makes', () => {
     expect(typeof options.accept).toBe('function');
   });
 
-  test('the metered services are allowed only for patterns with a prior of 0.7 or more', async () => {
+  test('the metered services are allowed for the seed and for patterns with a prior of 0.7 or more', async () => {
     const subject = holmes();
     searchReturns([]);
     const allowed = {};
@@ -259,10 +266,10 @@ describe('web-search: the search a lookup makes', () => {
       keylessSearch.mockClear();
       await webSearchConnector.run(task('subject', subject.name, t.template, t.params, { prior: t.prior }), ctxFor(subject));
       allowed[t.template] = keylessSearch.mock.calls[0][1].allowMetered;
-      expect(allowed[t.template]).toBe(t.prior >= METERED_PRIOR);
+      expect(allowed[t.template]).toBe(t.prior >= METERED_PRIOR || SEED_TEMPLATES.includes(t.template));
     }
     expect(METERED_PRIOR).toBe(0.7);
-    expect(Object.keys(allowed).filter((k) => allowed[k])).toEqual(['q.profile', 'q.linkedin', 'q.lawsuit', 'q.fraud']);
+    expect(Object.keys(allowed).filter((k) => allowed[k])).toEqual(['q.profile', 'q.linkedin', 'q.linkedin-any', 'q.lawsuit', 'q.fraud', 'q.prior-ventures', 'q.education', 'q.background', 'q.interviews']);
 
     // a company, an associate, and a free-form search proposed by the second reader: never metered
     for (const t of [
@@ -430,12 +437,15 @@ describe('web-search: results become graded findings', () => {
 
   test('a one-word company name must be written as a name: "stripe" the pattern is not Stripe the company', async () => {
     const subject = createSubject({ name: 'Patrick Collison', company: 'Stripe' });
+    // R3: "Stripe" is also an ordinary word: the bare capitalised word no longer makes a record the company's
+    // (design decision 1); a legal form right after it does
     searchReturns([
       { title: 'How to fix a stripe pattern lawsuit', snippet: 'A dispute about a stripe design.', url: 'https://www.example.com/pattern', date: null },
       { title: 'Merchants settle lawsuit with Stripe over fees', snippet: 'The settlement ends a class action.', url: 'https://www.example.com/fees', date: null },
+      { title: 'Merchants settle lawsuit with Stripe, Inc. over fees', snippet: 'The settlement ends a class action.', url: 'https://www.example.com/fees-inc', date: null },
     ]);
     const { findings } = await webSearchConnector.run(planned(webSearchConnector, { kind: 'company', value: 'Stripe' }, subject, 'q.company-legal'), ctxFor(subject));
-    expect(findings.map((f) => f.title)).toEqual(['Merchants settle lawsuit with Stripe over fees']);
+    expect(findings.map((f) => f.title)).toEqual(['Merchants settle lawsuit with Stripe, Inc. over fees']);
     expect(findings[0].match).toBe('company');
   });
 
@@ -523,10 +533,12 @@ describe('news-archive', () => {
   test('the person: an adverse-terms pass for all four windows, a plain pass for the three most recent; older windows have lower priors', () => {
     const subject = holmes();
     const templates = newsArchiveConnector.plan({ kind: 'subject', value: subject.name }, subject);
-    expect(templates.map((t) => t.template)).toEqual(['n.recent', 'n.recent-adverse', 'n.1-3y', 'n.1-3y-adverse', 'n.3-8y', 'n.3-8y-adverse', 'n.older-adverse']);
+    // R3: one news question for board seats, investments, awards and lists (web-positive-footprint-gaps)
+    expect(templates.map((t) => t.template)).toEqual(['n.recent', 'n.recent-adverse', 'n.1-3y', 'n.1-3y-adverse', 'n.3-8y', 'n.3-8y-adverse', 'n.older-adverse', 'n.recognition']);
     expect(NEWS_WINDOWS.map((w) => w.label)).toEqual(['the last 12 months', '1 to 3 years ago', '3 to 8 years ago', 'more than 8 years ago']);
-    const plain = templates.filter((t) => !t.template.endsWith('-adverse'));
-    const adverse = templates.filter((t) => t.template.endsWith('-adverse'));
+    const windowed = templates.filter((t) => t.params.window);
+    const plain = windowed.filter((t) => !t.template.endsWith('-adverse'));
+    const adverse = windowed.filter((t) => t.template.endsWith('-adverse'));
     for (const list of [plain, adverse]) {
       for (let i = 1; i < list.length; i += 1) expect(list[i].prior).toBeLessThan(list[i - 1].prior);
     }
@@ -537,7 +549,7 @@ describe('news-archive', () => {
       expect(t.prior).toBeLessThanOrEqual(0.8);
     }
     expect(plain.map((t) => t.params.query)).toEqual(['"Elizabeth Holmes" Theranos', '"Elizabeth Holmes" Theranos', '"Elizabeth Holmes" Theranos']);
-    expect(adverse[0].params.query).toBe('"Elizabeth Holmes" (lawsuit OR fraud OR investigation OR charged OR bankruptcy OR scandal OR fired OR settlement)');
+    expect(adverse[0].params.query).toBe('"Elizabeth Holmes" (lawsuit OR fraud OR investigation OR charged OR accused OR allegations OR arrested OR convicted OR sentenced OR bankruptcy OR scandal OR fired OR settlement)');
     expect(plain.map((t) => t.params.window)).toEqual(['recent', '1-3y', '3-8y']);
     expect(adverse.map((t) => t.params.window)).toEqual(['recent', '1-3y', '3-8y', 'older']);
   });
@@ -547,7 +559,7 @@ describe('news-archive', () => {
     expect(templates.map((t) => t.template)).toEqual(['n.company-last-3y', 'n.company-before-3y']);
     expect(templates.map((t) => t.params.window)).toEqual(['last-3y', 'before-3y']);
     expect(templates[1].prior).toBeLessThan(templates[0].prior);
-    for (const t of templates) expect(t.params.query).toBe('"Theranos" (lawsuit OR fraud OR investigation OR bankruptcy OR layoffs OR "shut down" OR scandal OR settlement)');
+    for (const t of templates) expect(t.params.query).toBe('"Theranos" (lawsuit OR fraud OR investigation OR bankruptcy OR layoffs OR "shut down" OR scandal OR settlement OR sanctions OR "class action" OR "attorney general")');
     expect(newsTemplates({ kind: 'associate', value: 'Ramesh Balwani' }, holmes())).toEqual([]);
   });
 
@@ -617,7 +629,7 @@ describe('news-archive', () => {
     setTransport(async (url) => { asked.push(url); return { status: 200, headers: new Map(), url, text: async () => GNEWS_XML }; });
     const out = await newsArchiveConnector.run(planned(newsArchiveConnector, { kind: 'subject', value: subject.name }, subject, 'n.3-8y-adverse'), ctxFor(subject));
     const { after, before } = windowDates('3-8y');
-    expect(new URL(asked[0]).searchParams.get('q')).toBe(`"Elizabeth Holmes" (lawsuit OR fraud OR investigation OR charged OR bankruptcy OR scandal OR fired OR settlement) after:${after} before:${before}`);
+    expect(new URL(asked[0]).searchParams.get('q')).toBe(`"Elizabeth Holmes" (lawsuit OR fraud OR investigation OR charged OR accused OR allegations OR arrested OR convicted OR sentenced OR bankruptcy OR scandal OR fired OR settlement) after:${after} before:${before}`);
     // the feed's 2026 item is outside the window and is dropped; the 2023 and 2020 items stay
     expect(out.findings.map((f) => [f.date, f.match, f.category])).toEqual([
       ['2023-03-17', 'confirmed', 'press'],
@@ -625,5 +637,81 @@ describe('news-archive', () => {
     ]);
     expect(out.findings[0].data).toEqual({ publisher: 'CNBC' });
     expect(out.findings[0].url).toMatch(/^https:\/\/news\.google\.com\/rss\/articles\//);
+  });
+});
+
+/* ------------------------------------------------------------------ the seed, and pages handed to the page reader */
+
+describe('the seed and the backup search service', () => {
+  const health = (used) => engineHealth.mockImplementation(() => ({ engines: [], metered: { configured: true, usedThisHour: used, hourlyLimit: 20 }, note: '' }));
+
+  test('late in a busy hour only the seed may still use the backup service', async () => {
+    const subject = holmes();
+    searchReturns([]);
+    health(20 - SEED_RESERVE);
+    const allowed = {};
+    for (const t of webSearchConnector.plan({ kind: 'subject', value: subject.name }, subject)) {
+      keylessSearch.mockClear();
+      await webSearchConnector.run(task('subject', subject.name, t.template, t.params, { prior: t.prior }), ctxFor(subject));
+      allowed[t.template] = keylessSearch.mock.calls[0][1].allowMetered;
+    }
+    expect(Object.keys(allowed).filter((k) => allowed[k]).sort()).toEqual([...SEED_TEMPLATES].sort());
+    // an earlier venture's lawsuit lookup too waits for a quieter hour
+    keylessSearch.mockClear();
+    await webSearchConnector.run(planned(webSearchConnector, { kind: 'company', value: 'Old Co', why: 'founder (past)' }, subject, 'q.company-prior-legal'), ctxFor(subject));
+    expect(keylessSearch.mock.calls[0][1].allowMetered).toBe(false);
+    health(2);
+    keylessSearch.mockClear();
+    await webSearchConnector.run(planned(webSearchConnector, { kind: 'subject', value: subject.name }, subject, 'q.lawsuit'), ctxFor(subject));
+    expect(keylessSearch.mock.calls[0][1].allowMetered).toBe(true);
+  });
+
+  test('a task that carries a seed flag of its own is not a seed: only our own patterns are', async () => {
+    const subject = holmes();
+    searchReturns([]);
+    health(20 - SEED_RESERVE);
+    await webSearchConnector.run(task('subject', subject.name, 'q.gap', { query: '"Elizabeth Holmes" Stanford', seed: true }, { prior: 0.5 }), ctxFor(subject));
+    expect(keylessSearch.mock.calls[0][1].allowMetered).toBe(false);
+  });
+});
+
+describe('pages handed to the page reader', () => {
+  const run = async (results, subject = roe(), template = 'q.profile') => {
+    searchReturns(results);
+    const { threads } = await webSearchConnector.run(planned(webSearchConnector, { kind: 'subject', value: subject.name }, subject, template), ctxFor(subject));
+    return threads;
+  };
+
+  test('the company\'s own site, seen on a record tied to the person, becomes a site to read', async () => {
+    const threads = await run([{ title: 'About us | Acme Robotics', snippet: 'Acme Robotics was founded by Jane Roe, its CEO.', url: 'https://www.acmerobotics.com/company/story', date: null }]);
+    expect(threads).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'domain', value: 'acmerobotics.com', why: 'company website', trusted: true })]));
+  });
+
+  test('an established publication\'s article whose snippet names them, though its headline does not', async () => {
+    const threads = await run([
+      { title: 'Acme Robotics raises $40M to automate warehouses', snippet: 'Jane Roe, co-founder and CEO of Acme Robotics, previously led robotics at Initech.', url: 'https://techcrunch.com/2024/05/01/acme-robotics-raises/', date: null },
+      { title: 'Acme Robotics raises money', snippet: 'Jane Roe, CEO of Acme Robotics, said ...', url: 'https://someblog.test/acme-robotics-raises', date: null },
+    ]);
+    const urls = threads.filter((t) => t.kind === 'url').map((t) => `${t.why}|${t.value}`);
+    expect(urls).toContain('article naming them|https://techcrunch.com/2024/05/01/acme-robotics-raises');
+    expect(urls.some((u) => u.includes('someblog.test'))).toBe(false);
+  });
+
+  test('podcast show notes and newsletter interviews that name them are read', async () => {
+    const threads = await run([
+      { title: 'Episode 74: building in robotics', snippet: 'Our guest is Jane Roe, CEO of Acme Robotics.', url: 'https://www.founderpod.test/episodes/74-building-in-robotics', date: null },
+      { title: 'Building Acme Robotics (#74)', snippet: 'A conversation with Jane Roe, co-founder of Acme Robotics.', url: 'https://notanotherceo.substack.com/p/acme-robotics-74', date: null },
+    ], roe(), 'q.interviews');
+    const why = Object.fromEntries(threads.filter((t) => t.kind === 'url').map((t) => [t.value, t.why]));
+    expect(why['https://www.founderpod.test/episodes/74-building-in-robotics']).toBe('podcast or interview page');
+    expect(why['https://notanotherceo.substack.com/p/acme-robotics-74']).toBe('interview or article page about them');
+  });
+
+  test('a record that only names them (a possible namesake) hands on no article, show notes or site', async () => {
+    const threads = await run([
+      { title: 'Robotics funding roundup', snippet: 'Jane Roe of Springfield spoke.', url: 'https://techcrunch.com/2024/05/01/roundup/', date: null },
+      { title: 'Episode 9', snippet: 'Our guest is Jane Roe.', url: 'https://pod.test/episodes/9-guest', date: null },
+    ]);
+    expect(threads.filter((t) => t.kind === 'url' || t.kind === 'domain')).toEqual([]);
   });
 });

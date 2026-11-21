@@ -5,14 +5,15 @@
  */
 const { setTransport } = require('../../../src/server/founder/http');
 const { createSubject, addAnchor, matchSubject } = require('../../../src/server/founder/identity');
-const { patentsConnector, trademarksConnector } = require('../../../src/server/founder/sources/ip');
+const { patentsConnector, trademarksConnector, trademarkFindings } = require('../../../src/server/founder/sources/ip');
 
 const reply = (body, status = 200, headers = []) => ({ status, headers: new Map(headers), text: async () => (typeof body === 'string' ? body : JSON.stringify(body)) });
 const ctxFor = (subject) => ({ subject, deadline: Date.now() + 20000, known: () => ({}) });
 
 // no test may reach the real network: a test that forgets to fake it fails at once
-beforeEach(() => setTransport(async (url) => { throw new Error(`unexpected request to ${url}`); }));
-afterEach(() => { setTransport(); delete process.env.FOUNDER_SOURCES_OFF; });
+// Google Patents runs only where the owner allows it (its terms bar automated querying): these tests allow it.
+beforeEach(() => { setTransport(async (url) => { throw new Error(`unexpected request to ${url}`); }); process.env.FOUNDER_GOOGLE_PATENTS = 'on'; });
+afterEach(() => { setTransport(); delete process.env.FOUNDER_SOURCES_OFF; delete process.env.FOUNDER_GOOGLE_PATENTS; });
 
 /* ------------------------------------------------------------------ patents */
 
@@ -77,6 +78,10 @@ describe('patentsConnector', () => {
     expect(patentsConnector.enabled()).toBe(true);
     process.env.FOUNDER_SOURCES_OFF = 'patents';
     expect(patentsConnector.enabled()).toBe(false);
+    // without the owner's choice to allow Google Patents, the lookup is not enabled
+    delete process.env.FOUNDER_SOURCES_OFF;
+    delete process.env.FOUNDER_GOOGLE_PATENTS;
+    expect(patentsConnector.enabled()).toBe(false);
     expect(patentsConnector.unavailableReason).not.toMatch(/\b(api|endpoint|free|paid|key|token)\b/i);
   });
 
@@ -89,12 +94,13 @@ describe('patentsConnector', () => {
     // Nikola: the door family (grant + application + Mexican filing), the frame, and the battery filing by Nikola's earlier name.
     // Name only: the dHybrid filter (application + grant) and the 2009 filing under his full name. Others are other people.
     expect(families.map((f) => f.data.publicationNumber)).toEqual(['US10899387B2', 'WO2017196801A1', 'US11613312B2', 'US9463408B2', 'US20120004824A1']);
-    expect(families.map((f) => f.match)).toEqual(['confirmed', 'confirmed', 'confirmed', 'possible', 'possible']);
+    // the battery filing prints another owner (Bluegentech): listed under Nikola by the search, so likely, not confirmed
+    expect(families.map((f) => f.match)).toEqual(['confirmed', 'likely', 'confirmed', 'possible', 'possible']);
     for (const f of findings) expect(f).toMatchObject({ source: 'patents', category: 'ip', severity: 'info' });
 
     const door = byNumber(families, 'US11613312B2');
     expect(door.title).toBe('US11613312B2: Systems, methods, and devices for an automobile door or window');
-    expect(door.quote).toBe('Inventor named: Trevor R. Milton (searched as Trevor Milton); assignee: Nikola Corporation; priority 2015-12-30; filed 2021-03-02; granted 2023-03-28; also published as US20210179202A1, MX387190B');
+    expect(door.quote).toBe('Inventor named: Trevor R. Milton; assignee: Nikola Corporation; priority 2015-12-30; filed 2021-03-02; granted 2023-03-28; also published as US20210179202A1, MX387190B');
     expect(door.date).toBe('2015-12-30'); // the priority date
     expect(door.url).toBe('https://patents.google.com/patent/US11613312B2/en');
     expect(door.matchReasons).toEqual(['names Nikola']);
@@ -102,8 +108,10 @@ describe('patentsConnector', () => {
 
     // a patent the search returns for the company but that prints another owner: tied to the company, and the record says why
     const battery = byNumber(families, 'WO2017196801A1');
-    expect(battery.quote).toBe('Inventor named: Trevor R. Milton (searched as Trevor Milton); assignee: Bluegentech Llc (listed under assignee Nikola); priority 2016-05-09; filed 2017-05-09');
-    expect(battery.match).toBe('confirmed');
+    expect(battery.quote).toBe('Inventor named: Trevor R. Milton; assignee: Bluegentech Llc (listed under assignee Nikola); priority 2016-05-09; filed 2017-05-09');
+    expect(battery).toMatchObject({ match: 'likely', matchFixed: true });
+    expect(battery.matchReasons[0]).toMatch(/lists it under assignee Nikola; the record now prints Bluegentech Llc/);
+    expect(battery.data.listedUnder).toBe('Nikola');
 
     // a name-only record stays a possible namesake and cites the granted publication of its family
     const filter = byNumber(families, 'US9463408B2');
@@ -114,11 +122,13 @@ describe('patentsConnector', () => {
     const all = JSON.stringify(findings);
     for (const other of ['Boeing', 'Laib', 'Grace', 'Wicks', 'scalpel', 'Medi Safe']) expect(all).not.toContain(other);
 
-    expect(summary.title).toBe('Trevor Milton: named inventor on 5 patent families (3 tied to a known company)');
+    // no tie count in the title: companies learned later tie more families, and the report recounts them
+    expect(summary.title).toBe('Trevor Milton: named inventor on 5 patent families');
+    expect(summary.data.familyIds).toEqual(families.map((f) => f.id));
     expect(summary.match).toBe('confirmed');
     expect(summary.date).toBeNull();
     expect(summary.url).toBe('https://patents.google.com/?inventor=Trevor+Milton&assignee=Nikola&sort=new');
-    expect(summary.quote).toContain('Assignees on the 3 families tied to a known company: Nikola Motor Company Llc (1) / Bluegentech Llc (1) / Nikola Corporation (1).');
+    expect(summary.quote).toContain('Assignees on the 3 families tied to a known company when searched: Nikola Motor Company Llc (1) / Bluegentech Llc (1) / Nikola Corporation (1).');
     expect(summary.quote).not.toContain('USPTO');
     expect(summary.quote).toContain('2 families match by name only and may belong to a namesake (assignees include dHybrid Systems, LLC / Trevor Robert Milton).');
     expect(summary.quote).toContain('Co-inventors on the Nikola patents: Steve Jennes, Markus Scholten, Kevin M. Lynk, Robert Dane Davis.');
@@ -142,12 +152,13 @@ describe('patentsConnector', () => {
   test('threads: other owners and co-inventors of confirmed patents are followed, a namesake\'s employer is not', async () => {
     patentNetwork();
     const { threads } = await runPatents(milton());
+    // Bluegentech is the owner printed on a family only listed under Nikola: recorded, not followed (round 3)
     expect(threads).toEqual([
-      { kind: 'company', value: 'Bluegentech Llc', why: 'joint, earlier or later owner of a Nikola patent naming Trevor Milton as inventor', trusted: true },
       { kind: 'associate', value: 'Steve Jennes', why: 'co-inventor on Nikola patents', trusted: true },
       { kind: 'associate', value: 'Markus Scholten', why: 'co-inventor on Nikola patents', trusted: true },
       { kind: 'associate', value: 'Kevin Lynk', why: 'co-inventor on Nikola patents', trusted: true },
       { kind: 'associate', value: 'Robert Dane Davis', why: 'co-inventor on Nikola patents', trusted: true },
+      { kind: 'company', value: 'Bluegentech Llc', why: 'owner now printed on a patent the search lists under Nikola (naming Trevor Milton as inventor)', trusted: false },
       { kind: 'company', value: 'dHybrid Systems, LLC', why: 'assignee on a patent naming an inventor Trevor Milton (name match only)', trusted: false },
     ]);
   });
@@ -163,11 +174,13 @@ describe('patentsConnector', () => {
     const inventors = [['Elizabeth A. Holmes', 752], ['Daniel Young', 277], ['Ian Gibbons', 158], ['Michael Chen', 148], ['Samartha Anekal', 148], ['A Holmes Elizabeth', 108], ['Young Daniel', 100], ['Sunny Balwani', 90], ['Timothy Smith', 80]];
     patentNetwork({ byName: gpAnswer([]), byCompany: gpAnswer(reassigned, { inventors }) });
     const { findings, threads } = await runPatents(createSubject({ name: 'Elizabeth Holmes', company: 'Theranos' }));
-    expect(findings.slice(1).every((f) => f.match === 'confirmed')).toBe(true);
+    // reassigned to Labrador: likely; still printed as Theranos IP Company: confirmed
+    expect(byNumber(findings, 'US10000004B2').match).toBe('confirmed');
+    expect(findings.slice(1).filter((f) => f.data.assignees.every((a) => /Labr/.test(a))).every((f) => f.match === 'likely')).toBe(true);
     expect(byNumber(findings, 'JP2015500001A').data.publications).toEqual(['US10000001B2', 'JP2015500001A']); // "A Holmes Elizabeth" is her, same family
-    expect(threads.filter((t) => t.kind === 'company').map((t) => t.value)).toEqual(['Labrador Diagnostics Llc']);
+    expect(threads.filter((t) => t.kind === 'company').map((t) => [t.value, t.trusted])).toEqual([['Labrador Diagnostics Llc', false]]);
     expect(threads.filter((t) => t.kind === 'associate').map((t) => t.value)).toEqual(['Daniel Young', 'Ian Gibbons', 'Michael Chen', 'Samartha Anekal', 'Sunny Balwani']);
-    expect(threads.every((t) => t.trusted)).toBe(true);
+    expect(threads.filter((t) => t.kind === 'associate').every((t) => t.trusted)).toBe(true);
   });
 
   test('without a company every patent is a possible namesake and nothing is followed', async () => {
@@ -177,7 +190,7 @@ describe('patentsConnector', () => {
     expect(calls.map((c) => c.inner)).toEqual(['inventor=Trevor+Milton&num=100&sort=new']); // no company search
     expect(findings.length).toBeGreaterThan(1);
     expect(findings.every((f) => f.match === 'possible')).toBe(true);
-    expect(findings[0].title).toBe('Trevor Milton: named inventor on 4 patent families (none tied to a known company)');
+    expect(findings[0].title).toBe('Trevor Milton: named inventor on 4 patent families');
     expect(byNumber(findings, 'ZA202007753B')).toBeTruthy(); // nothing says which middle name is his, so Trevor John stays in, as possible
     expect(threads.every((t) => t.kind === 'company' && t.trusted === false)).toBe(true);
     expect(threads.map((t) => t.value)).toEqual(expect.arrayContaining(['Nikola Corporation', 'dHybrid Systems, LLC']));
@@ -215,7 +228,7 @@ describe('patentsConnector', () => {
   test('says the counts are a minimum when a search has more records than were read', async () => {
     patentNetwork({ byName: gpAnswer(BY_NAME, { total: 646 }) });
     const { findings: [summary] } = await runPatents(milton());
-    expect(summary.title).toBe('Trevor Milton: named inventor on at least 5 patent families (3 tied to a known company)');
+    expect(summary.title).toBe('Trevor Milton: named inventor on at least 5 patent families');
     expect(summary.quote).toContain('Google Patents returns 646 results for inventor Trevor Milton; only the newest 100 of each search were read, so the counts here are a minimum.');
     expect(summary.data.countsAreMinimum).toBe(true);
   });
@@ -229,12 +242,15 @@ describe('patentsConnector', () => {
     expect(findings.slice(1).filter((f) => f.match === 'possible')).toHaveLength(3);
     const confirmedDates = findings.slice(1, 23).map((f) => f.date);
     expect(confirmedDates).toEqual([...confirmedDates].sort().reverse()); // newest first
-    expect(findings[0].title).toBe('Trevor Milton: named inventor on 40 patent families (22 tied to a known company)');
+    expect(findings[0].title).toBe('Trevor Milton: named inventor on 40 patent families');
+    expect(findings[0].data.tiedToKnownCompany).toBe(22);
     expect(notes).toEqual(['Patents: the 25 most relevant of 40 patent families naming Trevor Milton are listed.']);
   });
 
+  // Since round 3 the privacy rules keep a patent's medical subject ("detection of HIV markers"); a title that
+  // describes a person's health is still dropped, and the record kept without it.
   test('a patent title with a medical word is kept without the title', async () => {
-    patentNetwork({ byName: gpAnswer([]), byCompany: gpAnswer([gp('US8007999B2', 'Real-time detection of HIV and cancer markers', '2006-05-10', '2007-05-09', '2011-08-30', '<b>Elizabeth A. Holmes</b>', '<b>Theranos</b>, Inc.')]) });
+    patentNetwork({ byName: gpAnswer([]), byCompany: gpAnswer([gp('US8007999B2', 'Device she used after she was diagnosed with cancer', '2006-05-10', '2007-05-09', '2011-08-30', '<b>Elizabeth A. Holmes</b>', '<b>Theranos</b>, Inc.')]) });
     const { findings } = await runPatents(createSubject({ name: 'Elizabeth Holmes', company: 'Theranos' }));
     expect(findings[1].title).toBe('US8007999B2: patent record (title not shown)');
     expect(findings[1].match).toBe('confirmed');
@@ -251,7 +267,7 @@ describe('patentsConnector', () => {
     patentNetwork({ byName: reply('busy', 500) });
     const first = await runPatents(milton());
     expect(first.notes).toEqual(['The patent search by name alone did not answer; only patents assigned to Nikola are listed.']);
-    expect(first.findings.slice(1).map((f) => f.match)).toEqual(['confirmed', 'confirmed', 'confirmed']);
+    expect(first.findings.slice(1).map((f) => f.match)).toEqual(['confirmed', 'likely', 'confirmed']);
 
     patentNetwork({ byCompany: reply('busy', 500) }); // the company search down: the name search is used, graded from its assignees
     const second = await runPatents(milton());
@@ -309,30 +325,28 @@ const STRIPE_HITS = [
   tm('99000003', 'BLUE STRIPE', ['BLUE STRIPE, LLC (LIMITED LIABILITY COMPANY; COLORADO, USA)'], '2025-02-02', { alive: true }),
 ];
 
-function trademarkNetwork(answers) {
-  const calls = [];
-  const queue = Array.isArray(answers) ? [...answers] : [answers];
-  setTransport(async (url, init) => {
-    calls.push({ url, init, body: init.body ? JSON.parse(init.body) : null });
-    const answer = queue.length > 1 ? queue.shift() : queue[0];
-    return { url, ...(answer && typeof answer.text === 'function' ? answer : reply(answer)) };
-  });
-  return calls;
-}
-const collison = createSubject({ name: 'Patrick Collison', company: 'Stripe' });
-const runTrademarks = (company, subject = collison) => trademarksConnector.run({ kind: 'company', value: company }, ctxFor(subject));
+// Round 3: the connector no longer asks the USPTO web application's own search (removed for terms reasons). The
+// matching is tested on filings handed to trademarkFindings, as a permitted feed would supply them.
+let filings = null;
+function trademarkNetwork(answer) { filings = { hits: answer.hits.hits, totalValue: answer.hits.totalValue }; return []; }
+// "Stripe, Inc.": the company typed with its legal form, so an owner named STRIPE, INC. can be the company
+const collison = createSubject({ name: 'Patrick Collison', company: 'Stripe, Inc.' });
+const runTrademarks = async (company, subject = collison) => trademarkFindings(company, filings, ctxFor(subject));
 
 describe('trademarksConnector', () => {
-  test('describes itself in plain words and works on companies only', async () => {
+  test('is not enabled, never asks the trademark web application, and says the lookup was not run', async () => {
     expect(trademarksConnector.id).toBe('trademarks');
     expect(trademarksConnector.kinds).toEqual(['company']);
     expect(trademarksConnector.label).not.toMatch(/\b(api|endpoint|free|paid|key|token)\b/i);
-    const calls = trademarkNetwork(tmAnswer(STRIPE_HITS));
-    expect(await trademarksConnector.run({ kind: 'subject', value: 'Patrick Collison' }, ctxFor(collison))).toEqual({ findings: [], threads: [], notes: [] });
-    expect(await runTrademarks(' ')).toEqual({ findings: [], threads: [], notes: [] });
-    expect(calls).toHaveLength(0);
-    process.env.FOUNDER_SOURCES_OFF = 'patents,trademarks';
     expect(trademarksConnector.enabled()).toBe(false);
+    expect(trademarksConnector.unavailableReason).toBe('US trademark records are not enabled on this deployment.');
+    // the beforeEach transport fails any request
+    const out = await trademarksConnector.run({ kind: 'company', value: 'Stripe' }, ctxFor(collison));
+    expect(out.findings).toEqual([]);
+    expect(out.notes).toEqual(['US trademark records were not searched for Stripe: they are not enabled on this deployment.']);
+    expect(JSON.stringify(out)).not.toMatch(/\b(api|key|token|free|paid|tier|quota)\b/i);
+    expect(await trademarksConnector.run({ kind: 'subject', value: 'Patrick Collison' }, ctxFor(collison))).toEqual({ findings: [], threads: [], notes: [] });
+    expect(trademarkFindings(' ', { hits: [] }, ctxFor(collison))).toEqual({ findings: [], threads: [], notes: [] });
   });
 
   test('a summary with count, earliest filing date and live against dead, then the individual marks', async () => {
@@ -362,24 +376,6 @@ describe('trademarksConnector', () => {
     trademarkNetwork(tmAnswer(STRIPE_HITS));
     const out = JSON.stringify(await runTrademarks('Stripe'));
     for (const other of ['BLUE STRIPE', 'STRIPE INTERNATIONAL', 'EARTH MUSIC', 'STRIPE-A-LOT', 'Edwardo', 'STRIPE IT RICH', 'ACCUBRAILLE']) expect(out).not.toContain(other);
-  });
-
-  test('asks for owners whose name begins with the company name and never for address fields', async () => {
-    const calls = trademarkNetwork(tmAnswer([]));
-    await runTrademarks('Stripe, Inc.');
-    await runTrademarks('Mistral AI');
-    await runTrademarks('Cloud Kitchens');
-    expect(calls).toHaveLength(3);
-    expect(calls[0].url).toBe('https://tmsearch.uspto.gov/prod-stage-v1-0-0/tmsearch');
-    expect(calls[0].init.method).toBe('POST');
-    expect(calls[0].body.query).toEqual({ span_first: { match: { span_term: { ownerName: 'stripe' } }, end: 1 } });
-    expect(calls[0].body.sort).toEqual([{ filedDate: 'asc' }]);
-    expect(calls[0].body._source).toEqual(['id', 'wordmark', 'ownerName', 'filedDate', 'registrationDate', 'registrationId', 'abandonDate', 'cancelDate', 'alive', 'internationalClass']);
-    expect(JSON.stringify(calls[0].body)).not.toMatch(/ownerFullText|ownerNameAndAddress|attorney/i);
-    // "Mistral AI": the shorter form is searched, so an owner recorded as "Mistral" or "Mistral AI" is seen
-    expect(calls[1].body.query).toEqual({ span_first: { match: { span_term: { ownerName: 'mistral' } }, end: 1 } });
-    // a generic first word is part of the name: "Cloud Kitchens" is not searched as "Kitchens"
-    expect(calls[2].body.query).toEqual({ span_first: { match: { span_near: { clauses: [{ span_term: { ownerName: 'cloud' } }, { span_term: { ownerName: 'kitchens' } }], slop: 0, in_order: true } }, end: 2 } });
   });
 
   test('owners that differ only in legal form are one company when a mark lists both; another form on its own is left out', async () => {
@@ -456,10 +452,12 @@ describe('trademarksConnector', () => {
     expect(notes).toEqual(['The trademark list for Stripe may be incomplete: many owners have names that begin the same way.']);
   });
 
+  // A mark text that describes a person's health is dropped; since round 3 the privacy rules keep a product's
+  // subject ("HIV CARE PAY"), so the fixture states a person's diagnosis.
   test('a mark with a protected word is kept as a filing without the mark text', async () => {
     trademarkNetwork(tmAnswer([
       tm('88000001', 'STRIPE', [STRIPE_DE], '2011-01-11', { alive: true }),
-      tm('88000002', 'HIV CARE PAY', [STRIPE_DE], '2012-01-11', { abandoned: '2013-02-02' }),
+      tm('88000002', 'SHE WAS DIAGNOSED WITH HIV', [STRIPE_DE], '2012-01-11', { abandoned: '2013-02-02' }),
     ]));
     const { findings } = await runTrademarks('Stripe');
     expect(findings).toHaveLength(2);
@@ -469,24 +467,4 @@ describe('trademarksConnector', () => {
     expect(findings[1].data).toEqual({ serial: '88000002', live: false, filed: '2012-01-11' });
   });
 
-  test('a name with an accent or apostrophe is asked for once more by phrase', async () => {
-    const calls = trademarkNetwork([tmAnswer([]), tmAnswer([tm('79000001', 'ELSEVE', ["L'Oréal (SOCIÉTÉ ANONYME; FRANCE)"], '2001-02-03', { registered: '2002-03-04', alive: true })])]);
-    const { findings } = await runTrademarks("L'Oréal", createSubject({ name: 'Jean Dupont', company: "L'Oréal" }));
-    expect(calls).toHaveLength(2);
-    expect(calls[1].body.query).toEqual({ bool: { must: [{ match_phrase: { ownerName: "L'Oréal" } }] } });
-    expect(findings[0].title).toBe("L'Oréal: 1 US trademark filing, earliest filed 2001-02-03; 1 live, 0 no longer live");
-    // a plain name with no hits is not asked for twice
-    const plain = trademarkNetwork(tmAnswer([]));
-    expect(await runTrademarks('Stripe')).toEqual({ findings: [], threads: [], notes: [] });
-    expect(plain).toHaveLength(1);
-  });
-
-  test('rejects when the trademark search fails or answers with something else', async () => {
-    trademarkNetwork(reply('down', 500));
-    await expect(runTrademarks('Stripe')).rejects.toThrow(/HTTP 500/);
-    trademarkNetwork(reply({ error: '[prefix] query does not support [case_insensitive]', status: 400 }));
-    await expect(runTrademarks('Stripe')).rejects.toThrow(/Unexpected answer/);
-    trademarkNetwork(reply('<html>maintenance</html>'));
-    await expect(runTrademarks('Stripe')).rejects.toThrow();
-  });
 });

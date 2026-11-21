@@ -45,7 +45,8 @@ test('serious records tied to the person are red flags; name-only ones are liste
   expect(report.possibleNamesake.map((f) => f.title)).toEqual(['Trevor Milton sued in Ohio']);
   expect(report.sections.map((s) => s.key)).toEqual(['regulatory', 'litigation', 'exposure', 'archive', 'press']);
   expect(report.claimChanges).toHaveLength(1);
-  expect(report.timeline.map((t) => t.date)).toEqual(['2019-01-01', '2022-10-14']); // dated, tied to the person, not press
+  // dated, tied to the person, not press; round 3: an archive capture's date is not an event, so the 2019 change is off it
+  expect(report.timeline.map((t) => t.date)).toEqual(['2022-10-14']);
   expect(report.relatedParties).toEqual([expect.objectContaining({ name: 'Mark Russell', kind: 'associate' })]);
   // every record has one number, used everywhere
   expect(report.sources.map((s) => s.n)).toEqual([1, 2, 3, 4, 5, 6]);
@@ -70,7 +71,7 @@ test('a model-written brief is kept only if it has the sections and cites record
   expect(brief).toMatch(/\[Source 1\]/);
   expect(brief).not.toMatch(/\[Source 99\]/);
   const sent = providers.chatComplete.mock.calls[0][0][1].content;
-  expect(sent).toMatch(/\[Source \d\] \(possible; Courts and litigation/); // the model is told which records are name-only
+  expect(sent).toMatch(/<record n="\d" tie="possible">\n\(Courts and litigation/); // the model is told which records are name-only
   expect(sent).toMatch(/Sources that did not answer: Registry\.\nSources not enabled on this deployment: Needs key/);
 });
 

@@ -1,4 +1,5 @@
-jest.mock('../../../src/server/auth', () => ({ getUserId: jest.fn(async () => null) }));
+// The real gate in src/server/auth.js runs; only the session lookup is stood in for.
+jest.mock('next-auth/next', () => ({ getServerSession: jest.fn(async () => null) }));
 jest.mock('../../../src/server/llm/providers', () => ({
   chatComplete: jest.fn(async () => ({ text: '7 years', providerLabel: 'Google Gemini', model: 'gemini-3.8-flash', ms: 900, skipped: [] })),
   chatJson: jest.fn(async () => ({ data: { capital: 'Paris', country: 'France' }, providerLabel: 'OpenRouter', model: 'x:free', skipped: [] })),
@@ -11,7 +12,7 @@ jest.mock('../../../src/server/llm/providers', () => ({
 
 jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
 
-const { getUserId } = require('../../../src/server/auth');
+const { getServerSession } = require('next-auth/next');
 const providers = require('../../../src/server/llm/providers');
 const { createMockReq, createMockRes } = require('./testUtils');
 const handler = require('../../../src/pages/api/debug/llm-check').default;
@@ -69,13 +70,19 @@ describe('/api/debug/llm-check', () => {
     expect(gaps.body.ok).toBe(true);
   });
 
-  test('production needs a signed-in session; a preview deployment does not', async () => {
+  // Changed in round 3 (security-debug-routes): a caller who may not use it gets a 404, not a 401 sign-in prompt.
+  // Changed in round 4 (network-security-debug-prod-open): production also needs the allow-list set, with the account on it.
+  // Changed in round 6 (owner's decision): production follows the site's own model, so signed out gets 401 with a
+  // sign-in prompt; the allow-list, when set, still applies.
+  test('production needs a signed-in session (401 otherwise); a preview deployment does not', async () => {
     process.env.NODE_ENV = 'production';
     delete process.env.VERCEL_ENV;
+    process.env.FOUNDER_ALLOWED_EMAILS = 'owner@example.com';
     const res = createMockRes();
     await handler(createMockReq({ method: 'GET', query: {} }), res);
     expect(res.statusCode).toBe(401);
-    getUserId.mockResolvedValueOnce('user-1');
+    expect(res.body.signIn).toBe(true);
+    getServerSession.mockResolvedValueOnce({ user: { id: 'user-1', email: 'owner@example.com' } });
     const signedIn = createMockRes();
     await handler(createMockReq({ method: 'GET', query: {} }), signedIn);
     expect(signedIn.statusCode).toBe(200);

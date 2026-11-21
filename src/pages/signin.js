@@ -12,7 +12,8 @@ const ERRORS = {
   OAuthSignin: 'Could not start Google sign-in. Please try again.',
   OAuthCallback: 'Google sign-in did not complete. Please try again.',
   OAuthAccountNotLinked: 'This email is already linked to another sign-in method.',
-  AccessDenied: 'Access was denied.',
+  // A refused sign-in: the account is not on the allow-list of this deployment
+  AccessDenied: 'Sign-in is not enabled for this account.',
   Configuration: 'Sign-in is not available right now.',
   Default: 'Sign-in failed. Please try again.',
 };

@@ -84,13 +84,18 @@ test('coverage names partial answers, disabled sources, missing court dockets an
     },
   });
   const report = buildReport(s);
-  expect(report.coverage.partlyAnswered).toEqual([{ label: 'Web archive', failed: 17, lookups: 30, reason: '17 of 30 lookups failed: HTTP 429' }]);
+  // round 3: a failure under a fifth of the lookups is stated too, marked minor
+  expect(report.coverage.partlyAnswered).toEqual([
+    { label: 'Web archive', failed: 17, lookups: 30, reason: '17 of 30 lookups failed: HTTP 429' },
+    { label: 'Web search', failed: 1, lookups: 10, minor: true, reason: '1 of 10 lookups failed: timeout' },
+  ]);
   expect(report.coverage.notSearched).toEqual([{ label: 'CourtListener', reason: 'Needs an API token.', off: true }]);
   expect(report.coverage.notCovered[0]).toMatch(/CourtListener is not enabled.*state courts.*Chancery/);
   expect(report.coverage.notCovered).toContain('Most non-English press, and sources behind a login or paywall');
   expect(report.coverage.notCovered.some((x) => /not in English/.test(x))).toBe(false);
   const brief = quotedDeepBrief(report, 'test');
-  expect(brief).toMatch(/CourtListener: not enabled on this deployment\./);
+  // round 3: a screen source's state is given in the brief's screens section, once
+  expect(brief).toMatch(/• Courts and prosecutors: [^\n]*not enabled on this deployment: CourtListener/);
   expect(brief).not.toMatch(/CourtListener did not answer/);
   expect(brief).toMatch(/Web archive answered only in part: 17 of 30 lookups failed: HTTP 429/);
 });

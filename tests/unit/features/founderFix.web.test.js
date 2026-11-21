@@ -111,7 +111,7 @@ describe('a typical check stays within its share of the search allowance', () =>
     for (const name of ['Christian Holmes', 'Noel Holmes', 'Billy Evans']) total += count('relative', name);
     expect(total).toBeLessThanOrEqual(70);
     expect(newsArchiveConnector.plan({ kind: 'company', value: 'Theranos' }, subject)).toHaveLength(2);
-    expect(newsArchiveConnector.plan({ kind: 'subject', value: subject.name }, subject)).toHaveLength(7);
+    expect(newsArchiveConnector.plan({ kind: 'subject', value: subject.name }, subject)).toHaveLength(8); // R3: + n.recognition
     expect(webSearchConnector.plan({ kind: 'associate', value: 'Ramesh Balwani' }, subject)).toHaveLength(1);
     expect(webSearchConnector.plan({ kind: 'company', value: 'Theranos' }, subject).map((t) => t.template)).not.toContain('q.company-breach');
   });

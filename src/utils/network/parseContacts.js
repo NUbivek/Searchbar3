@@ -145,6 +145,52 @@ export function companyMatch(contactKey, targetKey) {
   return null;
 }
 
+// Words that only say what form a company takes, never which company it is. A
+// one-word name followed by nothing but these is the same company written
+// longer ("Nikola" / "Nikola Motor Company", "Meta" / "Meta Platforms"). Kept
+// short on purpose: a tail such as "Financial", "Labs" or "Health" names a
+// different business as often as not ("Meta Financial"), so it never matches.
+const FORM_TAILS = new Set([
+  'company', 'companies', 'technologies', 'technology', 'platforms', 'platform',
+  'motors', 'motor company', 'motor', 'industries',
+]);
+// For an investor, a fund's form words too ("Sequoia" / "Sequoia Capital").
+const INVESTOR_TAILS = new Set([
+  ...FORM_TAILS, 'capital', 'ventures', 'venture partners', 'partners', 'capital partners', 'capital management',
+  'management', 'vc', 'ventures management', 'investments',
+]);
+
+/**
+ * For Founder Check only (the Network Map keeps companyMatch): a one-word
+ * company key and a longer key that adds nothing but company-form words.
+ * Returns 'similar' or null. Both arguments are normalised keys, either way
+ * round. With { investor: true } a fund's form words also count.
+ */
+export function companyFormMatch(contactKey, targetKey, { investor = false } = {}) {
+  const a = String(contactKey || '');
+  const b = String(targetKey || '');
+  if (!a || !b || a === b) return null;
+  const shorter = a.length < b.length ? a : b;
+  const longer = shorter === a ? b : a;
+  if (shorter.includes(' ') || shorter.length < 2) return null;
+  if (!longer.startsWith(`${shorter} `)) return null;
+  const tail = longer.slice(shorter.length + 1);
+  return (investor ? INVESTOR_TAILS : FORM_TAILS).has(tail) ? 'similar' : null;
+}
+
+/**
+ * The one-word key a longer key reduces to when its tail is only form words
+ * ("nikola motor company" -> "nikola"), or ''. Lets a search for the longer
+ * name also fetch contacts saved under the short one.
+ */
+export function companyFormBase(key, { investor = false } = {}) {
+  const k = String(key || '');
+  const at = k.indexOf(' ');
+  if (at < 2) return '';
+  const base = k.slice(0, at);
+  return companyFormMatch(base, k, { investor }) ? base : '';
+}
+
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 
 const isoDate = (y, m, d) => {

@@ -1,0 +1,79 @@
+[
+ {
+  "id": "quickbrief-debug-profile-run",
+  "title": "No debug run checks the quick brief or the deep check's model-read profile on a deployment",
+  "severity": "low",
+  "kind": "improvement",
+  "file": "src/pages/api/debug/llm-check.js",
+  "line": 20,
+  "filesToChange": [
+   "src/pages/api/debug/llm-check.js",
+   "src/server/founder/profileModel.js",
+   "src/server/founder/sample.js"
+  ],
+  "evidence": "RUNS are chat, analysis, extract, json, brief (deep report) and gaps. readProfile returns the base profile silently on every failure. runFounderCheck already accepts deps.searchers, so it can run on fictional results without any web call.",
+  "scenario": "After a deploy, the owner cannot tell whether readProfile is using a model or silently falling back to patterns, or whether the quick brief's AI path works within 45s. A broken model path looks the same as a working one.",
+  "fix": "Add run=profile: buildReport(sampleState()), then readProfile(report, state, {deadline, trace}), returning ok (readBy==='model'), provider, ms, kept/dropped counts and the profile. Add a trace option to readProfile that names the failure (no records, no model, check failed, nothing verified). Assert the Harrowgate education, the Tidewater past CEO role, the Lumenfold director role, and no role for Casey. Add run=quick: runFounderCheck on fixed fictional results via deps.searchers, asserting mode 'ai' and ms. Allow both fictional runs without sign-in, limited to 6 an hour through the database.",
+  "dim": "quickbrief",
+  "verdict": "confirmed",
+  "verifyNote": "RUNS is chat/analysis/extract/json/brief/gaps. readProfile returns the base profile silently on failure, and no run exercises it or the quick brief. Feasible offline via sampleState and deps.searchers. Keep the existing sign-in gate in production, not an unauthenticated rate-limited exception."
+ },
+ {
+  "id": "security-open-signup",
+  "title": "Any Google account can sign in and run deep checks on anyone, with no allow-list and no global cap",
+  "severity": "high",
+  "kind": "privacy",
+  "file": "src/server/auth.js",
+  "line": 69,
+  "evidence": "The signIn callback always returns true. deep.js limits only per account (12 an hour). Any stranger with a Google account counts as 'signed in', and the debug routes treat sign-in as authorisation too.",
+  "scenario": "A stranger signs in with throwaway Google accounts and runs 12 checks an hour on each, on private individuals. The tool then works as a public people-profiler on the owner's site, and the free and metered allowances go to strangers.",
+  "fix": "Add FOUNDER_ALLOWED_EMAILS (and/or an allowed domain) checked in signIn and in a requireFounderUser() helper used by founder/deep, founder/history and the debug routes. Add a global cap of checks per hour across all accounts, counted in founder_jobs. Tell refused users that the check is not enabled for their account.",
+  "filesToChange": [
+   "src/server/auth.js",
+   "src/pages/api/founder/deep.js",
+   "src/pages/api/founder/history.js",
+   "src/pages/api/debug/llm-check.js",
+   "src/pages/api/debug/env-check.js"
+  ],
+  "dim": "security",
+  "verdict": "confirmed",
+  "verifyNote": "The signIn callback always returns true. deep.js limits per account only (12/hr), and the debug routes accept any session. The owner says the site is non-commercial; an allow-list is cheap and fits the privacy rules.",
+  "betterFix": "As proposed. Make the allow-list an environment variable, fail closed in production when it is unset, keep ALLOW_DEV_LOGIN local only, and add a global hourly cap counted in founder_jobs."
+ },
+ {
+  "id": "security-debug-routes",
+  "title": "Debug routes run model calls with no sign-in on previews and no limit for any signed-in account, and reveal the configuration",
+  "severity": "medium",
+  "kind": "security",
+  "file": "src/pages/api/debug/llm-check.js",
+  "line": 27,
+  "evidence": "open = NODE_ENV!=='production' || VERCEL_ENV==='preview' skips sign-in, relying on Vercel's preview protection being on, which is unverified. In production any Google account may call ?run=brief|gaps (up to 50 s of model calls) with no limit. env-check lists which provider variables are present or missing.",
+  "scenario": "Someone loops GET /api/debug/llm-check?run=gaps on the preview URL, or signed in on production, and uses up the free model allowances. Briefs then fall back to quoted text. env-check shows strangers which search and model services are set up.",
+  "fix": "Allow the debug routes only for the owner allow-list (FOUNDER_ALLOWED_EMAILS) in every environment except NODE_ENV=development. Add a per-account limit (for example 10 runs an hour), and return 404 rather than 401 to everyone else.",
+  "filesToChange": [
+   "src/pages/api/debug/llm-check.js",
+   "src/pages/api/debug/env-check.js"
+  ],
+  "dim": "security",
+  "verdict": "confirmed",
+  "verifyNote": "llm-check is open whenever VERCEL_ENV==='preview' (relying on unverified preview protection), and in production any session can run brief/gaps model calls with no limit. env-check reveals which providers are configured to any signed-in user.",
+  "betterFix": "As proposed: owner allow-list outside NODE_ENV=development, a 404 for everyone else, and a small per-account run limit. Do not rely on Vercel preview protection."
+ },
+ {
+  "id": "security-headers",
+  "title": "No security response headers on the site",
+  "severity": "low",
+  "kind": "security",
+  "file": "next.config.js",
+  "line": 2,
+  "evidence": "next.config.js defines no headers() and the repo has no middleware. Pages that show third-party quotes and links send no X-Content-Type-Options, frame-ancestors, Referrer-Policy or Permissions-Policy.",
+  "scenario": "Another site can frame /founder (clickjacking a signed-in user into starting checks). Without Referrer-Policy, in-page navigation can leak query strings to linked sites.",
+  "fix": "Add headers(): X-Content-Type-Options nosniff, Content-Security-Policy frame-ancestors 'none' (start in report-only for a full CSP), Referrer-Policy strict-origin-when-cross-origin, and Permissions-Policy camera=(), microphone=(), geolocation=().",
+  "filesToChange": [
+   "next.config.js"
+  ],
+  "dim": "security",
+  "verdict": "confirmed",
+  "verifyNote": "next.config.js has no headers() and there is no middleware file, so no frame-ancestors, nosniff, Referrer-Policy or Permissions-Policy headers are sent."
+ }
+]

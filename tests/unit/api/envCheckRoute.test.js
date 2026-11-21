@@ -1,8 +1,8 @@
-jest.mock('../../../src/server/auth', () => ({
-  getUserId: jest.fn(),
-}));
+// The real gate in src/server/auth.js runs; only the session lookup is stood in for.
+jest.mock('next-auth/next', () => ({ getServerSession: jest.fn(async () => null) }));
+jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), persistenceMode: jest.fn(() => 'none') }));
 
-const { getUserId } = require('../../../src/server/auth');
+const { getServerSession } = require('next-auth/next');
 const { createMockReq, createMockRes } = require('./testUtils');
 const handler = require('../../../src/pages/api/debug/env-check').default;
 
@@ -33,7 +33,7 @@ describe('/api/debug/env-check', () => {
     expect(res.statusCode).toBe(405);
     expect(res.headers.Allow).toBe('GET');
     expect(res.body).toEqual({ error: 'Method not allowed' });
-    expect(getUserId).not.toHaveBeenCalled();
+    expect(getServerSession).not.toHaveBeenCalled();
   });
 
   test('is open outside production and reports which keys are set without their values', async () => {
@@ -48,7 +48,7 @@ describe('/api/debug/env-check', () => {
 
     await handler(req, res);
 
-    expect(getUserId).not.toHaveBeenCalled();
+    expect(getServerSession).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
     expect(typeof res.body.timestamp).toBe('string');
     expect(res.body.diagnostics).toMatchObject({
@@ -83,23 +83,30 @@ describe('/api/debug/env-check', () => {
     expect(res.body.diagnostics.missingCore).toEqual([]);
   });
 
+  // Changed in round 3 (security-debug-routes): signed out gets a 404, as if the route did not exist.
+  // Changed in round 4 (network-security-debug-prod-open): production answers only an account on a set allow-list.
+  // Changed in round 6 (owner's decision): signed out gets 401 with a sign-in prompt, as on the rest of the site.
   test('requires a signed-in session in production', async () => {
     process.env.NODE_ENV = 'production';
-    getUserId.mockResolvedValue(null);
+    process.env.FOUNDER_ALLOWED_EMAILS = 'owner@example.com';
+    getServerSession.mockResolvedValue(null);
 
     const req = createMockReq({ method: 'GET' });
     const res = createMockRes();
 
     await handler(req, res);
 
-    expect(getUserId).toHaveBeenCalledWith(req, res);
+    expect(getServerSession).toHaveBeenCalled();
     expect(res.statusCode).toBe(401);
+    expect(res.body.signIn).toBe(true);
     expect(res.body.diagnostics).toBeUndefined();
   });
 
-  test('serves diagnostics to a signed-in user in production', async () => {
+  // Changed in round 3: on a deployment only whether each group is set up, never the names of settings.
+  test('serves diagnostics to a signed-in user on the allow-list in production', async () => {
     process.env.NODE_ENV = 'production';
-    getUserId.mockResolvedValue('google:123');
+    process.env.FOUNDER_ALLOWED_EMAILS = 'owner@example.com';
+    getServerSession.mockResolvedValue({ user: { id: 'google:123', email: 'owner@example.com' } });
 
     const req = createMockReq({ method: 'GET' });
     const res = createMockRes();
@@ -108,5 +115,6 @@ describe('/api/debug/env-check', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.body.diagnostics).toBeDefined();
+    expect(JSON.stringify(res.body)).not.toMatch(/_API_KEY|present|missing/);
   });
 });

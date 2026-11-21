@@ -4,12 +4,19 @@
  * without sending anything about a real person. See /api/debug/llm-check.
  */
 import { startState } from './deepCheck';
-import { restoreSubject } from './identity';
+import { restoreSubject, addAnchor, exportAnchors } from './identity';
 import { makeFinding } from './finding';
 
 export function sampleState() {
   const state = startState({ name: 'Jordan Quillfeather', company: 'Lumenfold Robotics' });
   state.threads['company|lumenfold'] = { kind: 'company', value: 'Lumenfold Robotics', trusted: true, pulled: true, depth: 1, support: 3, tie: 'primary', why: 'the company given' };
+  // A real check learns the earlier company from a record already tied to the person (the press profile
+  // below names her with Lumenfold Robotics and says she ran Tidewater Drones). Learning it here the same
+  // way lets the director-bar record, which names her only with Tidewater Drones, be tied as it would be.
+  const learned = restoreSubject(state);
+  addAnchor(learned, 'companies', 'Tidewater Drones', 'found');
+  state.anchors = exportAnchors(learned);
+  state.threads['company|tidewater'] = { kind: 'company', value: 'Tidewater Drones', trusted: true, pulled: true, depth: 1, support: 1, tie: 'primary', why: 'ran it before Lumenfold Robotics (the press profile)' };
   const subject = restoreSubject(state);
   const f = (o) => makeFinding(subject, { source: 'sample', url: `https://records.example/${encodeURIComponent(o.title.slice(0, 40))}`, ...o });
   state.findings = [
@@ -30,3 +37,29 @@ export function sampleState() {
   state.phase = 'report';
   return state;
 }
+
+/**
+ * Fictional search results for the quick brief, about the same invented person,
+ * on example domains only, so /api/debug/llm-check?run=quick can try the quick
+ * brief's writer without searching for anyone real.
+ */
+const QUICK_RESULTS = [
+  { title: 'Lumenfold Robotics founder Jordan Quillfeather on warehouse automation', url: 'https://news.example/lumenfold-quillfeather', snippet: 'Jordan Quillfeather founded Lumenfold Robotics in 2020 after running Tidewater Drones. Lumenfold Robotics builds grippers for warehouse robots.' },
+  { title: 'Brightwater Capital v. Jordan Quillfeather and Lumenfold Robotics', url: 'https://records.example/brightwater-v-quillfeather', snippet: 'Brightwater Capital sued Jordan Quillfeather and Lumenfold Robotics for breach of a convertible note. The case settled in November 2019.' },
+  { title: 'Lumenfold Robotics raises seed round', url: 'https://news.example/lumenfold-seed', snippet: 'Lumenfold Robotics, led by chief executive Jordan Quillfeather, raised a seed round to expand its gripper line.' },
+].map((r) => ({ source: 'web', sourceName: 'Sample web', publishedAt: '2023-02-10T00:00:00Z', ...r }));
+
+/** Stand-ins for every searcher the quick brief uses (see runFounderCheck's deps.searchers). */
+export function sampleSearchers() {
+  return {
+    curated: async () => [],
+    hackernews: async () => [],
+    courtlistener: async () => [],
+    web: async () => QUICK_RESULTS.map((r) => ({ ...r })),
+    webConfigured: () => true,
+    indexStatus: () => null,
+  };
+}
+
+/** The invented person and company the sample is about. */
+export const SAMPLE_SUBJECT = Object.freeze({ name: 'Jordan Quillfeather', company: 'Lumenfold Robotics' });

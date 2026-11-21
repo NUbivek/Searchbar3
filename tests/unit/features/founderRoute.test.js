@@ -6,7 +6,7 @@ jest.mock('../../../src/server/founderCheck', () => {
   const actual = jest.requireActual('../../../src/server/founderCheck');
   return { ...actual, runFounderCheck: jest.fn() };
 });
-jest.mock('../../../src/server/auth', () => ({ getUserId: jest.fn(async () => null) }));
+jest.mock('../../../src/server/auth', () => ({ getUserId: jest.fn(async () => null), callerAddress: jest.requireActual('../../../src/server/auth').callerAddress }));
 jest.mock('../../../src/server/network/store', () => ({
   countContacts: jest.fn(async () => 0),
   findContactsAtCompanies: jest.fn(async () => []),
@@ -36,7 +36,8 @@ beforeEach(() => {
 
 describe('/api/founder', () => {
   test('validation: 405, missing name, single word, too long', async () => {
-    expect((await call({}, 'POST')).statusCode).toBe(405);
+    // POST is now the preferred method (the name stays out of the address); other methods are refused
+    expect((await call({}, 'DELETE')).statusCode).toBe(405);
     expect((await call({})).statusCode).toBe(400);
     expect((await call({ name: 'Madonna' })).body.error).toMatch(/full name/);
     expect((await call({ name: 'A'.repeat(121) + ' B' })).statusCode).toBe(400);

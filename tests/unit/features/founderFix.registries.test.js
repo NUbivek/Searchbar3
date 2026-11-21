@@ -150,11 +150,11 @@ const empty = [/./, { body: [] }];
 describe('US state registers: a legal name alone', () => {
   test('two exact-name entities in different states: both possible, info, status kept in the title', async () => {
     network([
-      [/data\.colorado\.gov/, { body: [{ ':id': 'row-co', entityid: '2018', entityname: 'Stripe LLC, Delinquent June 1, 2020', entitystatus: 'Delinquent', entitytype: 'DLLC', entityformdate: '2018-01-01T00:00:00.000' }] }],
-      [/data\.ny\.gov/, { body: [{ ':id': 'row-ny', dos_id: '9', current_entity_name: 'STRIPE, INC.', initial_dos_filing_date: '2003-01-01T00:00:00.000', entity_type: 'DOMESTIC BUSINESS CORPORATION' }] }],
+      [/data\.colorado\.gov/, { body: [{ ':id': 'row-co', entityid: '2018', entityname: 'Orbitex LLC, Delinquent June 1, 2020', entitystatus: 'Delinquent', entitytype: 'DLLC', entityformdate: '2018-01-01T00:00:00.000', jurisdictonofformation: 'CO' }] }],
+      [/data\.ny\.gov/, { body: [{ ':id': 'row-ny', dos_id: '9', current_entity_name: 'ORBITEX, INC.', initial_dos_filing_date: '2003-01-01T00:00:00.000', entity_type: 'DOMESTIC BUSINESS CORPORATION', jurisdiction: 'New York' }] }],
       empty,
     ]);
-    const out = await usStateRegistriesConnector.run(companyTask('Stripe'), ctxFor('Patrick Collison', 'Stripe'));
+    const out = await usStateRegistriesConnector.run(companyTask('Orbitex'), ctxFor('Patrick Collison', 'Orbitex'));
     expect(out.findings).toHaveLength(2);
     for (const f of out.findings) {
       expect(f).toMatchObject({ match: 'possible', severity: 'info' });
@@ -163,9 +163,22 @@ describe('US state registers: a legal name alone', () => {
     expect(out.findings.find((f) => f.data.state === 'CO').title).toMatch(/DELINQUENT/);
   });
 
+  // Changed in round 3: a bare ordinary word ("Stripe") is never shown as the company from a name-only register;
+  // the same-named businesses are counted in one line instead.
+  test('one ordinary word: same-named businesses are counted in a note, not shown', async () => {
+    network([
+      [/data\.colorado\.gov/, { body: [{ ':id': 'row-co', entityid: '2018', entityname: 'Stripe LLC', entitystatus: 'Good Standing', entitytype: 'DLLC', entityformdate: '2018-01-01T00:00:00.000', jurisdictonofformation: 'CO' }] }],
+      [/data\.ny\.gov/, { body: [{ ':id': 'row-ny', dos_id: '9', current_entity_name: 'STRIPE, INC.', initial_dos_filing_date: '2003-01-01T00:00:00.000', entity_type: 'DOMESTIC BUSINESS CORPORATION', jurisdiction: 'New York' }] }],
+      empty,
+    ]);
+    const out = await usStateRegistriesConnector.run(companyTask('Stripe'), ctxFor('Patrick Collison', 'Stripe'));
+    expect(out.findings).toEqual([]);
+    expect(out.notes.join(' ')).toMatch(/State registers list 2 businesses named Stripe \(Colorado 1, New York 1\)/);
+  });
+
   test('a single exact-name entity across the states is the company, its status graded', async () => {
     network([
-      [/data\.colorado\.gov/, { body: [{ ':id': 'row-co', entityid: '2015', entityname: 'Theranos, Inc., Delinquent June 1, 2017', entitystatus: 'Delinquent', entitytype: 'FPC', entityformdate: '2015-03-02T00:00:00.000' }] }],
+      [/data\.colorado\.gov/, { body: [{ ':id': 'row-co', entityid: '2015', entityname: 'Theranos, Inc., Delinquent June 1, 2017', entitystatus: 'Delinquent', entitytype: 'FPC', entityformdate: '2015-03-02T00:00:00.000', jurisdictonofformation: 'DE' }] }],
       empty,
     ]);
     const out = await usStateRegistriesConnector.run(companyTask('Theranos'), ctxFor('Elizabeth Holmes', 'Theranos'));
@@ -187,7 +200,8 @@ describe('US state registers: a legal name alone', () => {
     expect(txTries).toBe(2);
     expect(out.notes).toContain('The Texas business register did not answer in time.');
     expect(out.notes).toContain('The New York business register could not be read (HTTP 400).');
-    expect(out.notes.join(' ')).not.toMatch(/Colorado/);
+    // Colorado answered at its second try: no note says it failed (the coverage line names every state searched)
+    expect(out.notes.filter((n) => !/^US state registers searched/.test(n)).join(' ')).not.toMatch(/Colorado/);
     expect(usStateRegistriesConnector.timeoutMs).toBeGreaterThanOrEqual(15000);
   });
 });

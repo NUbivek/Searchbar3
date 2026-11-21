@@ -1,0 +1,134 @@
+[
+ {
+  "from": "fix:http",
+  "file": "src/server/founder/sources/pages.js",
+  "change": "In openPage and the robots fetch, pass onHop to request(): refuse when !readable(next) or NEVER matches, or when robotsVerdict(next) is not 'allowed' (return a reason string). In the catch: code 'refused' returns {status:'elsewhere', landed: error.hopUrl}; code 'blocked' returns 'elsewhere' or 'missing' without the archive fallback. Keep the landed check as a backstop.",
+  "why": "Closes the never-open, robots and SSRF breaches on redirect hops (loop-redirect-hops, web-pages-ssrf, security-ssrf-page-reader)."
+ },
+ {
+  "from": "fix:http",
+  "file": "src/server/founder/sources/pages.js",
+  "change": "In readable() and siteOf(), reject IP-literal hosts, localhost/.local/.internal, and ports other than 80/443 (import addressProblem from ../http if useful). Cap html at about 1 MB before stripBlocks/structuredData/pageText. Rewrite stripBlocks and the <title> regex (line ~360) without lazy [\\s\\S]*? over the whole page, the way htmlToText is now written. Refuse non-HTML Content-Type (pdf, image/*) before using the text.",
+  "why": "security-htmltotext-redos betterFix, web-body-size-unbounded, web-pages-ssrf."
+ },
+ {
+  "from": "fix:http",
+  "file": "src/server/founder/sources/pages.js",
+  "change": "Robots and wayback-available cache calls: cached(key, ttl, ({deadline: d}) => ...request(..., {deadline: d}), {deadline}) so the loader uses its own deadline and the caller waits only until its own.",
+  "why": "loop-cache-deadline-failure: the robots load no longer takes the first caller's deadline."
+ },
+ {
+  "from": "fix:http",
+  "file": "src/server/founder/sources/sanctions.js",
+  "change": "loadIndex: cachedEntry(list.cacheKey, DAY_MS, ({deadline: d}) => list.load(d), {deadline}). When entry.fresh is false, mark the result partial and add 'list as of <YYYY-MM-DD>' to the 'no match' note. Add listReadAt (entry.at) to the clean notes. Do the same for EU most-wanted (line ~1091).",
+  "why": "watchlists-stale-unbounded and loop-cache-deadline-failure."
+ },
+ {
+  "from": "fix:http",
+  "file": "src/server/founder/sources/debarment.js",
+  "change": "Do the same for loadEbrd, loadFrb, loadNcua and loadFincen: the loader takes ({deadline}) and passes it to request(). The caller passes {deadline}. Use cachedEntry and add a 'list as of' note and partial when not fresh. No extra 5xx retry is needed because cached() now retries 500/502/504 once.",
+  "why": "watchlists-stale-unbounded, watchlists-5xx-not-retried, loop-cache-deadline-failure."
+ },
+ {
+  "from": "fix:http",
+  "file": "src/server/founder/sources/exposure.js, src/server/founder/sources/registries.js",
+  "change": "loadCatalogue (exposure.js:511) and ycIndex (registries.js:1255): the loader takes ({deadline}) and the caller passes {deadline: callerDeadline} as the cached option. Use cachedEntry and note the list date when not fresh.",
+  "why": "loop-cache-deadline-failure: the shared list load no longer inherits the first caller's deadline."
+ },
+ {
+  "from": "fix:http",
+  "file": "src/server/founder/deepCheck.js",
+  "change": "Classify HttpError code 'blocked' and 'refused' as 'not opened' (a skipped lookup with a note), not as a failed source, and never as a clean result. Treat code 'deadline' like the existing 'Out of time' cut-short handling.",
+  "why": "Honest coverage for the new error codes."
+ },
+ {
+  "from": "fix:guardrails",
+  "file": "src/server/founderCheck.js",
+  "change": "import { cleanSentences, cleanModelText, safeHref } from './founder/guardrails'. Before ranking, set r.title = cleanSentences(r.title, {kin:false}).text and r.snippet = cleanSentences(r.snippet).text, and drop the result if the title is empty or the original snippet was non-empty and is now empty. Run cleanModelText on the model brief and on quotedBrief before validateAnswer and the citation checks. Build source links with safeHref (skip when null).",
+  "why": "privacy-quick-brief-unguarded and privacy-model-output-unfiltered: the quick brief applies no privacy rule today."
+ },
+ {
+  "from": "fix:guardrails",
+  "file": "src/server/founder/report.js",
+  "change": "In writeDeepBrief check() and quotedDeepBrief, run const { text } = cleanModelText(modelText) before the citation re-mapping, then re-check that the citations remain (a removed line takes its citations with it).",
+  "why": "privacy-model-output-unfiltered"
+ },
+ {
+  "from": "fix:guardrails",
+  "file": "src/components/founder/DeepCheck.js, src/components/founder/NetworkLinks.js, src/pages/founder.js",
+  "change": "Import safeHref from src/server/founder/guardrails (a pure module). Render <a href={safeHref(x)}> only when it is non-null, otherwise plain text. Apply this to f.url, m.url, profile links, p.profileUrl and the quick brief's Sources list.",
+  "why": "ui-unsafe-href: saved reports from before this change may still hold unsafe links."
+ },
+ {
+  "from": "fix:guardrails",
+  "file": "src/server/founder/profile.js, src/server/founder/profileModel.js",
+  "change": "Filter each profile line with privacyReason(line) === null (or cleanSentences) instead of isSensitive||mentionsMinor||KIN, and run cleanModelText on model-written profile text.",
+  "why": "Gives the profile the same rules as everything else: infobox lines, relatives without a role, political donations and ages are covered."
+ },
+ {
+  "from": "fix:guardrails",
+  "file": "tests/unit/features/founderSource.ip.test.js (lines ~239, ~466), founderSource.scholar.test.js (~337, ~430), founderSource.exposure.test.js (~492), founderSource.government.test.js (~437)",
+  "change": "Update the expectations: a patent title on HIV or cancer detection, the 'HIV CARE PAY' trademark, a 'Cancer biology' department, a thesis on chemotherapy, a mental-health startup's breach description and an NIH cancer-therapy grant title are now kept, because isSensitive no longer treats research or company subjects as personal health.",
+  "why": "Intended change (accuracy-overbroad-sensitive-drop: company and research health topics must stay). These connectors call isSensitive and now keep those topics."
+ },
+ {
+  "from": "fix:guardrails",
+  "file": "src/server/founder/sources/knowledge.js, government.js, sec.js and others that drop whole records with isSensitive",
+  "change": "Optionally replace whole-record drops with cleanSentences(text).text, dropping only when the result is empty. knowledge.js LS_POLITICAL_MONEY can rely on the guardrails 'politics' reason.",
+  "why": "So the same sentence-level behaviour applies everywhere."
+ },
+ {
+  "from": "fix:identity",
+  "file": "src/server/founder/sources/registries.js",
+  "change": "In personAtCompany set `const hold = !tie && !context;` instead of also requiring `loose !== 'possible'`. When a company is tied through a known associate or the subject's own officer seat, call addCompanyAlias(subject, { company: <known company value>, alias: registeredCompany, origin: finding id }).",
+  "why": "matchSubject no longer reads 'John Smith; FLOW HAIR SALON LIMITED' or 'FLOW UK LTD' as Flow, so `loose` is already 'possible' and matchFixed is never set. Two tests fail on matchFixed: founderFix.registries 'namesake director of FLOW HAIR SALON' and founderFix3.registries 'any other added word'."
+ },
+ {
+  "from": "fix:identity",
+  "file": "tests/unit/features/founderSource.ip.test.js",
+  "change": "Line 97: expect the quote 'Inventor named: Trevor R. Milton; assignee: Nikola Corporation; ...' without ' (searched as Trevor Milton)'. Alternatively, ip.js familyFinding can keep the suffix by testing the exact typed form.",
+  "why": "subject.hasName now recognises 'Trevor R. Milton' as Trevor Milton, so ip.js no longer appends '(searched as ...)'. The record still grades confirmed."
+ },
+ {
+  "from": "fix:identity",
+  "file": "src/server/founder/sources/knowledge.js",
+  "change": "For structured organisation fields (Wikidata employers, ORCID and OpenAlex institutions, LittleSis relationships), compare companyKeyStrict(label) === companyKeyStrict(company), or the same after a legal form. Never accept a bare prefix. When a confirmed Wikidata or SEC record gives the full legal name, call addCompanyAlias.",
+  "why": "Finding knowledge-prefix-company-in-lists. chooseCandidate picks 'Mercury Records' for Mercury."
+ },
+ {
+  "from": "fix:identity",
+  "file": "src/server/founder/sources/sec.js",
+  "change": "When a Form D or insider filing names the subject as an officer or director of an issuer whose name starts with a known company ('Ramp Business Corp' for Ramp), call addCompanyAlias(subject, { company, alias: issuerName, origin: finding.id }).",
+  "why": "Requirement 5: the learned legal name then ties 'Ramp Business UK Ltd' and 'Ramp Business Corporation' in later records."
+ },
+ {
+  "from": "fix:identity",
+  "file": "src/server/founder/finding.js / src/server/founder/deepCheck.js",
+  "change": "Keep matchSubject's new `basis` array on the finding. Do not mark threads trusted when the grade is 'likely' and basis contains only 'related', 'event' or 'reversed-name'.",
+  "why": "Finding identity-encyclopedia-related-broad: a likely grade that rests only on a related or event anchor must not feed the thread cascade."
+ },
+ {
+  "from": "fix:identity",
+  "file": "src/server/founder/report.js",
+  "change": "Never put a record into red flags when its basis is only ['event']. Show a 'common name' banner when isCommonName(state.name) is true, or when possible records name several different organisations. Give counts only, never namesakes' details.",
+  "why": "Findings identity-event-anchor-namesake and identity-name-commonness, report side."
+ },
+ {
+  "from": "fix:identity",
+  "file": "src/server/founderCheck.js (runFounderCheck, next phase)",
+  "change": "Add personNameVariants(person) from founder/names.js to the web queries. Return the pages left out by the company filter as `namesakePages` (title and url only) instead of only a count in warnings.",
+  "why": "Finding identity-quickbrief-company-filter asks for name-only pages to be listed separately. Searching without middle names finds records that omit them."
+ },
+ {
+  "from": "orchestrator",
+  "file": "src/server/founder/sample.js, tests/unit/api/llmCheckRoute.test.js",
+  "change": "The fictional sample no longer yields 3 red flags: under the phase 1 matcher the director-bar record (which names the person with an earlier company, Tidewater Drones) is graded possible. Make the sample exercise every part of a report again (for example give the sample state the earlier company as a known anchor the way a real check would learn it) without weakening the matcher, and update the test.",
+  "why": "tests/unit/api/llmCheckRoute.test.js fails after phase 1"
+ },
+ {
+  "from": "orchestrator",
+  "file": "tests/unit/features/founderDeepGaps.test.js (gaps.js owner)",
+  "change": "findGaps no longer calls the model in this test after phase 1 (records are graded differently or cleaned). Find out why, fix gaps.js or the test, and keep the test meaningful.",
+  "why": "fails after phase 1"
+ }
+]

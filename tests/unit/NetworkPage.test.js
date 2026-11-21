@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import NetworkPage from '../../src/pages/network';
+import NetworkPage, { findCheck, contactNameCounts } from '../../src/pages/network';
 
 jest.mock('next/head', () => function Head({ children }) { return <>{children}</>; });
 jest.mock('next/link', () => function Link({ children, href, ...props }) { return <a href={href} {...props}>{children}</a>; });
@@ -92,5 +92,92 @@ describe('NetworkPage', () => {
     fireEvent.click(screen.getByText('Connect X'));
     expect(screen.getByText("X connection isn't available on this deployment yet.")).toBeTruthy();
     expect(screen.queryByText(/paid|tier|API/)).toBeNull();
+  });
+});
+
+describe('findCheck: which finished founder check marks a contact', () => {
+  const smiths = [{ name: 'John Smith', company: 'Acme' }, { name: 'John Smith', company: 'Beta' }, { name: 'Ann Lee', company: 'Gamma' }];
+  const noCompany = { name: 'John Smith', company: '', date: '2026-11-19', redFlags: 3 };
+
+  it('a check run without a company is not pinned on namesakes', () => {
+    const counts = contactNameCounts(smiths);
+    expect(findCheck([noCompany], 'John Smith', 'Acme', counts)).toBeNull();
+    expect(findCheck([noCompany], 'John Smith', 'Beta', counts)).toBeNull();
+    // without the loaded network, nothing is assumed
+    expect(findCheck([noCompany], 'John Smith', 'Acme')).toBeNull();
+  });
+
+  it('a company-less check marks the only contact with that full name (accents and case aside)', () => {
+    const counts = contactNameCounts([{ name: 'José Smith', company: 'Acme' }, { name: 'Ann Lee' }]);
+    expect(findCheck([{ ...noCompany, name: 'jose smith' }], 'José Smith', 'Acme', counts)).toMatchObject({ redFlags: 3 });
+  });
+
+  it('a check with a company marks only the contact at that company', () => {
+    const counts = contactNameCounts(smiths);
+    const acme = { name: 'John Smith', company: 'Acme Inc', date: '2026-11-19', redFlags: 1 };
+    expect(findCheck([acme], 'John Smith', 'Acme', counts)).toBe(acme);
+    expect(findCheck([acme], 'John Smith', 'Beta', counts)).toBeNull();
+  });
+});
+
+describe('findCheck: names and companies written differently', () => {
+  it('honorifics and degrees do not stop a match', () => {
+    const counts = contactNameCounts([{ name: 'Dr. Jane Roe, PhD', company: 'Acme' }]);
+    const check = { name: 'Jane Roe', company: 'Acme', redFlags: 0 };
+    expect(findCheck([check], 'Dr. Jane Roe, PhD', 'Acme', counts)).toBe(check);
+    expect(findCheck([check], 'Jane Roe MBA', 'Acme', counts)).toBe(check);
+    expect(findCheck([check], 'Prof Jane Roe', 'Acme', counts)).toBe(check);
+  });
+  it('a company written longer still matches; a different business with the same first word does not', () => {
+    const counts = contactNameCounts([{ name: 'John Smith', company: 'Goldman Sachs Asset Management' }]);
+    const gs = { name: 'John Smith', company: 'Goldman Sachs', redFlags: 0 };
+    expect(findCheck([gs], 'John Smith', 'Goldman Sachs Asset Management', counts)).toBe(gs);
+    const meta = { name: 'John Smith', company: 'Meta', redFlags: 0 };
+    expect(findCheck([meta], 'John Smith', 'Meta Financial', counts)).toBeNull();
+    expect(findCheck([meta], 'John Smith', 'Meta Platforms', counts)).toBe(meta);
+  });
+});
+
+describe('NetworkPage: checks running and asking from a report', () => {
+  afterEach(() => { jest.clearAllMocks(); delete global.fetch; });
+  const contacts = [{ name: 'Ana Synthetic', company: 'Stripe', position: 'Engineer', source: 'linkedin', tags: [] }];
+  function serve(extra = {}) {
+    const seen = [];
+    global.fetch = jest.fn(async (url, opts = {}) => {
+      seen.push({ url: String(url), body: opts.body ? JSON.parse(opts.body) : null });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => {
+          if (url === '/api/network/contacts') return { contacts, stats: { total: 1, bySource: { linkedin: 1, csv: 0, x: 0 }, lastImportAt: null, lastImportBySource: {} } };
+          if (url === '/api/founder/history') return extra.history || { checks: [], running: [] };
+          if (url === '/api/network/query') return extra.answer || { question: 'q', total: 0, results: [], possiblyRelated: { results: [] } };
+          return {};
+        },
+      };
+    });
+    return seen;
+  }
+
+  it('?ask= runs that question once the contacts are loaded', async () => {
+    useSession.mockReturnValue({ data: { user: { name: 'Test User' } }, status: 'authenticated' });
+    useRouter.mockReturnValue({ isReady: true, pathname: '/network', query: { ask: 'Who do I know at Stripe?' }, replace: jest.fn() });
+    const seen = serve();
+    render(<NetworkPage />);
+    await waitFor(() => expect(seen.some((c) => c.url === '/api/network/query')).toBe(true));
+    expect(seen.find((c) => c.url === '/api/network/query').body.question).toBe('Who do I know at Stripe?');
+    expect(seen.filter((c) => c.url === '/api/network/query')).toHaveLength(1);
+  });
+
+  it('a contact whose check is still running is marked Running, linking to that check', async () => {
+    useSession.mockReturnValue({ data: { user: { name: 'Test User' } }, status: 'authenticated' });
+    useRouter.mockReturnValue({ isReady: true, pathname: '/network', query: { ask: 'Who do I know at Stripe?' }, replace: jest.fn() });
+    serve({
+      history: { checks: [], running: [{ id: 'job-r', name: 'Ana Synthetic', company: 'Stripe', status: 'running' }] },
+      answer: { question: 'Who do I know at Stripe?', total: 1, results: [{ contact: { key: 'k1', ...contacts[0] }, reasons: [], role: 'other' }], possiblyRelated: { results: [] } },
+    });
+    render(<NetworkPage />);
+    const chip = await screen.findByText('Running');
+    expect(chip.closest('a').getAttribute('href')).toBe('/founder?name=Ana+Synthetic&company=Stripe&job=job-r');
   });
 });

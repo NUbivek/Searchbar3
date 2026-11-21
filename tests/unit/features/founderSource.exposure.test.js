@@ -9,7 +9,7 @@
 jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
 
 const { setTransport } = require('../../../src/server/founder/http');
-const { createSubject, addAnchor } = require('../../../src/server/founder/identity');
+const { createSubject, addAnchor, addCompanyAlias } = require('../../../src/server/founder/identity');
 const { __resetCacheForTests } = require('../../../src/server/founder/cache');
 const {
   leakSiteConnector, breachCatalogueConnector, breachRegistersConnector, exposureConnectors,
@@ -29,6 +29,8 @@ function network(routes) {
 }
 
 const ctxFor = (name, company) => ({ subject: createSubject({ name, company }), deadline: Date.now() + 20000, known: () => ({}) });
+// Round 3: "Uber" is one ordinary word, so a name-only match is the company's only once its legal name is known
+const uberCtx = () => { const ctx = ctxFor('Travis Kalanick', 'Uber'); addCompanyAlias(ctx.subject, { company: 'Uber', alias: 'Uber Technologies, Inc.', origin: 'sec-filings-1' }); return ctx; };
 const companyTask = (value) => ({ kind: 'company', value, depth: 1, template: null, params: null });
 const domainTask = (value) => ({ kind: 'domain', value, depth: 1, template: null, params: null });
 
@@ -244,7 +246,7 @@ describe('leak-sites (RansomLook)', () => {
         ],
       },
     }]]);
-    const { findings } = await leakSiteConnector.run(companyTask('Uber'), ctxFor('Travis Kalanick', 'Uber'));
+    const { findings } = await leakSiteConnector.run(companyTask('Uber'), uberCtx());
     expect(findings.map((f) => f.title)).toEqual(['Uber Technologies listed by lapsus on a ransomware leak site (claimed, unverified)']);
     expect(findings[0].url).toBe('https://www.ransomlook.io/group/lapsus#:~:text=Uber%20Technologies');
     expect(findings[0].matchReasons).toEqual(["the organisation's name matches Uber"]);
@@ -648,7 +650,7 @@ describe('breach-registers (state attorneys general and the UK ICO)', () => {
 
   test('one finding per notice, newest first, without the look-alike organisations', async () => {
     registers({ ca: { body: CA_UBER }, wa: { body: WA_UBER }, or: { body: OR_UBER } });
-    const { findings, notes, threads } = await breachRegistersConnector.run(companyTask('Uber'), ctxFor('Travis Kalanick', 'Uber'));
+    const { findings, notes, threads } = await breachRegistersConnector.run(companyTask('Uber'), uberCtx());
     expect(findings.map((f) => f.title)).toEqual([
       'Uber Technologies, Inc.: data breach notice filed with the California Attorney General, reported 10 November 2026',
       'Uber Technologies, Inc.: data breach notice filed with the Oregon Department of Justice, reported 22 November 2017 (5,437 people affected)',
@@ -706,7 +708,7 @@ describe('breach-registers (state attorneys general and the UK ICO)', () => {
         ]),
       },
     });
-    const { findings } = await breachRegistersConnector.run(companyTask('Uber'), ctxFor('Travis Kalanick', 'Uber'));
+    const { findings } = await breachRegistersConnector.run(companyTask('Uber'), uberCtx());
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({
       title: 'Uber Technologies, Inc.: 2 data breach notices filed with the Oregon Department of Justice, most recently reported 22 November 2017',

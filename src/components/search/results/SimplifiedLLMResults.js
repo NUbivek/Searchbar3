@@ -41,8 +41,19 @@ export const renderSafeHtml = (text) => {
     });
     purifyConfigured = true;
   }
-  return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+  // Answer text is written from outside pages: an image would load from someone else's server each time the answer
+  // is opened, and a link could lead anywhere. Citations are added after this (citeText), so only in-page anchors stay.
+  const clean = DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, FORBID_TAGS: ANSWER_FORBID_TAGS, FORBID_ATTR: ['style', 'srcset', 'background', 'poster', 'formaction'] });
+  if (typeof document === 'undefined') return clean;
+  const tpl = document.createElement('template');
+  tpl.innerHTML = clean;
+  tpl.content.querySelectorAll('a').forEach((a) => {
+    if (/^#[\w-]+$/.test(a.getAttribute('href') || '')) return;
+    a.replaceWith(document.createTextNode(a.textContent || ''));
+  });
+  return tpl.innerHTML;
 };
+const ANSWER_FORBID_TAGS = ['img', 'picture', 'source', 'video', 'audio', 'iframe', 'object', 'embed', 'svg', 'math', 'form', 'input', 'button', 'textarea', 'select', 'style', 'link', 'meta', 'base'];
 
 const escapeHtml = (text) => String(text || '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

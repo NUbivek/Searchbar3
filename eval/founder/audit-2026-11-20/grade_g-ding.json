@@ -1,0 +1,132 @@
+{
+ "subject": "Shensi Ding, co-founder and CEO of Merge (merge.dev), report eval/founder/runs/r8/shensi-ding-merge.json",
+ "score": 36,
+ "missing": [
+  {
+   "fact": "Earlier employer: Expanse (cybersecurity company, later bought by Palo Alto Networks), where she was Chief of Staff before founding Merge. The tied record 17 says so directly: \"Shensi worked at a startup called Expanse\".",
+   "cause": "The record was found, but profile.js dropped the employer. Its PRIOR patterns need a capitalised organisation right after \"at\", so \"worked at a startup called Expanse\" never matches. extract.js has a \"company/startup called X\" pattern (line 282), which is why Expanse became a thread, but profile.js has no matching pattern. I re-ran the current profile.js on these records and earlier is still []. That also stopped report.js byEmployer from using Expanse as an anchor.",
+   "fix": "Add a PRIOR pattern for \"(worked|was) at a (startup|company|firm) (called|named) <ORG>\", sharing the CO_NAME rule from extract.js. Add a Jest case built from this exact sentence.",
+   "publicSource": "https://review.firstround.com/merges-path-to-product-market-fit/"
+  },
+  {
+   "fact": "Investment-banking analyst at Credit Suisse, 2015 to 2017, straight after Columbia. FINRA BrokerCheck has it: CRD 6203724, Credit Suisse Securities (USA), 2015-08-11 to 2017-08-01, no disclosures.",
+   "cause": "Found but buried. Record 29 is graded possible (name only) and filed under 'Regulators and enforcement'. Record 14, which is tied to her, says \"her journey from investment banking\", and record 10 says she graduated in 2015. byEmployer in report.js only raises a record when profile.earlier names the same firm, and no tied record names Credit Suisse. Keeping it possible is right under the rules, but the report never links these clues or asks about them.",
+   "fix": "Keep the grade at possible. When a tied bio says investment banking, banker or finance, and a clean BrokerCheck record under the full name starts within a year of the graduation year, add it to the profile as a lead to confirm (not a fact) and add a founder question: 'Confirm Credit Suisse 2015-17 (CRD 6203724)'.",
+   "publicSource": "https://brokercheck.finra.org/individual/summary/6203724"
+  },
+  {
+   "fact": "Education: Columbia University, BS in Computer Science, graduated 2015, where she met co-founder Gil Feig.",
+   "cause": "In this run, record 10 (\"The journey began in 2015 after Shensi and Gil graduated from Columbia University\") was found, but profile.education is empty. I re-ran the current profile.js (commits 7a122bf and 399f52a, both after this report's 15:28 timestamp) on the same records, and it now returns Columbia University. So the omission comes from the older code. Degree, field and year are still never read: reportProfile always sets degree and field to null, and the 2015 is not taken as an end date.",
+   "fix": "Read the year from 'in <year> after ... graduated', and read the degree and field when a sentence gives them ('Columbia CS' in record 23). Re-run the eval with the current code.",
+   "publicSource": "https://yespress.io/shensi-ding"
+  },
+  {
+   "fact": "Merge's funding history: $4.5M seed led by NEA (May 2021; Scott Sandell of NEA joined the board), $15M Series A led by Addition (Nov 2021), $55M Series B led by Accel (Oct 2022, valuation up about 4x), about $75M in total. Investors: NEA, Addition, Accel.",
+   "cause": "Only the total ($75M, Series B) appears, in the 'about' text. news-archive ran 9 lookups and returned 0 records, and web-search returned 12 records from 27 lookups. TechCrunch, the PR Newswire releases and Merge's own announcement posts were never reached. That is mostly the local search throttle. The real defect is that no connector or profile field records funding rounds or investors when no model is available: reportProfile hard-codes investments, boards and founded to [].",
+   "fix": "Add a free query pattern for '<company> raises|Series A|seed' with the company domain. Read 'raised $X ... led by Y' sentences from tied records into a funding list on the profile and the timeline.",
+   "publicSource": "https://techcrunch.com/2022/10/24/merge-raises-55m-series-b-for-its-unified-api/"
+  },
+  {
+   "fact": "Recognition: Forbes 30 Under 30, class of 2023 (with Gil Feig). Merge was also on the Forbes Next Billion-Dollar Startups list.",
+   "cause": "The search was never answered, a local limit (no model, throttled engines). Even with a working search, the patterns have no recognition reader: reportProfile always returns recognition: [] unless a model fills it. Records 16 and 21 (the Forbes profile of Merge) were found but not read for the list name.",
+   "fix": "Add pattern extraction for '30 Under 30', 'Forbes|Fortune|Inc. ... list', 'named to', 'award' in tied records. Add a lookup for '\"<name>\" \"30 Under 30\"'.",
+   "publicSource": "https://www.businesswire.com/news/home/20240214445469/en/Merge-Reports-Record-Customer-Growth-in-2023-with-60-Increase-in-New-Customer-Logos"
+  },
+  {
+   "fact": "Companies founded: Merge, co-founded 2020 with Gil Feig. The current role should show a start year of 2020.",
+   "cause": "The records say 'started Merge in 2020' (records 16 and 21) and 'founded in 2020 by Shensi Ding and Gil Feig' (records 7 and 13). Yet profile.founded is [] and roles[0].from is null. reportProfile hard-codes founded: [] and never reads a start year in the no-model path.",
+   "fix": "Fill founded and the current role's start year from 'founded|started <company> in <year>' sentences in tied records, with citations."
+  },
+  {
+   "fact": "Company standing: about 200 staff, about $14M revenue in 2023 (Forbes), 7,000+ customers per its own pages, offices in San Francisco and New York, legal entity Merge API, Inc.",
+   "cause": "Partly found: 3,000+ and 7,000+ customer counts appear in the snippets of records 16 and 23. The legal entity name was never found. Lacking it, the registry, SEC and trademark connectors searched the bare word 'Merge' and returned only namesakes.",
+   "fix": "Find the legal entity name early, from the website's terms or privacy page or the domain record, and search registers and SEC by that name. Treat an ordinary-word company name as needing the legal name before any register search."
+  },
+  {
+   "fact": "Whether the direwolf ransomware listing of 'Merge' (2026-08-11) is merge.dev. An investor would want this settled one way or the other.",
+   "cause": "Asked and answered. Correctly graded as a company-name match (possible). The leak-sites connector also ran a merge.dev domain lookup, but the report does not say that the domain lookup found no listing. That fact would clearly lower the chance the listing is this company.",
+   "fix": "In exposure.js, when the company-name hit is possible and the domain lookup for the company's own domain found nothing, add a note to the record: 'no listing names merge.dev'."
+  }
+ ],
+ "wrong": [
+  {
+   "item": "Profile headline 'Co-Founder, Founder, CEO, Merge' (repeats 'Founder')",
+   "why": "Repeated title. In the current profile.js, 'Co-Founder' already suppresses 'Founder', and my re-run returns 'Co-Founder and CEO, Merge'. This run used code from before those commits.",
+   "cause": "The report (15:28) predates commits 7a122bf and 399f52a.",
+   "fix": "Re-run r8 with the current code."
+  },
+  {
+   "item": "Claims that changed over time: two 'merge.dev page: bio rewritten' entries (records 4 and 8)",
+   "why": "These are marketing-copy edits on the company About page ('former college classmates and current best friends' became 'turned their shared frustration into innovation'). No degree, employer, title or date changed. Showing them as claims that changed reads as a credibility signal against her when there is none.",
+   "cause": "archiveClaims/archive diffing marks any rewrite of the field labelled 'bio' as a change, even on a company page and even when no claim changes.",
+   "fix": "Report a change only when an extracted claim (school, degree, employer, title, year, founding date) differs between versions. Put pure wording changes under the archive list, not under Claims that changed."
+  },
+  {
+   "item": "Brief 'Not covered: Court dockets (CourtListener is not enabled), including US state courts and the Delaware Court of Chancery'",
+   "why": "Contradicts the screens. The Delaware Chancery, Superior and Supreme Court search ran and came back clear (3 lookups).",
+   "cause": "report.js line 204 has a fixed string written before courtsMore.js added Delaware.",
+   "fix": "Drop 'and the Delaware Court of Chancery' when delaware-courts answered."
+  },
+  {
+   "item": "'WHAT CHECKS OUT' lists only the merge.dev domain registration",
+   "why": "A domain record confirms no claim about the person. It does fit the 2020 founding, but the brief does not say so. Meanwhile the strongest independent record, the FINRA Credit Suisse registration, sits under name-only.",
+   "cause": "quotedDeepBrief: checks = non-bio confirmed records in education/career/corporate/ip, so only domain-history qualifies.",
+   "fix": "Phrase domain records as corroboration of a stated founding date. When no claim is independently confirmed, say so plainly."
+  },
+  {
+   "item": "Record 44 (x.com/shensi/status/...) graded 'matched by name only'",
+   "why": "Inconsistent: x.com/shensi is her trusted profile link (record 27 is confirmed, and the profile links it), yet a post on that same account is graded possible.",
+   "cause": "The handle anchor is not applied to status URLs under the same account.",
+   "fix": "Grade a URL under a trusted profile path as likely."
+  },
+  {
+   "item": "Totals '26 tied to this person'",
+   "why": "Overstates the evidence. The 26 are about 9 distinct pages counted 2 to 4 times each: merge.dev/about = records 2, 3, 7, 13, 20; Forbes = 5, 6, 16, 21; Accel = 15, 22; startupfundraising = 17, 18, 24; substack = 14, 26.",
+   "cause": "Records from web-search, page-reader and web-archive for the same URL are not merged.",
+   "fix": "Count and show by source page. Keep the archive captures and page-reader text as sub-items of one record."
+  }
+ ],
+ "noise": [
+  {
+   "item": "Hacker News records 42 and 43: Ethereum 'Mainnet Merge Announcement' and 'The Merge'",
+   "why": "About a blockchain upgrade, not the company. They sit in the Press section.",
+   "fix": "hacker-news should search a bare one-word company name only together with the person's name or the domain (merge.dev). It should never search the bare word alone."
+  },
+  {
+   "item": "Five US state register entries (records 32 to 36: Texas, Oregon, Colorado x2, Connecticut 'Merge LLC/Inc.') and two USPTO MERGE trademarks of a Tennessee LLC (39, 40)",
+   "why": "Unrelated businesses that share the word. Seven of 44 records.",
+   "fix": "Without the legal entity name (Merge API, Inc.), skip register and trademark searches for a shared one-word name, or keep only a one-line count in the coverage note."
+  },
+  {
+   "item": "YC directory records 30 (Versine, formerly Merge) and 31 (a 2025 GPU startup called Expanse)",
+   "why": "Namesake companies. The Expanse she worked at was never in YC's 2026 batch.",
+   "fix": "Do not run the YC directory search for a company thread whose known dates (she left before 2020) are before the YC company's founding year."
+  },
+  {
+   "item": "Archive records 37 and 38 (accel.com, 'This is some text inside of a div block.')",
+   "why": "Template placeholder text. It carries no information, and the live page was already read as record 15.",
+   "fix": "Drop archive captures whose extracted text is web-builder boilerplate or does not name the person."
+  },
+  {
+   "item": "Stack Overflow account record 41 (reputation 1)",
+   "why": "Name-only, no content, no value to an investor.",
+   "fix": "Hide name-only developer profiles with no activity."
+  },
+  {
+   "item": "Archived-versions section: 9 entries (records 2 to 9) for two pages",
+   "why": "Captures, counts and a 'Co-Founder' title snippet that repeat the live pages.",
+   "fix": "Fold these into one entry per page, with capture counts as a detail."
+  }
+ ],
+ "presentation": [
+  "Section order puts 'Regulators and enforcement' (one clean, name-only BrokerCheck) and 'Breach and leak-site exposure' (one namesake listing) ahead of Career, Education and Identity. A reader sees two 'possible' items before anything that is confirmed.",
+  "The FINRA record is shown as regulatory and name-only, though its real value is as career evidence (Credit Suisse 2015-17). It should also appear as a career lead to confirm.",
+  "Name-only records sit inside the main sections (Press, Company records, Patents) instead of being collapsed under 'Name matches only' as FOUNDER-CHECK.md describes.",
+  "Labels like 'merge.dev page as of 2022-09-01: Co-Founder' and 'Career, as told on forbes.com: Merge' do not say what the record shows.",
+  "The timeline has only archive capture dates. Founding (2020), the seed (May 2021), the Series A (Nov 2021), the Series B (Oct 2022) and the Credit Suisse years are missing.",
+  "Related parties: Gil Feig cites 12 records that are the same four pages. His role (co-founder and CTO) is not stated.",
+  "'Screens with no match' in the brief names 10 screens, but about 30 ran clear (Delaware, EU, Canadian courts, FinCEN, bank regulators, SEC, LEI, Companies House and others are left out).",
+  "Founder questions are generic. None asks about Expanse, Credit Suisse or the direwolf listing."
+ ],
+ "notes": "I built ground truth from public pages: First Round Review, Merge's own announcement posts, TechCrunch, Business Wire, YesPress. No lawsuit, regulatory action or controversy involving Shensi Ding or Merge turned up. The one live-search mention of a Silver Lake stint is unconfirmed and left out.\n\nGaps that come from running locally (no model, throttled search):\n- no written brief\n- funding rounds, Forbes 30 Under 30 and press coverage were never reached (news-archive returned 0 records from 9 lookups)\n- boards, founded, investments and recognition are left empty without a model\n\nReal defects in the code:\n- profile.js cannot read 'worked at a startup called Expanse' (still broken in the current code)\n- reportProfile hard-codes founded, recognition and investments to []\n- archive 'bio rewritten' diffs flag company marketing copy as claims that changed\n- the same pages are counted 2 to 4 times, which inflates 'tied' totals\n- bare-word searches for the company name bring in namesake noise (Ethereum Merge, 5 state LLCs, Tennessee trademarks, YC namesakes)\n- report.js line 204 still says the Delaware Chancery court is not covered, though it was searched\n- a status URL under her trusted X handle is graded possible\n\nTwo defects in this run are already fixed in the current code (commits after the report): the duplicated headline and the missing Columbia education. I confirmed both by re-running buildProfile on the r8 records in a temporary Jest file, which I then deleted.\n\nNothing is pinned on her wrongly. The rules on privacy and namesakes held: the ransomware listing and the BrokerCheck record stay 'possible'.\n\nScore: 36."
+}

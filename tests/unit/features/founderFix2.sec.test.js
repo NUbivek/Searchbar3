@@ -3,6 +3,8 @@
  * companies, related-party dealings, relatives in the company's own filings,
  * press releases and cited complaints, and passage-less duplicates.
  */
+// The SEC's website answers only a declared contact; these tests read filing documents, so one is declared.
+process.env.SEC_USER_AGENT = 'Test Runner test@example.com';
 jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
 
 const { setTransport } = require('../../../src/server/founder/http');
@@ -47,8 +49,8 @@ describe('item 2(d): affiliate companies', () => {
   test('plan skips cyber incidents for an affiliate; a primary company keeps them', () => {
     const templates = (tie) => secCompanyConnector.plan({ kind: 'company', value: 'Option', tie }, subject).map((p) => p.template);
     expect(templates('affiliate')).toEqual(['formd', 'joint']);
-    expect(templates('primary')).toEqual(['formd', 'joint', 'cyber']);
-    expect(templates(undefined)).toEqual(['formd', 'joint', 'cyber']);
+    expect(templates('primary')).toEqual(['formd', 'joint', 'cyber', 'events']);
+    expect(templates(undefined)).toEqual(['formd', 'joint', 'cyber', 'events']);
   });
 
   test('cyber for an affiliate task asks nothing and returns nothing', async () => {

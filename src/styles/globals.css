@@ -569,3 +569,23 @@
 .scroll-quiet::-webkit-scrollbar {
   display: none;
 }
+
+/* Founder Check: printing or saving a report as PDF. The page opens every section itself while printing
+   (DeepCheck PrintContext); these rules hide the controls and write each outside link's address after it. */
+@media print {
+  .founder-no-print,
+  .founder-report [role='dialog'] { display: none !important; }
+  .founder-report .card,
+  .founder-report .ai-card { box-shadow: none !important; break-inside: auto; }
+  .founder-report h2,
+  .founder-report h3 { break-after: avoid; }
+  .founder-report li { break-inside: avoid; }
+  .founder-report a[href^='http']::after {
+    content: ' (' attr(href) ')';
+    font-size: 10px;
+    font-weight: 400;
+    color: rgb(var(--c-muted));
+    word-break: break-all;
+  }
+  .founder-report a.cite::after { content: none; }
+}

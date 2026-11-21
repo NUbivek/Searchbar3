@@ -1,0 +1,217 @@
+[
+ {
+  "id": "identity-sec-confirmed-by-hand",
+  "title": "SEC gradeByTie sets 'confirmed' by hand, and matchFixed skips the inferred-company cap",
+  "severity": "high",
+  "kind": "rule-breach",
+  "file": "src/server/founder/sources/sec.js",
+  "line": 305,
+  "scenario": "No company is given, and resolveIdentity infers 'Acme' from namesake-heavy evidence (origin 'inferred'). sameAsKnown matches registrant 'Acme Holdings Inc' against that anchor. gradeByTie marks the filing confirmed and matchFixed, so the cap at deepCheck.js:716 and regrade both skip it. A namesake's filing stays confirmed.",
+  "evidence": "Handover rule 2 says 'A source never sets confirmed by hand'. sec.js:308 passes match:'confirmed'. sameAsKnown reads every company anchor regardless of origin. deepCheck.js:716 has 'if (f.match !== 'confirmed' || f.matchFixed) continue'.",
+  "fix": "In gradeByTie, set 'likely' when the tie anchor's origin is not 'given' or confirmed-found. Better, pass the registrant name in matchText and let makeFinding grade it. Also apply the inferred cap in deepCheck to records with matchFixed set.",
+  "filesToChange": [
+   "src/server/founder/sources/sec.js",
+   "src/server/founder/deepCheck.js"
+  ],
+  "dim": "identity",
+  "verdict": "confirmed",
+  "verifyNote": "sec.js gradeByTie passes match:'confirmed' to makeFinding, which sets matchFixed (finding.js:123), against handover rule 2. sameAsKnown reads every company anchor, inferred and likely-derived ones included. The cap at deepCheck.js:715 skips records with matchFixed set.",
+  "betterFix": "Set 'likely' in gradeByTie. Or, when the tie anchor is 'given' or comes from a confirmed record, pass the registrant name in matchText and let makeFinding grade it. Apply the inferred and weak-anchor cap to matchFixed records too."
+ },
+ {
+  "id": "sec-default-ua-refused",
+  "title": "www.sec.gov refuses the default client: documents, enforcement lists and press releases never load",
+  "severity": "high",
+  "kind": "robustness",
+  "file": "src/server/founder/sources/sec.js",
+  "line": 232,
+  "scenario": "SEC_USER_AGENT is unset. Every www.sec.gov call (Archives documents, litigation releases, admin proceedings, press releases) returns 403 'Undeclared Automated Tool'. Enforcement and press fail, Form D roles and passages are never read, and one 403 blocks all documents for 10 minutes for every check in the process.",
+  "evidence": "curl with the code's UA: efts 200, data.sec.gov 200, www.sec.gov/Archives primary_doc.xml 403 'Your Request Originates from an Undeclared Automated Tool', litigation-releases 403.",
+  "fix": "Treat a declared SEC agent as required for www.sec.gov. If SEC_USER_AGENT is missing, skip those calls and say 'SEC filing documents and enforcement releases are not enabled on this deployment' (no 403 burned). Ask the owner to set a 'Name contact@domain' value in Vercel. Add a startup or health check that flags it.",
+  "filesToChange": [
+   "src/server/founder/sources/sec.js",
+   "FOUNDER-CHECK.md"
+  ],
+  "dim": "sec",
+  "verdict": "confirmed",
+  "verifyNote": "secOptions only overrides the UA when SEC_USER_AGENT is set; otherwise http.js sends 'diligence-research/1.0 (automated public-records lookup)'. Re-tested: www.sec.gov Archives 403, efts 200. noteRefusal then blocks all documents for 10 min process-wide. Critical only if the env var is actually unset in Vercel (not checked: .env unreadable).",
+  "betterFix": "Keep the skip-when-undeclared plan, but also accept FOUNDER_HTTP_CONTACT when it holds an email (SEC wants 'Name email'). Report the skipped calls as 'not run' (rule 5), with UI wording 'not enabled on this deployment'. Add a check to the health/readiness output. Do not burn a 403 to find out."
+ },
+ {
+  "id": "sec-unread-confirmed",
+  "title": "Unread filings are 'confirmed' because the person's name is injected into matchText",
+  "severity": "high",
+  "kind": "wrong-person",
+  "file": "src/server/founder/sources/sec.js",
+  "line": 1866,
+  "scenario": "'John Smith' with company Acme, document host refused. An Acme 10-K whose text holds some other John Smith (counsel, another officer) comes back confirmed with quote 'Form 10-K; filed 2022-03-01 by Acme Corp', which never names him. The same happens in personMentions (line 1098) and personFormD exactKnownIssuer (979).",
+  "evidence": "Temp jest test: joint -> ['confirmed','10-K filed by Acme Corp mentions John Smith','Form 10-K; filed 2022-03-01 by Acme Corp',['names Acme']]; mentions -> confirmed for Acme.",
+  "fix": "When no passage was read, do not put subject.name in matchText. Grade the record as 'likely' at most, as likelyByTie already does: 'EDGAR index lists the name; the document was not read'. Use matchText = subject.name + company only when a read passage names the person outside a longer name.",
+  "filesToChange": [
+   "src/server/founder/sources/sec.js"
+  ],
+  "dim": "sec",
+  "verdict": "confirmed",
+  "verifyNote": "personMentions reads only picked.slice(0,3), but always builds matchText from subject.name plus filer names. An unread filing by a known company gets 'confirmed' with no host refusal needed. A CIK-tied unread filing goes through likelyByTie, which is inconsistent. Form D (line 979) does the same when exactKnownIssuer is true and doc is null.",
+  "betterFix": "For an unread document, use matchText of the index line only (recordLine plus filer names, without subject.name) and set match 'likely' at most with the reason 'EDGAR index lists the name; the document was not read'. Apply the same in personFormD when doc is null and in companyJoint."
+ },
+ {
+  "id": "sec-lease-redflag",
+  "title": "Ordinary 10-K lease or expense wording becomes a medium red flag",
+  "severity": "high",
+  "kind": "accuracy",
+  "file": "src/server/founder/sources/sec.js",
+  "line": 1350,
+  "scenario": "The founder's company 10-K says 'We lease our headquarters...' and then 'Jane Roe has served as our CEO... officers are reimbursed for business expenses'. personRelated returns a confirmed, medium-severity 'passage about dealings with the company (lease)'. The report puts confirmed medium findings under Red flags.",
+  "evidence": "Temp test output: ['confirmed','medium','10-K filed by Acme Corp names Jane Roe in a passage about dealings with the company (lease)']. report.js line 573 routes confirmed or likely serious findings to redFlags.",
+  "fix": "Rate a passage medium only when a related-party marker ('related party', 'Mr. X owns', 'entity controlled by', 'leased from', 'loan to/from Mr. X') ties the dealing to the person in the same sentence. Drop 'reimburs', 'payments to/of' and a bare 'lease' from DEAL_TERM. Otherwise rate it low or info.",
+  "filesToChange": [
+   "src/server/founder/sources/sec.js"
+  ],
+  "dim": "sec",
+  "verdict": "confirmed",
+  "verifyNote": "DEAL_TERM includes reimburs*, 'payments of/to' and a bare lease. dealScore needs only a term within 300 chars of the name, and DEF 14A and 10-K are in RELATED_FORMS. A deal yields atLeast('medium'), and report.js counts medium as serious, so it reaches redFlags. Proxy compensation text about expense reimbursement near the CEO's name is common.",
+  "betterFix": "Require a related-party marker in the same sentence as the name (related party, owned/controlled by Mr. X, leased from/to, loan to/from). Drop reimburs and payments from DEAL_TERM. Otherwise rate the passage 'low' and title it as a mention, not a dealing."
+ },
+ {
+  "id": "sec-hand-confirmed",
+  "title": "gradeByTie sets match 'confirmed' by hand, against rule 2",
+  "severity": "medium",
+  "kind": "rule-breach",
+  "file": "src/server/founder/sources/sec.js",
+  "line": 308,
+  "scenario": "A filing by a registrant tied by CIK (or by a former EDGAR name) names a different person with the same name (for example a director's namesake in an exhibit). gradeByTie upgrades the name-only 'possible' to a hand-set 'confirmed', which the loop never re-grades (matchFixed).",
+  "evidence": "CODEX-HANDOVER section 2 rule 2: 'A source never sets confirmed by hand; the strongest it may set is likely.' gradeByTie passes match:'confirmed'.",
+  "fix": "Cap the grade at 'likely' in gradeByTie, or add the registrant's current EDGAR name as a company anchor and let makeFinding grade normally on the passage text.",
+  "filesToChange": [
+   "src/server/founder/sources/sec.js"
+  ],
+  "dim": "sec",
+  "verdict": "confirmed",
+  "verifyNote": "gradeByTie passes match:'confirmed', so makeFinding sets matchFixed and the record is never re-graded. This breaks rule 2 literally. The risk is reduced because a read passage that names the person outside a longer name is required, but a namesake in the same registrant's filing is still possible.",
+  "betterFix": "Do not hand-set the grade. Add the registrant's EDGAR names and the tied anchor company (tie.via.anchor) to matchText and let makeFinding grade it from the passage. Otherwise cap the grade at 'likely', as likelyByTie does."
+ },
+ {
+  "id": "sec-formd-surname-skip",
+  "title": "One phrase hit (possibly a namesake) suppresses the formal-name Form D pass",
+  "severity": "medium",
+  "kind": "missed-information",
+  "file": "src/server/founder/sources/sec.js",
+  "line": 932,
+  "scenario": "The phrase \"Trevor Milton\" with forms=D returns one notice (Lexon Industries, 2009). Notices that list him as 'Trevor R. Milton' (middleName splits the XML phrase) or under a formal first name are never looked for, because the surname search runs only when there are zero hits.",
+  "evidence": "Live efts: q=\"Trevor Milton\" forms=D gives total 1 (Lexon). Temp test: only one efts query was sent.",
+  "fix": "Always run the surname pass for an uncommon surname, using entityName of known companies or the surname query capped at SURNAME_MAX_HITS. Better: use the SEC Form D structured data sets (RELATEDPERSONS.tsv, quarterly since 2009), cached as a compact last|first index. That gives exact name lookups with no phrase or document dependency.",
+  "filesToChange": [
+   "src/server/founder/sources/sec.js"
+  ],
+  "dim": "sec",
+  "verdict": "confirmed",
+  "verifyNote": "Line 932 runs the surname pass only when the phrase pass returned zero hits, so one hit, even a namesake's, suppresses it. The read cap (4 - requests) also leaves only 1-2 notices read.",
+  "betterFix": "Run the surname pass when the surname is uncommon (total <= SURNAME_MAX_HITS), regardless of phrase hits, and dedupe by adsh. The RELATEDPERSONS.tsv idea is feasible (DERA Form D data sets) but is a multi-MB quarterly zip on www.sec.gov that needs the declared agent. Pre-build a compact index offline, not per request on serverless."
+ },
+ {
+  "id": "sec-silent-unread",
+  "title": "No note when filing documents were not read (mentions, insider, joint, Form D)",
+  "severity": "medium",
+  "kind": "honesty",
+  "file": "src/server/founder/sources/sec.js",
+  "line": 1113,
+  "scenario": "The document host refuses, or the deadline cuts reads. personMentions, personInsider and companyJoint still return index-line findings with no note. personFormD reads only 2 of up to 10 notices (line 955) and notes this only when blocked. The report then reads as if the filings were checked.",
+  "evidence": "Temp test: mentions with blocked documents returned notes []. The Form D read cap is Math.max(1, 4 - requests).",
+  "fix": "Count unread readable documents in every template and add a note: 'N SEC filings name the person; their text was not read, so roles and context are not shown'. Mark those findings with data.unread=true.",
+  "filesToChange": [
+   "src/server/founder/sources/sec.js"
+  ],
+  "dim": "sec",
+  "verdict": "confirmed",
+  "verifyNote": "Notes appear only when documentsBlocked() is true (lines 995, 1367, 1463, 1777). In personMentions, filings after the first 3 are never read and get no note beyond the 'N documents' line. Form D reads at most 2 notices with no note when not blocked. This weakens rule 5 (honest coverage).",
+  "betterFix": "In every template, count findings built from the index line only, add a note naming that count, and set data.unread=true. The UI can then show 'text not read'. This pairs with capping those findings at 'likely'."
+ },
+ {
+  "id": "sec-proxy-legal-proceedings",
+  "title": "Proxy and S-1 'Involvement in Certain Legal Proceedings' disclosures not sought",
+  "severity": "medium",
+  "kind": "missed-information",
+  "file": "src/server/founder/sources/sec.js",
+  "line": 594,
+  "scenario": "A founder who was a director of a public company had to disclose bankruptcies, convictions and SEC or court orders from the last 10 years (Reg S-K 401(f)). personMentions picks passages by career words, so a bio's legal-proceedings paragraph is never targeted.",
+  "fix": "Add a 'bio' template: q=\"<name>\" \"legal proceedings\" OR \"involvement in certain legal proceedings\" with forms DEF 14A,10-K,S-1,424B4. Read the bio passage (age, roles, other boards) and the 401(f) paragraph, and score enforcement words near the name.",
+  "filesToChange": [
+   "src/server/founder/sources/sec.js",
+   "src/server/founder/sources/index.js"
+  ],
+  "dim": "sec",
+  "verdict": "confirmed",
+  "verifyNote": "No query or scorer targets 'legal proceedings' wording. CAREER_WORDS drive personMentions passages, so the Item 401(f) paragraph is never preferred. EFTS supports this free query.",
+  "betterFix": "Instead of a whole new template, add a scorer that is preferred when the window has 'legal proceedings', bankrupt, convicted, enjoined or 'cease-and-desist' next to the name. Grade severity from the person's own sentences only (personSeverity), because boilerplate 'none of our directors has been involved...' must read as info, not as a red flag."
+ },
+ {
+  "id": "sec-8k-events",
+  "title": "Company 8-K red events (1.03, 4.01, 4.02, 3.01) labelled but never searched",
+  "severity": "medium",
+  "kind": "missed-information",
+  "file": "src/server/founder/sources/sec.js",
+  "line": 401,
+  "scenario": "A company the person founded filed an 8-K Item 4.02 (non-reliance restatement), 4.01 (auditor change), 1.03 (bankruptcy) or 3.01 (delisting), or an NT 10-K. secCompanyConnector only searches cyber 8-Ks, so these appear only by chance in personMentions when the person is named.",
+  "fix": "Add a 'events' company template for full-tie companies: efts forms=8-K,NT 10-K,NT 10-Q with entityName. Keep hits with items 1.03/3.01/4.01/4.02 or NT forms, match:'company', with severity medium (4.02 or 1.03) or low. Date each by period_ending.",
+  "filesToChange": [
+   "src/server/founder/sources/sec.js"
+  ],
+  "dim": "sec",
+  "verdict": "confirmed",
+  "verifyNote": "NOTABLE_ITEMS only labels items. secCompanyConnector searches 8-Ks only with CYBER_QUERY. No search exists for items 1.03, 3.01, 4.01 or 4.02, or for NT 10-K filings, by company.",
+  "betterFix": "For full-tie companies only, search forms=8-K,NT 10-K,NT 10-Q by entityName (resolved through companyFilers, so ambiguous names are skipped). Keep 1.03/3.01/4.01/4.02 and NT. match:'company', report.js's afterTenure logic decides whether it is a mark against the person."
+ },
+ {
+  "id": "sec-sali-admin",
+  "title": "SEC Action Lookup (individuals), admin-order text and trading suspensions unused",
+  "severity": "medium",
+  "kind": "missed-information",
+  "file": "src/server/founder/sources/sec.js",
+  "line": 1601,
+  "scenario": "A founder barred by an SEC follow-on administrative order: the admin row is kept from its list line only (never read), so the bar or penalty terms are missing. SEC's Action Lookup for Individuals and trading suspensions of their companies are not queried at all.",
+  "fix": "Read the first two admin-proceeding pages, as already done for litigation releases (bar, cease-and-desist, penalty wording, file number). Add the SEC Action Lookup individuals search by name, and trading-suspension lists for full-tie companies. All on www.sec.gov with the declared agent.",
+  "filesToChange": [
+   "src/server/founder/sources/sec.js"
+  ],
+  "dim": "sec",
+  "verdict": "confirmed",
+  "verifyNote": "Line 1601 builds admin rows with release=null, so they are never read. Litigation releases are read for only the top 2. No Action Lookup (individuals) or trading-suspension query exists in the code.",
+  "betterFix": "Read the top admin orders as readRelease does, extracting sanctions (bar, cease-and-desist, penalty). Add the SEC Action Lookup individuals search and trading suspensions for full-tie companies. All of these are on www.sec.gov, so they depend on the declared agent fix first; otherwise they report 'not run'."
+ },
+ {
+  "id": "sec-13d-ownership",
+  "title": "Schedules 13D/13G and Form 144 filed by the person's CIK not used",
+  "severity": "low",
+  "kind": "missed-information",
+  "file": "src/server/founder/sources/sec.js",
+  "line": 1158,
+  "scenario": "personInsider resolves the person's own filer CIK, then asks only for forms 3,4,5. Their 5%+ stakes (SC 13D/13G, which show control, pledges and group agreements) and Form 144 sales are dropped, though the same CIK query returns them.",
+  "fix": "Query forms '3,4,5,SC 13D,SC 13G,SC 13D/A,SC 13G/A,144' for the owner CIKs. Label 13D as an activist or control stake and 144 as a planned sale. The same grading applies.",
+  "filesToChange": [
+   "src/server/founder/sources/sec.js"
+  ],
+  "dim": "sec",
+  "verdict": "confirmed",
+  "verifyNote": "Line 1158 asks only forms '3,4,5' for the owner CIKs. 13D/13G and 144 filings by the same CIK are not requested.",
+  "betterFix": "Since Dec 2024, EDGAR files these as 'SCHEDULE 13D' and 'SCHEDULE 13G' (with /A). Include both the old SC and the new names, plus 144. Report only names, issuer, stake and date: no addresses."
+ },
+ {
+  "id": "sec-first-page-only",
+  "title": "Full-text search reads only the first 100 hits; merger copies crowd it",
+  "severity": "low",
+  "kind": "robustness",
+  "file": "src/server/founder/sources/sec.js",
+  "line": 359,
+  "scenario": "\"Trevor Milton\" has 155 documents. The first page of 100 is 23 S-4, 22 424B3 and 13 425 copies of one merger, so the later 55 (other 10-Ks, 8-Ks, 13Ds) are never ranked. Negative form filters ('forms=-3,-4,-5') are ignored by EFTS.",
+  "evidence": "Live efts: total 155, page 100. The root_forms counts show S-4/424B3/425 dominating. The forms=-3,-4,-5 query gave identical results.",
+  "fix": "When total exceeds 100, fetch one more page with from=100. Better: run a second query restricted to forms 10-K,DEF 14A,8-K,SC 13D,S-1 so the merger prospectus copies do not consume the page.",
+  "filesToChange": [
+   "src/server/founder/sources/sec.js"
+  ],
+  "dim": "sec",
+  "verdict": "confirmed",
+  "verifyNote": "searchFilings never passes from=, so only the first 100 hits are ranked. The merger-copy crowding claim is plausible but was not re-verified.",
+  "betterFix": "Prefer a second query limited to weighty forms (10-K, DEF 14A, 8-K, S-1, SCHEDULE 13D) when total exceeds 100. This is cheaper and more useful than paging, and keeps the request count per host polite."
+ }
+]

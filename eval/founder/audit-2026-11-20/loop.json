@@ -1,0 +1,239 @@
+{
+ "key": "loop",
+ "notes": "Reproduced with a temporary test file, now deleted: screened-on-failure, waited-out counted as screened, dropped screens shown as 'clear' or missing, cached deadline failure, shared state and ignored rev in the memory store, plan() throw, dry stop dropping screens. Lesser findings left out: a missing connector is counted as run; recordStats sends one query per key with no deadline; Retry-After given as a date is ignored; the report step's save after 51s is tight against 60s. No server was touched and no outside requests were made.",
+ "omitted": 4,
+ "findings": [
+  {
+   "id": "loop-screened-on-failure",
+   "title": "Related party shown as screened when their watchlist lookup failed or was never run",
+   "severity": "high",
+   "kind": "honesty",
+   "file": "src/server/founder/deepCheck.js",
+   "line": 646,
+   "evidence": "Test: sanctions-lists threw HTTP 500 for associate, and separately waited-out (retryAt past maxWaitAge). Both times relatedParties showed screened:true; done held 'sanctions-lists|associate|mark russell|'. report.js:636 reads state.done.",
+   "scenario": "An associate's sanctions lookup fails (HTTP 500), or its host asks for a wait past 12 minutes. The key stays in state.done, so report.js marks the person screened and hides the 'not screened in this run' chip.",
+   "fix": "Keep a separate state.screened set that is written only when a watchlist run returned a result (after connectorResult succeeds). report.js reads that set, not state.done. Also remove waited-out tasks from `ran` so they are not counted in tasksRun or done.",
+   "filesToChange": [
+    "src/server/founder/deepCheck.js",
+    "src/server/founder/report.js"
+   ],
+   "dim": "loop",
+   "verdict": "confirmed",
+   "verifyNote": "deepCheck.js:646 adds the key to `ran` before running. The error path (693-699) and the waited-out path (679-682) never remove it, so 778-779 push it into done. report.js:636-640 then marks the party screened from state.done alone.",
+   "betterFix": "Record state.screened[personKey] only after connectorResult succeeds for a watchlist connector, and only when raw.partial and notes show that no list failed. report.js reads that set. Remove waited-out tasks from `ran` without counting them in tasksRun, and keep them in a separate notRun tally."
+  },
+  {
+   "id": "loop-dropped-screens-clear",
+   "title": "Screens whose lookups were dropped at stop are shown as 'No match' or not shown at all",
+   "severity": "high",
+   "kind": "honesty",
+   "file": "src/server/founder/deepCheck.js",
+   "line": 834,
+   "evidence": "Test: maxTasks=1. The founder's sanctions screen ran and the company's sanctions and court lookups were dropped. screens showed sanctions-lists 'clear' and no court-dockets row. dropped.tasks only counts a global total.",
+   "scenario": "The budget, round limit, dry stop or a failed review (line 545) drops the queued sanctions lookup on the company and every court lookup. The checklist says 'No match' for sanctions, and courts disappear from the screens and from 'Did not answer'.",
+   "fix": "When dropping queued tasks (lines 545, 835), count notRun per connector in state.sources, creating the entry if it is missing. In screensOf, show 'partial' when notRun>0 and runs>0, and 'not-run' when runs is 0. List these sources in coverage.",
+   "filesToChange": [
+    "src/server/founder/deepCheck.js",
+    "src/server/founder/report.js"
+   ],
+   "dim": "loop",
+   "verdict": "confirmed",
+   "verifyNote": "Drops at 545, 815 and 835 add only to the global dropped.tasks. screensOf (report.js:110-128) shows 'clear' when a source ran once, and the filter(Boolean) on byId silently leaves out any source that has no state.sources entry. Rule 5 needs lookups that were not run to be reported as not run."
+  },
+  {
+   "id": "loop-screen-starvation",
+   "title": "Learning and dry-stop push watchlist and court screens to the end and then drop them",
+   "severity": "medium",
+   "kind": "robustness",
+   "file": "src/server/founder/deepCheck.js",
+   "line": 573,
+   "evidence": "rankByLearning: sanctions-lists (60 tries, 0 wins) scored 0.15 vs web-search 0.72. Clean screens record win=0 (line 773). Test H: a round of 7 clean associate screens counted as dry, phase became report, and 5 screens were dropped.",
+   "scenario": "After a few checks, clean screens learn a near-zero score. Associate and relative screens score about 0.27, below every page or company lookup. They run last, rounds of clean answers count as dry, and the check stops with screens unrun.",
+   "fix": "Mark screening connectors `mustRun`. Sort them right after the seed, outside learning. Score an answered screen as a win for ordering, or exclude screens from query learning. Do not count rounds of mustRun screens as dry, and never drop mustRun tasks on dry or round stops. Reserve about 15% of maxTasks for them.",
+   "filesToChange": [
+    "src/server/founder/deepCheck.js",
+    "src/server/founder/sources/index.js"
+   ],
+   "dim": "loop",
+   "verdict": "confirmed",
+   "verifyNote": "Clean screens record win 0 (line 773). rankByLearning then cuts their factor to about 0.55, so associate screens rank below company and page lookups. Only the seed is protected (line 575). Rounds of clean screens count as dry (827) and lead to drops. It is a priority problem, so screens are lost only when a stop or the budget comes first.",
+   "betterFix": "Do not score answered screens as wins, because that corrupts query learning. Keep watchlist and court connectors out of learning ordering: give them a fixed tier right after the seed. Never count a round as dry while unrun screens remain, and never drop screens on a dry or round stop. Reserve part of maxTasks for them."
+  },
+  {
+   "id": "loop-poison-step",
+   "title": "One connector's plan()/enabled() throwing makes a check permanently unrunnable",
+   "severity": "medium",
+   "kind": "robustness",
+   "file": "src/server/founder/deepCheck.js",
+   "line": 317,
+   "evidence": "Test G: a connector whose plan throws TypeError made stepDeepCheck throw on the first step. planTasks has no try. With Neon the failed step is never saved, so every retry reloads the same state and throws again.",
+   "scenario": "A bug in one source's plan() for company threads throws. Start returns 500 after the job is created (one hourly slot used). Every later step reloads the unsaved state, hits the same throw, and returns 500 forever. The client gives up and 'Try again' repeats it.",
+   "fix": "Wrap c.plan/c.enabled per connector in try/catch and record a source error ('could not be planned'). Count consecutive failed steps on the job; after 2, save phase 'report' with honest coverage. Wrap buildReport in the same way.",
+   "filesToChange": [
+    "src/server/founder/deepCheck.js",
+    "src/pages/api/founder/deep.js"
+   ],
+   "dim": "loop",
+   "verdict": "confirmed",
+   "verifyNote": "planTasks (317) and c.enabled (316) have no try. A throw inside stepDeepCheck reaches the handler's 500 before saveNext, so every retry reloads the same unsaved state and throws again. This needs a latent bug in some connector's plan(), so medium rather than high."
+  },
+  {
+   "id": "loop-concurrent-steps",
+   "title": "Two step requests on one job both run all lookups; in memory mode they mutate one shared state",
+   "severity": "medium",
+   "kind": "robustness",
+   "file": "src/server/founder/jobStore.js",
+   "line": 145,
+   "evidence": "Test D: getJob returned the same state object twice. saveJob with the same expectRev=0 returned true both times. In Neon mode expectRev only rejects the later save, after its 40s of outside requests.",
+   "scenario": "A mobile network blip fails fetch, and the client retries 1.5s later while the first request still runs. Two steps hit the same hosts in parallel, doubling requests to paced sites. Locally (the eval's memory store), both mutate one object, so tasksRun and done are double-counted.",
+   "fix": "Add a lease: UPDATE founder_jobs SET lease_until=now()+55s WHERE id=$1 AND (lease_until IS NULL OR lease_until<now()) RETURNING state. Return 409 'busy' when no row comes back. In memory mode, structuredClone on get and save, check rev, and keep an in-process lease map.",
+   "filesToChange": [
+    "src/server/founder/jobStore.js",
+    "src/pages/api/founder/deep.js"
+   ],
+   "dim": "loop",
+   "verdict": "confirmed",
+   "verifyNote": "In memory mode, getJob returns the stored object and saveJob ignores expectRev (jobStore.js:145-149). In Neon, the rev check rejects only the second save, after its outside requests have already run. The client retries a network failure 1.5s later (DeepCheck.js:54-56) while the first server request is still running."
+  },
+  {
+   "id": "loop-cache-deadline-failure",
+   "title": "A whole-list download cut by a step deadline is remembered as a failure for 5 minutes",
+   "severity": "medium",
+   "kind": "robustness",
+   "file": "src/server/founder/cache.js",
+   "line": 106,
+   "evidence": "Test C: a loader throwing 'Out of time before the request could start' was cached. The next call threw the same error without calling the loader. The loader also inherits the first caller's task deadline (sanctions.js:638, debarment loads, robots).",
+   "scenario": "A sanctions or EBRD list starts loading 3s before the step deadline and is cut short. For 5 minutes every screen using that list fails at once, outside the cutShort retry window, and is reported 'Did not answer'. The page reader treats the site's robots as unknown and skips it.",
+   "fix": "Do not store failures for retryable timeouts or 'Out of time' errors (error.retryable). Give list loaders their own deadline, at least 25s and independent of the caller. A caller whose deadline passes rejects with 'Out of time' while the shared load continues for later callers.",
+   "filesToChange": [
+    "src/server/founder/cache.js"
+   ],
+   "dim": "loop",
+   "verdict": "confirmed",
+   "verifyNote": "cache.js:106 stores every loader error, including retryable 'Out of time' errors, for 5 minutes. The loaders capture the first caller's deadline (sanctions.js:638, debarment.js, exposure.js, registries.js, the robots load in pages.js:135), and inflight sharing hands that deadline to every other caller."
+  },
+  {
+   "id": "loop-redirect-hops",
+   "title": "Redirects are followed blind: hops skip robots, pacing, the never-open list and private-address checks",
+   "severity": "medium",
+   "kind": "security",
+   "file": "src/server/founder/http.js",
+   "line": 145,
+   "evidence": "request() uses redirect:'follow'. pages.js:236-238 checks readable(landed) only after the LinkedIn or other target was already fetched. No code blocks 127/8, 10/8, 169.254/16 or ::1.",
+   "scenario": "A search-result URL (a link shortener or a hostile page) redirects to linkedin.com/in/x or to 169.254.169.254. The body is downloaded before 'elsewhere' is decided, which breaks the never-open rule and the robots rule, and allows server-side requests to internal addresses.",
+   "fix": "Use redirect:'manual' with at most 5 hops. Per hop: http/https only; dns.lookup(all) and reject private, loopback, link-local, CGNAT, ULA and mapped addresses, pinned through an undici Agent connect.lookup; an onHop(url) hook where pages.js runs NEVER, readable and robotsVerdict; waitForHost per hop host. Resolve relative Location headers, then return the final URL.",
+   "filesToChange": [
+    "src/server/founder/http.js",
+    "src/server/founder/sources/pages.js"
+   ],
+   "dim": "loop",
+   "verdict": "confirmed",
+   "verifyNote": "http.js:145 uses redirect:'follow'. pages.js:236-243 judges `landed` only after the body was fetched. isBlockedUrl covers broker hosts only, and no code guards against private or loopback addresses. Hosted on Vercel, so metadata SSRF has a limited blast radius, but the never-open and robots rules are breached on the hop itself."
+  },
+  {
+   "id": "loop-start-burns-slot",
+   "title": "A failed or timed-out start uses an hourly slot and cannot be resumed",
+   "severity": "medium",
+   "kind": "robustness",
+   "file": "src/pages/api/founder/deep.js",
+   "line": 202,
+   "evidence": "createJob runs before the first stepDeepCheck. The jobId is only returned after the step and save. Client startJob has no retry, and rememberJob runs only on success.",
+   "scenario": "The first step throws, or the start request returns 504 or 503 on save. The job exists and counts toward 12 an hour, but the browser never learned its id. 'Try again' starts another job and repeats the same lookups. Several failures lock the user out for an hour.",
+   "fix": "Return { jobId } right after createJob, without stepping, and let the client's first 'step' do the work. Or catch step and save errors on start and still return jobId with the last progress. On start, reuse the owner's running job for the same name and company from the last hour.",
+   "filesToChange": [
+    "src/pages/api/founder/deep.js",
+    "src/components/founder/DeepCheck.js"
+   ],
+   "dim": "loop",
+   "verdict": "confirmed",
+   "verifyNote": "deep.js:202-206 calls createJob, which counts toward MAX_JOBS_PER_HOUR, and then steps and saves. The jobId is returned only on success, and rememberJob runs only on success (DeepCheck.js:82). A throw or a 503 leaves an orphan job that uses a slot."
+  },
+  {
+   "id": "loop-client-resume",
+   "title": "A closed tab or a network drop over 4.5s ends the check; a new tab starts it again from scratch",
+   "severity": "medium",
+   "kind": "ux",
+   "file": "src/components/founder/DeepCheck.js",
+   "line": 44,
+   "evidence": "stepWithRetry gives up after 3 tries (1.5s and 3s waits). The resume id is in sessionStorage, which is per tab, and is written only at start (30-minute window, while checks may run 25 minutes).",
+   "scenario": "The user loses Wi-Fi for 10s, so the check shows 'Failed to fetch'. Or the user closes the tab and reopens /founder: there is no saved id, so a new job starts and uses a slot. A reload at minute 31 of a long check also starts a new one.",
+   "fix": "Retry network and 5xx errors with backoff for up to about 2 minutes, and wait for the 'online' event. Keep the id in localStorage, refreshed on every step. Add a server lookup (GET ?name&company) for the owner's latest unexpired job, so any tab resumes it.",
+   "filesToChange": [
+    "src/components/founder/DeepCheck.js",
+    "src/pages/api/founder/deep.js"
+   ],
+   "dim": "loop",
+   "verdict": "confirmed",
+   "verifyNote": "stepWithRetry gives up after 3 attempts with 1.5s and 3s waits. The resume id is kept in sessionStorage, which is per tab, has a 30-minute window and is written only at start (DeepCheck.js:97-108). No server lookup finds the owner's running job."
+  },
+  {
+   "id": "loop-review-failure-honesty",
+   "title": "A second reader that timed out or errored is logged as 'found nothing more' and ends the check",
+   "severity": "medium",
+   "kind": "honesty",
+   "file": "src/server/founder/deepCheck.js",
+   "line": 524,
+   "evidence": "The review catch sets found=null. added stays 0, the queue is dropped, and the log says 'A second reading of the records found nothing more to follow.'",
+   "scenario": "The model chain is slow or rate-limited, so findGaps times out at 23s. The check ends, drops any queued lookups, and the report says the review found nothing, when it never answered.",
+   "fix": "Tell failure apart from empty. On a throw or timeout, log 'The second reading did not answer in time'. Do not drop the queue: continue the loop when the queue is not empty, and allow one retry if reviews < maxReviews.",
+   "filesToChange": [
+    "src/server/founder/deepCheck.js"
+   ],
+   "dim": "loop",
+   "verdict": "confirmed",
+   "verifyNote": "The catch at 524 sets found=null. That flows into added=0, the queue is dropped at 545, and the log says the review 'found nothing more'. A timeout is indistinguishable from an empty review, which breaks honest coverage."
+  },
+  {
+   "id": "loop-body-size",
+   "title": "Size limit checked only after the whole body is buffered",
+   "severity": "low",
+   "kind": "robustness",
+   "file": "src/server/founder/http.js",
+   "line": 177,
+   "evidence": "Without Content-Length (chunked), response.text() reads everything, then text.length (UTF-16 characters, not bytes) is compared with the limit.",
+   "scenario": "A page the reader opens streams hundreds of megabytes, chunked. The function buffers all of it (up to the timeout) before throwing 'larger than', which risks running out of memory and killing the step, so the whole step's progress is lost.",
+   "fix": "Read response.body with a reader, count bytes, and abort as soon as the count passes the limit. Decode with TextDecoder (charset from Content-Type).",
+   "filesToChange": [
+    "src/server/founder/http.js"
+   ],
+   "dim": "loop",
+   "verdict": "confirmed",
+   "verifyNote": "With no Content-Length header, response.text() buffers the whole body before the check at 178. That check also compares UTF-16 length, not bytes. A stream is bounded only by the 12-20s timeout, so memory exhaustion is possible but unlikely."
+  },
+  {
+   "id": "loop-retention",
+   "title": "Expired checks are deleted only when someone starts a new check, and can still be read",
+   "severity": "low",
+   "kind": "privacy",
+   "file": "src/server/founder/jobStore.js",
+   "line": 87,
+   "evidence": "The DELETE of jobs older than 72h runs only inside createJob. getJob does not check updated_at.",
+   "scenario": "No new checks are started for weeks. Every saved report about a person stays in founder_jobs, and its owner can still open it, past the stated 72-hour retention.",
+   "fix": "In getJob, treat updated_at older than RETENTION_HOURS as not found, and delete it. Also run the purge from a daily cron or on GET, not only on create.",
+   "filesToChange": [
+    "src/server/founder/jobStore.js"
+   ],
+   "dim": "loop",
+   "verdict": "confirmed",
+   "verifyNote": "The purge runs only inside createJob (jobStore.js:87 for the database, and forgetOldInMemory for memory). getJob never checks updated_at, so reports outlive the 72 hours that FOUNDER-CHECK.md:101 states when no new check is started.",
+   "betterFix": "In getJob, return null for (and delete) records whose updated_at is past RETENTION_HOURS. Also purge on GET and step, or from a daily cron that already exists in vercel.json."
+  },
+  {
+   "id": "loop-shared-pacing",
+   "title": "Per-host pacing and rests live in one instance's memory",
+   "severity": "low",
+   "kind": "improvement",
+   "file": "src/server/founder/http.js",
+   "line": 59,
+   "evidence": "nextSlot and restUntil are module Maps. Concurrent checks, or overlapping steps, on separate serverless instances each pace web.archive.org at 4s on their own.",
+   "scenario": "Three users run checks at once on three instances. web.archive.org gets about 45 requests a minute against an allowance of about 15. The Internet Archive refuses connections for minutes, so all three reports lose archive coverage.",
+   "fix": "Keep a small shared slot table in Neon: per host, UPDATE host_slots SET next_at=greatest(next_at,now())+gap RETURNING the old value. Use it for hosts with a gap of 1s or more. Share rests the same way.",
+   "filesToChange": [
+    "src/server/founder/http.js"
+   ],
+   "dim": "loop",
+   "verdict": "confirmed",
+   "verifyNote": "nextSlot and restUntil are module Maps, held per instance (http.js:59-63). For one owner of a non-commercial site, concurrent checks are rare. A shared slot table in Neon is feasible and free, but the gain is small. A rest shared after a refusal is the more valuable part."
+  }
+ ]
+}

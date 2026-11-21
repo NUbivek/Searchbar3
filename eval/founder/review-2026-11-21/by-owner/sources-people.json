@@ -1,0 +1,50 @@
+[
+ {
+  "id": "sources-people-wp-company-injection",
+  "title": "Company-article trust check pastes the company name back in through 'the company', so a namesake's co-workers become trusted associates",
+  "severity": "medium",
+  "kind": "wrong-person",
+  "file": "src/server/founder/sources/knowledge.js",
+  "line": 1115,
+  "reproduced": true,
+  "evidence": "Ran wikipediaConnector with a 'Mercury (company)' article about a 1960s record label. The text says 'Jane Doe became the company's managing director'. The result was associate Robert Vance with trusted:true. With 'its' instead of 'the company's', trusted:false.",
+  "scenario": "Subject Jane Doe of fintech Mercury. The en-wiki article 'Mercury (company)' is about an older label and says 'Jane Doe became the company's managing director, working alongside co-founder Robert Vance'. pairsPersonWithCompany rewrites 'the company' as 'Mercury', and the grade comes back confirmed on the company. Vance becomes a trusted associate of the founder. This is the namesake injection the audit's knowledge-wp-company-trust fix was meant to remove.",
+  "fix": "Do not rewrite 'the company/firm/startup' to the article title. Require a sentence that names the person and the company by name, or a pronoun run that starts from one. For an ordinary-word company, also require the article lead to match a known fact (founding year, domain, a co-founder) before any thread is trusted.",
+  "area": "sources-people",
+  "verdict": "confirmed",
+  "verifyNote": "In code: pairsPersonWithCompany rewrites 'the company/firm/startup/business' as the article title, which companyArticle guarantees equals the typed company. This puts back the injection the audit removed: a namesake's 'the company's director' sentence makes associates trusted. Lowered to medium because a same-named article that writes 'Mercury' outright would pass anyway; the deeper gap is that a same-named company article is never checked against known facts.",
+  "betterFix": "Drop the rewrite: require a sentence that names the person and the company, or the pronoun run that follows one. In addition, before trusting any thread from a company article (always for an ordinary-word company name), require the article to match a known fact: domain, founding year, or a known co-founder or person anchor."
+ },
+ {
+  "id": "sources-people-wd-article-resolve-possible",
+  "title": "A Wikidata entry resolved through the Wikipedia article still grades every record 'possible (name only)'; a lead that uses only the surname drops the person",
+  "severity": "medium",
+  "kind": "missed-information",
+  "file": "src/server/founder/sources/knowledge.js",
+  "line": 328,
+  "reproduced": true,
+  "evidence": "Mocked one candidate with an empty employer list and an article that names Acme Robotics. Identity, education and career all came back 'possible', 'matched by name only'; threads untrusted; profile empty. A lead of 'Quenneville is the co-founder ... of Acme Robotics' gave 'nothing in that record mentions Acme Robotics. None was used.'",
+  "scenario": "Case 1: the founder's only Wikidata entry omits the startup and the article names it, so findEntity resolves by 'context' via 'article'. wdFinding grades on entityContext, which lacks the company, so every record is 'possible' and threads stay untrusted. Family is still read, because by==='context'. Case 2: if the company appears only in a surname sentence (the usual Wikipedia style), articleNamesCompany fails. withFullName is not applied, so the true entry is dropped.",
+  "fix": "Keep the matching article sentence on the entity (entity.evidence) and add it to entityContext, so the grade sees the company. Cap these records at 'likely' with the reason 'the Wikipedia article names the company'. In articleNamesCompany, apply withFullName as well as withPronouns. Carry `via` onto the entity.",
+  "area": "sources-people",
+  "verdict": "confirmed",
+  "verifyNote": "In code: findEntity returns {by:'context', via:'article'}, but run() builds entity = {...found.entity, by}, so via is dropped. entityContext holds no company, so every record grades as name-only 'possible' while family is still read. articleNamesCompany applies withPronouns but not withFullName, so a lead that gives only the surname fails.",
+  "betterFix": "Store the matching article sentence on the entity and add it to the grading context, with the identity record capped at 'likely' and the reason that the Wikipedia article names the company. In articleNamesCompany, apply withFullName before withPronouns; this is safe because the article is about the single candidate."
+ },
+ {
+  "id": "sources-people-hf-same-handle-likely",
+  "title": "Hugging Face grades an account 'likely' when only the same handle and the name match",
+  "severity": "medium",
+  "kind": "wrong-person",
+  "file": "src/server/founder/sources/presenceMore.js",
+  "line": 163,
+  "reproduced": true,
+  "evidence": "huggingFaceConnector.run with a handle task 'janedoe' (platform 'x') and an HF account 'janedoe' stating 'Jane Doe' returned match 'likely' with no company, link or domain.",
+  "scenario": "Founder Jane Doe's X handle is 'janedoe'. An unrelated Hugging Face user 'janedoe' who also wrote 'Jane Doe' is graded 'likely'. The handle is just the name, so nothing beyond the name ties the account. presence.js's own rule for the same case (gradeReached, not exact) falls back to grading the text, which gives name-only 'possible'.",
+  "fix": "In hfGrade, treat 'reached' as a tie only when exact (an HF link or an HF handle). For the same handle on another service, require a known company in the account's organisations or bio, or a link back to a known domain or handle. Otherwise 'possible' with 'name match only, verify identity'.",
+  "area": "sources-people",
+  "verdict": "confirmed",
+  "verifyNote": "In code: hfGrade gives 'likely' whenever `reached` is non-empty, including when the same handle is found on another service (presenceMore.js:243-246). presence.js gradeReached grades that same case on the text alone, which gives 'possible' with only the name, or 'likely' only with a link back. When the handle is just the name, this is a name-only tie shown as 'likely'.",
+  "betterFix": "Pass exact into hfGrade. When the account was not reached exactly, require a known company in its organisations or bio, or a link to a known domain or another handle, before grading 'likely'. Otherwise grade 'possible' (name match only), the same rule as presence.js gradeReached."
+ }
+]

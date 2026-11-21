@@ -1,0 +1,257 @@
+[
+ {
+  "id": "loop-cache-deadline-failure",
+  "title": "A whole-list download cut by a step deadline is remembered as a failure for 5 minutes",
+  "severity": "medium",
+  "kind": "robustness",
+  "file": "src/server/founder/cache.js",
+  "line": 106,
+  "evidence": "Test C: a loader throwing 'Out of time before the request could start' was cached. The next call threw the same error without calling the loader. The loader also inherits the first caller's task deadline (sanctions.js:638, debarment loads, robots).",
+  "scenario": "A sanctions or EBRD list starts loading 3s before the step deadline and is cut short. For 5 minutes every screen using that list fails at once, outside the cutShort retry window, and is reported 'Did not answer'. The page reader treats the site's robots as unknown and skips it.",
+  "fix": "Do not store failures for retryable timeouts or 'Out of time' errors (error.retryable). Give list loaders their own deadline, at least 25s and independent of the caller. A caller whose deadline passes rejects with 'Out of time' while the shared load continues for later callers.",
+  "filesToChange": [
+   "src/server/founder/cache.js"
+  ],
+  "dim": "loop",
+  "verdict": "confirmed",
+  "verifyNote": "cache.js:106 stores every loader error, including retryable 'Out of time' errors, for 5 minutes. The loaders capture the first caller's deadline (sanctions.js:638, debarment.js, exposure.js, registries.js, the robots load in pages.js:135), and inflight sharing hands that deadline to every other caller."
+ },
+ {
+  "id": "loop-redirect-hops",
+  "title": "Redirects are followed blind: hops skip robots, pacing, the never-open list and private-address checks",
+  "severity": "medium",
+  "kind": "security",
+  "file": "src/server/founder/http.js",
+  "line": 145,
+  "evidence": "request() uses redirect:'follow'. pages.js:236-238 checks readable(landed) only after the LinkedIn or other target was already fetched. No code blocks 127/8, 10/8, 169.254/16 or ::1.",
+  "scenario": "A search-result URL (a link shortener or a hostile page) redirects to linkedin.com/in/x or to 169.254.169.254. The body is downloaded before 'elsewhere' is decided, which breaks the never-open rule and the robots rule, and allows server-side requests to internal addresses.",
+  "fix": "Use redirect:'manual' with at most 5 hops. Per hop: http/https only; dns.lookup(all) and reject private, loopback, link-local, CGNAT, ULA and mapped addresses, pinned through an undici Agent connect.lookup; an onHop(url) hook where pages.js runs NEVER, readable and robotsVerdict; waitForHost per hop host. Resolve relative Location headers, then return the final URL.",
+  "filesToChange": [
+   "src/server/founder/http.js",
+   "src/server/founder/sources/pages.js"
+  ],
+  "dim": "loop",
+  "verdict": "confirmed",
+  "verifyNote": "http.js:145 uses redirect:'follow'. pages.js:236-243 judges `landed` only after the body was fetched. isBlockedUrl covers broker hosts only, and no code guards against private or loopback addresses. Hosted on Vercel, so metadata SSRF has a limited blast radius, but the never-open and robots rules are breached on the hop itself."
+ },
+ {
+  "id": "loop-body-size",
+  "title": "Size limit checked only after the whole body is buffered",
+  "severity": "low",
+  "kind": "robustness",
+  "file": "src/server/founder/http.js",
+  "line": 177,
+  "evidence": "Without Content-Length (chunked), response.text() reads everything, then text.length (UTF-16 characters, not bytes) is compared with the limit.",
+  "scenario": "A page the reader opens streams hundreds of megabytes, chunked. The function buffers all of it (up to the timeout) before throwing 'larger than', which risks running out of memory and killing the step, so the whole step's progress is lost.",
+  "fix": "Read response.body with a reader, count bytes, and abort as soon as the count passes the limit. Decode with TextDecoder (charset from Content-Type).",
+  "filesToChange": [
+   "src/server/founder/http.js"
+  ],
+  "dim": "loop",
+  "verdict": "confirmed",
+  "verifyNote": "With no Content-Length header, response.text() buffers the whole body before the check at 178. That check also compares UTF-16 length, not bytes. A stream is bounded only by the 12-20s timeout, so memory exhaustion is possible but unlikely."
+ },
+ {
+  "id": "loop-shared-pacing",
+  "title": "Per-host pacing and rests live in one instance's memory",
+  "severity": "low",
+  "kind": "improvement",
+  "file": "src/server/founder/http.js",
+  "line": 59,
+  "evidence": "nextSlot and restUntil are module Maps. Concurrent checks, or overlapping steps, on separate serverless instances each pace web.archive.org at 4s on their own.",
+  "scenario": "Three users run checks at once on three instances. web.archive.org gets about 45 requests a minute against an allowance of about 15. The Internet Archive refuses connections for minutes, so all three reports lose archive coverage.",
+  "fix": "Keep a small shared slot table in Neon: per host, UPDATE host_slots SET next_at=greatest(next_at,now())+gap RETURNING the old value. Use it for hosts with a gap of 1s or more. Share rests the same way.",
+  "filesToChange": [
+   "src/server/founder/http.js"
+  ],
+  "dim": "loop",
+  "verdict": "confirmed",
+  "verifyNote": "nextSlot and restUntil are module Maps, held per instance (http.js:59-63). For one owner of a non-commercial site, concurrent checks are rare. A shared slot table in Neon is feasible and free, but the gain is small. A rest shared after a refusal is the more valuable part."
+ },
+ {
+  "id": "watchlists-stale-unbounded",
+  "title": "An old copy of a list is served with no age limit and the list date is not shown",
+  "severity": "medium",
+  "kind": "robustness",
+  "file": "src/server/founder/cache.js",
+  "line": 101,
+  "scenario": "The EU host is down for three weeks. cached() keeps returning the database copy from three weeks ago (the audit test showed a stale copy served after a failed load). The screen reads 'EU consolidated sanctions list: no match' with no date, and status is 'clear'. A designation added in that window is silently missed.",
+  "fix": "Add a maxStaleMs option (for example 7 days for watchlists). Past it, throw instead of serving the old copy. Whenever the copy is older than the TTL, add partial or a note such as 'list as of <date>', and add listReadAt to the 'no match' note.",
+  "evidence": "zzAudit test: cached() returned {at:'old'} after the loader threw. The fallback `const stale = inMemory || stored` has no age check.",
+  "filesToChange": [
+   "src/server/founder/cache.js",
+   "src/server/founder/sources/sanctions.js",
+   "src/server/founder/sources/debarment.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "cache.js:100-104 serves inMemory or stored with no age check, and keeps it refreshed for 10 minutes each time. The 'no match' notes (sanctions.js:798/808) carry no list date. listReadAt appears only in findings' data, so a stale clean screen looks current."
+ },
+ {
+  "id": "watchlists-5xx-not-retried",
+  "title": "One transient 500 on a list download disables that source for five minutes",
+  "severity": "low",
+  "kind": "robustness",
+  "file": "src/server/founder/sources/debarment.js",
+  "line": 386,
+  "scenario": "The audit's first EBRD download POST got HTTP 500 (an Adobe cloud error page); the identical second request returned the 350 KB CSV. request() retries only 429 and 503, and cached() then holds the failure for FAILURE_HOLD_MS (5 min). Every subject, company and relative lookup in that check then reports the development bank list as 'did not answer'.",
+  "fix": "For whole-list loaders, retry once on 500, 502 and 504 after a 2-4 s pause (pass retries plus a retryOn set to request). Lower the failure hold for list keys to about 60 s, so a 3-5 minute check gets a second attempt.",
+  "evidence": "curl: first POST returned 500 text/html (1,034 bytes); the second returned 200 text/csv (350,772 bytes). http.js:159 retries only on 429 and 503.",
+  "filesToChange": [
+   "src/server/founder/http.js",
+   "src/server/founder/cache.js",
+   "src/server/founder/sources/debarment.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "http.js retries only on 429 and 503, and cached() then holds the failure for 5 minutes. A stale copy is served on failure when one exists (in memory or in the database), so only a cold load with no earlier copy loses the source. The impact is narrower than stated.",
+  "betterFix": "Retry once on 500, 502 and 504 for whole-list loaders, with a short pause. Lower the failure hold for list keys to about 60 s. Keep the stale-copy fallback."
+ },
+ {
+  "id": "registries-ico-crawl-delay",
+  "title": "ICO publishes Crawl-delay: 6, but requests to it are spaced 120 ms",
+  "severity": "low",
+  "kind": "rule-breach",
+  "file": "src/server/founder/http.js",
+  "line": 31,
+  "scenario": "A check with eight primary company threads runs breach-registers for each in parallel batches. ico.org.uk/api/search gets several requests within a second, against its robots.txt Crawl-delay of 6 seconds.",
+  "fix": "Add 'ico.org.uk': 6000 to HOST_GAP_MS. Optionally check the other register hosts' robots.txt in the maintenance run and record their delays.",
+  "evidence": "ico.org.uk/robots.txt: 'User-agent: * Crawl-delay: 6'. HOST_GAP_MS has no ico.org.uk entry (default 120 ms).",
+  "filesToChange": [
+   "src/server/founder/http.js"
+  ],
+  "dim": "registries",
+  "verdict": "confirmed",
+  "verifyNote": "ico.org.uk/robots.txt returned 'User-agent: * Crawl-delay: 6' when I fetched it, and HOST_GAP_MS has no ico.org.uk entry, so the 120 ms default applies. Add 'ico.org.uk': 6000."
+ },
+ {
+  "id": "web-pages-ssrf",
+  "title": "Page reader opens private, loopback and metadata addresses and follows redirects to them",
+  "severity": "medium",
+  "kind": "security",
+  "file": "src/server/founder/sources/pages.js",
+  "line": 64,
+  "scenario": "readable('http://169.254.169.254/latest/meta-data/'), readable('http://127.0.0.1:3009/…') and readable('http://localhost/about') all return true. plan({kind:'domain', value:'10.0.0.5'}) plans a site read. A tied page can also 302-redirect to an internal address, and http.js fetches it with redirect:'follow' before the landed URL is checked. That is a blind server-side request forgery (GET).",
+  "fix": "Add a URL guard in http.js used by pages/archive. Allow only http(s) on ports 80/443 and reject IP-literal and 'localhost'/.local/.internal hosts. Resolve DNS and reject private, loopback, link-local, CGNAT and ULA ranges. Use redirect:'manual' and re-check each hop (robots plus the guard), with at most 5 hops. In readable() and siteOf(), reject IP literals.",
+  "filesToChange": [
+   "src/server/founder/http.js",
+   "src/server/founder/sources/pages.js"
+  ],
+  "evidence": "Audit test output: readable 127/169/localhost true; domain plan for 10.0.0.5 and 127.0.0.1 returned read.site.",
+  "dim": "web",
+  "verdict": "confirmed",
+  "verifyNote": "readable() checks only NEVER, file extensions and isBlockedUrl (people-search hosts). There is no IP, loopback or private-range check. request() uses redirect:'follow', and the landed URL is checked only after the fetch. Exploiting it needs a page planted in search results or a redirect from a tied page, so medium, not high.",
+  "betterFix": "The proposed guard is right. Also apply it in archive.js and in the robots.txt fetch, since robotsVerdict requests the internal host first. Lower the risk further by refusing non-80/443 ports in siteOf and readable."
+ },
+ {
+  "id": "web-charset-utf8-only",
+  "title": "Pages and archive copies are always decoded as UTF-8, so Latin-1 pages lose accented names",
+  "severity": "medium",
+  "kind": "robustness",
+  "file": "src/server/founder/http.js",
+  "line": 177,
+  "scenario": "request() uses response.text(), which always decodes as UTF-8. An older French or German team page served as ISO-8859-1 or windows-1252 (common in archive copies) turns 'Jürgen Müller' into 'J�rgen M�ller'. subject.hasName and nameIs then fail, and the report says the person 'is not named on the saved team pages', which is a wrong negative.",
+  "fix": "Read response.arrayBuffer(), take the charset from the Content-Type header or else from <meta charset> / http-equiv in the first 2 KB, and decode with new TextDecoder(charset, {fatal:false}), falling back to windows-1252 when UTF-8 decoding yields U+FFFD. Use this for pages.js and archive.js.",
+  "filesToChange": [
+   "src/server/founder/http.js"
+  ],
+  "evidence": "http.js line 177: `const text = await response.text();` with no charset handling anywhere in http.js.",
+  "dim": "web",
+  "verdict": "confirmed",
+  "verifyNote": "http.js calls response.text() and has no charset handling anywhere, so Latin-1 and windows-1252 pages lose their accented letters. htmlToText also decodes only a few named entities, so '&uuml;' and '&eacute;' stay undecoded and break name matching as well.",
+  "betterFix": "Do the proposed arrayBuffer and TextDecoder sniffing. Also decode the full set of HTML named entities (or at least Latin-1) in htmlToText, and fold accents in hasName if it does not already."
+ },
+ {
+  "id": "web-body-size-unbounded",
+  "title": "The page size limit is checked only after the whole body has been read",
+  "severity": "low",
+  "kind": "robustness",
+  "file": "src/server/founder/http.js",
+  "line": 177,
+  "scenario": "A tied page sent without Content-Length (chunked) can stream hundreds of MB within the 12 s timeout. response.text() buffers all of it before the 3 MB maxBytes check. With maxParallel 3, that can exhaust a serverless instance's memory.",
+  "fix": "Read response.body with a reader, count bytes, and cancel the stream once the limit is passed (throw tooLarge). Also check the Content-Type and refuse non-HTML bodies in pages.js (application/pdf, image/*) before reading.",
+  "filesToChange": [
+   "src/server/founder/http.js",
+   "src/server/founder/sources/pages.js"
+  ],
+  "evidence": "The declared length is checked at line 173; otherwise text() is read in full at line 177 and its length compared afterwards.",
+  "dim": "web",
+  "verdict": "confirmed",
+  "verifyNote": "When there is no Content-Length, response.text() buffers the whole body before the size check. The 12 s timeout bounds it but does not cap memory.",
+  "betterFix": "Stream with a byte counter and cancel past the limit, as proposed. Check the Content-Type before reading in pages.js."
+ },
+ {
+  "id": "security-ssrf-page-reader",
+  "title": "Page reader fetches private, loopback and metadata addresses; redirects are followed before any check",
+  "severity": "high",
+  "kind": "security",
+  "file": "src/server/founder/sources/pages.js",
+  "line": 64,
+  "evidence": "Temp test: readable() returned true for 169.254.169.254, 127.0.0.1:3009, localhost:3009, [::1], 192.168.1.1. plan({kind:'domain',value:'127.0.0.1'}) and 'metadata.google.internal' each produced a lookup. http.js uses redirect:'follow', and readable(landed) only runs after the fetch.",
+  "scenario": "Anyone can edit a Wikidata 'official website', or a page with the person's name can carry a JSON-LD sameAs of http://127.0.0.1:3009/api/founder?name=x+y. Either becomes a trusted url or domain thread, so the server sends GETs to internal hosts. A public URL that 302s to an internal address is fetched before the check runs.",
+  "fix": "Add a safeTarget(url) check in http.js: http or https only, ports 80/443 only, refuse IP literals in private, loopback, link-local, CGNAT or ULA ranges, refuse .internal/.local/localhost, and refuse hosts whose DNS lookup resolves into those ranges. Set redirect:'manual' and check every hop again (at most 5). Add tests.",
+  "filesToChange": [
+   "src/server/founder/http.js",
+   "src/server/founder/sources/pages.js",
+   "src/server/founder/extract.js"
+  ],
+  "dim": "security",
+  "verdict": "confirmed",
+  "verifyNote": "readable() only checks scheme, NEVER list, broker hosts; no private/loopback/link-local filter. http.js uses redirect:'follow', and openPage checks readable(landed) only after the internal hop was fetched. robots.txt on the internal host is requested first too. Blind SSRF, e.g. to localhost:3009 locally.",
+  "betterFix": "Validate in http.js for every request (robots, archive, pages): http(s), ports 80/443, no IP literals or names in private, loopback, link-local, CGNAT, ULA or IPv4-mapped ranges, no localhost/.internal/.local. Check the resolved address at connect time with an undici Agent connect.lookup hook so DNS rebinding is closed. Use redirect:'manual', re-check each hop (max 5) and add tests."
+ },
+ {
+  "id": "security-htmltotext-redos",
+  "title": "htmlToText is quadratic on unclosed <script> or <!--, so one hostile page can freeze the server",
+  "severity": "high",
+  "kind": "robustness",
+  "file": "src/server/founder/http.js",
+  "line": 237,
+  "evidence": "Temp test: htmlToText('<!--'.repeat(n)): 80 KB took 1.2 s and 160 KB took 4.7 s. '<script>' x40k (320 KB) took 1.5 s. The page reader accepts up to 3 MB, and pageText runs before the name check.",
+  "scenario": "A page the reader opens (from a search headline, Wikidata or sameAs) serves 3 MB of '<!--' or '<script>' with nothing closing them. The lazy [\\s\\S]*? backtracking blocks the event loop for minutes. Timeouts cannot fire, the step dies at maxDuration, and other requests on that instance stall.",
+  "fix": "Replace the regex block stripping with a single linear scan using indexOf for each opener and its closer. Once an opener has no closer, drop the rest of the text. Cap the input given to htmlToText and structuredData at about 1 MB. Add a timing test with 1 MB of '<!--' that must finish in under 200 ms.",
+  "filesToChange": [
+   "src/server/founder/http.js",
+   "src/server/founder/sources/pages.js"
+  ],
+  "dim": "security",
+  "verdict": "confirmed",
+  "verifyNote": "Reproduced in scratch: the same two regexes took 1.9 s on 160 KB of '<!--' and 7.6 s on 320 KB. The growth is quadratic, so 3 MB (the reader's maxBytes) would block the event loop for minutes. pageText/stripBlocks run on any opened page.",
+  "betterFix": "As proposed (a linear indexOf scan, and drop the tail when there is no closer). Also audit stripBlocks, structuredData and the line-360 <title> regex for the same lazy [\\s\\S]*? pattern, cap html at about 1 MB before any parsing, and add a 1 MB timing test."
+ },
+ {
+  "id": "security-body-unbounded",
+  "title": "A response without Content-Length is read in full before the size check",
+  "severity": "medium",
+  "kind": "robustness",
+  "file": "src/server/founder/http.js",
+  "line": 177,
+  "evidence": "Temp test with a chunked 21 MB stream and maxBytes 2 MB: all 21 chunks were pulled, and only then 'Response larger than 2 MB' was thrown. response.text() is called before text.length is compared with the limit.",
+  "scenario": "A hostile or broken page the reader opens streams gigabytes with no Content-Length for 12 s. The function buffers all of it, runs out of memory and kills the step, and parallel lookups on the instance die with it.",
+  "fix": "Read response.body with getReader(), count the bytes, and cancel the reader and abort the controller once the count passes the limit, then throw tooLarge(). Decode with TextDecoder in streaming mode. Keep the current error message so honest-coverage notes stay the same.",
+  "filesToChange": [
+   "src/server/founder/http.js"
+  ],
+  "dim": "security",
+  "verdict": "confirmed",
+  "verifyNote": "http.js calls response.text() and compares text.length afterwards; with no Content-Length the whole body is buffered first. text.length also counts UTF-16 units, not bytes. Streaming reader with cancel is the right fix."
+ },
+ {
+  "id": "security-pacing-per-instance",
+  "title": "Per-host pacing and back-off live in process memory only, so concurrent checks on other instances break Crawl-delay",
+  "severity": "low",
+  "kind": "rule-breach",
+  "file": "src/server/founder/http.js",
+  "line": 59,
+  "evidence": "nextSlot, restUntil and lastRest are module Maps. On Vercel each concurrent request may run on its own instance. LittleSis and the Gazette publish Crawl-delay 10 and the archive allows about 15 a minute, but two checks (or parallel steps) on two instances each pace on their own.",
+  "scenario": "Three users run checks at once on three instances. LittleSis receives three requests inside 10 s and web.archive.org about 45 a minute. Those hosts then refuse or ban the client, and later checks report failed sources. This breaks the polite-access rule.",
+  "fix": "For hosts with a gap of 1 s or more, reserve slots in the database: a host_slots table updated with UPDATE ... SET next_at=greatest(next_at,now())+gap RETURNING the wait. Share 'rest' state there too. Keep the in-memory path for the default 120 ms hosts.",
+  "filesToChange": [
+   "src/server/founder/http.js"
+  ],
+  "dim": "security",
+  "verdict": "confirmed",
+  "verifyNote": "nextSlot/restUntil/lastRest are module Maps, so pacing is per instance. But steps of one check are sequential, usage is a few accounts, and Vercel often reuses instances, so a Crawl-delay breach needs concurrent checks across instances. The gap is real; medium overstates it.",
+  "betterFix": "A DB slot table only for hosts with a gap of 1 s or more, as proposed. Cheaper alternative: cap concurrent running checks globally (also covered by the global cap in open-signup) so cross-instance overlap on slow hosts is rare."
+ }
+]

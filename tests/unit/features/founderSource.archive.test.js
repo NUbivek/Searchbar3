@@ -117,18 +117,25 @@ describe('url: reading copies of one page', () => {
 
     for (const f of out.findings) expect(f.category).toBe('archive');
     const page = out.findings.find((f) => /archived \d+ times/.test(f.title));
-    expect(page.title).toBe('Crunchbase profile archived 9 times between 2010-10 and 2017-08');
-    expect(page.data).toEqual({ kind: 'snapshot', page: 'https://www.crunchbase.com/person/elizabeth-holmes', first: '2010-10-09', last: '2017-08-20', captures: 9 });
+    // R3: one record per page: the latest version carries the capture counts (the separate summary record is folded in)
+    expect(page.title).toBe('Crunchbase profile as of 2017-08-20: Founder, CEO, Theranos (archived 9 times between 2010-10 and 2017-08)');
+    expect(page.data).toEqual({
+      kind: 'snapshot', page: 'https://www.crunchbase.com/person/elizabeth-holmes', capturedAt: '2017-08-20', first: '2010-10-09', last: '2017-08-20', captures: 9, replay: 'https://web.archive.org/web/20170820012800/https://www.crunchbase.com/person/elizabeth-holmes',
+      // R3: the version's own fields, for the profile to read as a record
+      claims: { format: 'crunchbase', roles: [{ title: 'Founder, CEO', org: 'Theranos', dates: '' }], education: [{ school: 'Stanford University', degree: 'Executive Program', dates: '' }] },
+    });
     expect(page.match).toBe('confirmed');
 
+    // the 2010 version lists a degree the latest does not: it stays a record of its own
     const versions = out.findings.filter((f) => / as of /.test(f.title));
     expect(versions.map((f) => f.title)).toEqual([
+      'Crunchbase profile as of 2017-08-20: Founder, CEO, Theranos (archived 9 times between 2010-10 and 2017-08)',
       'Crunchbase profile as of 2010-10-09: Founder, CEO, Theranos',
-      'Crunchbase profile as of 2017-08-20: Founder, CEO, Theranos',
     ]);
-    expect(versions[0].url).toBe('https://web.archive.org/web/20101009020849/http://www.crunchbase.com/person/elizabeth-holmes');
-    expect(versions[0].data).toEqual({ kind: 'snapshot', page: 'https://www.crunchbase.com/person/elizabeth-holmes', capturedAt: '2010-10-09' });
-    expect(versions[0].quote).toContain('Chemical Engineering, Stanford University');
+    expect(versions[1].url).toBe('https://web.archive.org/web/20101009020849/http://www.crunchbase.com/person/elizabeth-holmes');
+    expect(versions[1].data).toMatchObject({ kind: 'snapshot', page: 'https://www.crunchbase.com/person/elizabeth-holmes', capturedAt: '2010-10-09' });
+    expect(versions[1].data.claims.education[0]).toMatchObject({ school: 'Stanford University' });
+    expect(versions[1].quote).toContain('Chemical Engineering, Stanford University');
 
     const change = out.findings.find((f) => f.data.kind === 'change');
     expect(change.title).toBe('Crunchbase profile: degree changed from "Chemical Engineering, Stanford University" to "Executive Program, Stanford University" between 2013-05 and 2017-08');
@@ -170,7 +177,7 @@ describe('url: reading copies of one page', () => {
     expect(out.findings.length).toBeGreaterThan(0);
     for (const f of out.findings) expect(f.match).toBe('possible');
     expect(out.threads.find((t) => t.value === 'PawsLikeMe')).toMatchObject({ trusted: false });
-    expect(out.findings[0].title).toBe('LinkedIn profile archived 3 times in 2023-01');
+    expect(out.findings[0].title).toBe('LinkedIn profile as of 2023-01-01: Veterinary nurse at PawsLikeMe (archived 3 times in 2023-01)');
   });
 
   test('subject guesses: a namesake gets two possible lines and no history, and the other spelling is still tried', async () => {
@@ -183,7 +190,8 @@ describe('url: reading copies of one page', () => {
     ]);
     const plan = archiveConnector.plan({ kind: 'subject', value: subject.name }, subject).find((p) => p.template === 'archive.linkedin');
     const out = await archiveConnector.run({ kind: 'subject', value: subject.name, template: plan.template, params: plan.params, depth: 0 }, ctxFor(subject));
-    expect(out.findings).toHaveLength(2);
+    // R3: one line (the page's summary is folded into its latest version)
+    expect(out.findings).toHaveLength(1);
     for (const f of out.findings) expect(f.match).toBe('possible');
     expect(out.findings.some((f) => f.data.kind === 'change')).toBe(false);
     expect(calls.some((u) => u.includes('elizabeth-holmes'))).toBe(true);
@@ -196,7 +204,7 @@ describe('url: reading copies of one page', () => {
 <div id="experience"><ul><li class="experience"><h3 class="title">Founder</h3><h4 class="org">we work</h4><p class="period">February 2010 — Present</p></li></ul></div></div></body></html>`;
     network([['/cdx/search/cdx', cdx(row('20101013183708', 'http://www.linkedin.com/pub/adam-neumann/21/205/204', 'L1', 9000, 1))], snapRoute({ 20101013183708: li2010 })]);
     const out = await archiveConnector.run({ kind: 'url', value: 'https://linkedin.com/pub/adam-neumann/21/205/204', depth: 1 }, ctxFor(subject));
-    expect(out.findings[0]).toMatchObject({ title: 'LinkedIn profile archived once, on 2010-10-13', match: 'confirmed' });
+    expect(out.findings[0]).toMatchObject({ title: 'LinkedIn profile as of 2010-10-13: Founder, we work (archived once, on 2010-10-13)', match: 'confirmed' });
     expect(out.threads.find((t) => t.value === 'we work')).toMatchObject({ trusted: true });
   });
 

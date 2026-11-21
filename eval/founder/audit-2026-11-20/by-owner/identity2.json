@@ -1,0 +1,89 @@
+[
+ {
+  "id": "critic-big-employer-typed-company",
+  "title": "A typed company that is a large employer confirms any same-name employee, even for very common names",
+  "severity": "high",
+  "kind": "wrong-person",
+  "file": "src/server/founder/identity.js",
+  "line": 371,
+  "scenario": "The investor checks 'John Smith' at 'Google' (or 'Michael Johnson' at 'Amazon'). The record 'John Smith, a Google engineer in Ohio, was charged with wire fraud' grades confirmed with the reason 'names Google', so it becomes a red flag. The commonness flag only blocks 'related' anchors. A typed company anchor is never weighed by employer size, and 'a Google engineer in Ohio' is not caught as describing someone else.",
+  "evidence": "Temporary jest test: matchSubject(createSubject({name:'John Smith',company:'Google'}), 'John Smith, a Google engineer in Ohio, was charged...') returned level 'confirmed'. The Amazon and Microsoft cases did the same.",
+  "fix": "When the name is common or the typed company is a broad or large employer (isBroadOrganisation plus a list of large employers), a company co-mention gives at most 'likely' and needs a second anchor (role, school, handle) to confirm. Extend describedAsSomeoneElse to catch 'a <Company> <job> in <Place>'.",
+  "filesToChange": [
+   "src/server/founder/identity.js",
+   "src/server/founder/names.js"
+  ],
+  "dim": "critic",
+  "verdict": "unverified"
+ },
+ {
+  "id": "critic-outcome-blind-severity",
+  "title": "Severity ignores outcome and party role: an acquittal is a high red flag, a dismissed suit or one the founder brought is medium",
+  "severity": "high",
+  "kind": "accuracy",
+  "file": "src/server/founder/finding.js",
+  "line": 228,
+  "scenario": "'Jury acquits Jane Doe of all fraud charges' grades high. 'Conviction of Jane Doe overturned on appeal' grades high. 'Judge dismisses lawsuit against Jane Doe', 'Jane Doe sues former employer' and 'Jane Doe testified as a witness in the fraud trial of John Roe' all grade medium. 'Charges against Jane Doe dropped' grades info, so the dropped-charges record never joins the matter, and the matter's red flag shows no outcome.",
+  "evidence": "Temporary jest run of severityFromText on those titles gave the grades above. report.js EVENTS has no acquittal, dismissal or dropped event. There is no plaintiff, defendant or witness logic anywhere in report.js or finding.js.",
+  "fix": "Add outcome events (acquitted, dismissed, dropped, vacated, overturned, won) and role cues (sues versus sued, witness, juror, plaintiff). Grade exculpatory or plaintiff-only records low. Attach them to the matter they resolve and show the latest outcome on the red flag.",
+  "filesToChange": [
+   "src/server/founder/finding.js",
+   "src/server/founder/report.js"
+  ],
+  "dim": "critic",
+  "verdict": "unverified"
+ },
+ {
+  "id": "critic-foreign-legal-forms",
+  "title": "Non-US legal forms are not stripped, so a company typed by its registered name never matches the press",
+  "severity": "high",
+  "kind": "missed-information",
+  "file": "src/server/founder/names.js",
+  "line": 226,
+  "scenario": "The investor types the company's legal name: 'Zepto Technologies Private Limited', 'Grab Holdings Pte Ltd', 'Booksy Sp. z o.o.', 'Rappi S.A.S.', 'Kavak S.A. de C.V.', 'Northvolt AB', 'Nubank Ltda' or 'Grab Sdn Bhd'. The only match form stays multi-word ('zepto technologies private', 'rappi s a s'). 'co-founder of Zepto' gives named:false, so no record confirms. The quick brief flags every page 'company not mentioned'.",
+  "evidence": "Temporary test of companyMatchForms gave a single multi-word form for each name. companyMention('Zepto Technologies Private Limited', '...co-founder of Zepto...') returned strength 'none'. LEGAL_RE lacks pvt, private, pte, ltda, sdn bhd, jsc, ab, publ and sp z o o. Dotted forms (S.A.S.) are split before matching.",
+  "fix": "Expand LEGAL_RE and LEGAL_FORMS with international forms (pvt, private, pte, ltda, sdn bhd, bhd, jsc, pjsc, ooo, ab, publ, as, aps, oy, kft, sp z o o, s a de c v, srl, spa, kk, gk) and collapse dotted abbreviations before stripping. Keep the brand as a match form.",
+  "filesToChange": [
+   "src/server/founder/names.js"
+  ],
+  "dim": "critic",
+  "verdict": "unverified"
+ },
+ {
+  "id": "critic-non-latin-and-mononyms",
+  "title": "Names in non-Latin scripts and one-word names cannot be checked: non-Latin company keys are empty, CJK names are refused",
+  "severity": "medium",
+  "kind": "missed-information",
+  "file": "src/server/founder/names.js",
+  "line": 454,
+  "scenario": "A company typed as 'Яндекс' or '字节跳动' yields no company keys or match forms, so no record can be confirmed through it. The person '张一鸣' is refused by deep.js ('Enter the full name'), since CJK names have no space. Founders with one name (common in Indonesia, parts of India and Myanmar) are also refused. Nothing transliterates or accepts a romanised and a native form together.",
+  "evidence": "Temporary test: companyMatchForms('Яндекс') and companyMatchForms('字节跳动') returned []. companyKeys strips [^a-z0-9À-ɏ ]. deep.js rejects names with fewer than two space-separated tokens (line 65 of the start handler).",
+  "fix": "Keep \\p{L} characters in company keys. Add an optional 'name in another script' input, and search and match both forms. Allow a one-word name when a company is given, with stricter grading. Report in coverage when a script could not be screened.",
+  "filesToChange": [
+   "src/server/founder/names.js",
+   "src/pages/api/founder/deep.js",
+   "src/pages/founder.js"
+  ],
+  "dim": "critic",
+  "verdict": "unverified"
+ },
+ {
+  "id": "critic-no-former-names",
+  "title": "Former names, maiden names and aliases are never searched: there is no person-alias thread kind",
+  "severity": "medium",
+  "kind": "missed-information",
+  "file": "src/server/founder/finding.js",
+  "line": 56,
+  "scenario": "A founder who changed their surname on marriage, anglicised their name, or (typical for serial fraudsters) uses a new name has their earlier lawsuits, convictions and SEC or FINRA records filed under the old name. The check searches only the typed name, plus that name without its middle names. Wikidata 'also known as' and birth name are not read, and a record saying 'formerly known as' creates no thread.",
+  "evidence": "THREAD_KINDS = company, school, associate, relative, handle, domain, url. A grep for maiden, aka, 'formerly known', née and the Wikidata birth-name property found only company aliases and debarment-list aliases.",
+  "fix": "Add an 'alias' thread kind from Wikidata aliases and birth name, and from 'formerly known as', 'née' and 'born X' in tied records. Add an optional 'other names' field on the form. Search and screen aliases on the watchlist, court and enforcement sources, graded 'likely' at most unless tied.",
+  "filesToChange": [
+   "src/server/founder/finding.js",
+   "src/server/founder/extract.js",
+   "src/server/founder/sources/knowledge.js",
+   "src/pages/founder.js"
+  ],
+  "dim": "critic",
+  "verdict": "unverified"
+ }
+]

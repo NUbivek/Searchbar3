@@ -462,7 +462,7 @@ describe('keylessSearch: fallback', () => {
   test('asks at most three engines per call, and resolves empty (does not throw) when they simply found nothing', async () => {
     const spies = stub({});
     const out = await keylessSearch('"Jane Roe" lawsuit');
-    expect(out).toEqual({ results: [], engine: null, tried: [{ id: 'ddg', outcome: 'nothing', count: 0 }, { id: 'gnews', outcome: 'nothing', count: 0 }, { id: 'bingnews', outcome: 'nothing', count: 0 }] });
+    expect(out).toMatchObject({ results: [], engine: null, general: true, headlinesOnly: false, tried: [{ id: 'ddg', outcome: 'nothing', count: 0 }, { id: 'gnews', outcome: 'nothing', count: 0 }, { id: 'bingnews', outcome: 'nothing', count: 0 }] });
     expect(spies.wikipedia).not.toHaveBeenCalled();
   });
 
@@ -565,7 +565,7 @@ describe('keylessSearch: fallback', () => {
 
   test('an empty query asks nobody', async () => {
     const spies = stub({ ddg: [hit(1)] });
-    expect(await keylessSearch('   ')).toEqual({ results: [], engine: null, tried: [] });
+    expect(await keylessSearch('   ')).toMatchObject({ results: [], engine: null, tried: [] });
     expect(spies.ddg).not.toHaveBeenCalled();
   });
 
@@ -786,7 +786,8 @@ describe('engineHealth', () => {
     expect(health.engines[0]).toMatchObject({ id: 'ddg', label: 'DuckDuckGo', kind: 'web', state: 'ok', calls: 1, answers: 1, results: 2, blocks: 0, failures: 0, pausedUntil: null });
     expect(health.engines[1]).toMatchObject({ id: 'brave', state: 'off' });
     expect(health.metered).toEqual({ configured: false, usedThisHour: 0, hourlyLimit: 20 });
-    expect(health.note).toBe('Open-web and news searches ran on DuckDuckGo, Google News, Bing News, Wikipedia, GDELT news index.');
+    // R3: only engines that really answered are said to have run (web-coverage-note-misleading)
+    expect(health.note).toBe('Open-web and news searches were answered by DuckDuckGo.');
     expect(health.note).not.toMatch(/\b(API|endpoint|free|paid|key|token)\b/i);
 
     __resetEnginesForTests();
@@ -797,6 +798,6 @@ describe('engineHealth', () => {
   test('says which engines are paused', async () => {
     stub({ ddg: new EngineBlocked('challenge'), gnews: [hit(1)] });
     await keylessSearch('"Jane Roe"');
-    expect(engineHealth().note).toMatch(/DuckDuckGo asked for fewer searches and is paused for now; the others covered\./);
+    expect(engineHealth().note).toMatch(/answered by Google News\. DuckDuckGo asked for fewer searches and is paused for now\./);
   });
 });

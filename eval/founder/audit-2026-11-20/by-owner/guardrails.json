@@ -1,0 +1,203 @@
+[
+ {
+  "id": "privacy-quick-brief-unguarded",
+  "title": "Quick brief applies no privacy rule to snippets, model prompt or quoted evidence",
+  "severity": "critical",
+  "kind": "privacy",
+  "file": "src/server/founderCheck.js",
+  "line": 758,
+  "scenario": "Quick brief for Trevor Milton / Nikola. A search snippet from a Wikipedia-style infobox ('Born Trevor Milton April 6, 1982 (age 44) Layton, Utah. Spouse Carrie Milton. Children 3') or a sentence about health or religion goes word for word into sourcesBlock (the model prompt) and into the quoted evidence. The only filter is isBlockedUrl. redactPII, isSensitive and mentionsMinor are never called.",
+  "evidence": "grep: founderCheck.js imports only isBlockedUrl from guardrails (line 27, used at 758); sourcesBlock line 564 sends cleanText(r.snippet) unredacted",
+  "fix": "Before ranking, clean every result's title and snippet the way sanitizeFinding does: redactPII, drop sentences that fail isSensitive, mentionsMinor or the kin rule, and drop the result if nothing is left. Run the same line filter on the model's brief and on quotedBrief.",
+  "filesToChange": [
+   "src/server/founderCheck.js",
+   "src/server/founder/guardrails.js"
+  ],
+  "dim": "privacy",
+  "verdict": "confirmed",
+  "verifyNote": "founderCheck.js imports only isBlockedUrl (line 27, used at 758). Titles and snippets reach sourcesBlock (line 564), quotedBrief and the model with no redactPII, isSensitive or mentionsMinor check. The brief output is only run through validateAnswer.",
+  "betterFix": "Add one shared cleanText guard in guardrails (for example sanitizeSnippet, which runs redactPII and then drops sentences that fail isSensitive, mentionsMinor or the kin rule). Apply it to each result before ranking and again to the model brief and quotedBrief. Add tests using the Milton infobox text."
+ },
+ {
+  "id": "privacy-infobox-dob",
+  "title": "Full date of birth, spouse and child count survive in infobox-style snippets",
+  "severity": "high",
+  "kind": "privacy",
+  "file": "src/server/founder/guardrails.js",
+  "line": 83,
+  "scenario": "Reproduced: makeFinding with the quote 'Born Trevor Milton April 6, 1982 (age 44) Layton, Utah... Spouse Carrie Milton. Children 3' kept all of it. Other forms that pass unchanged: 'Trevor Milton (April 6, 1982) is', 'born 3rd March 1984', 'Date of birth: 1984-03-03', 'Birth date: 03 March 1984', 'b. March 3, 1984', 'birthday is March 3'.",
+  "evidence": "Temporary jest probe printed each of these unchanged from redactPII and sanitizeFinding",
+  "fix": "Add patterns for: 'Born[:.]?' followed by up to five name words and then a date; a date in brackets right after a capitalised name; ordinal days; ISO dates after birth words; the leads 'Birth date', 'b.' and 'birthday'; '(age NN)'. Strip infobox fields such as 'Spouse(s) …', 'Children N', 'Parents …' and 'Relatives …'.",
+  "filesToChange": [
+   "src/server/founder/guardrails.js"
+  ],
+  "dim": "privacy",
+  "verdict": "confirmed",
+  "verifyNote": "Probe: all seven forms came back unchanged from makeFinding, including 'Born Trevor Milton April 6, 1982 (age 44)', the bracketed date after a name, an ISO date, 'b.' and 'birthday'. 'Spouse Carrie Milton. Children 3' also survives."
+ },
+ {
+  "id": "accuracy-overbroad-sensitive-drop",
+  "title": "One sensitive word drops a whole record, including company descriptions (Theranos, health startups)",
+  "severity": "high",
+  "kind": "missed-information",
+  "file": "src/server/founder/guardrails.js",
+  "line": 156,
+  "scenario": "Reproduced: each of these sanitizes to null.\n- 'Elizabeth Holmes founded Theranos, promising disease diagnosis…'\n- 'CEO of Lyra Health, a mental health benefits startup'\n- 'makes hearing aids' (AIDS is matched case-insensitively)\n- 'HIV drug startup', 'pregnancy test company', 'board of an autism charity', 'the Great Depression', 'a mother of two, is CEO of Acme'\nSo health-tech founders lose their career and LinkedIn records.",
+  "evidence": "Probe printed kept:false for all ten cases; SENSITIVE uses the i flag on AIDS; the whole finding returns null outside official sources",
+  "fix": "Filter sentence by sentence for every source: drop only the offending sentences, and drop the record only when the title is sensitive or nothing is left. Match health words only when they describe a person ('he was diagnosed', 'her depression'), not a product or company. Make AIDS case-sensitive and stop matching the economic sense of 'depression'.",
+  "filesToChange": [
+   "src/server/founder/guardrails.js",
+   "tests/unit/features/founderFix3.guardrails.test.js"
+  ],
+  "dim": "privacy",
+  "verdict": "confirmed",
+  "verifyNote": "Probe: the Theranos 'disease diagnosis' line, Lyra mental health, hearing aids, HIV drug startup, autism charity and 'mother of two' all returned null. sanitizeFinding drops the whole record for any non-official source, and AIDS is matched case-insensitively.",
+  "betterFix": "As proposed, but keep the sentence-level drop strict: still drop any sentence where the health word is tied to a person (pronoun or name plus diagnosed/suffers/treated). Where the guard runs on a title, drop the record. 'Mother of two' should lose only that clause (via mentionsMinor), not the CEO fact."
+ },
+ {
+  "id": "privacy-private-relatives-in-quotes",
+  "title": "Quotes keep relatives who have no public role (wedding notices, 'survived by')",
+  "severity": "high",
+  "kind": "rule-breach",
+  "file": "src/server/founder/sources/web.js",
+  "line": 132,
+  "scenario": "The 'family' web template searches for married, father, mother and similar words. A wedding announcement such as 'Jane Doe married John Roe at Temple Emanu-El. The bride's father, Bob Doe, is a retired dentist in Scarsdale.' passes sanitizeFinding whole (isSensitive and mentionsMinor are both false). The private relative, his job, his town and a religious venue are shown and sent to the model.",
+  "evidence": "Probe: isSensitive=false, mentionsMinor=false for that text; sanitizeFinding has no kin rule; only extract.js threads check for a public role",
+  "fix": "In sanitizeFinding, for sources other than official ones, drop any sentence with a kin word (profile.js KIN) unless relativesFromText finds a public role in apposition. Drop 'survived by' and wedding sentences. Results from the family template keep only the sentences that yield a relative.",
+  "filesToChange": [
+   "src/server/founder/guardrails.js",
+   "src/server/founder/sources/web.js"
+  ],
+  "dim": "privacy",
+  "verdict": "confirmed",
+  "verifyNote": "Probe: the wedding text is neither sensitive nor about a minor, and sanitizeFinding has no kin rule, so the private father, his job, his town and the religious venue all pass. The public-role rule is enforced only in extract.js threads."
+ },
+ {
+  "id": "privacy-political-donations",
+  "title": "Political donation text and FEC pages are not filtered",
+  "severity": "high",
+  "kind": "rule-breach",
+  "file": "src/server/founder/guardrails.js",
+  "line": 104,
+  "scenario": "A news or web result such as 'Milton donated $5,000 to the Trump campaign, FEC records show' or 'gave $100,000 to a super PAC' passes isSensitive and sanitizeFinding. fec.gov receipt pages (which carry the donor's employer, city and ZIP code) are never blocked, because PUBLIC_BODY_HOST exempts .gov. The rule excludes donation records.",
+  "evidence": "Probe: both sentences isSensitive=false; the only donation filters are LS_POLITICAL_MONEY in knowledge.js and the LD-203 skip in government.js",
+  "fix": "Move the LS_POLITICAL_MONEY idea into guardrails as a sentence-level drop: donated or gave $ to a campaign, PAC, super PAC or candidate, or 'FEC records'. Block fec.gov/data/receipts, the opensecrets.org donor pages and followthemoney.org in isBlockedUrl.",
+  "filesToChange": [
+   "src/server/founder/guardrails.js"
+  ],
+  "dim": "privacy",
+  "verdict": "confirmed",
+  "verifyNote": "Probe: both donation sentences are isSensitive=false. isBlockedUrl returned false for fec.gov receipts and the opensecrets donor lookup. Rule 3 excludes political donation records."
+ },
+ {
+  "id": "privacy-sensitive-term-gaps",
+  "title": "Common health, religion, sexuality and immigration phrasings are not caught",
+  "severity": "high",
+  "kind": "privacy",
+  "file": "src/server/founder/guardrails.js",
+  "line": 104,
+  "scenario": "isSensitive returned false for all of these:\n- 'hospitalized after a heart attack', 'medical leave after a stroke', 'Parkinson's disease', 'ADHD and dyslexia', 'treated for anxiety', 'sober since 2015'\n- 'member of the Church of Jesus Christ of Latter-day Saints', 'attends Mass every Sunday', 'a Scientologist'\n- 'came to the US on a student visa', 'a DACA recipient'\n- 'openly queer', 'His husband, John Roe'\nEach reaches the report and the model.",
+  "evidence": "Temporary jest probe: sens:false, minor:false for every listed sentence",
+  "fix": "Extend SENSITIVE and RELIGION with: hospitali[sz]ed, heart attack, stroke, surgery, medical leave, named diseases, ADHD, anxiety, sober or sobriety, Latter-day Saints, attends church or Mass, Scientolog*, student, O-1 or EB-5 visa, DACA, Dreamer, queer, same-sex. Add these sentences to the guardrail tests.",
+  "filesToChange": [
+   "src/server/founder/guardrails.js"
+  ],
+  "dim": "privacy",
+  "verdict": "confirmed",
+  "verifyNote": "Probe: all 13 phrasings returned false for both isSensitive and mentionsMinor.",
+  "betterFix": "Add the terms, but write them so they do not over-drop company text (for example 'stroke' only with 'suffered/had a'; 'student visa' rather than 'visa', which is a company name). Pair this with the sentence-level filtering from the overbroad-drop finding so that new terms do not remove whole career records."
+ },
+ {
+  "id": "privacy-model-output-unfiltered",
+  "title": "Model-written briefs are never passed through the guardrails",
+  "severity": "medium",
+  "kind": "privacy",
+  "file": "src/server/founder/report.js",
+  "line": 882,
+  "scenario": "writeDeepBrief and the quick brief accept the model's text after only citation checks. A model drawing on outside knowledge writes 'Holmes, who has two children and was born in 1984 [Source 3]' with a valid citation. It is shown and saved. The prompt asks the model to leave this out, but code never enforces it.",
+  "evidence": "report.js check() runs validateAnswer and filters citations only; the founderCheck.js brief path is the same",
+  "fix": "Post-filter every line of the brief: run redactPII, and drop any line that fails isSensitive, mentionsMinor or the kin rule. Then re-check that citations remain. Apply this in writeDeepBrief, the quick brief and quotedDeepBrief.",
+  "filesToChange": [
+   "src/server/founder/report.js",
+   "src/server/founderCheck.js"
+  ],
+  "dim": "privacy",
+  "verdict": "confirmed",
+  "verifyNote": "report.js check() only re-maps citations. The founderCheck brief only runs validateAnswer. Nothing filters model text for PII or sensitive content. quotedDeepBrief draws on findings that are already sanitized, so it needs the filter less."
+ },
+ {
+  "id": "privacy-data-and-gradetext-unsanitized",
+  "title": "data.* and gradeText bypass the guardrails and are saved and sent to the browser",
+  "severity": "medium",
+  "kind": "privacy",
+  "file": "src/server/founder/finding.js",
+  "line": 150,
+  "scenario": "Reproduced: makeFinding with data {titles:['CEO, call 415-555-0100, jane@example.com'], role:'lives at 12 Elm Street'} returned the data unchanged. The carriers that ship today: page-reader data.structured, knowledge data.role, presence links, the disqualification reason. gradeText holds the full text of SEC releases and pages, which is only redactPII'd and never checked for sensitive content, and is saved in founder_jobs for 72 hours.",
+  "evidence": "sanitizeFinding cleans only title and quote; deep.js strips gradeText from the page but the saved job keeps it (deepCheck.js line 167)",
+  "fix": "In sanitizeFinding, walk data recursively: redactPII every string, and blank strings that fail isSensitive or mentionsMinor. In makeFinding, build gradeText from sentences that pass isSensitive and mentionsMinor.",
+  "filesToChange": [
+   "src/server/founder/guardrails.js",
+   "src/server/founder/finding.js"
+  ],
+  "dim": "privacy",
+  "verdict": "confirmed",
+  "verifyNote": "Probe: data.role 'lives at 12 Elm Street' was returned unchanged. sanitizeFinding spreads data untouched, and gradeText only gets redactPII (finding.js line 126), with no sensitive or minor filter."
+ },
+ {
+  "id": "privacy-address-phone-gaps",
+  "title": "Numbered streets, P.O. boxes, UK mobiles and phone numbers cut by clipping are not redacted",
+  "severity": "medium",
+  "kind": "privacy",
+  "file": "src/server/founder/guardrails.js",
+  "line": 75,
+  "scenario": "Reproduced, returned unchanged:\n- '123 5th Avenue', 'home at 12 main street', 'P.O. Box 1234, Palo Alto, CA 94301'\n- 'Call 07700 900123', '+44 7700 900123', 'jane [at] gmail [dot] com'\n- 'call 415-555-01…': makeFinding clips the quote to 700 characters before redacting, so a number cut at the edge no longer matches.",
+  "evidence": "Probe output for each case was identical to the input",
+  "fix": "Allow ordinal and digit street names and lowercase street words. Add P.O. Box with its ZIP, 5-digit UK prefixes and +44 7xxx forms, and obfuscated emails. In makeFinding, redact before clipping, and drop a trailing digit run left by the clip.",
+  "filesToChange": [
+   "src/server/founder/guardrails.js",
+   "src/server/founder/finding.js"
+  ],
+  "dim": "privacy",
+  "verdict": "confirmed",
+  "verifyNote": "Probe: all six forms were unchanged. Clip-before-redact is confirmed: makeFinding clips the quote to 700 characters before sanitizeFinding redacts, and a number cut at the edge leaked as 'call 415-555…'."
+ },
+ {
+  "id": "ui-unsafe-href",
+  "title": "Record links render any URL scheme; nothing rejects javascript: links",
+  "severity": "medium",
+  "kind": "security",
+  "file": "src/server/founder/finding.js",
+  "line": 143,
+  "scenario": "A source scrapes an href (e.g. courts.js case-law feed attr('href'), archive originals) that is 'javascript:fetch(...)'. makeFinding stores it unchanged; Record renders <a href> and React 18 only warns, so a click runs script on the site origin with the investor's session.",
+  "evidence": "Temp jest run: makeFinding(subject, { url: 'javascript:alert(1)', ... }).url === 'javascript:alert(1)'. React is ^18. No scheme check in finding.js, report.js or DeepCheck.js.",
+  "fix": "In makeFinding return null unless /^https?:\\/\\//i matches the URL. Add a safeHref() helper (http/https only, else render plain text) used for f.url, m.url, profile links, NetworkLinks p.profileUrl and the quick brief's Sources list.",
+  "filesToChange": [
+   "src/server/founder/finding.js",
+   "src/components/founder/DeepCheck.js",
+   "src/components/founder/NetworkLinks.js",
+   "src/pages/founder.js"
+  ],
+  "dim": "ui",
+  "verdict": "confirmed",
+  "verifyNote": "makeFinding stores String(f.url) with no scheme check. isBlockedUrl only checks the host and returns false when there is none. Feed links (courts.js 1088, the RSS and web results in the quick brief) flow straight into <a href>, and React 18 only warns on javascript: links. It needs a hostile or compromised source, but no guard exists anywhere."
+ },
+ {
+  "id": "security-finding-url-scheme",
+  "title": "makeFinding accepts any URL scheme, and React 18 still renders javascript: hrefs",
+  "severity": "low",
+  "kind": "improvement",
+  "file": "src/server/founder/finding.js",
+  "line": 143,
+  "evidence": "Line 116 only requires that url is truthy. DeepCheck.js:127/139/310 render f.url and profile links straight into href. React 18 only warns about javascript: URLs. Today's sources happen to filter schemes; there is no central guarantee.",
+  "scenario": "A future connector maps a field the publisher controls (a feed item, an API 'url' field) into a finding with javascript:… or data:…. Clicking the record runs script on the site's origin, with the user's session and network view.",
+  "fix": "In makeFinding and makeThread, drop any finding or thread whose url is not http(s), and normalise it with new URL(). Add a registry test that fails when a connector emits another scheme.",
+  "filesToChange": [
+   "src/server/founder/finding.js",
+   "tests/unit/features/founderSources.registry.test.js"
+  ],
+  "dim": "security",
+  "verdict": "confirmed",
+  "verifyNote": "makeFinding checks only that url is truthy, and sanitizeFinding checks blocked hosts only. DeepCheck renders f.url, m.url and profile links into href, and React 18 only warns on javascript: URLs. Today this is defence in depth only.",
+  "betterFix": "As proposed, plus a render-side guard (a safeHref helper in DeepCheck.js and founder.js) so saved reports created before the change are covered too."
+ }
+]

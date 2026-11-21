@@ -82,6 +82,8 @@ test('related parties are keyed like threads and say when a watchlist lookup ran
       'associate|mary jones': { kind: 'associate', value: 'Mary Jones', trusted: true },
     },
     done: ['sanctions-lists|relative|christian holmes iv|', 'web-search|associate|mary jones|q.person', 'sanctions-lists|company|mary jones|'],
+    // round 3: screened only when the lookup answered (a key in done may be a lookup that failed)
+    screenedOk: ['sanctions-lists|relative|christian holmes iv|'],
   });
   const parties = buildReport(s).relatedParties;
   const christian = parties.find((p) => p.name === 'Christian Holmes');

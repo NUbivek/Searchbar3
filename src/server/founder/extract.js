@@ -13,7 +13,7 @@
  */
 import { extractFounderEvidence } from '../founderCheck';
 import { makeThread } from './finding';
-import { mentionsMinor, isSensitive } from './guardrails';
+import { mentionsMinor, isSensitive, isBlockedUrl } from './guardrails';
 
 const NAME = "[A-ZÀ-Þ][a-zA-ZÀ-ÿ'’-]+(?:\\s+(?:[A-Z]\\.|de|van|von|bin|al|del|la|le|[A-ZÀ-Þ][a-zA-ZÀ-ÿ'’-]+)){1,3}";
 // The same, also accepting a one-letter surname after a capitalised given
@@ -28,7 +28,7 @@ const DESCENT_WORDS = 'son|daughter|nephew|niece|grandson|granddaughter|stepson|
 // "runs a small bakery", "director of photography") are not public roles:
 // those words count only in the qualified forms of QUALIFIED_ROLE, which is
 // case-sensitive so that what follows must be a proper name.
-const PUBLIC_ROLE = /\b(CEO|CFO|COO|CTO|chief executive|chief \w+ officer|chair(?:man|woman|person)?|president|founder|co-?founder|billionaire|millionaire|magnate|mogul|tycoon|financier|banker|investor|venture capitalist|hedge fund|private equity|fund manager|managing director|general partner|partner at|board member|trustee|philanthropist|industrialist|oligarch|senator|congress(?:man|woman)|representative|governor|mayor|minister|ambassador|diplomat|judge|admiral|politician|member of parliament|\bMP\b|lawmaker|commissioner|secretary of|prime minister|royal|sheikh|family (?:business|office|firm|fortune|company|foundation|trust)|conglomerate|dynasty|empire|seed(?:ed)? (?:investor|money|capital))\b/i;
+const PUBLIC_ROLE = /\b(CEO|CFO|COO|CTO|chief executive|chief \w+ officer|chair(?:man|woman|person)?|president|founder|co-?founder|billionaire|millionaire|magnate|mogul|tycoon|financier|banker|investor|venture capitalist|hedge fund|private equity|fund manager|managing director|general partner|partner at|board member|trustee|philanthropist|industrialist|oligarch|senator|congress(?:man|woman)|(?:state|U\.S\.|US|congressional|House) representative|Rep\.|governor|mayor|minister|ambassador|diplomat|judge|admiral|politician|member of parliament|\bMP\b|lawmaker|commissioner|secretary of|prime minister|royal|sheikh|family (?:business|office|firm|fortune|company|foundation|trust)|conglomerate|dynasty|empire|seed(?:ed)? (?:investor|money|capital))\b/i;
 const QUALIFIED_ROLE = /\b(?:[Rr]eal[ -]estate developer|[Pp]roperty developer|(?:[Mm]anaging |[Nn]on-executive )?[Dd]irector (?:of|at) [A-Z][\w&.-]*|(?:[Dd]irector|[Hh]ead) of [a-z][a-z -]{2,40} (?:at|for) [A-Z][\w&.-]*|(?:[Oo]wner|[Ff]ounder|[Hh]ead) of [A-Z][\w&.-]*|(?:runs|heads|controls|owns|founded) [A-Z][\w&.-]+(?: (?:Inc|LLC|Ltd|Group|Holdings|Capital|Partners|Corp)\.?)?|[Ee]xecutive (?:at|of) [A-Z][\w&.-]*)/;
 /** The first public role named in `text` (a match array), or null. */
 const matchRole = (text) => {
@@ -52,7 +52,15 @@ function sentencesAbout(subject, text) {
   const out = [];
   let named = false;
   for (const sentence of sentencesOf(text)) {
-    if (subject.hasName(sentence)) { named = true; out.push(sentence); } else if (named && /^(She|He|They|Her|His|Their)\b/.test(sentence)) out.push(sentence);
+    if (subject.hasName(sentence)) {
+      out.push(sentence);
+      // "Jane Roe hired Bob Smith. He previously founded Initech.": once someone else is in the sentence, the
+      // next "He/She" may be them, so nothing carries over
+      const pos = typeof subject.hasName.positions === 'function' ? subject.hasName.positions(sentence) : [];
+      let rest = sentence;
+      for (const p of [...pos].reverse()) rest = `${rest.slice(0, p.start)} , ${rest.slice(p.end)}`;
+      named = !otherPersonIn(subject, rest) && !/\b(?:hired|hires|recruited|recruits|appointed|appoints|married|introduced|mentored)\b/i.test(rest);
+    } else if (named && /^(She|He|They|Her|His|Their)\b/.test(sentence)) out.push(sentence);
     else if (!/^(She|He|They|Her|His|Their)\b/.test(sentence)) named = false;
   }
   return out;
@@ -76,23 +84,64 @@ const ACRONYMS_2 = new Set(['AI', 'US', 'UK', 'EU', 'UN', 'VC', 'IT', 'PR', 'HR'
 const NATIONALITY = /^(?:American|British|English|French|German|Italian|Spanish|Portuguese|Dutch|Belgian|Swiss|Austrian|Swedish|Norwegian|Danish|Finnish|Irish|Scottish|Welsh|Polish|Russian|Ukrainian|Greek|Turkish|Israeli|Arab|Saudi|Emirati|Qatari|Iranian|Indian|Pakistani|Chinese|Japanese|Korean|Taiwanese|Vietnamese|Thai|Indonesian|Singaporean|Malaysian|Filipino|Australian|Canadian|Mexican|Brazilian|Argentine|Argentinian|Chilean|Colombian|Peruvian|African|Nigerian|Kenyan|Egyptian|South|North|East|West|European|Asian|Parisian|Californian|Texan|Federal|National|State|Global|International)$/;
 
 /**
- * The public role a sentence gives to `name`: a role word right after the
- * name ("John Roe, chairman of ...") or just before it ("billionaire John
- * Roe"). A role that belongs to the subject ("Acme founder Jane Doe's
- * brother John Roe") does not count, so the words before the name are only
- * read from where the subject's own name ends.
+ * The public role a sentence gives to `name`, only in apposition to the name: right after it in the same clause
+ * ("John Roe, chairman of ...", "John Roe, a state representative") or right before it ("billionaire John
+ * Roe"). A role further on belongs to whoever that clause is about: in "his wife Carrie Roe, who told reporters
+ * the founder ..." or "his sister Jane Roe attended; Acme chairman Bob Smith spoke" the relative has none. A role
+ * that belongs to the subject ("Acme founder Jane Doe's brother John Roe") does not count either.
  */
+// where an apposition ends: a new clause, or the name's own verb
+const APPOSITION_END = /[;()]|,\s+(?!(?:and|the|a|an|now|then|former|later|also)\b)(?=[a-z]+\s+(?:to|for|on|at|in|the|a|an|his|her|their)\b|[a-z]+ed\b|[a-z]+s\b)|\s(?:who|whom|whose|which|said|says|told|tells|was|is|were|are|has|had|attended|spoke|speaks|worked|works|came|went|met|joined|attends|did|does)\b/;
 function roleNear(subject, sentence, name) {
   const at = sentence.indexOf(name);
   if (at < 0) return null;
-  const after = matchRole(sentence.slice(at + name.length, at + name.length + 90));
-  if (after) return after;
+  const after = sentence.slice(at + name.length, at + name.length + 120);
+  // the relative's own clause: "Martin Roe, is the chairman of", "Peter Doe, who runs Doe Capital"
+  const own = after.match(/^\s*,?\s*(?:who\s+)?(?:is|was|has been|serves as|served as|is now|was then)\s+(?:also\s+)?/) || after.match(/^\s*,\s*who\s+(?=(?:runs|heads|owns|controls|founded|chairs)\b)/);
+  if (own) {
+    let clause = after.slice(own[0].length);
+    const end = clause.slice(1).search(/[;()]|\s(?:and|but|who|which|said|told)\b/);
+    if (end >= 0) clause = clause.slice(0, end + 1);
+    const role = matchRole(clause);
+    if (role && role.index <= 30) return role;
+  }
+  const app = after.match(/^\s*,\s*/);
+  if (app) {
+    let clause = after.slice(app[0].length);
+    const end = clause.search(APPOSITION_END);
+    if (end >= 0) clause = clause.slice(0, end);
+    // the role opens the apposition, after an article or a few describing words: "a state representative",
+    // "the billionaire chairman of", "her father and chairman of"
+    const role = matchRole(clause);
+    if (role && role.index <= 40 && !/\b(?:who|which|said|told|was|is)\b/.test(clause.slice(0, role.index))) return role;
+  }
   let before = sentence.slice(Math.max(0, at - 48), at);
   for (const variant of subject.variants || [subject.name]) {
     const cut = before.toLowerCase().lastIndexOf(String(variant).toLowerCase());
     if (cut >= 0) before = before.slice(cut + String(variant).length);
   }
-  return matchRole(before);
+  // only the words right before the name, after the last clause break: "billionaire John Roe", "the son of
+  // property developer John Roe"
+  const near = before.split(/[;,()]/).pop();
+  // (the qualified forms stay case-sensitive, so that what follows "head of" must be a proper name)
+  const m = near.match(new RegExp(`(?:${PUBLIC_ROLE.source})\\s+(?:the\\s+)?$`, 'i')) || near.match(new RegExp(`(?:${QUALIFIED_ROLE.source})\\s+(?:the\\s+)?$`));
+  return m ? matchRole(m[0]) : null;
+}
+
+/** A full name of someone else in `text` (two or more capitalised words that read as a person's name). */
+function otherPersonIn(subject, text) {
+  for (const m of String(text || '').matchAll(/(?<![\wÀ-ÿ])[A-ZÀ-Þ][a-zà-ÿ'’-]+(?:\s+[A-Z]\.)?(?:\s+[A-ZÀ-Þ][a-zà-ÿ'’-]+){1,2}(?![\wÀ-ÿ])/g)) {
+    if (plausiblePerson(m[0], subject)) return m[0];
+  }
+  return null;
+}
+
+/** The words of a sentence between the subject's last mention before `at` (or the sentence start) and `at`. */
+function sinceSubject(subject, sentence, at) {
+  const before = sentence.slice(0, at);
+  const pos = typeof subject.hasName?.positions === 'function' ? subject.hasName.positions(before) : [];
+  const last = pos.length ? pos[pos.length - 1].end : 0;
+  return before.slice(last);
 }
 
 /**
@@ -113,7 +162,11 @@ export function relativesFromText(subject, text) {
   };
   for (const sentence of sentencesAbout(subject, text)) {
     // "her father, John Roe, chairman of ..." / "his brother John Roe"
-    for (const m of sentence.matchAll(new RegExp(`\\b(?:[Hh]is|[Hh]er|[Tt]heir|whose)\\s+(?:late\\s+|older\\s+|younger\\s+|elder\\s+|twin\\s+|former\\s+|then-)?(${RELATION_WORDS})\\s*,?\\s+(${NAME})`, 'g'))) add(m[2], m[1], sentence);
+    for (const m of sentence.matchAll(new RegExp(`\\b(?:[Hh]is|[Hh]er|[Tt]heir|whose)\\s+(?:late\\s+|older\\s+|younger\\s+|elder\\s+|twin\\s+|former\\s+|then-)?(${RELATION_WORDS})\\s*,?\\s+(${NAME})`, 'g'))) {
+      // "sued Ford CEO Jim Farley and his brother John Farley": "his" is Jim Farley's, the nearest person before it
+      if (otherPersonIn(subject, sinceSubject(subject, sentence, m.index))) continue;
+      add(m[2], m[1], sentence);
+    }
     // "John Roe, her father and chairman of ..."
     for (const m of sentence.matchAll(new RegExp(`(${NAME}),\\s+(?:his|her|their)\\s+(${RELATION_WORDS})\\b`, 'g'))) add(m[1], m[2], sentence);
     // "the son of billionaire John Roe" / "daughter of John Roe, founder of ..."
@@ -137,14 +190,29 @@ export function publicRelativeIn(subject, text, name) {
   const person = plausiblePerson(name, subject);
   if (!person) return null;
   const nameRe = new RegExp(`(?<![A-Za-z])${escapeRe(person)}(?![A-Za-z])`);
-  const kin = new RegExp(`\\b(${RELATION_WORDS}|${DESCENT_WORDS}|married|parents?|sibling|relative|family)\\b`, 'i');
+  // a kin word counts only bound to the name: "his father, John Roe", "John Roe, her father", "son of John Roe",
+  // "married to John Roe", "Jane Doe's father John Roe". A bare "partner" or "family" is not kinship.
+  const KIN = `${RELATION_WORDS.replace(/\|partner\b/, '')}|sibling|relative`;
+  const own = `(?:[Hh]is|[Hh]er|[Tt]heir|${(subject.variants || [subject.name]).map((v) => `${escapeRe(v)}['’]s`).join('|')})`;
+  const who = escapeRe(person);
+  const forms = [
+    new RegExp(`${own}\\s+(?:late\\s+|older\\s+|younger\\s+|elder\\s+|twin\\s+|former\\s+)?(${KIN})\\s*,?\\s+${who}(?![A-Za-z])`),
+    new RegExp(`${who}\\s*,\\s+${own}\\s+(${KIN})\\b`),
+    new RegExp(`\\b(${DESCENT_WORDS})\\s+of\\s+(?:the\\s+)?(?:late\\s+)?(?:[a-z-]+\\s+){0,4}?${who}(?![A-Za-z])`),
+    new RegExp(`\\b(married)\\s+(?:to\\s+)?${who}(?![A-Za-z])`),
+  ];
   for (const sentence of sentencesOf(text)) {
     if (!nameRe.test(sentence)) continue;
-    const relation = sentence.match(kin);
+    let relation = null;
+    for (const re of forms) {
+      const m = sentence.match(re);
+      if (m && !(re === forms[0] && /^(?:[Hh]is|[Hh]er|[Tt]heir)\b/.test(m[0]) && otherPersonIn(subject, sinceSubject(subject, sentence, m.index)))) { relation = m[1]; break; }
+    }
+    if (!relation) continue;
     const role = roleNear(subject, sentence, person);
-    if (!relation || !role) continue;
+    if (!role) continue;
     if (mentionsMinor(sentence) || isSensitive(sentence)) continue;
-    return { name: person, relation: relation[1].toLowerCase(), role: role[0], sentence };
+    return { name: person, relation: relation.toLowerCase(), role: role[0], sentence };
   }
   return null;
 }
@@ -170,13 +238,40 @@ export function associatesFromText(subject, text) {
     // of / the / at: "co-founder and CEO of Acme Jane Roe" names no one else.
     for (const m of sentence.matchAll(new RegExp(`\\bco-?founders?\\s+(?:and\\s+(?:(?!(?:of|the|at)\\b)[A-Za-z]+\\s+){1,4}?)?(${NAME_ROLE})(?:\\s+and\\s+(${NAME_ROLE}))?`, 'g'))) {
       // "PayPal co-founders Elon Musk and Peter Thiel": co-founders of another company, not of the person's
-      const lead = sentence.slice(Math.max(0, m.index - 40), m.index).match(/([A-Z][\w&.'-]+(?:\s+[A-Z][\w&.'-]+)?)\s*$/);
+      // a trailing "and" or comma is skipped: "Ford founder Henry Ford and co-founder Jim Smith" are Ford's
+      const lead = sentence.slice(Math.max(0, m.index - 60), m.index).replace(/(?:\s*,|\s+and|\s+&)\s*$/, '').match(/([A-Z][\w&.'-]+(?:\s+[A-Z][\w&.'-]+)?)(?:\s+(?:founder|CEO|chairman|chief executive))?\s*$/);
       const ofAnother = lead && !subject.hasName(lead[1]) && ![...subject.anchors.companies.values()].some((a) => a.test(lead[1]));
       if (ofAnother) continue;
       add(m[1], 'named as a co-founder');
       if (m[2]) add(m[2], 'named as a co-founder');
     }
     for (const m of sentence.matchAll(new RegExp(`(${NAME})\\s+and\\s+(${NAME})\\s*,?\\s+(?:the\\s+)?(?:co-?founders|founders|who\\s+(?:co-?)?founded)`, 'g'))) { add(m[1], 'named as a co-founder'); add(m[2], 'named as a co-founder'); }
+    // "founders Jane Roe and Bob Smith turned ...", "co-founders Bob Smith and Jane Roe": one of the two is the subject
+    for (const m of sentence.matchAll(new RegExp(`\\b(?:[Cc]o-?)?[Ff]ounders\\s+(${NAME})\\s+and\\s+(${NAME})`, 'g'))) {
+      if (!subject.hasName(m[1]) && !subject.hasName(m[2])) continue;
+      add(m[1], 'named as a co-founder');
+      add(m[2], 'named as a co-founder');
+    }
+    // "Jane Roe and Bob Smith co-founded Acme", "Jane Roe and Bob Smith, started Acme in 2020": one of the two
+    // is the subject (plausiblePerson drops them), and a company name or "the company" must follow
+    for (const m of sentence.matchAll(new RegExp(`(${NAME})\\s+and\\s+(${NAME})\\s*,?\\s+(?:co-?founded|founded|started|launched)\\s+(?=[A-Z]|the\\s+company\\b|a\\s+company\\b)`, 'g'))) {
+      if (!subject.hasName(m[1]) && !subject.hasName(m[2])) continue;
+      add(m[1], 'founded a company together');
+      add(m[2], 'founded a company together');
+    }
+    // "Ramp was founded in March 2019 by Eric Glyman, Karim Atiyeh, and Gene Lee": every name on the list, when the
+    // subject is one of them
+    for (const m of sentence.matchAll(/\b(?:co-?founded|founded|started|created|launched)\s+(?:in\s+[^.;,]{0,24}?\s+)?by\s+([^.;]{3,240})/g)) {
+      const names = [];
+      for (const part of m[1].split(/\s*,\s*(?:and\s+)?|\s+and\s+|\s*&\s*/)) {
+        const n = cleanName(part);
+        if (subject.hasName(n)) { names.push(null); continue; }
+        if (!new RegExp(`^${NAME}$`).test(n)) break;
+        names.push(n);
+      }
+      if (!names.includes(null)) continue;
+      for (const n of names) if (n) add(n, 'named as a co-founder');
+    }
     for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?founded|founded|started|launched)\\s+[^.]{0,60}?\\s+(?:with|alongside|together with)\\s+(?:(?:former|fellow|then|ex)[ -])?(?:(?:[a-z-]+\\s+){0,2}?(?:minister|secretary|advis[eo]r|colleague|classmate|researcher|engineer|scientist)\\s+)?(${NAME_ROLE})(?:\\s+and\\s+(${NAME_ROLE}))?`, 'g'))) { add(m[1], 'founded a company together'); if (m[2]) add(m[2], 'founded a company together'); }
     // "adviser Jane Doe" / "former minister Cédric O, an adviser to ..."
     for (const m of sentence.matchAll(new RegExp(`\\b(?:advis[eo]rs?|minister)\\s*,?\\s+(${NAME_ROLE})`, 'g'))) add(m[1], 'named as an adviser or official beside the person');
@@ -270,6 +365,8 @@ export function companiesFromText(subject, text) {
     for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?founded|founded|started|launched|created)\\s+(${CAMEL})`, 'g'))) add(m[1], 'company the person started');
     for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?founded|founded)\\s+(${CO_NAME})`, 'g'))) addVenture(m[1], 'company the person started');
     for (const m of sentence.matchAll(new RegExp(`\\ban?\\s+(?:online\\s+)?(?:marketplace|company|startup|start-up),\\s+(${CO_NAME})`, 'g'))) addVenture(m[1], 'company named with the person');
+    // the press form of a new venture: "has launched a new blockchain infrastructure startup, Alta, which ..."
+    for (const m of sentence.matchAll(new RegExp(`\\b(?:co-?founded|founded|started|launched|created|set up)\\s+(?:an?|the|her|his|their)\\s+(?:[a-z][\\w-]*\\s+){0,5}?(?:company|startup|start-up|venture|firm|fund|business),\\s+(${CO_NAME})`, 'g'))) addVenture(m[1], 'company the person started');
   }
   return [...out.values()];
 }
@@ -283,7 +380,9 @@ const PROFILE_HOSTS = [
   [/^(?:www\.)?crunchbase\.com$/, /^\/person\/([^/?#]+)/, 'crunchbase'],
   [/^(?:angel\.co|wellfound\.com)$/, /^\/(?:u|p)\/([^/?#]+)/, 'wellfound'],
   [/^about\.me$/, /^\/([^/?#]+)/, 'about.me'],
-  [/^medium\.com$/, /^\/@([^/?#]+)/, 'medium'],
+  // a newsletter or blog: only its own root (or about page) is a profile; an article on it may be an interview
+  // the author wrote about someone else
+  [/^medium\.com$/, /^\/@([^/?#]+)\/?(?:about\/?)?$/, 'medium'],
   [/^([a-z0-9-]+)\.substack\.com$/, null, 'substack'],
 ];
 const NOT_HANDLES = new Set(['home', 'search', 'explore', 'login', 'signup', 'about', 'pricing', 'features', 'orgs', 'topics', 'i', 'intent', 'share', 'hashtag', 'company', 'jobs', 'pulse', 'feed']);
@@ -299,9 +398,12 @@ export function profileFromUrl(url) {
   for (const [hostRe, pathRe, platform] of PROFILE_HOSTS) {
     const hm = host.match(hostRe);
     if (!hm) continue;
+    if (!pathRe && !/^\/?(?:about\/?)?$/.test(u.pathname)) return null;
     const handle = pathRe ? (u.pathname.match(pathRe) || [])[1] : hm[1];
     if (!handle || NOT_HANDLES.has(handle.toLowerCase())) return null;
-    return { platform, handle: decodeURIComponent(handle), url: `https://${host}${pathRe ? u.pathname.replace(/\/$/, '') : ''}` };
+    // fr.linkedin.com, uk.linkedin.com and www.linkedin.com show one profile: one address, so the copies dedupe
+    const shownHost = platform === 'linkedin' ? 'linkedin.com' : host;
+    return { platform, handle: decodeURIComponent(handle), url: `https://${shownHost}${pathRe ? u.pathname.replace(/\/$/, '') : ''}` };
   }
   return null;
 }
@@ -314,7 +416,8 @@ export function profileFromUrl(url) {
 export function handleFitsSubject(subject, handle) {
   const h = String(handle || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   if (!h) return false;
-  return subject.slugs.some((slug) => {
+  // a subject made outside identity.js (the quick brief's) may carry no slugs: then nothing fits
+  return (Array.isArray(subject?.slugs) ? subject.slugs : []).some((slug) => {
     const s = slug.replace(/[^a-z0-9]/g, '');
     return s.length > 0 && h.includes(s);
   });
@@ -340,6 +443,7 @@ export function threadsFromResult(subject, result, { trusted }) {
   // Companies and schools: the quick brief's extractor, run on this one result.
   const evidence = extractFounderEvidence({ name: subject.hasName, company: subject.company, results: [{ title, snippet, url: result?.url || 'https://example.invalid/', source: 'web' }], keepAllSources: true });
   for (const c of evidence.pastCompanies) {
+    if (belongsToSomeoneElse(subject, c.company, c.quote || text)) continue;
     threads.push(makeThread('company', c.company, c.role ? `${c.role}${c.status === 'past' ? ' (past)' : ''}` : c.status === 'past' ? 'earlier company' : 'named with the person', { trusted }));
   }
   const seenCompany = new Set(evidence.pastCompanies.map((c) => String(c.company).toLowerCase()));
@@ -361,5 +465,185 @@ export function threadsFromResult(subject, result, { trusted }) {
   return threads.filter(Boolean);
 }
 
+/**
+ * A company the quick brief's extractor read that is a person ("joined Erik Torenberg (...)"), or another
+ * person's: named after someone else in the same sentence ("joined Erik Torenberg (Co-founder of Village Global").
+ */
+function belongsToSomeoneElse(subject, company, text) {
+  const t = String(text || '');
+  const name = String(company || '');
+  const at = t.indexOf(name);
+  if (at < 0) return false;
+  // a person's name read as a company: it stands where a person stands
+  if (plausiblePerson(name, subject) && new RegExp(`(?:\\b(?:joined|met|with|by|interviewed|hosted|host)\\s+)${escapeRe(name)}|${escapeRe(name)}\\s*(?:\\(|,\\s+(?:a|an|the|who|whose|former)\\b)`).test(t)) return true;
+  // the sentence the company is in, from the subject's last mention up to it
+  const start = Math.max(t.lastIndexOf('. ', at) + 1, 0);
+  const sentence = t.slice(start, at);
+  return Boolean(otherPersonIn(subject, sinceSubject(subject, sentence, sentence.length)));
+}
+
 /** A word-boundary test for an arbitrary phrase (used by connectors to check a page names something). */
 export const mentions = (text, phrase) => new RegExp(`(?<![A-Za-z0-9])${escapeRe(phrase)}(?![A-Za-z0-9])`, 'i').test(String(text || ''));
+
+/* ------------------------------------------------------------------ structured data on a page */
+
+const decodeEntities = (s) => String(s || '')
+  .replace(/&nbsp;/gi, ' ').replace(/&quot;/gi, '"').replace(/&#0?39;|&apos;|&rsquo;|&lsquo;/gi, "'")
+  .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+  .replace(/&#(\d+);/g, (m, n) => { try { return String.fromCodePoint(Number(n)); } catch { return ' '; } })
+  .replace(/&#x([0-9a-f]+);/gi, (m, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return ' '; } })
+  .replace(/&amp;/gi, '&');
+const plain = (s) => decodeEntities(String(s || '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+const asList = (v) => (Array.isArray(v) ? v : v == null ? [] : [v]);
+const typesOf = (node) => asList(node?.['@type']).map((t) => String(t).replace(/^.*[/#]/, '').toLowerCase());
+/** The name of a schema.org value: a string, or an object with a name. */
+const nameOf = (v) => {
+  if (typeof v === 'string') return plain(v).slice(0, 120);
+  if (v && typeof v === 'object' && typeof v.name === 'string') return plain(v.name).slice(0, 120);
+  return '';
+};
+const MAX_LD_BLOCKS = 20;
+const MAX_LD_CHARS = 200000;
+const MAX_NODES = 400;
+
+/** Every object in a JSON-LD document (graphs, nested values, lists), up to a limit. */
+function ldNodes(doc) {
+  const out = [];
+  const stack = [doc];
+  while (stack.length && out.length < MAX_NODES) {
+    const v = stack.pop();
+    if (Array.isArray(v)) { for (const x of v) stack.push(x); continue; }
+    if (!v || typeof v !== 'object') continue;
+    out.push(v);
+    for (const [k, x] of Object.entries(v)) if (k !== '@context' && x && typeof x === 'object') stack.push(x);
+  }
+  return out;
+}
+
+/** Only fields that say where someone worked and studied and where their profiles are: never contact, birth or family fields. */
+function personOf(node) {
+  const name = nameOf(node);
+  if (!name) return null;
+  const titles = asList(node.jobTitle).map(nameOf).filter(Boolean).slice(0, 4);
+  const employers = asList(node.worksFor).map(nameOf).filter(Boolean).slice(0, 6);
+  const schools = asList(node.alumniOf).map(nameOf).filter(Boolean).slice(0, 6);
+  const links = asList(node.sameAs).map((u) => String(typeof u === 'string' ? u : u?.url || '').trim()).filter((u) => /^https?:\/\/[^\s]+$/i.test(u)).slice(0, 10);
+  return { name, titles, employers, schools, links };
+}
+
+/**
+ * What a page states about people in machine-readable form, besides its visible text:
+ *   persons        JSON-LD Person nodes (also the main entity of a ProfilePage): name, job titles,
+ *                  employers (worksFor), schools (alumniOf) and profile links (sameAs)
+ *   organizations  JSON-LD Organization nodes with their founders' names
+ *   descriptions   the page's own summary lines (meta description, OpenGraph description)
+ *   definitions    term and value pairs of definition lists ("Education: Columbia University")
+ * Contact details, birth dates, addresses and family fields are never read.
+ */
+export function structuredData(html) {
+  const src = String(html || '');
+  const persons = [];
+  const organizations = [];
+  let blocks = 0;
+  for (const m of src.matchAll(/<script\b[^>]*type\s*=\s*["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script>/gi)) {
+    if ((blocks += 1) > MAX_LD_BLOCKS) break;
+    const body = m[1].trim();
+    if (!body || body.length > MAX_LD_CHARS) continue;
+    let doc;
+    try { doc = JSON.parse(body.replace(/^<!\[CDATA\[|\]\]>$/g, '')); } catch { continue; }
+    for (const node of ldNodes(doc)) {
+      const types = typesOf(node);
+      if (types.includes('person')) {
+        const p = personOf(node);
+        if (p && !persons.some((x) => x.name === p.name && x.titles.join() === p.titles.join() && x.employers.join() === p.employers.join())) persons.push(p);
+      } else if (types.some((t) => /organization|corporation|company/.test(t))) {
+        const name = nameOf(node);
+        const founders = asList(node.founder).concat(asList(node.founders)).map(nameOf).filter(Boolean).slice(0, 8);
+        if (name && founders.length) organizations.push({ name, founders });
+      }
+    }
+  }
+  const descriptions = [];
+  for (const m of src.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = m[0];
+    const key = (tag.match(/\b(?:name|property)\s*=\s*["']([^"']+)["']/i) || [])[1]?.toLowerCase();
+    if (key !== 'description' && key !== 'og:description') continue;
+    const content = plain((tag.match(/\bcontent\s*=\s*"([^"]*)"/i) || tag.match(/\bcontent\s*=\s*'([^']*)'/i) || [])[1]);
+    if (content.length >= 20 && !descriptions.includes(content)) descriptions.push(content.slice(0, 600));
+  }
+  const definitions = [];
+  // bounded: a page with a thousand unclosed <dl> or <dt> tags must not cost a second pass each
+  scan: for (const dl of src.slice(0, 600000).matchAll(/<dl\b[^>]*>([\s\S]{0,20000}?)<\/dl>/gi)) {
+    for (const pair of dl[1].matchAll(/<dt\b[^>]*>([\s\S]*?)<\/dt>\s*((?:<dd\b[^>]*>[\s\S]*?<\/dd>\s*)+)/gi)) {
+      const term = plain(pair[1]).replace(/:$/, '');
+      const value = [...pair[2].matchAll(/<dd\b[^>]*>([\s\S]*?)<\/dd>/gi)].map((d) => plain(d[1])).filter(Boolean).join('; ');
+      if (term && value && term.length <= 40 && value.length <= 300) definitions.push({ term, value });
+      if (definitions.length >= 40) break scan;
+    }
+  }
+  return { persons, organizations, descriptions, definitions };
+}
+
+/** Terms of a definition list that describe a career or an education. */
+const BIO_TERMS = /^(?:education|alma mater|school|university|degrees?|studied|previously|prior experience|past (?:roles?|experience|companies)|previous (?:roles?|companies|experience)|experience|background|career|work history|employers?|company|current (?:role|company)|role|title|position|founded|co-?founded)$/i;
+
+/**
+ * Facts about the subject a page states in structured form. Only a Person whose own name is the subject's
+ * counts; an organisation counts when the subject is one of its listed founders (the other founders are
+ * co-founders). Returns null when the page states nothing about them.
+ *   line        one sentence quoting the stated values, opening on the person's name (what the profile reads)
+ *   employers, schools, titles, links, cofounders, companiesFounded
+ */
+export function personFacts(subject, data, { definitionsAreTheirs = false } = {}) {
+  const mine = (data?.persons || []).filter((p) => subject.hasName(p.name) && plausibleFullName(p.name));
+  const founded = (data?.organizations || []).filter((o) => o.founders.some((f) => subject.hasName(f)));
+  const defs = definitionsAreTheirs ? (data?.definitions || []).filter((d) => BIO_TERMS.test(d.term)).slice(0, 8) : [];
+  if (!mine.length && !founded.length && !defs.length) return null;
+  const uniq = (list) => [...new Map(list.filter(Boolean).map((x) => [x.toLowerCase(), x])).values()];
+  const titles = uniq(mine.flatMap((p) => p.titles)).slice(0, 4);
+  const employers = uniq(mine.flatMap((p) => p.employers)).slice(0, 6);
+  const schools = uniq(mine.flatMap((p) => p.schools)).slice(0, 6);
+  const links = uniq(mine.flatMap((p) => p.links)).slice(0, 10);
+  const companiesFounded = uniq(founded.map((o) => o.name)).slice(0, 4);
+  const cofounders = uniq(founded.flatMap((o) => o.founders.filter((f) => !subject.hasName(f)))).filter((n) => plausiblePerson(n, subject)).slice(0, 6);
+  const parts = [];
+  if (titles.length) parts.push(`job title: ${titles.join('; ')}`);
+  if (employers.length) parts.push(`works for: ${employers.join('; ')}`);
+  if (schools.length) parts.push(`alumni of: ${schools.join('; ')}`);
+  for (const o of founded) parts.push(`listed as a founder of ${o.name}${o.founders.length > 1 ? ` with ${o.founders.filter((f) => !subject.hasName(f)).join(', ')}` : ''}`);
+  for (const d of defs) parts.push(`${d.term.toLowerCase()}: ${d.value}`);
+  if (!parts.length) return null;
+  const name = mine[0]?.name || subject.name;
+  return { name, line: `${name} — ${parts.join('; ')}.`, titles, employers, schools, links, cofounders, companiesFounded, definitions: defs };
+}
+/** Two or more words: a lone first name in a Person node is not enough to say who it is. */
+const plausibleFullName = (n) => String(n || '').trim().split(/\s+/).length >= 2;
+
+/**
+ * The threads the structured facts give. `trusted` comes from the record (is the page tied to the person),
+ * and profile links are followed only when the Person node itself carries the subject's name.
+ */
+export function threadsFromFacts(subject, facts, { trusted }) {
+  if (!facts) return [];
+  const out = [];
+  for (const org of facts.employers) {
+    if (subject.hasName(org)) continue;
+    // "Founder, Merge" names the role at this employer; with one employer, the job title is the role there
+    const role = facts.titles.find((t) => mentions(t, org)) || (facts.employers.length === 1 && facts.titles.length === 1 ? facts.titles[0] : '');
+    out.push(makeThread('company', org, role ? `${role} (listed in the page data of their profile)` : 'employer listed in the page data of their profile', { trusted }));
+  }
+  for (const org of facts.companiesFounded) out.push(makeThread('company', org, 'founder (listed in the page data of the company)', { trusted }));
+  for (const school of facts.schools) out.push(makeThread('school', school, 'school listed in the page data of their profile', { trusted }));
+  for (const name of facts.cofounders) out.push(makeThread('associate', name, 'named as a co-founder', { trusted }));
+  for (const link of facts.links) {
+    if (isBlockedUrl(link)) continue;
+    const profile = profileFromUrl(link);
+    if (profile) {
+      out.push(makeThread('url', profile.url, `${profile.platform} profile (linked from a page about them)`, { trusted, platform: profile.platform }));
+      if ((profile.platform === 'github' || profile.platform === 'x') && handleFitsSubject(subject, profile.handle)) out.push(makeThread('handle', profile.handle, `${profile.platform} handle`, { trusted, platform: profile.platform }));
+    } else {
+      out.push(makeThread('url', link.replace(/[?#].*$/, '').replace(/\/$/, ''), 'linked from a page about them', { trusted }));
+    }
+  }
+  return out.filter(Boolean);
+}

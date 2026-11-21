@@ -1,0 +1,280 @@
+[
+ {
+  "id": "retractions",
+  "exportName": "retractionsConnector",
+  "file": "src/server/founder/sources/retractions.js",
+  "label": "Retracted papers (Crossref, Retraction Watch)",
+  "kinds": [
+   "subject",
+   "url"
+  ],
+  "screenGroup": "Professional footprint / academic record (court- and regulator-style screen: papers retracted or under an expression of concern)",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "One Crossref works search per person (https://api.crossref.org/v1/works?query.author=<name>&filter=update-type:retraction,update-type:expression_of_concern&rows=100&select=DOI,title,author,update-to,issued,container-title,type; the two update-type values are ORed, checked live 2026-11-20). When a record already tied to the person (likely/confirmed) carries data.orcid, the same filter is also run with orcid:<id> (at most 2 iDs); a trusted ORCID url thread (plan template 'orcid-id', params.trusted) searches that iD only. An author is kept only when scholar.personNameFits says the full name fits (initials alone never). 'likely' only with a second fact on the record: the author's ORCID iD equals a tied one, the author's affiliation is a known company (scholar.knownCompanyOf: every known name/alias, one-word ordinary company only as its whole name) or known school (sameSchool), or the retracted paper's DOI equals a tied record's data.doi; otherwise 'possible' with 'verify identity' in matchReasons. Never 'confirmed'. One finding per retracted paper (publisher and Retraction Watch notices merged), link https://doi.org/<retracted DOI>, category 'ip', severity medium for a retraction, low for an expression of concern; at most 8 findings, 4 possible. Privacy: only the person's name as written and the matching known organisation are stored; co-authors, other affiliations and affiliation addresses never; no threads. Failures: HTTP errors throw; a body without status ok / message.items / total-results, or works none of which carry retraction details, throws (format change). One of two searches failing, or more than 100 results, returns partial (array of strings, as deepCheck reads it) with a note; a name without first and last name returns partial without a request. Clean notes avoid the words deepCheck's FAILED_NOTE reads as failure. Pacing: its own one-at-a-time queue with 1.1 s gap for api.crossref.org (scholar.js has a separate queue for the same host, not shared; the integrator may want to share them), maxParallel 1. Answers kept 24 h in this instance's memory only (person-specific, so not in the shared cache; nothing large is downloaded: one response is ~35 KB, maxBytes 4 MB). Terms: Crossref metadata is open to reuse; Retraction Watch credited in the label. Imports from ./scholar (personNameFits, knownCompanyOf, sameSchool, orcidIdFromUrl). Registry: kinds subject and url only (no relative/associate), so the allow-list test is unaffected.",
+  "docsRow": "Retracted papers | Crossref's record of retraction notices and expressions of concern, which carries the Retraction Watch database, searched by the person's name and by an ORCID iD already tied to them | Papers the person wrote that were retracted or questioned; tied to them only with an ORCID iD, an affiliation that is their company or school, or a paper already theirs, otherwise a name match to verify"
+ },
+ {
+  "id": "fara-registrations",
+  "exportName": "faraConnector",
+  "file": "src/server/founder/sources/fara.js",
+  "label": "US foreign agent registrations (FARA filings)",
+  "kinds": [
+   "subject",
+   "company"
+  ],
+  "screenGroup": "US federal awards, lobbying and grants",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "docsRow": "US federal awards, lobbying and grants | FARA eFile bulk files from the Justice Department (short forms, registrants, foreign principals), three small zips read once a day (`sources/fara.js`) | Whether the person filed a FARA short form for a registrant or registered in their own name, whether their company is a registrant or is listed as a foreign principal, and which foreign principals (with country) are represented. Registration is lawful: shown as context (severity info), never as a red flag",
+  "notes": "Templates: 'fara.person' (subject), 'fara.company' (company). prior 0.2, timeoutMs 25000. No key needed. Endpoints checked live on 2026-11-20 (200, application/zip, one CSV per zip, deflate): https://efile.fara.gov/bulk/zip/FARA_All_ShortForms.csv.zip (942 KB zipped, 7.0 MB CSV, 44,785 rows), FARA_All_Registrants.csv.zip (248 KB, 7,109 rows), FARA_All_ForeignPrincipals.csv.zip (704 KB, 17,764 rows). A live end-to-end run (Trevor Milton / Nikola: clean notes; Al Jazeera Media Network: a principal hit represented by The Burson Group LLC, Qatar) passed. Fetching: getBytes from ../http (maxBytes 6 MB); unzip by the central directory plus zlib.inflateRawSync, with a check of size and CRC; one cachedEntry per file, once a day. The compact indexes are 2.4 MB, 0.45 MB and 1.45 MB as JSON, all under the 6 MB stored limit. Failure: a download error, a non-zip, a cut-off or damaged zip, more than one entry, changed CSV columns, too few rows (minimums 20000/3000/8000) or no filing from the last 365 days all throw. If the foreign-principals file fails, a company lookup and a person lookup with hits return partial with a note. Matching: a person is matched on their full name only (names.personNameMatcher on 'Last, First'), against short-form filers and individual registrants ('Surname, Given' with no organisation word). A name-only hit is 'possible', with 'name match only, verify identity' in its title. It is 'likely' only when identity.matchSubject reads the registrant on the filing as a company already tied to the person (basis 'company'). It is never 'confirmed'. A company is matched under every known name (sanctions.companyNames, so learned legal names count), against registrant names, doing-business-as parts, business names and foreign-principal names. A match needs sanctions.matchCompanyName (the whole name, legal form set aside) and names.companyMention(...).named. A one-word or ordinary-word name (isOrdinaryWordCompany) stays 'possible' and its title says to verify it is the same company. Privacy: the Address 1/2, City, State and Zip columns of all three files are never read. Only names, registration number, dates, and principal name and country are kept. Category is 'career' for a person and 'corporate' for a company. Severity is always 'info', and the notes always include the statement that FARA registration is lawful. Links go to the eFile browse page https://efile.fara.gov/ords/fara/f?p=1235:10 because the registrant-documents deep link did not render without a session. No threads are emitted. Issue found in shared code, not fixed because the file is outside my scope: http.decodeBody relies on TextDecoder('windows-1252'), and under this Node (v22.22, ICU 78.2) that decoder DROPS bytes 0x80-0x9F (for example 0x92, the apostrophe in O’Brien). So any windows-1252 source decoded through decodeBody loses curly quotes, dashes and euro signs. fara.js works around this with its own small windows-1252 table (csvText) and uses decodeBody only for valid UTF-8. The integrator or the owner of http.js should fix decodeBody the same way."
+ },
+ {
+  "id": "infostealer-exposure",
+  "exportName": "infostealerExposureConnector",
+  "file": "src/server/founder/sources/infostealer.js",
+  "label": "Infostealer exposure of the company domain (Hudson Rock)",
+  "kinds": [
+   "domain"
+  ],
+  "screenGroup": "Breach and leak-site exposure (company level)",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": true,
+  "notes": "Checked live on 2026-11-20 with three requests: theranos.com, uber.com, and a made-up domain that returns all zeros. The response gives total, employees, users, third_parties and totalStealers (the size of the provider's database). It also gives the dates last_employee_compromised and last_user_compromised, but only when there are hits (they are missing for theranos.com). The source reads only those counts and dates. It never reads the logo, data.*_urls, stats.*, antiviruses, employeePasswords/userPasswords, thirdPartyDomains or stealerFamilies, and it never calls the email or username lookups. It runs only on a domain thread for the company's own domain. That means one of three things: the website the user typed (why 'company website given'); a domain identity.addCompanyAlias learned for one of the person's companies; or a domain whose first label is the name of the typed or network-assumed company (plain, or with a try/get/use/join prefix or an hq/app suffix). For a company named with one ordinary word (isOrdinaryWordCompany), the name alone is not enough: the thread must come from a record about the company website (why starting 'company website'). It refuses the person's own site (slugs or why 'personal'), an email address, a person's name, and shared mail, social or hosting domains (companyDomainFromUrl from domains.js plus a local copy of the mail part of SHARED_DOMAINS, because exposure.js does not export targetOf or SHARED_DOMAINS; exporting them would remove that copy). It reuses registrableDomain from exposure.js. It returns one finding with match 'company' (never confirmed or likely, since no person is named) and category 'exposure'. The record is worded as 'Hudson Rock estimates...' and the title reads '{domain}: N employee and M user computers infected by infostealer malware held logins for this domain (provider's estimate, aggregate count)'. Severity is medium only when employees > 0, otherwise low. The finding date is the latest infection date, and with no date the record is kept off the timeline. Its url is the provider's free-tools page, not the address of the lookup's response, which holds captured logins. Zero hits give a plain note saying what was searched and that this is not proof. Any of these throws: a missing or non-numeric count, an empty database (totalStealers 0), counts that do not add up, a non-JSON answer or an HTTP error. An unreadable date gives partial: [..] plus a note. Results are cached once a day per domain through cachedEntry (key exposure:infostealer:v1:<domain>, counts only, a few hundred bytes), and a stale copy is noted. Downloads are capped at 3 MB. Why it is off by default: the provider's terms page could not be read, and the site says the tool is for 'defensive security purposes only'. It runs only when FOUNDER_SOURCES_ON includes 'infostealer-exposure', and FOUNDER_SOURCES_OFF still wins. The owner should confirm the terms or ask Hudson Rock before turning it on. It is a commercial vendor with no published rate limit, so it makes one request per domain per day.",
+  "docsRow": "Breach and leak-site exposure (company level) | Hudson Rock's free infostealer lookup for the company's own domain (only a domain tied to the company; off until the owner turns it on with FOUNDER_SOURCES_ON) | Provider's estimate of how many infected computers held logins for the domain, split into employees and users, with the dates of the latest infections. Counts and dates only: no login, address or computer details"
+ },
+ {
+  "id": "leak-sites-ransomfeed",
+  "exportName": "ransomfeedConnector",
+  "file": "src/server/founder/sources/leakSitesMore.js",
+  "label": "Ransomware leak-site claims (RansomFeed)",
+  "kinds": [
+   "company",
+   "domain"
+  ],
+  "screenGroup": "Dark-web leak sites and data breaches (company level)",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Live check 2026-11-20 with the code's own client name: GET https://api.ransomfeed.it/search/{term} returns a JSON array of {id, date, victim, gang, website, country, city, region, work_sector, description, victim_notes, dataset_pub, hash, fortibleed_leak}. 'uber' gave 51 rows (mostly matched in the description), 'Nikola' gave 1 row (Nikolaus & Hohenadel, which the code drops), 'theranos' gave [], 'MGM%20Resorts' gave [] (two-word searches find nothing), 'mgmresorts.com' gave the MGM/alphv row (the search also covers the website field). Search words are the joined name, the joined core, the first word of a multi-word name, and the company's own known websites (at most 4). A domain task searches the domain. Only id, date, victim, gang, website, country and work_sector are read. Description, victim_notes, dataset_pub, hash, city and region are never read or returned. The website is stored as data.domain because cleanData drops a field named 'website' whose value is not a link. One finding per group, worded 'claimed, unverified', linked to ransomfeed.it/index.php?page=post_details&id_post={id}. Grading follows exposure.js: 'company' only on the company's own website, its exact distinctive name, or a learned legal name; a one-word ordinary name (isOrdinaryWordCompany) or a padded name gives 'possible' with 'check it is the same company'. 'likely' and 'confirmed' are never set. The first search failing, a non-array answer, or rows without victim/gang throw. A later search failing returns partial:[...] with a note. A 100-row (capped) answer adds a note. An empty result adds a plain note saying what was searched and that it is not proof. Pacing: at load the module sets HOST_GAP_MS['api.ransomfeed.it']=2000 if it is unset (the integrator may move this into http.js), and the connector has maxParallel=1. Private copies of SHARED_DOMAINS, targetOf, ownDomainsOf, legalNamesOf, gradeMatch and domainsIn are taken from exposure.js because that file does not export them; the integrator could export them there and import them here. Terms: CC BY 4.0, and the attribution 'RansomFeed (ransomfeed.it, CC BY 4.0)' is used as sourceLabel.",
+  "docsRow": "Dark-web leak sites and data breaches (company level) | RansomFeed's index of ransomware leak-site posts (2021 to now), searched by company name, website or domain | A second live index: the victim as listed, the group, first and last dates, website, country and sector, each 'claimed, unverified'; the attacker's description and dump links are never read"
+ },
+ {
+  "id": "leak-sites-archive",
+  "exportName": "ransomwatchArchiveConnector",
+  "file": "src/server/founder/sources/leakSitesMore.js",
+  "label": "Ransomware leak-site archive, 2020 to June 2025 (ransomwatch)",
+  "kinds": [
+   "company",
+   "domain"
+  ],
+  "screenGroup": "Dark-web leak sites and data breaches (company level)",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Live check 2026-11-20: https://raw.githubusercontent.com/joshhighet/ransomwatch/main/posts.json returns 200, 2.29 MB, a JSON array of 16,072 {post_title, group_name, discovered}, with the newest post on 2025-06-16. Titles carry HTML entities ('&amp;'), which decodeEntities decodes. The file is downloaded through cachedEntry('exposure:ransomwatch-posts:v1', one day, maxBytes 6 MB) and stored as a compact [title, group, day] index of about 1 MB, which is under the 6 MB stored-cache limit. A non-array answer, an HTTP error, or fewer than 10,000 readable posts (an empty, truncated or changed file) throws. A copy that is not fresh adds a note with its date. Matching: a squashed-substring prefilter, then matchOrgName, a learned legal name or the own domain, as in exposure.js. Only ownNameIn's part of an attacker title is ever shown. One finding per group, worded 'claimed, unverified', and the quote says the archive stops in 2025-06. The link is the raw posts.json, because the archive has no page per post. A note always says the archive is frozen. When nothing matches, the note says what was searched and that a frozen archive is not a current screen or proof. Public domain (The Unlicense).",
+  "docsRow": "Dark-web leak sites and data breaches (company level) | The ransomwatch public-domain archive of about 16,000 leak-site posts (January 2020 to June 2025), downloaded once a day and matched by company name or domain | Older leak-site listings when the live indexes miss them or are down: the victim as listed, the group and dates, 'claimed, unverified'; frozen, so never a current or clean screen"
+ },
+ {
+  "id": "asic-banned",
+  "exportName": "asicBannedConnector",
+  "file": "src/server/founder/sources/asic.js",
+  "label": "Australian register of banned and disqualified persons and organisations (ASIC)",
+  "kinds": [
+   "subject",
+   "company",
+   "associate",
+   "relative"
+  ],
+  "screenGroup": "Sanctions and watchlists",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": true,
+  "offByDefault": true,
+  "notes": "OFF unless FOUNDER_SOURCES_ON contains 'asic-banned' (FOUNDER_SOURCES_OFF still wins); unavailableReason 'not enabled on this deployment'. Reason: data.gov.au robots.txt is Disallow: / although the data is CC BY 3.0 AU and served through the documented CKAN interface. Checked live on 2026-11-20: package_show for asic-banned-disqualified-per and -org answered (success true, licence CC BY 3.0 AU, files dated 2026-11-16); the persons TSV (7,240 rows, 1.1 MB, UTF-8 with BOM, 11 columns) and orgs TSV (15 rows) were downloaded and the real files parse (persons index 803 KB, under the 6 MB cache cap). Per lookup: package_show (to find the monthly 'Current' TSV) then the TSV, each list cached once a day (keys asic:banned:persons:v1, asic:banned:orgs:v1), so 2 requests per list per day. Person tasks screen the persons file, company tasks the organisations file, using debarment.screenRows and sanctions.screenNames/companyNames (every known company name). Grading: gradeListedPerson then capped, so 'confirmed' becomes 'likely'; 'likely' only when the register comment names the company the check started with near the full name; otherwise 'possible' with ': name match only, verify identity' in the title. Associates and relatives are 'possible' unless the record names the subject, and capped at likely. Company hits must also pass names.companyMention; a one-word name (an ordinary word above all, via isOrdinaryWordCompany) stays 'possible' with verify identity; multi-word whole-name matches are 'company'. Dropped: suburb, postcode, street, the ASIC document number, the org's ACN, and country placeholders; kept: AU state code only (to rule out namesakes), ban type, start/end dates, and a cleaned comment of up to 300 characters. Failures throw: catalogue not answering, no current TSV, header changed, more than 2% malformed rows, fewer than 3,000 persons or 5 orgs. A name too short, or a run while off, returns partial (array) with a note. A stale copy adds a partial note. Integrator: the registry test's 'only watchlists and joint lookups accept a relative or associate' allow-list must gain 'asic-banned' (or drop associate/relative from kinds). debarment.js's header comment says ASIC was 'looked at and not used'; the docs need updating when it is registered. A 'Mr Surname' later in a comment does not tie the company to the full name (shared matcher behaviour), so most real hits will stay possible.",
+  "docsRow": "Sanctions and watchlists (off by default; FOUNDER_SOURCES_ON=asic-banned) | ASIC's register of banned and disqualified persons and organisations, the monthly TSV files on data.gov.au, read once a day | Whether the person, an associate, a relative or a company is banned from financial services, credit, securities or futures dealing, or disqualified from managing corporations in Australia, with type, dates and state; name-only matches are shown as possible"
+ },
+ {
+  "id": "nhtsa-recalls",
+  "exportName": "nhtsaRecallsConnector",
+  "file": "src/server/founder/sources/recalls.js",
+  "label": "US vehicle safety recalls (NHTSA)",
+  "kinds": [
+   "company"
+  ],
+  "screenGroup": "US federal records",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Reads the US DOT open-data copy of NHTSA recalls (datahub.transportation.gov/resource/6axg-epim.json, public domain, documented data service; robots.txt Disallow:/ is for crawlers and the research notes judge the documented data service as permitted, the integrator may want the owner to know). One request per known company name (up to 2: typed name plus a learned legal alias via sanctions.companyNames), $select limits the fields so corrective_action (customer-service phone numbers) is never requested, upper(manufacturer) like '%WORD%WORD%', newest first, limit 200 (a full page returns partial). Each search cached a day (key recalls:nhtsa:v1:<pattern>, compact rows, well under 6 MB). Own 1.1 s per-host spacing (Crawl-delay 1), since http.js was not to be edited. A row is kept only when the manufacturer equals a known name once the legal form is set aside (government.whichName); one finding per known name, match 'company', or 'possible' with 'verify it is the same company' wording when names.isOrdinaryWordCompany says the name is one ordinary word. Never 'likely' or 'confirmed'. Severity high when any recall carries do-not-drive or park-outside, medium when a consequence names fire, else low. Non-array answer, HTTP error, or rows lacking nhtsa_id/manufacturer throw; one known name failing is partial. Notes say what was searched and found nothing, and which same-word manufacturers were left out. Live 2026-11-20 through the connector: Nikola -> 6 recalls by Nikola Corporation 2022-2025, about 970 units, 1 park-outside/do-not-drive, severity high, match company. Exports also: RECALL_CONNECTORS, __resetRecallsForTests (tests), nhtsaLike, recallGrade.",
+  "docsRow": "US vehicle safety recalls | NHTSA recall records on the US DOT open-data site, searched by manufacturer under every known company name (`sources/recalls.js`) | Recalls filed by the founder's company: what failed, the consequence, units affected, do-not-drive or park-outside warnings"
+ },
+ {
+  "id": "cpsc-recalls",
+  "exportName": "cpscRecallsConnector",
+  "file": "src/server/founder/sources/recalls.js",
+  "label": "US consumer product recalls (CPSC)",
+  "kinds": [
+   "company"
+  ],
+  "screenGroup": "US federal records",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Reads the CPSC recalls service (www.saferproducts.gov/RestWebServices/Recall?format=json, public domain). Two searches per known name (RecallTitle= and Manufacturer=), each cached a day on its own key (recalls:cpsc:v1:<param>:<term>), 30 s per-request timeout (the manufacturer search took 15 s live), 1.1 s own spacing. A recall is kept when a firm the title names ('X Recalls ...', 'X and Y Recall ...', '... Recalled by X') or a listed manufacturer, importer or distributor equals a known name once the legal form is set aside; retailers never count. Same grading rules as nhtsa-recalls (company, or possible with verify wording for an ordinary one-word name). Never read: ConsumerContact (phones), Images, Injuries (accounts about people), Retailers; the city after a firm name ('..., of New York') is cut. Severity medium when title or hazard names death, fire, burn, electrocution, strangulation, suffocation or poisoning, else low. Failures: non-JSON (Akamai access-denied page), non-array, rows without RecallNumber/RecallID and Title, and the service's own error pseudo-record (RecallID 0, Title 'Error retrieving Recalls: The underlying provider failed on Open.') all throw; one of the two searches failing keeps the other's recalls and is partial; both failing throws. LIVE STATUS: at the start of the session the service answered (Peloton title search: 5 recalls, shape used for fixtures; Theranos: []; Manufacturer=Peloton: [] after ~15 s). Later the same day it answered every search with the error pseudo-record (Uber, Theranos), and the connector reported that as a failure, as intended. A successful end-to-end run through the connector code was therefore not observed; the parser is built from the real response shape captured earlier. robots.txt for saferproducts.gov could not be read (Akamai), per the research notes.",
+  "docsRow": "US consumer product recalls | CPSC recall notices, searched by recall title and by manufacturer under every known company name (`sources/recalls.js`) | Recalls announced by the founder's company or listing it as maker, importer or distributor: product, units and hazard"
+ },
+ {
+  "id": "gdpr-fines",
+  "exportName": "gdprFinesConnector",
+  "file": "src/server/founder/sources/gdprFines.js",
+  "label": "EU data-protection fines (CMS Enforcement Tracker: enforcementtracker.com, provided by CMS, CC BY-NC-SA 4.0)",
+  "kinds": [
+   "company"
+  ],
+  "screenGroup": "Regulators and enforcement (company level, beside the UK ICO register screen)",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Reads https://www.enforcementtracker.com/ once a day through cachedEntry (key gdpr:cms-enforcement-tracker:v1). The whole dataset is the JSON inside <script id=\"et-cases\">. Checked live on 2026-11-20: 3,432 cases in the list, 2,841 kept after dropping private individuals, compact index about 770 KB (well under the 6 MB cache limit), maxBytes 6 MB. No other link on the site is ever followed. Each finding links to /ETid-<n>.\n\nLicence and switch: the licence is CC BY-NC-SA 4.0. The owner stated the site is non-commercial, so the source is on. The attribution 'enforcementtracker.com, provided by CMS' is in the label, in every quote and in data.attribution and data.licence. If the site is ever used commercially, switch it off with FOUNDER_SOURCES_OFF=gdpr-fines (enabled() reads it).\n\nMatching: company threads only. Every party in a case (split on new lines and commas, with a legal form such as 'S.A.U.' cut off by a line break kept with its name) is compared with every known name of the company (sanctions.companyNames) using exposure.matchOrgName. The grade is 'company' only for the exact distinctive name, or for a learned legal name carried whole (the bare brand 'Uber B.V.' does not count). A company named with one ordinary word (names.isOrdinaryWordCompany), or a name padded with general words, is graded 'possible' and titled 'name match only, verify it is the same company'. Those records also carry excludeFromTimeline and companyNamesake. The source never sets 'likely' or 'confirmed'. A company name that is the person's own name is never screened.\n\nPrivacy: when the list is read, rows in the sector 'Individuals and Private Associations' and parties that are persons (private individual, physician, mayor, police officer and so on, with no legal form) are dropped and never stored. Parties that look like persons inside a joint case are shown as 'another party'.\n\nFailures: a missing or unreadable block, fewer than 1,500 cases, or more than 10% malformed rows all throw. A name too short or too general to screen returns partial with a note. A stale cached copy returns partial with 'list as of'.\n\nNotes and severity: every lookup carries a coverage note, and when nothing is found the note says what was searched and that nothing was found. Severity is medium, or high for fines of EUR 1M or more. Category is 'regulatory'.\n\nFor the integrator: import { gdprFinesConnector } from './gdprFines' into sources/index.js. The registry test allow-list does not need changing, because the source takes no relatives or associates.\n\nLive check on the saved copy: the typed name Uber, with the legal name 'Uber Technologies, Inc.' learned, gives the three Dutch fines (EUR 824,990,000 on 2026-08-21, EUR 290,000,000 and EUR 10,000,000) as 'company'.",
+  "docsRow": "Breach and leak-site exposure / regulators (company level) | EU data-protection fines, CMS Enforcement Tracker (enforcementtracker.com, provided by CMS, CC BY-NC-SA 4.0; `sources/gdprFines.js`), read once a day | Fines EU and EEA data-protection authorities published against the founder's companies: country, authority, date, amount in euros, articles breached, type of violation. Company only; fines against private individuals are never read"
+ },
+ {
+  "id": "ftc-cases",
+  "exportName": "ftcCasesConnector",
+  "file": "src/server/founder/sources/regulatorsMore.js",
+  "label": "US Federal Trade Commission cases and proceedings",
+  "kinds": [
+   "subject",
+   "company"
+  ],
+  "screenGroup": "Regulators and filings",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "On only when FOUNDER_HTTP_CONTACT is set: checked live on 2026-11-20, ftc.gov answers 404 to the generic client name and 200 when the name carries a contact URL. While no contact is set, it reports 'not enabled on this deployment' with the reason. One search of www.ftc.gov/legal-library/browse/cases-proceedings?search=<name> per lookup, first page only (20 results, since robots.txt disallows ?items_per_page=). When the page's count line shows more results, the lookup returns partial. robots.txt sets Crawl-delay 5: the file spaces requests 5.1 s apart through its own waitTurn and sets maxParallel 1. Each result page is about 1 MB of HTML, so maxBytes is 3 MB and nothing is cached (person searches). A person must have their full name in the case title, or in the matter a commissioner statement is about, never as the statement's author. A match is 'likely' only when the title or summary also names the company given; otherwise 'possible' with 'name match only, verify identity'. A company is matched in two ways: (a) the shared companyMentionMatcher on the title gives 'company'; (b) a structured party of the title equal to one of the company's known names (legal form set aside) gives 'company', or 'possible' when the name is one word. Live example: 'Uber, FTC v.' is 'possible' for Uber, while titles naming 'Uber Technologies, Inc.' tie once that legal name has been learned. The summary is kept to its first two sentences after cleanSentences. Integrator: the 5 s gap could move into http.js HOST_GAP_MS ('www.ftc.gov': 5100). I did not edit http.js."
+ },
+ {
+  "id": "esma-sanctions-register",
+  "exportName": "esmaSanctionsConnector",
+  "file": "src/server/founder/sources/regulatorsMore.js",
+  "label": "EU register of national regulators' sanctions (ESMA)",
+  "kinds": [
+   "company"
+  ],
+  "screenGroup": "Regulators and filings",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Downloads the whole register in one Solr request (rows=5000, about 470 KB, 1,315 entries checked live on 2026-11-20). It requests only the fields it needs: never sn_text, which holds decision text with addresses. The download goes through cachedEntry at most once a day; the stored index is about 180 KB. The load throws when numFound exceeds the docs returned, when there are fewer than 500 docs or 200 named firms, or when the format has changed. Firm level only: rows with no entity name (people or withheld names) are dropped. Planned only for a company with a sign of an EU or EEA tie: a European legal form in its name or a learned legal name, European words in why it was found, a European domain, or a place given. The company given gets a late 'esma.if-placed' lookup, whose run() also reads tied records: an LEI jurisdiction in the EEA, or a European register record of it. Without a tie it is not asked: it makes no request and returns a note plus partial ['not asked: no tie to the EU or EEA found']. Matching uses every known name of the company (matchCompanyName) or the company's LEI from a tied lei-register finding. A one-word name gives 'possible'. Every lookup carries ESMA's non-endorsement note, as its legal notice requires. Overlaps OpenSanctions eu_esma_sanctions (opensanctions.js, off by default)."
+ },
+ {
+  "id": "sfc-hk-enforcement",
+  "exportName": "sfcEnforcementConnector",
+  "file": "src/server/founder/sources/regulatorsMore.js",
+  "label": "Hong Kong Securities and Futures Commission enforcement news",
+  "kinds": [
+   "subject",
+   "company"
+  ],
+  "screenGroup": "Regulators and filings",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": true,
+  "notes": "Off unless FOUNDER_SOURCES_ON contains 'sfc-hk-enforcement'. The research notes flag that the POST search behind the SFC news page (apps.sfc.hk/edistributionWeb/api/news/search) is not documented as public. The SFC's terms allow personal or internal use only, so the owner must agree first. robots.txt allows the path (checked live). One POST {lang:'EN',category:'enforcement',pageNo:0,pageSize:5000} returns all 2,601 releases (0.94 MB live). They are cached once a day as a 350 KB index. Masked targets are skipped. The load throws when total exceeds the items returned, when there are fewer than 1,500 releases, when no release is from the last 18 months, or when the format has changed. Names are listed surname first ('HWANG Sung Kook Bill', 'CHOW Pak Wah, Oliver'); sfcPersonForms turns them round, with an English-name form, before sanctions.matchPersonName. A one-word target counts as a firm. A person match is 'likely' only when the same release names the company given as a co-target or in its title; otherwise it is 'possible' with 'verify identity'. Other individuals in a release are counted, never named. Planned at full prior only with a Hong Kong sign: HK words in the company, orgs, schools or place, or a .hk domain. The person and the company given otherwise get a late 'if-placed' lookup that reads tied records (LEI jurisdiction HK, or a tied record mentioning Hong Kong). Not asked means a note plus partial. Live check: Bill Hwang with company Tiger Asia Management gives 11 releases, graded 'likely'."
+ },
+ {
+  "id": "us-tax-court",
+  "exportName": "usTaxCourtConnector",
+  "file": "src/server/founder/sources/regulatorsMore.js",
+  "label": "US Tax Court dockets and opinions",
+  "kinds": [
+   "subject",
+   "company"
+  ],
+  "screenGroup": "Courts and prosecutors",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": true,
+  "notes": "Off unless FOUNDER_SOURCES_ON contains 'us-tax-court'. The research notes flag that this is the undocumented search behind the DAWSON web app, in the same class as the removed USPTO search, so the owner must agree first. It has two templates, taxcourt.cases (/public-api/search?petitionerName=) and taxcourt.opinions (/public-api/opinion-search?keyword=...&opinionTypes=MOP,SOP,TCOP,OST,RPT). It asks the green host first and tries the blue one only when green is down (5xx, network or timeout); live on 2026-11-20 blue answered 500 'disabled due to a deployment'. The search is not cached because it is about a person; requests are spaced 1 s apart and maxParallel is 1. A person is matched on petitionerNames, or for opinions on the caption, with sanctions.matchPersonName. Joint names ('Sunil & Mita Patel') are split. Estates, deceased petitioners and trusts are skipped. Co-petitioners (spouses) are counted, never named. Petitioner states are not kept, and documents are never opened. Every person record is 'possible' with 'verify identity': the Court lists no employer, so there is no second fact. A company is matched with '& Subsidiaries' removed; a one-word name gives 'possible'. When results reach 500 the lookup is marked partial."
+ },
+ {
+  "id": "breach-registers-delaware",
+  "exportName": "delawareBreachNoticesConnector",
+  "file": "src/server/founder/sources/breachRegistersMore.js",
+  "label": "Delaware Attorney General breach notices",
+  "kinds": [
+   "company"
+  ],
+  "screenGroup": "Breach and leak-site exposure (company level)",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Reads the whole Delaware open-data breach list (data.delaware.gov resource dir6-wx8v, about 480 notices, 2012 to Nov 2026) once a day through cachedEntry, as a compact index (about 200 KB). Throws when the reply is not an array, has fewer than 100 rows, or most rows lack company_name. Links each notice to its sample notice PDF only when it is on attorneygeneral.delaware.gov (never opened), else to the dataset page; notices that share a link are grouped into one finding. The 1971 placeholder date is dropped. Data kinds become general labels; health, medical, biometric and insurance kinds become 'Sensitive personal details'. Live check 2026-11-20 with Uber plus its learned legal name: 1 finding, match 'company'. Stale copy gives partial ['Delaware breach notices: list as of <date>']. Exports also include breachRegistersMoreConnectors (an array of all four), which connectorsOf() skips because it is not a connector. prior 0.25, timeoutMs 12000, switch-off id via FOUNDER_SOURCES_OFF.",
+  "docsRow": "Breach and leak-site exposure (company level) | Delaware Attorney General breach notices on the state open-data portal, whole list once a day | Whether the company filed a breach notice in Delaware: date reported, breach date, Delaware and total people affected, kinds of data (labels only), link to the official notice"
+ },
+ {
+  "id": "breach-registers-vermont",
+  "exportName": "vermontBreachNoticesConnector",
+  "file": "src/server/founder/sources/breachRegistersMore.js",
+  "label": "Vermont Attorney General breach notices",
+  "kinds": [
+   "company"
+  ],
+  "screenGroup": "Breach and leak-site exposure (company level)",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Two parts. (1) The current table on ago.vermont.gov/categories/security-breach-notices (from about March 2026, about 575 rows), read once a day. It is required: if it is missing, empty or undated, the lookup throws. (2) The archived notice listing (?page=0..49, about 2,460 notices from 2022 to April 2026, each with its own /document/ page), read once a week, one page after another with a 1 s pause. The load can take up to 180 s and the copy may be up to 5 weeks old. If a check cannot wait for the archive, or the archive cannot be read, the lookup still searches the current table and returns partial ['Vermont archived notices (2022 to April 2026) not searched'] with a plain note. Archive titles in several spellings ('Date Brach Notice', hyphens for spaces, '.pdf') are cleaned to the organisation name. Rows from the table have no page of their own and are grouped into one finding per company. robots.txt allows /categories/. Live check: current table plus archive page 0 only, through the test hook __setVermontArchiveForTests; the full 50-page crawl was not run live. Uber found, match 'company'.",
+  "docsRow": "Breach and leak-site exposure (company level) | Vermont Attorney General security breach notices: the current table daily and the archived notice pages (2022 to April 2026) weekly | Whether the company filed a breach notice in Vermont: date reported, organisation type, Vermont people affected, kinds of data (labels only), link to the notice page"
+ },
+ {
+  "id": "breach-registers-maryland",
+  "exportName": "marylandBreachNoticesConnector",
+  "file": "src/server/founder/sources/breachRegistersMore.js",
+  "label": "Maryland Attorney General breach notices",
+  "kinds": [
+   "company"
+  ],
+  "screenGroup": "Breach and leak-site exposure (company level)",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Reads the yearly lists for 2022 to 2025 from the public page's own SharePoint list call (Accept application/json;odata=nometadata), each once a day, about 5,260 notices. The 2020 and 2021 lists named in the page script now return 404, and there is no 2026 list, so coverage ends 21 March 2025. Every lookup says this in a note. A year that fails, is empty or has another shape gives partial ['Maryland notices for <years> not searched']. If every year fails, the lookup throws. Keeps the case number (ITU-nnnnnn) and a short 'how it happened' only when it passes isSensitive, mentionsMinor and the protected-kind check. Links to the list page, not to the notice PDFs, so notices are grouped per company. Live check: Uber 2023 notice found, match 'company'.",
+  "docsRow": "Breach and leak-site exposure (company level) | Maryland Attorney General security breach notices, yearly lists 2022 to March 2025, read daily | Whether the company filed a breach notice in Maryland: date received, Maryland people affected, kinds of data (labels only), how it happened, case number"
+ },
+ {
+  "id": "breach-registers-indiana",
+  "exportName": "indianaBreachNoticesConnector",
+  "file": "src/server/founder/sources/breachRegistersMore.js",
+  "label": "Indiana Attorney General breach reports",
+  "kinds": [
+   "company"
+  ],
+  "screenGroup": "Breach and leak-site exposure (company level)",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Reads the in.gov security-breaches page once a day to find the yearly PDF links by their year text (file names are irregular). Then reads only the newest three yearly reports (2024, 2025, 2026 today): the current year daily, past years every 30 days. They are about 0.5 to 1 MB each and are parsed with pdf-parse (pdf-parse/lib/pdf-parse.js, already a dependency). Columns are found from the header item positions, so 'IN Affected' and 'Total Affected' are never confused. Report-page lines within 3 points are joined, and a wrapped name is joined to its row. Reports from 2023 and earlier use other layouts (2023 is rotated; 2014 removes the spaces from names) and are not read; every lookup says so. Indiana is kept, not dropped, because the three newest reports were parsed reliably live (about 4,590 rows). A report with no header or mostly undated rows throws for that year, which gives partial. If every report fails, or the listing has no year links, the lookup throws. Live check: Uber 2024 notice found, match 'company'. pdf.js prints 'Warning: TT' lines on the console while parsing.",
+  "docsRow": "Breach and leak-site exposure (company level) | Indiana Attorney General year-to-date data breach reports (PDF), the newest three years | Whether the company sent Indiana a breach notice: notice and breach dates, Indiana and total people affected, link to that year's report"
+ }
+]

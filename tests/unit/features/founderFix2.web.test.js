@@ -100,7 +100,9 @@ describe('a one-word name in a headline-case title', () => {
 
   test('a sentence-case snippet can still place it', async () => {
     const s = subject();
-    expect(await keptByBoth(s, 'Flow', r('Flow Hit With Lawsuit Over Fraud Claims', { snippet: 'Tenants filed a lawsuit against Flow last week.' }))).toBe(true);
+    // R3: "Flow" is an ordinary word; a sentence-case capital alone no longer places it (never the bare word)
+    expect(await keptByBoth(s, 'Flow', r('Flow Hit With Lawsuit Over Fraud Claims', { snippet: 'Tenants filed a lawsuit against Flow last week.' }))).toBe(false);
+    expect(await keptByBoth(s, 'Flow', r('Flow Hit With Lawsuit Over Fraud Claims', { snippet: 'Tenants filed a lawsuit against Flow Inc. last week.' }))).toBe(true);
   });
 });
 

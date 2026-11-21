@@ -134,12 +134,14 @@ describe('the strongest model that can answer goes first', () => {
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     expect(await providers.chatComplete(ask)).toBeNull();
     expect(called(axios)).toEqual([
+      // a service that fails on its side goes to the back of the line while another service is waiting:
+      // its second model is asked only after every service has had a turn
       'generativelanguage:gemini-4-hydrogen',
-      'generativelanguage:gemini-3.8-flash',
       'openrouter:thinkingmachines/inkling-2-small:free',
-      'openrouter:inclusionai/ling-3.2-flash:free',
-      'openrouter:nvidia/nemotron-3-ultra-550b-a55b:free',
       'groq:qwen/qwen3.8-27b',
+      'groq:openai/gpt-oss-120b',
+      'generativelanguage:gemini-3.8-flash',
+      'openrouter:inclusionai/ling-3.2-flash:free',
     ]); // six attempts at most
     console.warn.mockRestore();
   });
@@ -239,7 +241,9 @@ describe('the strongest model that can answer goes first', () => {
     expect(body.model).toBe('qwen/qwen3.8-27b');
     expect(body.max_completion_tokens).toBe(2700);
     expect(body.max_tokens).toBeUndefined();
-    expect(body).toEqual(expect.objectContaining({ reasoning_effort: 'high', reasoning_format: 'hidden' }));
+    // no room beside the answer for hidden reasoning (which counts in the same allowance): qwen answers straight away
+    // (Groq's qwen takes only 'none' or 'default'; 'high' used to cut the answer short)
+    expect(body).toEqual(expect.objectContaining({ reasoning_effort: 'none', reasoning_format: 'hidden' }));
   });
 
   test('an answer that fails the caller\'s checks sends the request to the next model, and the model is marked down', async () => {

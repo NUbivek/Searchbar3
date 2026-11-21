@@ -252,7 +252,8 @@ describe('ukCompaniesConnector: a company', () => {
     const ctx = ctxFor('Arthur Mensch', 'Mistral AI');
     addAnchor(ctx.subject, 'people', 'Guillaume Lample', 'given');
     const out = await ukCompaniesConnector.run(companyTask('Mistral AI'), ctx);
-    expect(calls.length).toBeLessThanOrEqual(5);
+    // search, two officer lists, two overviews and the tied company's owners page (round 3 reads owners too)
+    expect(calls.length).toBeLessThanOrEqual(6);
     expect(calls.some((c) => /07574333/.test(c.url))).toBe(false); // Mistral Aircraft is not a candidate
 
     const record = out.findings.find((f) => f.url.endsWith('/company/14894136'));
@@ -540,7 +541,7 @@ describe('ycDirectoryConnector', () => {
     const out = await ycDirectoryConnector.run(companyTask('Stripe'), ctxFor('Jane Roe', 'Stripe'));
     expect(out.findings).toHaveLength(1);
     expect(out.findings[0]).toMatchObject({ match: 'possible' });
-    expect(out.findings[0].title).toMatch(/Jane Roe is not on its founder list/);
+    expect(out.findings[0].title).toMatch(/its founder list does not include Jane Roe/);
     expect(out.threads).toEqual([]);
   });
 

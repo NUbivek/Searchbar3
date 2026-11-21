@@ -4,7 +4,13 @@
  *   courtDocketsConnector       US federal dockets and opinions (CourtListener), needs a token
  *   courtRecordsOpenConnector   the same dockets by case title (Internet Archive copy), when there is no token
  *   dojConnector                US Department of Justice press releases
- *   brokerCheckConnector        FINRA BrokerCheck and SEC adviser registrations, disclosures and bars
+ *   brokerCheckConnector        FINRA BrokerCheck and SEC adviser registrations, disclosures and bars; the
+ *                               Form ADV record of a fund or adviser firm tied to the person
+ *
+ * A company is searched and matched under every name it is known by in the
+ * check (companyNames: the name typed and the legal names identity.js learned
+ * from records tied to the person). Once a legal name is known, a company
+ * typed as an ordinary word ("Ramp") is no longer matched by that bare word.
  *   ukGazetteConnector          UK corporate insolvency and winding-up notices
  *   ukCaseLawConnector          judgments of UK courts and tribunals
  *   bodaccConnector             French insolvency proceedings, sales and dissolutions
@@ -29,6 +35,9 @@ import { makeFinding, makeThread, severityFromText } from '../finding';
 import { matchSubject, companyKeyStrict } from '../identity';
 import { threadsFromResult } from '../extract';
 import { companyKeys } from '../../founderCheck';
+import { companyMention, isOrdinaryWordCompany, NICKNAME_LIST } from '../names';
+import { mentionsMinor, isSensitive } from '../guardrails';
+import { withAliasHold } from './alias';
 
 /* ------------------------------------------------------------------ text helpers */
 
@@ -57,20 +66,9 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 /* ------------------------------------------------------------------ people's names */
 
 const NAME_SUFFIX = new Set(['jr', 'sr', 'ii', 'iii', 'iv', 'esq', 'md', 'phd', 'cpa']);
-// The formal name first, then what people go by. Used both ways.
-const NICKNAME_GROUPS = [
-  ['samuel', 'sam'], ['michael', 'mike'], ['william', 'bill', 'will'], ['robert', 'bob', 'rob'], ['james', 'jim', 'jimmy'],
-  ['joseph', 'joe'], ['thomas', 'tom'], ['daniel', 'dan'], ['david', 'dave'], ['steven', 'stephen', 'steve'],
-  ['christopher', 'chris'], ['matthew', 'matt'], ['nicholas', 'nick'], ['anthony', 'tony'], ['benjamin', 'ben'],
-  ['alexander', 'alex'], ['andrew', 'andy', 'drew'], ['gregory', 'greg'], ['jeffrey', 'jeff'], ['kenneth', 'ken'],
-  ['lawrence', 'larry'], ['peter', 'pete'], ['richard', 'rick', 'rich', 'dick'], ['ronald', 'ron'], ['timothy', 'tim'],
-  ['edward', 'ed', 'eddie'], ['frederick', 'fred'], ['charles', 'charlie', 'chuck'], ['jonathan', 'jon'], ['joshua', 'josh'],
-  ['zachary', 'zach', 'zack'], ['nathaniel', 'nathan', 'nate'], ['philip', 'phillip', 'phil'], ['douglas', 'doug'],
-  ['donald', 'don'], ['raymond', 'ray'], ['walter', 'walt'], ['gabriel', 'gabe'], ['maxwell', 'max'], ['patrick', 'pat'],
-  ['elizabeth', 'liz', 'beth'], ['katherine', 'catherine', 'kate', 'katie', 'kathy'], ['jennifer', 'jen', 'jenny'],
-  ['susan', 'sue'], ['margaret', 'meg', 'maggie', 'peggy'], ['rebecca', 'becky'], ['abigail', 'abby'], ['deborah', 'debbie', 'deb'],
-  ['victoria', 'vicky'], ['christine', 'christina', 'chris', 'tina'], ['jacqueline', 'jackie'], ['pamela', 'pam'], ['cynthia', 'cindy'],
-];
+// The formal name first, then what people go by. Used both ways. The one shared table in names.js, so every
+// source reads the same diminutives.
+const NICKNAME_GROUPS = NICKNAME_LIST;
 const NICK = new Map();
 for (const group of NICKNAME_GROUPS) for (const n of group) NICK.set(n, uniq([...(NICK.get(n) || []), ...group]));
 const sameGiven = (a, b) => a === b || Boolean(NICK.get(a)?.includes(b));
@@ -96,11 +94,11 @@ const inOrder = (small, big) => {
 /** "bankman fried" written as two parts is the same surname as "bankman-fried". */
 const joinSurname = (c, surname) => (surname.includes('-') && c.length >= 3 && `${c[c.length - 2]}-${c[c.length - 1]}` === surname ? [...c.slice(0, -2), surname] : c);
 
-function tokensMatch(candidate, subject) {
+function tokensMatch(candidate, subject, { strict = false } = {}) {
   const c = joinSurname(candidate, subject[subject.length - 1]);
   const s = joinSurname(subject, c[c.length - 1] || '');
   if (c.length < 2 || s.length < 2) return false;
-  if (!sameGiven(c[0], s[0]) || c[c.length - 1] !== s[s.length - 1]) return false;
+  if (!(strict ? c[0] === s[0] : sameGiven(c[0], s[0])) || c[c.length - 1] !== s[s.length - 1]) return false;
   const cm = c.slice(1, -1);
   const sm = s.slice(1, -1);
   return cm.length >= sm.length ? inOrder(sm, cm) : inOrder(cm, sm);
@@ -124,10 +122,32 @@ export function person(subjectOrName) {
   return { name, variants, forms, given, surname, queryNames: uniq([name, formal]) };
 }
 
-/** Is this structured name (a party, a registrant) the person's own name, part for part? */
-export function sameName(candidate, who) {
+/**
+ * Is this structured name (a party, a registrant) the person's own name, part
+ * for part? A diminutive of the first name ("Samuel" for "Sam") counts here, so
+ * the record is found; `strict` asks for the first name as given.
+ */
+export function sameName(candidate, who, { strict = false } = {}) {
   const c = personTokens(candidate);
-  return c.length >= 2 && who.forms.some((s) => tokensMatch(c, s));
+  return c.length >= 2 && who.forms.some((s) => tokensMatch(c, s, { strict }));
+}
+
+/**
+ * A record found through a diminutive of the first name only (the party is
+ * "Samuel Lowell", the person "Sam Lowell") may be a relative or a namesake:
+ * the court sources grade it with the person's own name in the text, so a
+ * confirmed grade is held at likely here. `evidence` is what named the person
+ * (the matching party, the sentence); when any of it gives the full name the
+ * grade stands. Shared by courts.js and courtsMore.js.
+ */
+export function namedInFull(subject, who, evidence) {
+  const texts = (Array.isArray(evidence) ? evidence : [evidence]).map((t) => clean(t)).filter(Boolean);
+  return !texts.length || texts.some((t) => sameName(t, who, { strict: true }) || (typeof subject?.hasName === 'function' && subject.hasName(t)));
+}
+export function holdDiminutive(finding, subject, who, evidence) {
+  if (!finding || finding.match !== 'confirmed') return finding;
+  if (namedInFull(subject, who, evidence)) return finding;
+  return { ...finding, match: 'likely', matchFixed: true, matchReasons: [...(finding.matchReasons || []), 'the record gives the person only under another form of the first name'] };
 }
 
 const casings = (w) => uniq([w, w.toUpperCase(), cap(w.toLowerCase()), stripAccents(w), stripAccents(w).toUpperCase()]).map(escapeRe).join('|');
@@ -183,10 +203,21 @@ export function namesPerson(text, who) {
  * Corporation", "Milton"]; "Curtis James Holmes and Elizabeth Holmes" (a
  * joint bankruptcy) -> both debtors. Bracketed notes go to `asides`.
  */
+// What follows the company in a class or derivative caption: "In re Nikola Corporation Securities Litigation",
+// "In re Tesla Motors, Inc. Stockholder Litigation". Only stripped after "In re", so that a real party called
+// "... Litigation Trust" stays whole.
+const LITIGATION_TAIL = /,?\s+(?:Consolidated\s+)?(?:(?:(?:Stockholders?|Shareholders?)['’]?|Securities|Derivative|ERISA|Merger|Appraisal|Section\s+\d+\w*|Antitrust|Data\s+(?:Security\s+)?Breach|Consumer(?:\s+Privacy)?|Privacy|Class\s+Action|Customer\s+Data(?:\s+Security\s+Breach)?|Products?\s+Liability|Sales\s+Practices)\s+(?:(?:and|&)\s+(?:Securities|Derivative|ERISA)\s+)?)?(?:Litigation|Litig\.?|Actions?|Cases?)\s*$/i;
+
 export function caseParties(caseName) {
   const asides = [];
   const base = clean(caseName).replace(/&amp;/g, '&').replace(/\(([^)]{2,120})\)/g, (m, inner) => { asides.push(clean(inner.replace(/^(?:as successor to|formerly(?: known as)?|f\/k\/a|aka|a\/k\/a|t\/a|trading as|d\/b\/a)\s+/i, ''))); return ' '; });
-  const tidy = (p) => clean(p.replace(/^(?:in\s+re:?|in the matter of|re:?|ex parte|estate of)\s+/i, '').replace(/\b(?:et\s+al\.?|and others|and another)\s*$/i, '').replace(/\s*&\s*(?:ors|anor|others|another)\.?\s*$/i, '').replace(/[,;:]+$/, ''));
+  const tidy = (p) => {
+    const inRe = /^\s*(?:in\s+re:?|in the matter of:?)\s+/i.test(p);
+    let s = clean(p.replace(/^(?:in\s+re:?|in the matter of:?|re:?|ex parte|estate of)\s+/i, '').replace(/\b(?:et\s+al\.?|and others|and another)\s*$/i, '').replace(/\s*&\s*(?:ors|anor|others|another)\.?\s*$/i, '').replace(/[,;:]+$/, ''));
+    // The party of a class or derivative caption is the company before the descriptor.
+    if (inRe) { const core = clean(s.replace(LITIGATION_TAIL, '').replace(/[,;:]+$/, '')); if (core) s = core; }
+    return s;
+  };
   const sides = base.split(/\s+(?:v\.?|vs\.?|versus)\s+/i).map(tidy).filter(Boolean);
   const people = sides.flatMap((side) => side.split(/\s+(?:and|&)\s+|\s*;\s*/i)).map(tidy).filter(Boolean);
   return { sides, people: uniq([...sides, ...people]), asides };
@@ -228,16 +259,122 @@ const companyCore = (company) => {
 const knownCompanies = (subject) => [...(subject?.anchors?.companies?.values() || [])]
   .sort((a, b) => (b.origin === 'given') - (a.origin === 'given')).map((a) => a.value);
 const namesKnownCompany = (subject, text) => [...(subject?.anchors?.companies?.values() || [])].find((a) => a.test(text))?.value || '';
+
+const isDomainName = (v) => /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(String(v || '')) && /\.[a-z]{2,}$/i.test(String(v || ''));
 /**
- * Does a headline name the company itself? A side of a case-style title that
- * is the company ("Block, Inc."), or the full name with its legal form as
- * given ("Nikola Corporation Agrees to Pay ..."). The bare core word is not
- * enough: "Block Grant Fraud" and "Cash Flow Scheme" are not Block or Flow.
+ * Every name the company is known by in this check: the name of the thread
+ * first, then the fuller legal names learned from records tied to the person
+ * (identity.js addCompanyAlias: "Ramp" -> "Ramp Business Corporation").
+ * Domains are returned apart: registers and courts are searched by name.
  */
-function headlineNamesCompany(title, company) {
-  if (caseParties(title).sides.some((side) => partyIsCompany(side, company))) return true;
-  const full = clean(company);
-  return full !== companyCore(company) && new RegExp(`(?<![A-Za-z0-9])${escapeRe(full)}(?![A-Za-z0-9])`).test(String(title || ''));
+export function companyNames(subject, company) {
+  const given = clean(company);
+  if (!given) return { names: [], domains: [], legal: [] };
+  const key = companyKeys(given)[0] || given.toLowerCase();
+  const aliases = [...(subject?.anchors?.aliases?.values() || [])].filter((a) => a && a.of === key).map((a) => clean(a.value)).filter(Boolean);
+  const legal = uniq(aliases.filter((a) => !isDomainName(a)));
+  return { names: uniq([given, ...legal]).filter((n, i, all) => all.findIndex((m) => companyKeyStrict(m) === companyKeyStrict(n)) === i), domains: uniq(aliases.filter(isDomainName)), legal };
+}
+
+/**
+ * Is one side of a case any known name of the company? A company typed as an
+ * ordinary word ("Ramp", "Merge") whose legal name is known must be matched by
+ * that legal name: "Ramp, Inc." is then another company, not "Ramp Business
+ * Corporation". Without a learned legal name the old rule holds ("Flow, Inc." is Flow).
+ */
+/** The names a record's company name may equal: every known name, less the bare ordinary word once a legal name is known. */
+export function matchNames(subject, company) {
+  const { names, legal } = companyNames(subject, company);
+  return legal.length && isOrdinaryWordCompany(company) ? names.slice(1) : names;
+}
+
+export function partyIsKnownCompany(side, company, subject = null) {
+  return matchNames(subject, company).some((n) => partyIsCompany(side, n));
+}
+
+/**
+ * How a headline names the company: 'strong' (a side of a case-style title, a
+ * legal form, a learned legal name), 'weak' (the name written as a name, an
+ * ordinary word used as a company: "Theranos Founder Charged", "Judgment
+ * Against FTX"), or '' when it does not ("Block Grant Fraud", "Cash Flow Scheme").
+ * The phase 1 company matcher (names.js companyMention) decides the text forms.
+ */
+function headlineNaming(title, company, subject = null) {
+  if (caseParties(title).sides.some((side) => partyIsKnownCompany(side, company, subject))) return 'strong';
+  const { names, legal } = companyNames(subject, company);
+  const strictOnly = legal.length > 0 && isOrdinaryWordCompany(company);
+  let weak = false;
+  for (const n of names.length ? names : [company]) {
+    const m = companyMention(n, String(title || ''), { aliases: legal });
+    if (!m.named) continue;
+    if (strictOnly && n === names[0] && !m.spans.some((s) => s.how === 'legal-name')) continue;
+    if (m.strength === 'strong') return 'strong';
+    weak = true;
+  }
+  return weak ? 'weak' : '';
+}
+/** Does free text name the company strongly (a legal form, a learned legal name or a domain)? */
+const textNamesCompanyStrongly = (text, company, subject = null) => {
+  const { names, legal, domains } = companyNames(subject, company);
+  return (names.length ? names : [company]).some((n) => {
+    const m = companyMention(n, String(text || ''), { aliases: [...legal, ...domains] });
+    return m.named && m.strength === 'strong';
+  });
+};
+
+/* ------------------------------------------------------------------ private matters, shared by every court source */
+
+/**
+ * Matters this check never reads: family and children, guardianship, estates,
+ * immigration and asylum, health and disability benefits, prisoners' own petitions.
+ * Shared by courts.js and courtsMore.js so every court path uses one list.
+ */
+// Words that are also business names are tied to their private sense: "custody" only of a child ("Coinbase Custody
+// Trust" is a bank), "visa" only as a petition or an immigrant visa ("Visa U.S.A. Inc." is a company), "estate of"
+// only as a whole side of a case ("Real Estate of Texas LLC" is a company, "Estate of John Smith v. ..." is private).
+export const PRIVATE_MATTER = /(?:(?:^|\bv\.?\s+|\bvs\.?\s+|[.;|]\s+|[;|(]\s*)(?:in re:?\s+)?(?:the\s+)?estate of\b)|\b(?:family court|child custody|custody of (?:the |a |an |his |her |their )?(?:minor|child|children|infant|son|daughter)s?|custody (?:dispute|petition|proceeding|order|of minors?)|guardianship|guardian ad litem|adult protective|disabled person|incapacitat\w*|minor child|juvenile|adoption|divorce|name change|in re (?:the )?(?:estate|trust|will|guardianship)|immigration|citizenship|refugee|asylum|international protection|residence permit|third-country national|family reunification|deport\w*|removal order|expulsion|(?:immigrant|nonimmigrant|student|work|tourist|spousal|fianc[eé]e?) visas?|visa (?:petition|application|denial|refusal|revocation|overstay)s?|permanent resident|public safety and emergency preparedness|mental health|psychiatric|sickness|invalidity|disability benefits?|commissioner of social security|social security (?:administration|disability|benefits?|income)|supplemental security income|DIW[CW]|SSID|black lung|prisoner petitions?|prison conditions|civil detainee|medical malpractice)\b/i;
+/**
+ * A US federal nature of suit about a person's benefits, health or custody:
+ * Social Security (861-865), prisoner petitions (510-560), medical malpractice (362).
+ */
+const PRIVATE_SUIT = /^\s*(?:86[1-5]|5[1-6]\d|362)\b|social security|\bDIW[CW]\b|\bSSID\b|\bRSI\b|black lung|prisoner|habeas corpus|prison condition|civil detainee|medical malpractice/i;
+/** Malpractice is private for a person, but a suit against a company (a clinic chain, a health startup) is its business. */
+const PERSONAL_ONLY_SUIT = /^\s*362\b|medical malpractice/i;
+/** Is a case about a private matter, or does its caption name a minor? */
+function privateCase(caption, suitNature = '', { personal = true } = {}) {
+  if (mentionsMinor(caption)) return true;
+  // On the company path the person is not a party: a family, estate or immigration word in a company's case is
+  // about the company's business, never about the person's private life.
+  if (personal && PRIVATE_MATTER.test(caption)) return true;
+  const suit = clean(suitNature);
+  if (suit && PRIVATE_SUIT.test(suit) && (personal || !PERSONAL_ONLY_SUIT.test(suit))) return true;
+  return personal && isSensitive(caption);
+}
+
+/* ------------------------------------------------------------------ companies in free text (shared with courtsMore.js) */
+
+const LEGAL_FORM_WORDS = 'inc|incorporated|llc|l\\.l\\.c|ltd|limited|corp|corporation|co|company|plc|sa|s\\.a|sas|sarl|gmbh|ag|bv|b\\.v|nv|n\\.v|pty|lp|l\\.p|llp|sl|s\\.l|spa|s\\.p\\.a|ab|as|oy|kk';
+const TRAILING_FORM = new RegExp(`(?:[\\s,]+(?:${LEGAL_FORM_WORDS})\\.?)+$`, 'i');
+/** The words that identify a company: "Nikola Corporation" -> "Nikola", "The Boring Company" -> "Boring". */
+export function formCore(company) {
+  const core = clean(String(company || '').replace(/["“”]/g, '')).replace(TRAILING_FORM, '').replace(/^the\s+/i, '').replace(/[,.]+$/, '');
+  return clean(core) || clean(company);
+}
+/**
+ * Does free text name the company? Several words must appear together; a
+ * one-word name must be followed by a legal form or "of <place>" ("Apple
+ * Inc.", "Apple. Inc", "Intel Corporation of Santa Clara"), so "apple juice"
+ * or "Block grants" are not the company.
+ */
+export function textNamesCompany(text, company) {
+  const core = formCore(company);
+  if (!core || core.length < 2) return false;
+  const body = escapeRe(core).replace(/\\?\s+/g, '\\s+');
+  const multi = core.split(' ').length >= 2;
+  if (multi) return new RegExp(`(?<![A-Za-z0-9])${body}(?![A-Za-z0-9])`, 'i').test(String(text || ''));
+  // A one-word name: written with a capital, and followed by a legal form or "of <Place>".
+  const re = new RegExp(`(?<![A-Za-z0-9])${body}[.,]?\\s*(?:(?:${LEGAL_FORM_WORDS})\\b\\.?|of\\s+[A-Z])`, 'gi');
+  return [...String(text || '').matchAll(re)].some((m) => /^[A-Z0-9]/.test(m[0]) && !/of\s+[a-z]$/.test(m[0]));
 }
 
 /* ------------------------------------------------------------------ US federal courts */
@@ -301,8 +438,19 @@ export function districtCodes(text) {
 }
 
 const isBankruptcyCourt = (code, name = '') => /^(?:nmi|[a-z]{2})[nsewmc]?b$/.test(String(code || '').toLowerCase()) || /bankruptcy/i.test(name);
-const isCriminalCase = (caseName, docketNumber = '') => /-(?:cr|mj)-/i.test(docketNumber)
-  || (/^(?:united states(?: of america)?|usa|u\.s\.a?\.?|people|state|commonwealth)\b[^,]*\sv\.?\s/i.test(caseName) && !/-(?:cv|bk|ap|mc|md)-/i.test(docketNumber) && !/\$|\bfunds\b|\breal property\b/i.test(caseName));
+// The prosecuting government as the whole first side of a case: "United States", "People of the State of
+// California", "State of Delaware", "Commonwealth". "State Farm ...", "People's United Bank" and "United States
+// Commodity Futures Trading Commission" (a civil enforcement agency) are not.
+const PROSECUTOR = /^(?:the\s+)?(?:united states(?: of america)?|u\.?\s?s\.?(?:\s?a\.?)?|people(?: of the state of [a-z .]+)?|state(?: of [a-z .]+)?|commonwealth(?: of [a-z .]+)?)$/i;
+const CIVIL_ENFORCER = /^(?:the\s+)?(?:u\.\s?s\.\s+|united states\s+)?(?:securities\s+(?:and|&)\s+exchange\s+commission|sec|commodity\s+futures\s+trading\s+commission|cftc|federal\s+trade\s+commission|ftc|consumer\s+financial\s+protection\s+bureau|cfpb)$/i;
+export const isCriminalCase = (caseName, docketNumber = '') => {
+  if (/-(?:cr|mj)-/i.test(docketNumber)) return true;
+  if (/-(?:cv|bk|ap|mc|md)-/i.test(docketNumber) || /\$|\bfunds\b|\breal property\b/i.test(caseName)) return false;
+  const { sides } = caseParties(caseName);
+  return sides.length >= 2 && PROSECUTOR.test(clean(sides[0]).replace(/[,.]+$/, '')) && !CIVIL_ENFORCER.test(clean(sides[0]));
+};
+/** A civil case brought by a federal enforcement agency ("SEC v. Milton", "U.S. Commodity Futures Trading Commission v. X"). */
+const isCivilEnforcement = (caseName) => { const { sides } = caseParties(caseName); return sides.length >= 2 && CIVIL_ENFORCER.test(clean(sides[0])); };
 
 /* ------------------------------------------------------------------ 1. CourtListener (token) */
 
@@ -331,7 +479,7 @@ async function clAllowance(deadline) {
   const now = Date.now();
   clCalls = clCalls.filter((t) => now - t < 24 * 60 * MINUTE);
   if (clCalls.length >= CL_PER_DAY || clCalls.filter((t) => now - t < 60 * MINUTE).length >= CL_PER_HOUR) {
-    throw new HttpError('Court docket lookups have used up their allowance for now', { retryable: true });
+    throw new HttpError('Court docket lookups have used up their allowance for now', { retryable: true, code: 'allowance' });
   }
   const lastMinute = clCalls.filter((t) => now - t < MINUTE);
   if (lastMinute.length < CL_PER_MINUTE) return;
@@ -356,6 +504,25 @@ async function clSearch(params, ctx) {
 
 const quoted = (s) => `"${String(s).replace(/"/g, '')}"`;
 const anyOf = (names) => (names.length > 1 ? `(${names.map(quoted).join(' OR ')})` : quoted(names[0]));
+/**
+ * A name as a phrase that allows up to two words in between, so "Trevor Milton"
+ * also finds "Trevor R. Milton" and "Arthur Gau" finds "Arthur Ching-Fu Gau".
+ * sameName then checks the record's name part by part.
+ */
+const nearPhrase = (name) => `${quoted(name)}~3`;
+const anyNear = (names) => (names.length > 1 ? `(${names.map(nearPhrase).join(' OR ')})` : nearPhrase(names[0]));
+/** The forms to search a person by: the name as typed (and its formal given name), and given name plus surname. */
+const searchNames = (who) => uniq([...who.queryNames, ...who.variants.filter((v) => v.split(' ').length === 2)]).slice(0, 3);
+
+/** Parties shown in a report: the person and their known companies only; everyone else is counted, never named. */
+function shownParties(parties, who, subject, company = '') {
+  const known = uniq([company, ...knownCompanies(subject)]);
+  const keep = parties.filter((p) => sameName(p, who) || known.some((c) => partyIsKnownCompany(p, c, subject)));
+  const others = parties.length - keep.length;
+  if (!parties.length) return '';
+  if (!keep.length) return `${plural(others, 'party', 'parties')} on the docket.`;
+  return `Parties include: ${keep.slice(0, 6).join('; ')}${others ? `; and ${plural(others, 'other party', 'other parties')}` : ''}.`;
+}
 
 /** One docket from the search, as a finding (or the reason it was left out). */
 function docketFinding(d, ctx, who, { company = '' } = {}) {
@@ -368,8 +535,14 @@ function docketFinding(d, ctx, who, { company = '' } = {}) {
   const partyHit = parties.find((p) => sameName(p, who)) || titlePeople.find((p) => sameName(p, who)) || '';
   const filings = arr(d.recap_documents).map((doc) => clean(`${plain(doc?.short_description || doc?.description)} ${plain(doc?.snippet)}`)).filter(Boolean);
   const textHit = partyHit ? '' : filings.find((t) => namesPerson(t, who)) || '';
-  const companyParty = company ? [...parties, ...title.sides, ...title.asides, ...fullTitle.sides].find((p) => partyIsCompany(p, company)) || '' : '';
+  const companyParty = company ? [...parties, ...title.sides, ...title.asides, ...fullTitle.sides].find((p) => partyIsKnownCompany(p, company, ctx.subject)) || '' : '';
   if (company ? !companyParty : !(partyHit || textHit)) return { skip: 'not-named' };
+  // Disability benefits, prisoners' petitions, a person's malpractice suit, a minor's initials: never reported.
+  // The caption only, never the whole party list: an "Estate of John Q Investor" among a class action's plaintiffs
+  // or "Visa U.S.A. Inc." as a defendant does not make the case private. A minor among the parties still does.
+  const captionText = `${caseName}. ${clean(d.case_name_full)}`;
+  const personal = Boolean(partyHit || textHit);
+  if (privateCase(captionText, d.suitNature, { personal }) || (personal && parties.some((p) => mentionsMinor(p)))) return { skip: 'private' };
 
   const court = clean(d.court) || federalCourtName(d.court_id);
   const docketNumber = clean(d.docketNumber);
@@ -378,7 +551,7 @@ function docketFinding(d, ctx, who, { company = '' } = {}) {
   const bankruptcy = isBankruptcyCourt(d.court_id, court) || Boolean(d.chapter);
   const surnameSide = title.sides.some((side) => plainKey(side) === plainKey(who.surname));
   const facts = [
-    parties.length ? `Parties: ${parties.slice(0, 8).join('; ')}${parties.length > 8 ? `; and ${parties.length - 8} more` : ''}.` : '',
+    shownParties(parties, who, ctx.subject, company),
     clean(d.suitNature) ? `Nature of suit: ${clean(d.suitNature)}.` : '',
     clean(d.cause) ? `Cause: ${clean(d.cause)}.` : '',
     d.chapter ? `Bankruptcy chapter ${clean(d.chapter)}.` : '',
@@ -386,11 +559,14 @@ function docketFinding(d, ctx, who, { company = '' } = {}) {
     textHit ? `Filing: ${clip(textHit, 260)}` : '',
   ].filter(Boolean).join(' ');
   const named = Boolean(partyHit || textHit);
-  const matchText = named ? [who.name, caseName, parties.join('; '), title.asides.join('; '), textHit].filter(Boolean).join(' | ') : '';
+  // Graded on the caption, the person's own party entry and the known companies among the parties (never on strangers' names).
+  const gradeParties = parties.filter((p) => sameName(p, who) || uniq([company, ...knownCompanies(ctx.subject)]).some((c) => partyIsKnownCompany(p, c, ctx.subject)));
+  const matchText = named ? [who.name, caseName, gradeParties.join('; '), title.asides.join('; '), textHit].filter(Boolean).join(' | ') : '';
   // A personal bankruptcy is private unless the docket itself ties it to the subject.
-  const personal = bankruptcy && named && titlePeople.some((p) => sameName(p, who));
-  if (personal && matchSubject(ctx.subject, matchText).level !== 'confirmed') return { skip: 'personal-bankruptcy' };
-  const finding = makeFinding(ctx.subject, {
+  const personalBankruptcy = bankruptcy && named && titlePeople.some((p) => sameName(p, who));
+  // Under a diminutive of the first name only, a personal bankruptcy is never tied to them.
+  if (personalBankruptcy && (matchSubject(ctx.subject, matchText).level !== 'confirmed' || !namedInFull(ctx.subject, who, [partyHit, textHit]))) return { skip: 'personal-bankruptcy' };
+  const graded = makeFinding(ctx.subject, {
     source: CL_ID,
     sourceLabel: CL_LABEL,
     category: 'litigation',
@@ -402,6 +578,7 @@ function docketFinding(d, ctx, who, { company = '' } = {}) {
     data: { caseNumber: docketNumber || null, court, ...(isoDay(d.dateTerminated) ? { closed: isoDay(d.dateTerminated) } : {}), ...(d.chapter ? { chapter: clean(d.chapter) } : {}) },
     ...(named ? { matchText } : { match: 'company', matchReasons: [`${companyParty} is a party to the case`] }),
   });
+  const finding = named ? holdDiminutive(graded, ctx.subject, who, [partyHit, textHit]) : graded;
   return finding ? { finding } : { skip: 'not-named' };
 }
 
@@ -414,12 +591,13 @@ function opinionFinding(o, ctx, who) {
   const partyHit = titlePeople.find((p) => sameName(p, who)) || '';
   const snippet = arr(o.opinions).map((op) => plain(op?.snippet)).find((t) => namesPerson(t, who)) || '';
   if (!partyHit && !snippet) return null;
+  if (privateCase(`${caseName}. ${clean(o.caseNameFull)}`, o.suitNature || '')) return null;
   const court = clean(o.court);
   const docketNumber = clean(o.docketNumber);
   const filed = isoDay(o.dateFiled);
   const citation = arr(o.citation).map(clean).filter(Boolean)[0] || '';
   const surnameSide = title.sides.some((side) => plainKey(side) === plainKey(who.surname));
-  return makeFinding(ctx.subject, {
+  return holdDiminutive(makeFinding(ctx.subject, {
     source: CL_ID,
     sourceLabel: CL_LABEL,
     category: 'litigation',
@@ -430,13 +608,13 @@ function opinionFinding(o, ctx, who) {
     severity: isCriminalCase(caseName, docketNumber) && (partyHit || surnameSide) ? 'high' : 'medium',
     data: { caseNumber: docketNumber || null, court, kind: 'opinion', ...(citation ? { citation } : {}) },
     matchText: [who.name, caseName, clean(o.caseNameFull), title.asides.join('; '), snippet].filter(Boolean).join(' | '),
-  });
+  }), ctx.subject, who, [partyHit, snippet]);
 }
 
 export const courtDocketsConnector = {
   id: CL_ID,
   label: CL_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.7,
   // As long as a step of the check, so a lookup that has to wait its turn is run again on the next step instead of failing.
   timeoutMs: 45000,
@@ -455,25 +633,54 @@ export const courtDocketsConnector = {
     ];
   },
   async run(task, ctx) {
-    const who = person(ctx.subject);
-    const template = task.template || (task.kind === 'company' ? 'dockets.company' : 'dockets.party');
-    const notes = [];
-    if (template === 'opinions.name') {
-      const json = await clSearch({ type: 'o', q: anyOf(who.queryNames), order_by: 'score desc', highlight: 'on' }, ctx);
-      return { findings: json.results.map((o) => opinionFinding(o, ctx, who)).filter(Boolean).slice(0, 10), threads: [], notes };
+    try {
+      return await clRun(task, ctx);
+    } catch (error) {
+      // The daily allowance is kept in this server's memory, and the service may refuse with 429 before it runs
+      // out: then the case titles of the public archive copy are searched instead, and the result says so.
+      if (!(error instanceof HttpError) || !(error.code === 'allowance' || error.status === 429)) throw error;
+      const what = 'US federal court dockets (case titles only: the fuller docket search was busy)';
+      const template = task.template || '';
+      if (template === 'opinions.name') {
+        return { findings: [], threads: [], notes: ['Court opinions were not searched: the fuller docket search was busy.'], partial: ['US court opinions (not searched: the docket search was busy)'] };
+      }
+      const fallback = await courtRecordsOpenConnector.run({ ...task, kind: task.kind === 'company' ? 'company' : 'subject' }, ctx);
+      return { ...fallback, notes: ['The fuller docket search was busy, so the public archive of federal case titles was searched instead.', ...(fallback.notes || [])], partial: uniq([...(fallback.partial || []), what]) };
     }
-    const company = template === 'dockets.company' ? clean(task.value) : '';
-    const paired = template === 'dockets.name-company' ? clean(task.params?.company || ctx.subject.company) : '';
-    const q = company ? `party:${quoted(company)}` : paired ? `${anyOf(who.queryNames)} ${quoted(paired)}` : `party:${anyOf(who.queryNames)}`;
-    const json = await clSearch({ type: 'r', q, order_by: 'score desc', highlight: 'on' }, ctx);
-    const read = json.results.map((d) => docketFinding(d, ctx, who, { company }));
-    const findings = read.map((r) => r.finding).filter(Boolean).slice(0, company ? 8 : 12);
-    const count = Number(json.count) || json.results.length;
-    if (count > json.results.length) notes.push(`CourtListener lists about ${count} federal dockets for ${company || who.name}; the ${json.results.length} closest matches were read.`);
-    if (read.some((r) => r.skip === 'personal-bankruptcy')) notes.push(`Personal bankruptcy cases under the name ${who.name} are reported only when the docket also names a company tied to them; none shown from this lookup did.`);
-    return { findings, threads: [], notes };
   },
 };
+
+async function clRun(task, ctx) {
+  const who = person(ctx.subject);
+  const template = task.template || (task.kind === 'company' ? 'dockets.company' : 'dockets.party');
+  const notes = [];
+  const partial = [];
+  const names = searchNames(who);
+  if (template === 'opinions.name') {
+    const json = await clSearch({ type: 'o', q: anyNear(names), order_by: 'score desc', highlight: 'on' }, ctx);
+    const count = Number(json.count) || json.results.length;
+    if (count > json.results.length) partial.push(`US court opinions (${json.results.length} of about ${count} read)`);
+    const out = { findings: json.results.map((o) => opinionFinding(o, ctx, who)).filter(Boolean).slice(0, 10), threads: [], notes };
+    return partial.length ? { ...out, partial } : out;
+  }
+  const company = template === 'dockets.company' ? clean(task.value) : '';
+  const paired = template === 'dockets.name-company' ? clean(task.params?.company || ctx.subject.company) : '';
+  // Every known name of the company: the name typed and the legal names learned from records tied to the person.
+  const companyForms = company ? companyNames(ctx.subject, company).names.slice(0, 3) : [];
+  const pairedForms = paired ? companyNames(ctx.subject, paired).names.slice(0, 3) : [];
+  const q = company ? `party:${anyOf(companyForms)}` : paired ? `${anyNear(names)} ${anyOf(pairedForms)}` : `party:${anyNear(names)}`;
+  const json = await clSearch({ type: 'r', q, order_by: 'score desc', highlight: 'on' }, ctx);
+  const read = json.results.map((d) => docketFinding(d, ctx, who, { company }));
+  const findings = read.map((r) => r.finding).filter(Boolean).slice(0, company ? 8 : 12);
+  const count = Number(json.count) || json.results.length;
+  if (count > json.results.length) {
+    notes.push(`CourtListener lists about ${count} federal dockets for ${company || who.name}; the ${json.results.length} closest matches were read.`);
+    partial.push(`US federal court dockets (${json.results.length} of about ${count} read)`);
+  }
+  if (read.some((r) => r.skip === 'personal-bankruptcy')) notes.push(`Personal bankruptcy cases under the name ${who.name} are reported only when the docket also names a company tied to them; none shown from this lookup did.`);
+  if (read.some((r) => r.skip === 'private')) notes.push('Cases about benefits, health, prisoners\' petitions or minors are never reported.');
+  return partial.length ? { findings, threads: [], notes, partial } : { findings, threads: [], notes };
+}
 
 /* ------------------------------------------------------------------ 2. Internet Archive copy of federal dockets (no token) */
 
@@ -482,9 +689,9 @@ const IA_LABEL = 'US federal court case titles (Internet Archive copy of court d
 const IA_SEARCH = 'https://archive.org/advancedsearch.php';
 
 /** Dockets whose title carries every term; `anyOf` titles are alternatives, `court` a court code. */
-async function iaTitles(terms, ctx, rows = 100, { anyOf: alternatives = [], court = '' } = {}) {
+async function iaTitles(terms, ctx, rows = 100, { anyOf: alternatives = [], court = '', raw = '' } = {}) {
   const q = ['collection:usfederalcourts', ...(court ? [`court:${court.replace(/[^a-z0-9]/g, '')}`] : []), ...terms.map((t) => `title:(${quoted(t)})`),
-    ...(alternatives.length ? [`(${alternatives.map((t) => `title:(${quoted(t)})`).join(' OR ')})`] : [])].join(' AND ');
+    ...(alternatives.length ? [`(${alternatives.map((t) => `title:(${quoted(t)})`).join(' OR ')})`] : []), ...(raw ? [raw] : [])].join(' AND ');
   const fields = ['identifier', 'title', 'court', 'source_url', 'publicdate'].map((f) => `fl[]=${f}`).join('&');
   const json = await getJson(`${IA_SEARCH}?q=${encodeURIComponent(q)}&${fields}&rows=${rows}&output=json`, { deadline: ctx.deadline });
   if (!json?.response || !Array.isArray(json.response.docs)) throw new HttpError('The Internet Archive court search returned something unexpected');
@@ -515,10 +722,11 @@ function iaFinding(doc, ctx, who, { company = '', tie = null, charges = [] } = {
   const court = federalCourtName(code);
   const title = caseParties(caseName);
   const partyHit = title.people.find((p) => sameName(p, who)) || '';
-  const companyParty = company ? [...title.sides, ...title.asides].find((p) => partyIsCompany(p, company)) || '' : '';
+  const companyParty = company ? [...title.sides, ...title.asides].find((p) => partyIsKnownCompany(p, company, ctx.subject)) || '' : '';
   if (company ? !companyParty : !partyHit) return { skip: 'not-named' };
+  if (privateCase(caseName, '', { personal: Boolean(partyHit) })) return { skip: 'private' };
   const matchText = partyHit ? `${who.name} | ${caseName}` : '';
-  if (partyHit && isBankruptcyCourt(code) && matchSubject(ctx.subject, matchText).level !== 'confirmed') return { skip: 'personal-bankruptcy' };
+  if (partyHit && isBankruptcyCourt(code) && (matchSubject(ctx.subject, matchText).level !== 'confirmed' || !namedInFull(ctx.subject, who, partyHit))) return { skip: 'personal-bankruptcy' };
   const surnameSide = title.sides.find((side) => plainKey(side) === plainKey(who.surname)) || '';
   // The company the person founded or runs on one side and exactly their surname on the other: likely them, never confirmed.
   const origin = !partyHit && surnameSide && title.sides.length === 2 && title.sides.includes(companyParty) && companyParty !== surnameSide
@@ -536,7 +744,7 @@ function iaFinding(doc, ctx, who, { company = '', tie = null, charges = [] } = {
     url: iaUrl(doc),
     date: null, // the archive records when the copy was made, not when the case was filed
     severity: isCriminalCase(caseName) && (partyHit || company) ? 'high' : 'medium',
-    data: { caseNumber, court, archiveId: String(doc.identifier) },
+    data: { caseNumber, court, archiveId: String(doc.identifier), ...(isCivilEnforcement(caseName) ? { kind: 'civil enforcement' } : {}) },
     ...(raise ? {
       match: 'likely',
       matchReasons: [`filed in the ${court} within ${charged.days} day${charged.days === 1 ? '' : 's'} of the charge in "${charged.record}"`],
@@ -548,7 +756,8 @@ function iaFinding(doc, ctx, who, { company = '', tie = null, charges = [] } = {
       matchReasons: [`${companyParty} is a party to the case`, ...(surnameSide ? [`the other side is named ${surnameSide}; the case title gives no first name`] : [])],
     }),
   });
-  return finding ? { finding, surnameSide: Boolean(surnameSide) } : { skip: 'not-named' };
+  const held = partyHit ? holdDiminutive(finding, ctx.subject, who, partyHit) : finding;
+  return held ? { finding: held, surnameSide: Boolean(surnameSide) } : { skip: 'not-named' };
 }
 
 const CHARGE_SOURCES = new Set(['doj-press-releases', 'sec-filings']);
@@ -625,17 +834,26 @@ function chargeTie(doc, code, caseName, who, charges) {
  */
 async function chargedDockets(ctx, who, seen) {
   const findings = [];
-  if (!who.surname) return findings;
+  const partial = [];
+  if (!who.surname) return { findings, partial };
   for (const { court, dates } of chargeDistricts(ctx)) {
-    const { docs } = await iaTitles([], ctx, 50, { court, anyOf: [`United States v. ${who.surname}`, `USA v. ${who.surname}`] });
+    // The criminal case, and the parallel civil cases of the market regulators (filed the same day, also by surname).
+    const { total, docs } = await iaTitles([], ctx, 50, { court, anyOf: [
+      `United States v. ${who.surname}`, `USA v. ${who.surname}`,
+      `Securities and Exchange Commission v. ${who.surname}`, `SEC v. ${who.surname}`,
+      `Commodity Futures Trading Commission v. ${who.surname}`,
+    ] });
+    if (total > docs.length) partial.push(`US federal dockets in the charging district (${docs.length} of ${total} titles read)`);
     for (const doc of docs) {
       if (seen.has(doc.identifier)) continue;
       const code = clean(arr(doc.court)[0]) || (String(doc.identifier).match(/^gov\.uscourts\.([a-z0-9]+)\./) || [])[1] || '';
       const caseName = clean(arr(doc.title)[0]);
       const { sides } = caseParties(caseName);
       const copied = Date.parse(String(arr(doc.publicdate)[0] || ''));
-      if (code !== court || sides.length !== 2 || !isCriminalCase(caseName)) continue;
-      if (plainKey(sides[1]) !== plainKey(who.surname) || !/^(?:united states(?: of america)?|usa)$/i.test(sides[0])) continue;
+      if (code !== court || sides.length !== 2 || plainKey(sides[1]) !== plainKey(who.surname)) continue;
+      const criminal = isCriminalCase(caseName) && /^(?:united states(?: of america)?|usa)$/i.test(sides[0]);
+      const civil = !criminal && isCivilEnforcement(caseName);
+      if (!criminal && !civil) continue;
       if (Number.isNaN(copied) || !dates.some((d) => Math.abs(copied - d) <= YEAR_MS)) continue;
       seen.add(doc.identifier);
       const courtName = federalCourtName(code);
@@ -647,21 +865,23 @@ async function chargedDockets(ctx, who, seen) {
         quote: caseName,
         url: iaUrl(doc),
         date: null, // the archive records when the copy was made, not when the case was filed
-        severity: 'high',
-        data: { caseNumber: null, court: courtName, archiveId: String(doc.identifier) },
+        severity: criminal ? 'high' : 'medium',
+        data: { caseNumber: null, court: courtName, archiveId: String(doc.identifier), ...(civil ? { kind: 'civil enforcement' } : {}) },
         match: 'possible',
-        matchReasons: [`criminal case in the district and year of the charges against ${who.name}; the case title gives only the surname`],
+        matchReasons: [criminal
+          ? `criminal case in the district and year of the charges against ${who.name}; the case title gives only the surname`
+          : `civil enforcement case by a market regulator in the district and year of the charges against ${who.name}; the case title gives only the surname`],
       });
       if (finding) findings.push(finding);
     }
   }
-  return findings.slice(0, 3);
+  return { findings: findings.slice(0, 4), partial };
 }
 
 export const courtRecordsOpenConnector = {
   id: IA_ID,
   label: IA_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.35,
   timeoutMs: 15000,
   // The fallback for deployments without the fuller docket search.
@@ -672,19 +892,40 @@ export const courtRecordsOpenConnector = {
   async run(task, ctx) {
     const who = person(ctx.subject);
     const notes = [];
+    const partial = [];
+    const done = (findings) => (partial.length ? { findings, threads: [], notes, partial: uniq(partial) } : { findings, threads: [], notes });
     if (task.kind === 'company') {
       const company = clean(task.value);
-      const core = companyCore(company);
-      let { total, docs } = await iaTitles([core], ctx);
-      // A long list is mostly other parties with the word in their name: ask again for the titles that also carry the surname.
-      if (total > docs.length && who.surname) docs = [...(await iaTitles([core, who.surname], ctx, 50)).docs, ...docs];
+      // Every known name of the company: "Ramp" and "Ramp Business Corporation" are searched alike.
+      const cores = uniq(companyNames(ctx.subject, company).names.map(companyCore)).slice(0, 3);
+      let docs = [];
+      let cut = false;
+      for (const core of cores) {
+        const first = await iaTitles([core], ctx);
+        let found = first.docs;
+        // A long list is mostly other parties with the word in their name: ask again for the titles that also carry the surname.
+        if (first.total > first.docs.length) {
+          cut = true;
+          if (who.surname) found = [...(await iaTitles([core, who.surname], ctx, 50)).docs, ...found];
+        }
+        docs = [...docs, ...found];
+      }
+      if (cut) partial.push(`US federal case titles naming ${company} (the first 100 of a longer list read)`);
       const seen = new Set();
       const read = docs.filter((d) => !seen.has(d.identifier) && seen.add(d.identifier)).map((d) => iaFinding(d, ctx, who, { company, tie: task.tie || null })).filter((r) => r.finding);
       read.sort((a, b) => Number(b.surnameSide) - Number(a.surnameSide));
       if (read.length > 8) notes.push(`The archive holds ${read.length} federal dockets with ${company} in the case title; 8 are listed.`);
-      return { findings: read.slice(0, 8).map((r) => r.finding), threads: [], notes };
+      return done(read.slice(0, 8).map((r) => r.finding));
     }
-    const { docs } = await iaTitles([who.name], ctx, 50);
+    // Given name AND surname, not the quoted name: dockets carry the legal middle name ("Elizabeth A Holmes"),
+    // and sameName still requires the person's own name part for part.
+    const forms = uniq(searchNames(who).map((n) => { const w = n.split(' ').filter(Boolean); return w.length >= 2 ? `title:(${quoted(w[0])} AND ${quoted(w[w.length - 1])})` : ''; })).filter(Boolean);
+    const rows = 100;
+    const { total, docs } = forms.length ? await iaTitles([], ctx, rows, { raw: forms.length > 1 ? `(${forms.join(' OR ')})` : forms[0] }) : await iaTitles([who.name], ctx, rows);
+    if (total > docs.length) {
+      notes.push(`The archive lists ${total} federal case titles with ${who.given} and ${who.surname}; the first ${docs.length} were read.`);
+      partial.push(`US federal case titles (${docs.length} of ${total} read)`);
+    }
     const charges = chargeDistricts(ctx);
     const read = docs.map((d) => iaFinding(d, ctx, who, { charges }));
     if (read.some((r) => r.skip === 'personal-bankruptcy')) notes.push(`Personal bankruptcy cases under the name ${who.name} are reported only when the record also names a company tied to them; none found here did.`);
@@ -692,9 +933,11 @@ export const courtRecordsOpenConnector = {
     const named = read.map((r) => r.finding).filter(Boolean).slice(0, 8);
     const charged = await chargedDockets(ctx, who, new Set(docs.map((d) => d.identifier))).catch(() => {
       notes.push(`The search for criminal dockets in the district that charged ${who.name} did not answer.`);
-      return [];
+      partial.push('US federal dockets in the charging district (did not answer)');
+      return { findings: [], partial: [] };
     });
-    return { findings: [...named, ...charged], threads: [], notes };
+    partial.push(...charged.partial);
+    return done([...named, ...charged.findings]);
   },
 };
 
@@ -712,14 +955,32 @@ const dropAgeAndTown = (s) => String(s)
   .replace(/,\s*(?:aged?\s+)?\d{2},(?=\s)/g, ',')
   .replace(/,\s*,/g, ',').replace(/\s+,/g, ',');
 
-async function dojReleases(titleFilter, ctx) {
-  const url = `${DOJ_URL}?parameters%5Btitle%5D=${encodeURIComponent(titleFilter)}&sort=date&direction=DESC&pagesize=25&fields=title,date,url,number,component,topic,teaser,body`;
+const DOJ_PAGE = 25;
+const DOJ_MAX_PAGES = 3;
+// A further page is asked for only while this much time is left, so paging never costs the lookup itself.
+const DOJ_PAGE_MARGIN_MS = 8000;
+
+async function dojPage(titleFilter, page, ctx) {
+  const url = `${DOJ_URL}?parameters%5Btitle%5D=${encodeURIComponent(titleFilter)}&sort=date&direction=DESC&pagesize=${DOJ_PAGE}&page=${page}&fields=title,date,url,number,component,topic,teaser,body`;
   const json = await getJson(url, { deadline: ctx.deadline, timeoutMs: 15000 });
   if (!json || !Array.isArray(json.results)) throw new HttpError('The Justice Department release search returned something unexpected', { url });
-  const count = Number(json.metadata?.resultset?.count) || json.results.length;
+  return { count: Number(json.metadata?.resultset?.count) || json.results.length, results: json.results };
+}
+
+/** Releases whose headline carries the filter, newest first, paged while time allows: { count, read, releases, unfiltered }. */
+async function dojReleases(titleFilter, ctx) {
+  const first = await dojPage(titleFilter, 0, ctx);
+  const { count } = first;
   // The service ignores a filter it does not understand and returns every release: never read that as a match.
-  if (count > 3000) return { count, releases: [], unfiltered: true };
-  return { count, releases: json.results.filter((r) => r && r.title && /^https?:\/\//.test(String(r.url || ''))), unfiltered: false };
+  if (count > 3000) return { count, read: 0, releases: [], unfiltered: true };
+  const results = [...first.results];
+  for (let page = 1; page < DOJ_MAX_PAGES && results.length < count && first.results.length >= DOJ_PAGE; page += 1) {
+    if (ctx.deadline && Date.now() + DOJ_PAGE_MARGIN_MS > ctx.deadline) break;
+    const next = await dojPage(titleFilter, page, ctx).catch(() => null);
+    if (!next || !next.results.length) break;
+    results.push(...next.results);
+  }
+  return { count, read: results.length, releases: results.filter((r) => r && r.title && /^https?:\/\//.test(String(r.url || ''))), unfiltered: false };
 }
 
 /** The parts of a release the checks read. */
@@ -767,7 +1028,7 @@ const dojSeverity = (text) => (DOJ_CRIMINAL.test(text) ? 'high' : severityFromTe
 export const dojConnector = {
   id: DOJ_ID,
   label: DOJ_LABEL,
-  kinds: ['subject', 'company', 'associate'],
+  kinds: ['subject', 'alias', 'company', 'associate'],
   prior: 0.65,
   timeoutMs: 20000,
   plan(thread, subject) {
@@ -785,15 +1046,24 @@ export const dojConnector = {
     const findings = [];
     const threads = [];
     const notes = [];
+    const partial = [];
     const seen = new Set();
     const fresh = (rel) => !seen.has(rel.url) && Boolean(seen.add(rel.url));
     const search = async (filter) => {
-      const { releases, unfiltered } = await dojReleases(filter, ctx);
-      if (unfiltered) notes.push(`The Justice Department search could not be narrowed to "${filter}", so nothing was read from it.`);
+      const { releases, unfiltered, count, read } = await dojReleases(filter, ctx);
+      if (unfiltered) {
+        notes.push(`The Justice Department search could not be narrowed to "${filter}", so nothing was read from it.`);
+        partial.push(`Justice Department releases for "${filter}" (search could not be narrowed)`);
+      } else if (count > read) {
+        notes.push(`The Justice Department has ${count} releases with "${filter}" in the headline; the newest ${read} were read.`);
+        partial.push(`Justice Department releases for "${filter}" (${read} of ${count} read)`);
+      }
       return releases.map(readRelease).filter(fresh);
     };
+    const done = (out) => (partial.length ? { ...out, partial: uniq(partial) } : out);
     /** A release that names the subject: graded on the headline, the quoted passage and the sentences that name them. */
-    const aboutSubject = (rel, naming, extra = {}) => makeFinding(ctx.subject, {
+    // Named only under a diminutive of the first name, a release is held at likely (holdDiminutive).
+    const aboutSubject = (rel, naming, extra = {}) => holdDiminutive(makeFinding(ctx.subject, {
       ...base,
       title: rel.title,
       quote: naming.quote,
@@ -803,7 +1073,7 @@ export const dojConnector = {
       data: rel.data,
       matchText: `${who.name} | ${rel.title} | ${naming.quote} | ${naming.context}`,
       ...extra,
-    });
+    }), ctx.subject, who, [rel.title, naming.quote, naming.context]);
 
     if (template === 'title.associate') {
       const other = person(task.value);
@@ -817,23 +1087,33 @@ export const dojConnector = {
         const title = `Associate ${other.name}: ${rel.title}`;
         findings.push(aboutSubject(rel, naming, { title, quote: clip(uniq([about.quote, naming.quote]).join(' '), 650) }));
       }
-      return { findings: findings.filter(Boolean).slice(0, 6), threads, notes };
+      return done({ findings: findings.filter(Boolean).slice(0, 6), threads, notes });
     }
 
     if (template === 'title.company') {
       const company = clean(task.value);
-      for (const rel of await search(companyCore(company))) {
-        if (!headlineNamesCompany(rel.title, company)) continue;
-        const naming = releaseNaming(rel, who);
-        const finding = naming ? aboutSubject(rel, naming) : makeFinding(ctx.subject, {
-          ...base, title: rel.title, quote: clip(dropAgeAndTown(rel.teaser || sentencesOf(rel.body)[0] || rel.title), 600), url: rel.url, date: rel.date,
-          severity: dojSeverity(`${rel.title} ${rel.teaser}`), data: rel.data, match: 'company', matchReasons: [`${company} is named in the headline`],
-        });
-        if (!finding) continue;
-        findings.push(finding);
-        if (naming) threads.push(...threadsFromResult(ctx.subject, { title: rel.title, snippet: naming.quote, url: rel.url }, { trusted: finding.match !== 'possible' }));
+      // Every known name of the company, so "Ramp Business Corporation" headlines are asked for as well as "Ramp".
+      const filters = uniq(companyNames(ctx.subject, company).names.map(companyCore)).slice(0, 3);
+      for (const filter of filters) {
+        for (const rel of await search(filter)) {
+          const headline = headlineNaming(rel.title, company, ctx.subject);
+          if (!headline) continue;
+          const naming = releaseNaming(rel, who);
+          // A headline naming a one-word company without its legal form ("Theranos Founder ... Charged") is kept only
+          // when the release names the person, or names the company with its legal form in the body.
+          const bodyNames = headline === 'strong' || textNamesCompanyStrongly(`${rel.teaser} ${rel.body}`, company, ctx.subject);
+          if (headline === 'weak' && !naming && !bodyNames) continue;
+          const finding = naming ? aboutSubject(rel, naming) : makeFinding(ctx.subject, {
+            ...base, title: rel.title, quote: clip(dropAgeAndTown(rel.teaser || sentencesOf(rel.body)[0] || rel.title), 600), url: rel.url, date: rel.date,
+            severity: dojSeverity(`${rel.title} ${rel.teaser}`), data: rel.data, match: 'company',
+            matchReasons: [headline === 'strong' ? `${company} is named in the headline` : `${company} is named in the headline and, with its legal form, in the release`],
+          });
+          if (!finding) continue;
+          findings.push(finding);
+          if (naming) threads.push(...threadsFromResult(ctx.subject, { title: rel.title, snippet: naming.quote, url: rel.url }, { trusted: finding.match !== 'possible' }));
+        }
       }
-      return { findings: findings.slice(0, 10), threads: usableThreads(threads), notes };
+      return done({ findings: findings.slice(0, 10), threads: usableThreads(threads), notes });
     }
 
     const filters = template === 'title.surname-company'
@@ -850,7 +1130,7 @@ export const dojConnector = {
         threads.push(...threadsFromResult(ctx.subject, { title: rel.title, snippet: naming.quote, url: rel.url }, { trusted: finding.match !== 'possible' }));
       }
     }
-    return { findings: findings.slice(0, 15), threads: usableThreads(threads), notes };
+    return done({ findings: findings.slice(0, 15), threads: usableThreads(threads), notes });
   },
 };
 
@@ -942,29 +1222,110 @@ function brokerFinding(hit, detail, ctx, who) {
     data: { crd, firms: firms.map(titleCase), disclosures: count, ...(detail ? { disclosureTypes: byType } : {}), bar },
     matchText: [who.name, name, firms.join('; '), allegations].filter(Boolean).join(' | '),
   });
-  return { finding, firms };
+  return { finding: holdDiminutive(finding, ctx.subject, who, name), firms };
+}
+
+const IAPD_FIRM_SEARCH = 'https://api.adviserinfo.sec.gov/search/firm';
+// A company whose name reads like an investment adviser or a fund's manager.
+const ADVISER_NAME = /\b(?:capital|partners|partnership|management|advisors?|advisers?|advisory|ventures?|fund|funds|investments?|asset|assets|holdings|equity|gp)\b/i;
+
+/** Investment-adviser firms (Form ADV) with this name: [{ id, name, names, scope, disclosures, secNumber }]. */
+async function adviserFirms(name, ctx) {
+  const json = await getJson(bcSearchUrl(IAPD_FIRM_SEARCH, name), { deadline: ctx.deadline, timeoutMs: 12000 });
+  if (!json || !json.hits || !Array.isArray(json.hits.hits)) throw new HttpError('The SEC adviser firm search returned something unexpected', { url: IAPD_FIRM_SEARCH });
+  // The office address the record carries is never read.
+  return json.hits.hits.map((h) => h && h._source).filter((h) => h && h.firm_source_id && h.firm_name).map((h) => ({
+    id: String(h.firm_source_id),
+    name: clean(h.firm_name),
+    names: uniq([clean(h.firm_name), ...arr(h.firm_other_names).map((n) => clean(String(n).replace(/\((?:relying adviser|exempt reporting adviser)\)/i, '')))]),
+    scope: clean(h.firm_ia_scope),
+    disclosures: h.firm_ia_disclosure_fl === 'Y',
+    secNumber: clean(h.firm_ia_full_sec_number),
+  }));
+}
+
+/**
+ * A fund or adviser the person runs: its Form ADV record (registration
+ * status and whether it reports disclosures). Only for a company tied to the
+ * person by a record or given by the user, never for one found by name alone.
+ * Several adviser firms of the same name stay possible.
+ */
+async function adviserFirmLookup(task, ctx) {
+  const company = clean(task.value);
+  const names = companyNames(ctx.subject, company).names.slice(0, 2);
+  const firms = new Map();
+  for (const n of names) {
+    for (const f of await adviserFirms(n, ctx)) if (f.names.some((x) => names.some((m) => sameCompany(x, m)))) firms.set(f.id, f);
+  }
+  const list = [...firms.values()];
+  if (!list.length) return { findings: [], threads: [], notes: [`No SEC-registered investment adviser named ${company}.`] };
+  const ambiguous = list.length > 1;
+  const findings = list.slice(0, 3).map((f) => makeFinding(ctx.subject, {
+    source: BC_ID,
+    sourceLabel: BC_LABEL,
+    category: 'regulatory',
+    title: `${titleCase(f.name)}: investment adviser record (Form ADV)${f.disclosures ? ', reports disclosures' : ''}`,
+    quote: `${titleCase(f.name)}${f.secNumber ? `, SEC file ${f.secNumber}` : ''}: adviser registration ${f.scope ? f.scope.toLowerCase() : 'status not given'}. ${f.disclosures ? 'The firm reports disclosures (regulatory, civil or criminal events) on its Form ADV.' : 'No disclosures reported on the Form ADV.'}`,
+    url: `https://adviserinfo.sec.gov/firm/summary/${f.id}`,
+    date: null,
+    severity: f.disclosures ? 'medium' : 'info',
+    data: { firmCrd: f.id, secNumber: f.secNumber || null, disclosures: f.disclosures, status: f.scope || null },
+    ...(ambiguous
+      ? { match: 'possible', matchReasons: [`${list.length} adviser firms share the name ${company}; verify which is the person's`] }
+      : { match: 'company', matchReasons: [`${titleCase(f.name)} is ${company} in the SEC adviser register`] }),
+  })).filter(Boolean);
+  return { findings, threads: [], notes: [] };
+}
+
+/** Rank namesakes by how many of the person's known companies appear among their firms, so the likeliest are read first. */
+function firmOverlap(hit, subject) {
+  const firms = arr(hit.ind_current_employments).map((e) => clean(e?.firm_name)).filter(Boolean);
+  const known = knownCompanies(subject);
+  return firms.filter((f) => known.some((c) => partyIsKnownCompany(f, c, subject) || sameCompany(f, c))).length;
 }
 
 export const brokerCheckConnector = {
   id: BC_ID,
   label: BC_LABEL,
-  kinds: ['subject'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.4,
   timeoutMs: 20000,
+  plan(thread, subject) {
+    if (thread.kind === 'company') {
+      // Only a fund or adviser tied to the person by more than its name: given by the user, or on a record about them.
+      const tied = Boolean(foundedCompany(subject, thread.value, thread.tie));
+      return tied && ADVISER_NAME.test(String(thread.value || '')) ? [{ template: 'adviser.firm', prior: 0.35, why: 'the investment adviser record (Form ADV) of a fund or adviser the person runs' }] : [];
+    }
+    return [{ template: 'registrations.name', prior: 0.4, why: 'broker and investment adviser registrations under the person\'s name' }];
+  },
   async run(task, ctx) {
+    if (task.kind === 'company') return adviserFirmLookup(task, ctx);
     const who = person(ctx.subject);
     // Registrations are filed under the legal name; the search tolerates "Sam" for "Samuel" but not every short form.
     const query = who.queryNames[who.queryNames.length - 1];
-    const [bc, iapd] = await Promise.all([bcHits(BC_SEARCH, query, ctx), bcHits(IAPD_SEARCH, query, ctx).catch(() => [])]);
+    let iapdFailed = false;
+    const [bc, iapd] = await Promise.all([bcHits(BC_SEARCH, query, ctx), bcHits(IAPD_SEARCH, query, ctx).catch(() => { iapdFailed = true; return []; })]);
     const byCrd = new Map();
     for (const h of [...bc, ...iapd]) {
       const names = [recordName(h), ...arr(h.ind_other_names).map(clean)];
       if (!byCrd.has(h.ind_source_id) && names.some((n) => sameName(n, who))) byCrd.set(h.ind_source_id, h);
     }
-    const hits = [...byCrd.values()];
+    // The namesakes who worked at one of the person's known companies are read first.
+    const hits = [...byCrd.values()].map((h, i) => ({ h, i, o: firmOverlap(h, ctx.subject) })).sort((a, b) => (b.o - a.o) || (a.i - b.i)).map((x) => x.h);
     const notes = [];
-    if (!hits.length) return { findings: [], threads: [], notes: ['No broker or investment adviser registration under this name (most founders were never registered).'] };
-    if (hits.length > 2) notes.push(`${hits.length} registered people share the name ${who.name}; the first 2 were read.`);
+    const partial = [];
+    if (iapdFailed) {
+      notes.push('The SEC investment adviser search did not answer; only FINRA BrokerCheck was read.');
+      partial.push('SEC adviser records (did not answer)');
+    }
+    if (!hits.length) {
+      notes.push(iapdFailed ? 'No broker registration under this name in FINRA BrokerCheck.' : 'No broker or investment adviser registration under this name (most founders were never registered).');
+      return partial.length ? { findings: [], threads: [], notes, partial } : { findings: [], threads: [], notes };
+    }
+    if (hits.length > 2) {
+      notes.push(`${hits.length} registered people share the name ${who.name}; the 2 likeliest were read.`);
+      partial.push(`Broker and adviser registrations (2 of ${hits.length} people with the name read)`);
+    }
     const findings = [];
     const threads = [];
     for (const hit of hits.slice(0, 2)) {
@@ -976,7 +1337,7 @@ export const brokerCheckConnector = {
         for (const firm of firms) threads.push(makeThread('company', titleCase(firm), `firm on ${who.name}'s BrokerCheck record`, { trusted: true }));
       }
     }
-    return { findings, threads: threads.filter(Boolean), notes };
+    return partial.length ? { findings, threads: threads.filter(Boolean), notes, partial } : { findings, threads: threads.filter(Boolean), notes };
   },
 };
 
@@ -1015,22 +1376,35 @@ const gazetteSeverity = (n) => (/disqualif/i.test(`${n.type} ${n.snippet}`) ? 'h
 export const ukGazetteConnector = {
   id: GZ_ID,
   label: GZ_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.3,
   timeoutMs: 30000,
   async run(task, ctx) {
     const who = person(ctx.subject);
     const findings = [];
     const notes = [];
+    const partial = [];
+    const done = (out) => (partial.length ? { ...out, partial: uniq(partial) } : out);
+    const readAll = (label, { total, entries }) => {
+      if (total > entries.length) partial.push(`UK Gazette notices for ${label} (${entries.length} of ${total} read)`);
+      return entries;
+    };
     if (task.kind === 'company') {
       const company = clean(task.value);
-      const core = companyCore(company);
+      const { names } = companyNames(ctx.subject, company);
       // The whole trading name, not its first word: "T/A Flow Creative" is not Flow. A name ends at a comma,
       // a bracket, a legal form, the next field of the notice or the end of the shown text.
-      const named = new RegExp(`(?:Trading Names?|Previous Names? of Company)s?:[^:]{0,120}?(?<![A-Za-z0-9])(?:T\\/A\\s+)?${escapeRe(core)}\\s*(?=$|[,;)…]|\\.{3}|\\b(?:Ltd|Limited|LLP|PLC)\\b|\\(\\s*Company Number|\\b(?:Trading Names?|Previous Names? of Company|Nature of Business|Company Number|Registered|Principal)\\b)`, 'i');
-      const { entries } = await gazetteNotices([company], ctx);
+      const namedAs = (core) => new RegExp(`(?:Trading Names?|Previous Names? of Company)s?:[^:]{0,120}?(?<![A-Za-z0-9])(?:T\\/A\\s+)?${escapeRe(core)}\\s*(?=$|[,;)…]|\\.{3}|\\b(?:Ltd|Limited|LLP|PLC)\\b|\\(\\s*Company Number|\\b(?:Trading Names?|Previous Names? of Company|Nature of Business|Company Number|Registered|Principal)\\b)`, 'i');
+      const matchable = matchNames(ctx.subject, company);
+      const patterns = matchable.map((n) => namedAs(companyCore(n)));
+      const seen = new Set();
+      const entries = [];
+      // Every known name of the company: the name typed and the legal names learned from records tied to the person.
+      for (const n of names.slice(0, 3)) entries.push(...readAll(n, await gazetteNotices([n], ctx)));
       for (const n of entries.map(readNotice).filter(Boolean)) {
-        if (!sameCompany(n.title, company) && !named.test(n.snippet)) continue;
+        if (seen.has(n.id)) continue;
+        seen.add(n.id);
+        if (!matchable.some((name) => sameCompany(n.title, name)) && !patterns.some((re) => re.test(n.snippet))) continue;
         const finding = makeFinding(ctx.subject, {
           source: GZ_ID, sourceLabel: GZ_LABEL, category: 'corporate',
           title: `${n.type}: ${n.title} (The Gazette notice ${n.id})`,
@@ -1041,14 +1415,17 @@ export const ukGazetteConnector = {
         });
         if (finding) findings.push(finding);
       }
-      return { findings: findings.slice(0, 10), threads: [], notes };
+      return done({ findings: findings.slice(0, 10), threads: [], notes });
     }
     // A person: only corporate notices that name them together with a company already tied to them.
     const companies = knownCompanies(ctx.subject).slice(0, 2);
     if (!companies.length) return { findings, threads: [], notes: ['UK Gazette notices are searched for a person only together with a known company (personal insolvency notices are not read).'] };
     const seen = new Set();
     for (const company of companies) {
-      const { entries } = await gazetteNotices([who.name, companyCore(company)], ctx);
+      // The company's legal name when one is known: notices print the registered name.
+      const named = companyNames(ctx.subject, company);
+      const label = named.legal[0] || companyCore(company);
+      const entries = readAll(`${who.name} and ${label}`, await gazetteNotices([who.name, label], ctx));
       for (const n of entries.map(readNotice).filter(Boolean)) {
         if (seen.has(n.id)) continue;
         seen.add(n.id);
@@ -1064,7 +1441,7 @@ export const ukGazetteConnector = {
         if (finding) findings.push(finding);
       }
     }
-    return { findings: findings.slice(0, 10), threads: [], notes };
+    return done({ findings: findings.slice(0, 10), threads: [], notes });
   },
 };
 
@@ -1076,8 +1453,9 @@ const TNA_FEED = 'https://caselaw.nationalarchives.gov.uk/atom.xml';
 // Family, immigration and employment matters of a namesake are private lives, not diligence.
 const PRIVATE_COURTS = /family|immigration|asylum|employment|court of protection|mental health|special educational|social entitlement|care standards/i;
 
+const TNA_PAGE = 20;
 async function caseLawFeed(phrases, party, ctx) {
-  const url = `${TNA_FEED}?query=${encodeURIComponent(phrases.map(quoted).join(' '))}&party=${encodeURIComponent(party)}&order=-date&per_page=20`;
+  const url = `${TNA_FEED}?query=${encodeURIComponent(phrases.map(quoted).join(' '))}&party=${encodeURIComponent(party)}&order=-date&per_page=${TNA_PAGE}`;
   const xml = await getText(url, { deadline: ctx.deadline, timeoutMs: 15000, accept: 'application/atom+xml,application/xml' });
   if (!/<feed[\s>]/.test(xml)) throw new HttpError('Find Case Law returned something other than a feed', { url });
   const $ = cheerio.load(xml, { xmlMode: true });
@@ -1109,57 +1487,72 @@ function judgmentFinding(j, ctx, extra) {
 export const ukCaseLawConnector = {
   id: TNA_ID,
   label: TNA_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.35,
   timeoutMs: 20000,
   async run(task, ctx) {
     const who = person(ctx.subject);
     const findings = [];
     const notes = [];
+    const partial = [];
+    const done = (out) => (partial.length ? { ...out, partial: uniq(partial) } : out);
+    // The feed gives no total: a full page means there may be more.
+    const feed = async (phrases, party, label) => {
+      const list = await caseLawFeed(phrases, party, ctx);
+      if (list.length >= TNA_PAGE) partial.push(`UK court judgments for ${label} (newest ${TNA_PAGE} read)`);
+      return list;
+    };
     if (task.kind === 'company') {
       const company = clean(task.value);
-      const core = companyCore(company);
-      for (const j of await caseLawFeed([company], core, ctx)) {
+      const seenUrls = new Set();
+      // Every known name of the company: the name typed and the legal names learned from records tied to the person.
+      for (const name of companyNames(ctx.subject, company).names.slice(0, 3)) {
+      for (const j of await feed([name], companyCore(name), name)) {
+        if (seenUrls.has(j.url)) continue;
+        seenUrls.add(j.url);
         const parties = caseParties(j.title);
-        const party = [...parties.people, ...parties.asides].find((p) => partyIsCompany(p, company));
+        const party = [...parties.people, ...parties.asides].find((p) => partyIsKnownCompany(p, company, ctx.subject));
         if (!party) continue;
         const named = parties.people.find((p) => sameName(p, who));
         const f = judgmentFinding(j, ctx, {
           severity: isUkCriminal(j.title) ? 'high' : 'medium',
           ...(named ? { matchText: `${who.name} | ${j.title} | ${company}` } : { match: 'company', matchReasons: [`${party} is a party`] }),
         });
-        if (f) findings.push(f);
+        if (f) findings.push(named ? holdDiminutive(f, ctx.subject, who, named) : f);
       }
-      return { findings: findings.slice(0, 10), threads: [], notes };
+      }
+      return done({ findings: findings.slice(0, 10), threads: [], notes });
     }
     const seen = new Set();
     const companies = knownCompanies(ctx.subject).slice(0, 1);
     // With a known company first: judgments whose full text names both (the search ANDs quoted phrases).
     for (const company of companies) {
-      for (const j of await caseLawFeed([who.name, companyCore(company)], who.surname, ctx)) {
+      const label = companyNames(ctx.subject, company).legal[0] || companyCore(company);
+      for (const j of await feed([who.name, label], who.surname, `${who.name} and ${label}`)) {
         const parties = caseParties(j.title);
         if (!parties.people.some((p) => sameName(p, who))) continue;
         seen.add(j.url);
+        const hits = parties.people.filter((p) => sameName(p, who));
         const f = judgmentFinding(j, ctx, {
           severity: isUkCriminal(j.title) ? 'high' : 'medium',
           matchText: `${who.name} | ${j.title} | ${company}`,
           // The company is in the judgment, not the feed: say so.
         });
-        if (f) findings.push({ ...f, matchReasons: [...f.matchReasons, `the judgment text names ${company} (Find Case Law search)`] });
+        if (f) findings.push(holdDiminutive({ ...f, matchReasons: [...f.matchReasons, `the judgment text names ${company} (Find Case Law search)`] }, ctx.subject, who, hits));
       }
     }
     let privateSkipped = 0;
-    for (const j of await caseLawFeed([who.name], who.surname, ctx)) {
+    for (const j of await feed([who.name], who.surname, who.name)) {
       if (seen.has(j.url)) continue;
       const parties = caseParties(j.title);
       if (!parties.people.some((p) => sameName(p, who))) continue;
       const company = namesKnownCompany(ctx.subject, j.title);
-      if (!company && PRIVATE_COURTS.test(j.court)) { privateSkipped += 1; continue; }
+      if (!company && (PRIVATE_COURTS.test(j.court) || privateCase(j.title))) { privateSkipped += 1; continue; }
       const f = judgmentFinding(j, ctx, { severity: isUkCriminal(j.title) ? 'high' : 'medium', matchText: `${who.name} | ${j.title}` });
-      if (f) findings.push(f);
+      if (f) findings.push(holdDiminutive(f, ctx.subject, who, parties.people.filter((p) => sameName(p, who))));
     }
     if (privateSkipped) notes.push(`${plural(privateSkipped, 'family, immigration or employment judgment')} under the same name ${privateSkipped === 1 ? 'was' : 'were'} left out: nothing in ${privateSkipped === 1 ? 'it' : 'them'} ties ${privateSkipped === 1 ? 'it' : 'them'} to ${who.name}'s companies.`);
-    return { findings: findings.slice(0, 12), threads: [], notes };
+    return done({ findings: findings.slice(0, 12), threads: [], notes });
   },
 };
 
@@ -1174,24 +1567,97 @@ const BD_FIELDS = 'id,dateparution,familleavis_lib,typeavis_lib,commercant,regis
 const sirenCache = new Map();
 const parseJsonField = (v) => { if (!v) return null; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch { return null; } };
 
-/** French company numbers (SIREN) for a company name, from the LEI register. */
+const FR_REGISTER = 'https://recherche-entreprises.api.gouv.fr/search';
+// A lookup the check's own clock cut short is run again by the loop, so it is passed on, not read as a failed register.
+const cutShort = (error) => error?.code === 'deadline' || /^Out of time/.test(String(error?.message || ''));
+const SIREN_RE = /^\d{9}$/;
+
+/**
+ * SIRENs already on records of this check that are tied to the company: a
+ * French company register entry (fr-companies) or an LEI record about it,
+ * graded above a bare name match. The surest source, and it costs no request.
+ */
+function tiedSirens(ctx, company) {
+  let list = [];
+  try { list = typeof ctx.findings === 'function' ? ctx.findings() : ctx.findings; } catch { list = []; }
+  const names = matchNames(ctx.subject, company);
+  const out = [];
+  for (const f of Array.isArray(list) ? list : []) {
+    if (!f || !['fr-companies', 'lei-register'].includes(f.source) || !['confirmed', 'likely', 'company'].includes(f.match)) continue;
+    const siren = clean(f.data?.siren || f.data?.registeredAs || '').replace(/\s/g, '');
+    if (!SIREN_RE.test(siren)) continue;
+    const named = clean(f.data?.company || f.data?.legalName || f.title);
+    if (names.some((n) => sameCompany(named, n) || textNamesCompany(named, n) || companyMention(n, named).named)) out.push(siren);
+  }
+  return uniq(out);
+}
+
+/**
+ * French company numbers (SIREN) for a company, under every known name:
+ * first from records already tied to it, then from the LEI register, then
+ * from the French company register itself (most small French companies have
+ * no LEI). Returns { sirens, failed } where `failed` names registers that did not answer.
+ */
 async function sirensFor(company, ctx) {
-  if (/^\d{3}\s?\d{3}\s?\d{3}$/.test(company)) return [company.replace(/\s/g, '')];
-  const key = plainKey(company);
-  if (sirenCache.has(key)) return sirenCache.get(key);
-  const read = (json) => arr(json?.data).map((r) => r?.attributes?.entity).filter((e) => e && sameCompany(e.legalName?.name || '', company))
-    .map((e) => clean(e.registeredAs).replace(/\s/g, '')).filter((s) => /^\d{9}$/.test(s));
-  const ask = async (filter) => {
+  if (/^\d{3}\s?\d{3}\s?\d{3}$/.test(company)) return { sirens: [company.replace(/\s/g, '')], failed: [] };
+  const tied = tiedSirens(ctx, company);
+  if (tied.length) return { sirens: tied.slice(0, 3), failed: [] };
+  const names = matchNames(ctx.subject, company).slice(0, 3);
+  const key = names.map(plainKey).join('|');
+  if (sirenCache.has(key)) return { sirens: sirenCache.get(key), failed: [] };
+  const failed = [];
+  const fits = (n) => names.some((m) => sameCompany(n || '', m));
+  const readLei = (json) => arr(json?.data).map((r) => r?.attributes?.entity).filter((e) => e && fits(e.legalName?.name))
+    .map((e) => clean(e.registeredAs).replace(/\s/g, '')).filter((s) => SIREN_RE.test(s));
+  const askLei = async (filter) => {
     const json = await getJson(`${GLEIF}?${filter}&filter%5Bentity.legalAddress.country%5D=FR&page%5Bsize%5D=10`, { deadline: ctx.deadline, timeoutMs: 12000, accept: 'application/vnd.api+json,application/json' });
     if (!json || !Array.isArray(json.data)) throw new HttpError('The LEI register returned something unexpected', { url: GLEIF });
-    return read(json);
+    return readLei(json);
   };
-  let sirens = await ask(`filter%5Bentity.legalName%5D=${encodeURIComponent(company)}`);
-  if (!sirens.length) sirens = await ask(`filter%5Bfulltext%5D=${encodeURIComponent(company)}`);
+  let sirens = [];
+  try {
+    for (const n of names) {
+      sirens.push(...await askLei(`filter%5Bentity.legalName%5D=${encodeURIComponent(n)}`));
+      if (sirens.length) break;
+    }
+    if (!sirens.length) sirens.push(...await askLei(`filter%5Bfulltext%5D=${encodeURIComponent(names[0] || company)}`));
+  } catch (error) {
+    if (cutShort(error)) throw error;
+    failed.push('LEI register');
+  }
+  if (!sirens.length) {
+    // The French company register: companies only (a sole trader's entry is a person's own affairs), and only
+    // where the registered name, full name or acronym is a known name of the company.
+    try {
+      for (const n of names.slice(0, 2)) {
+        const json = await getJson(`${FR_REGISTER}?${new URLSearchParams({ q: n, per_page: '10' })}`, { deadline: ctx.deadline, timeoutMs: 9000 });
+        if (!Array.isArray(json?.results)) throw new HttpError('The French company register returned something unexpected', { url: FR_REGISTER });
+        for (const r of json.results) {
+          const siren = String(r?.siren || '').replace(/\D/g, '');
+          if (!SIREN_RE.test(siren) || /^1/.test(String(r?.nature_juridique || '')) || !r?.nom_raison_sociale) continue;
+          if ([r.nom_raison_sociale, r.nom_complet, r.sigle].some((x) => x && fits(clean(x)))) sirens.push(siren);
+        }
+        if (sirens.length) break;
+      }
+    } catch (error) {
+      if (cutShort(error)) throw error;
+      failed.push('French company register');
+    }
+  }
   sirens = uniq(sirens).slice(0, 3);
-  if (sirenCache.size > 200) sirenCache.delete(sirenCache.keys().next().value);
-  sirenCache.set(key, sirens);
-  return sirens;
+  if (!failed.length) {
+    if (sirenCache.size > 200) sirenCache.delete(sirenCache.keys().next().value);
+    sirenCache.set(key, sirens);
+  }
+  return { sirens, failed };
+}
+
+/** Is the company tied to France in this check (a French register record, or a .fr domain)? */
+function tiedToFrance(ctx, company) {
+  let list = [];
+  try { list = typeof ctx.findings === 'function' ? ctx.findings() : ctx.findings; } catch { list = []; }
+  if ((Array.isArray(list) ? list : []).some((f) => f && f.source === 'fr-companies' && f.match !== 'possible')) return true;
+  return companyNames(ctx.subject, company).domains.some((d) => /\.fr$/i.test(d));
 }
 
 /** The notice's own PDF (a distinct address per notice), else the bulletin's search page for it. */
@@ -1239,14 +1705,28 @@ export const bodaccConnector = {
   timeoutMs: 20000,
   async run(task, ctx) {
     const company = clean(task.value);
-    const sirens = await sirensFor(company, ctx);
-    if (!sirens.length) return { findings: [], threads: [], notes: [`${company} was not found as a French company in the LEI register, so the French bulletin was not searched.`] };
+    const { sirens, failed } = await sirensFor(company, ctx);
+    if (!sirens.length) {
+      if (failed.length) {
+        return { findings: [], threads: [], notes: [`The ${failed.join(' and the ')} did not answer, so ${company}'s French company number could not be looked up and the French bulletin was not searched.`], partial: ['French bulletin (company number not found: a register did not answer)'] };
+      }
+      const note = `${company} was not found as a French company in the French company register or the LEI register, so the French bulletin was not searched.`;
+      // A company known to be French but not found is a gap, never a clean result.
+      return tiedToFrance(ctx, company)
+        ? { findings: [], threads: [], notes: [note], partial: ['French bulletin (the French company number was not found)'] }
+        : { findings: [], threads: [], notes: [note] };
+    }
     const where = `(${sirens.map((s) => `registre:"${s}"`).join(' or ')}) and (familleavis_lib in (${BD_FAMILIES.map((f) => `"${f}"`).join(',')}) or search(modificationsgenerales,"dissolution"))`;
     const url = `${BD_RECORDS}?where=${encodeURIComponent(where)}&order_by=${encodeURIComponent('dateparution desc')}&limit=20&select=${encodeURIComponent(BD_FIELDS)}`;
     const json = await getJson(url, { deadline: ctx.deadline, timeoutMs: 15000 });
     if (!json || !Array.isArray(json.results)) throw new HttpError('The BODACC search returned something unexpected', { url: BD_RECORDS });
     const findings = json.results.map((r) => bodaccFinding(r, ctx, company)).filter(Boolean);
     const notes = findings.length ? [] : [`No insolvency, sale or dissolution notice for ${company} (SIREN ${sirens.join(', ')}) in the French bulletin.`];
+    const total = Number(json.total_count) || json.results.length;
+    if (total > json.results.length) {
+      notes.push(`The French bulletin holds ${total} such notices for ${company}; the newest ${json.results.length} were read.`);
+      return { findings: findings.slice(0, 12), threads: [], notes, partial: [`French bulletin (${json.results.length} of ${total} notices read)`] };
+    }
     return { findings: findings.slice(0, 12), threads: [], notes };
   },
 };
@@ -1273,7 +1753,9 @@ async function cftcReleases(term, ctx) {
 async function cfpbActions(term, ctx) {
   const url = `${CFPB}/enforcement/actions/?title=${encodeURIComponent(term)}`;
   const html = await getText(url, { deadline: ctx.deadline, timeoutMs: 15000 });
-  if (!/o-post-preview|enforcement/i.test(html)) throw new HttpError('The CFPB enforcement search returned an unexpected page', { url });
+  // Every page of that site says "enforcement": only the result cards, or the site's own empty-result wording,
+  // show that the search really answered. Anything else (a new layout, a maintenance page) is a failure, not "no match".
+  if (!/class="[^"]*\bo-post-preview\b/i.test(html) && !/no results based on your filter selections/i.test(html)) throw new HttpError('The CFPB enforcement search returned an unexpected page', { url });
   const $ = cheerio.load(html);
   return $('article.o-post-preview').toArray().map((el) => {
     const a = $(el).find('a[href^="/enforcement/actions/"]').first();
@@ -1296,39 +1778,64 @@ const isAction = (r) => r.agency !== 'CFTC' || CFTC_ACTION.test(r.title);
 export const enforcementActionsConnector = {
   id: EN_ID,
   label: EN_LABEL,
-  kinds: ['subject', 'company'],
+  kinds: ['subject', 'alias', 'company'],
   prior: 0.3,
   timeoutMs: 25000,
   async run(task, ctx) {
     const who = person(ctx.subject);
     const findings = [];
     const base = { source: EN_ID, sourceLabel: EN_LABEL, category: 'regulatory' };
+    const notes = [];
+    const partial = [];
+    /** Both agencies are asked; one that fails is reported as partial, both failing is a failed lookup. */
+    const both = async (term) => {
+      const [cftc, cfpb] = await Promise.allSettled([cftcReleases(term, ctx), cfpbActions(term, ctx)]);
+      if (cftc.status === 'rejected' && cfpb.status === 'rejected') throw cftc.reason;
+      for (const [r, label] of [[cftc, 'CFTC'], [cfpb, 'CFPB']]) {
+        if (r.status === 'rejected') { notes.push(`The ${label} search did not answer for "${term}".`); partial.push(`${label} enforcement actions (did not answer)`); }
+      }
+      return [...(cftc.status === 'fulfilled' ? cftc.value : []), ...(cfpb.status === 'fulfilled' ? cfpb.value : [])];
+    };
+    const done = (out) => (partial.length ? { ...out, partial: uniq(partial) } : out);
     if (task.kind === 'company') {
       const company = clean(task.value);
-      const core = companyCore(company);
-      const [cftc, cfpb] = await Promise.all([cftcReleases(core, ctx), cfpbActions(core, ctx)]);
-      for (const r of [...cftc, ...cfpb]) {
-        // The CFTC search reads release bodies and the CFPB one descriptions: keep only actions with the company in the title.
-        if (!isAction(r) || !headlineNamesCompany(r.title, company)) continue;
-        const named = namesPerson(`${r.title} ${r.summary || ''}`, who);
-        const f = makeFinding(ctx.subject, {
-          ...base, title: `${r.agency}: ${r.title}`, quote: r.summary || r.title, url: r.url, date: r.date,
-          severity: enforcementSeverity(`${r.title} ${r.summary || ''}`), data: { agency: r.agency },
-          ...(named ? { matchText: `${r.title} | ${r.summary || ''}` } : { match: 'company', matchReasons: [`${company} is named in the title`] }),
-        });
-        if (f) findings.push(f);
+      const seen = new Set();
+      // Every known name of the company: the name typed and the legal names learned from records tied to the person.
+      for (const core of uniq(companyNames(ctx.subject, company).names.map(companyCore)).slice(0, 2)) {
+        for (const r of await both(core)) {
+          if (seen.has(r.url)) continue;
+          seen.add(r.url);
+          // The CFTC search reads release bodies and the CFPB one descriptions: keep only actions with the company in the title.
+          if (!isAction(r)) continue;
+          const headline = headlineNaming(r.title, company, ctx.subject);
+          if (!headline) continue;
+          const text = `${r.title} ${r.summary || ''}`;
+          const named = namesPerson(text, who);
+          // A one-word name without its legal form ("Judgment Against FTX and Alameda"): the company's own only when
+          // the description names it with its legal form; otherwise kept, but as a possible match to verify.
+          const strong = headline === 'strong' || textNamesCompanyStrongly(r.summary || '', company, ctx.subject);
+          const f = makeFinding(ctx.subject, {
+            ...base, title: `${r.agency}: ${r.title}`, quote: r.summary || r.title, url: r.url, date: r.date,
+            severity: enforcementSeverity(text), data: { agency: r.agency },
+            ...(named ? { matchText: `${r.title} | ${r.summary || ''}` }
+              : strong ? { match: 'company', matchReasons: [`${company} is named in the title`] }
+                : { match: 'possible', matchReasons: [`the title names ${company} without a legal form; verify it is the same company`] }),
+          });
+          if (f) findings.push(f);
+        }
       }
-      return { findings: findings.slice(0, 10), threads: [], notes: [] };
+      return done({ findings: findings.slice(0, 10), threads: [], notes });
     }
-    for (const r of await cftcReleases(who.name, ctx)) {
+    // The CFPB names individuals in its action titles too ("... and Jane Roe"), so both agencies are asked.
+    for (const r of await both(who.name)) {
       if (!isAction(r) || !namesPerson(r.title, who)) continue;
       const f = makeFinding(ctx.subject, {
-        ...base, title: `${r.agency}: ${r.title}`, quote: r.title, url: r.url, date: r.date,
-        severity: enforcementSeverity(r.title), data: { agency: r.agency }, matchText: r.title,
+        ...base, title: `${r.agency}: ${r.title}`, quote: r.summary || r.title, url: r.url, date: r.date,
+        severity: enforcementSeverity(`${r.title} ${r.summary || ''}`), data: { agency: r.agency }, matchText: `${r.title} | ${r.summary || ''}`,
       });
       if (f) findings.push(f);
     }
-    return { findings: findings.slice(0, 10), threads: [], notes: [] };
+    return done({ findings: findings.slice(0, 10), threads: [], notes });
   },
 };
 
@@ -1336,3 +1843,6 @@ export const COURT_CONNECTORS = [
   courtDocketsConnector, courtRecordsOpenConnector, dojConnector, brokerCheckConnector,
   ukGazetteConnector, ukCaseLawConnector, bodaccConnector, enforcementActionsConnector,
 ];
+
+// A record found only under another name of the person the user did not type is 'likely' at most (alias.js).
+for (const c of [courtDocketsConnector, courtRecordsOpenConnector, dojConnector, brokerCheckConnector, ukGazetteConnector, ukCaseLawConnector, enforcementActionsConnector]) c.run = withAliasHold(c.run);

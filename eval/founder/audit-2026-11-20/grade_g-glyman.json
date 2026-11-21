@@ -1,0 +1,149 @@
+{
+ "subject": "Eric Glyman, co-founder and co-CEO of Ramp (ramp.com). Report: eval/founder/runs/r9/eric-glyman-ramp.json (138 records, 12 rounds, 281 lookups, 496 s, brief assembled from records because no AI model was available)",
+ "score": 58,
+ "missing": [
+  {
+   "fact": "Earlier career and companies founded. Glyman co-founded Paribus and was its CEO from 2014 to February 2019 (YC S15). Capital One bought Paribus in 2016 and it became Capital One Shopping, where he worked until 2019. He co-founded Ramp in March 2019. The profile's 'earlier' and 'founded' lists are both empty, and 'roles' holds only Ramp.",
+   "cause": "Found but dropped. The records say it word for word: #41/#105 'He previously co-founded Paribus... (acq. in 2016 by Capital One)', #109 Twitter 'Previously co-founded Paribus (YC S15, Acq. by Capital One)', #8/#110 Crunchbase 'Co-Founder, CEO, Paribus (2014 - Feb 2019)', #92 Wikipedia. Two code defects lose them. First, PRIOR in profile.js:37-45 needs 'previously ... at/for/with ORG' and has no 'co-founded X' or 'Title, Org (yyyy - yyyy)' form. Second, buildProfile skips any sentence that does not repeat the full name, and the archive records (#110, #105) do not, because fromBioPage is true only for kind 'bio'. Even then, reportProfile hard-codes `founded: []` (report.js:740).",
+   "fix": "Add 'co-?founded <ORG>' and 'previously co-founded' patterns that fill both founded and earlier. Parse the 'Title, Org (from - to)' lines in Crunchbase and LinkedIn snapshots. Treat archived copies of profile and bio pages that are tied to the person as first-person pages, the same way kind 'bio' is treated. Fill `founded` from the founded-by and co-founded patterns, and from YC or Wikipedia company records whose founder list names the person."
+  },
+  {
+   "fact": "Education detail: BA in Economics and East Asian Studies, Harvard, class of 2012. The profile shows 'Harvard University' with degree, field and year all null.",
+   "cause": "Found but dropped. #104 says 'BA in Economics and East Asian Studies, Harvard University' and #112 says \"Harvard '12\". report.js:738 always writes `degree: null, field: null` on the pattern path, so the profile never carries a degree or field. The archive snapshot sentence also lacks the full name, so it is skipped (see above).",
+   "fix": "In profile.js, read '(BA|BS|MBA|PhD...) in <field>, <School>' and \"<School> 'yy\" and carry degree, field and year through reportProfile instead of the hard-coded nulls."
+  },
+  {
+   "fact": "Current title is co-CEO, shared with Karim Atiyeh since about September 2026. The headline and roles still say 'Co-Founder and CEO'.",
+   "cause": "Found but read wrong. Records #18, #44, #53, #69, #70, #88 and #97 ('Ramp elevates CTO to co-CEO') all say Co-CEO. In TITLE_FORMS (profile.js:175-181), /\\bCEO\\b/ matches inside 'Co-CEO' because the hyphen counts as a word boundary, so co-CEO collapses to CEO. Older records saying 'CEO' also outvote newer ones, because titleVotes ignores dates.",
+   "fix": "Add a 'Co-CEO' form ahead of CEO, and weight title votes toward the most recent dated records. When the archived title changed from CEO to Co-CEO (#1), use the newer title for the headline."
+  },
+  {
+   "fact": "Regulatory matter: on 2026-07-27 the West Virginia Attorney General sent Ramp's co-CEOs (Glyman and Atiyeh, both named) a letter under the state FIND Act. It concerns Ramp's refusal to serve a firearms-related business and questions Ramp's position that it is not a bank.",
+   "cause": "Never asked. No connector covers state attorney-general letters or actions (sources/government.js and courtsMore.js are federal or foreign only). The letter is a PDF on ago.wv.gov, so the Google News feed does not index it. The open-web lawsuit and regulator patterns relied on news search, which also throttles locally. This is partly a local limit, but mainly a coverage gap that should be listed under notCovered.",
+   "fix": "Add open-web queries such as '\"<company>\" attorney general letter OR \"civil investigative demand\"' restricted to site:*.gov, run through DuckDuckGo or Bing HTML with the PDF allowed. Add 'state attorney-general actions' to notCovered until a source exists."
+  },
+  {
+   "fact": "Company controversy: in October 2026 The Information reported that Ramp's backers lobbied Washington to probe rival Airwallex's ties to China after a failed partnership. The report has the item (#6), but marks it as a namesake to rule out and lists it under 'Possible namesakes' and in the brief's GAPS.",
+   "cause": "Found but demoted wrongly. ordinaryWordOnly in report.js:458-465 demotes a one-word company name unless the text matches the BUSINESS word list. 'backers', 'lobbied', 'rival' and 'partnership' are not on that list, and Google News RSS gives no snippet (quote is empty), so the title alone failed the test.",
+   "fix": "Add investor and market words to BUSINESS (backers, rival, competitor, lobbied, partnership, deal, merger, regulators, probe). Also accept the item when another company in the title is a known competitor or a fintech, or when the possessive \"Ramp's\" stands alone at the start of a clause. Route it to 'About their companies' at medium severity."
+  },
+  {
+   "fact": "Gene Lee is Ramp's third co-founder. He is not among the related parties or threads.",
+   "cause": "Found but dropped. Record #92 (Wikipedia) and #138 (unicorn list) say 'founded in March 2019 by Eric Glyman, Karim Atiyeh, and Gene Lee', yet #92 carries `data.persons: ['Karim Atiyeh']` only. Associate extraction in extract.js takes only names already known, or the first co-founder in a list, from 'founded ... by A, B, and C'.",
+   "fix": "In extract.js, split 'founded by A, B, and C' into every person and emit associate threads (trusted when the record is confirmed). Show co-founders in the profile."
+  },
+  {
+   "fact": "UK directorships: Glyman is a director of RAMP BUSINESS UK LTD (15561756, appointed 2024-03-14) and was a director of RAMP PLATFORM UK LTD (15561942, 2024-03-14 to 2026-07-14). These are his records, filed under his full name 'Eric Robert GLYMAN', but both are graded 'possible' and hidden among name matches.",
+   "cause": "Found but buried. personAtCompany (sources/registries.js:252-264) holds a record at 'possible' permanently (matchFixed) when the registered name only resembles a known company. 'Ramp Business UK Ltd' does not tie to 'Ramp' through nameTie or isBranchOf. The confirmed legal name 'Ramp Business Corp' from the SEC Form D (#10) is never added as a known name of Ramp. The middle name 'Robert' matches the confirmed patent #43 ('Eric Robert Glyman'), but that is not used as an anchor either.",
+   "fix": "When a confirmed filing gives the company's legal name (Form D issuer, ABS-15G securitizer), add it to subject.anchors.companies as an alias. Treat '<alias> UK/<country> Ltd' as a branch. Let matchFixed records be re-graded when a new alias or full-middle-name anchor appears, up to 'likely' at most."
+  },
+  {
+   "fact": "Lookups by Ramp's legal name (Ramp Business Corporation). The real US trademarks (RAMP and others, owned by Ramp Business Corporation), lobbying filings, CFPB complaints, the LEI and federal awards were all searched only under the bare word 'Ramp'. The trademark screen therefore reports 'Ramp: 8 US trademark filings, 0 live', which belong to a 2000s health-IT company (HEALTHRAMP and similar). LDA.gov read only 25 of 49 'Ramp-like' clients and kept none.",
+   "cause": "Asked with the wrong name. 'Ramp Business Corp' never appears in the threads followed, although sec.js:990 emits an issuer thread. The trademark connector (sources/ip.js:536-541) accepts only owners whose name equals the given company or a 'known' fuller name, and none was known. The notes say 'Owners with longer names were not counted'. The LDA, USAspending and CFPB connectors (government.js:195, 290) also search the exact name only.",
+   "fix": "Feed the legal name from SEC filings back as a company alias thread and as an accepted owner, client and recipient name. In LDA, page through all 49 filings or filter by the exact legal name instead of keeping the latest 25."
+  },
+  {
+   "fact": "Funding history and standing of Ramp: $13B (Mar 2025); $22.5B (Jul 2025); $32B with $300M led by Lightspeed (Nov 2025); $44B (Jun 2026); $1.85B at $60B (Oct 2026). Investors include Founders Fund, Thrive, D1, Coatue, Lightspeed and ICONIQ. Keith Rabois of Founders Fund is on the board. The report has these facts only scattered across press headlines (#74, #72, #84, #79) and the Form D (#10). Nothing shows a funding timeline or investor list, and the related-party entry gives no role for Rabois.",
+   "cause": "Found but buried. No pattern-path aggregation for company funding exists (report.js has no funding section), and without a model nothing summarises it. The Form D amount is cut mid-number in the brief ('$1,850,00'). Partly a local limit because no model was available, and partly a design gap.",
+   "fix": "Add a 'Company standing' block built in code from Form D amounts and dates and from valuation figures in confirmed headlines ('$NNB valuation'), each cited. Do not cut numbers in quotes."
+  },
+  {
+   "fact": "Angel investing: the ramp.com bio describes him as 'an active New York-based angel investor'. The investments list is empty.",
+   "cause": "Found but dropped. report.js:740 hard-codes `investments: [], recognition: [], boards: []` on the pattern path, and profile.js has no investor pattern.",
+   "fix": "Add patterns for 'angel investor' and 'invested in X' and fill investments with citations."
+  },
+  {
+   "fact": "Before Paribus he was a financial analyst in New York (2012-2014). One profile names the firm as Millstein & Co.; this is unverified.",
+   "cause": "Never asked or not found. Crunchbase and LinkedIn snapshots in the web archive did not yield an experience list, and the profile parser cannot read the Crunchbase 'Title, Org (from - to)' layout.",
+   "fix": "Parse the experience blocks in archived Crunchbase and LinkedIn snapshots."
+  }
+ ],
+ "wrong": [
+  {
+   "item": "#37 under 'Claims that changed': 'ramp.com page: bio rewritten between 2024-03 and 2025-04', graded confirmed. The 'before' text is the bio of a different person, a content marketing manager named Stefanie (Institutional Investor, University of Delaware).",
+   "why": "This attributes another employee's biography to the subject as a change in his claims. The record was graded confirmed only because it 'names Ramp'.",
+   "cause": "sources/archive.js (claims diff around lines 347 and 399) diffs page text on a blog post's author box without checking that the bio is about the subject. matchReasons is ['names Ramp'].",
+   "fix": "Only diff a bio field when the extracted bio sentence names the subject, or opens on his first name on a page whose title is his. Otherwise drop the change."
+  },
+  {
+   "item": "Thread 'company: Village Global' with why='Co-founder'. Thread 'company: Erik Torenberg'.",
+   "why": "The source sentence reads 'Eric Glyman recently joined Erik Torenberg (Co-founder of Village Global, On Deck, and Turpentine)'. Torenberg's role was read as Glyman's, and a person's name was read as a company. Lookups were wasted (Form D and Companies House for Village Global), and in a namesake-heavy case this would pin the wrong company on the person.",
+   "cause": "extract.js company extraction (~line 280-356): 'joined <Name>' is treated as joining a company, and a parenthetical role belonging to another person is taken as the subject's role.",
+   "fix": "Do not take a role from a parenthetical attached to another person's name. Reject company candidates that look like a person's name (first-name list, or two capitalised tokens followed by a parenthetical role)."
+  },
+  {
+   "item": "#132 'Eric Glyman: named inventor on 2 patent families (none tied to a known company)' sits beside #43, which is confirmed through Paribus. #124 (Capital One, reservation rebooking, priority 2017) is graded 'possible'.",
+   "why": "The report contradicts itself. Both patents are his: Paribus, then Capital One after the acquisition.",
+   "cause": "sources/ip.js:352 writes the summary when the connector runs, before Paribus is a known company, and nothing regrades it. Capital One is never made an anchor, although '#41 acq. by Capital One' and '#109' state the acquisition.",
+   "fix": "Regrade patent summaries at report time. Treat 'acquired by X' of a founded company as a likely anchor for records dated after the acquisition."
+  },
+  {
+   "item": "'Ramp: 8 US trademark filings, earliest filed 2001-03-09; 0 live, 8 no longer live' (#131), with HEALTHRAMP and LIFERAMP marks.",
+   "why": "These belong to an unrelated 2000s company named Ramp Corp. The line suggests Ramp has no live trademarks, which is false.",
+   "cause": "sources/ip.js trademarks connector searched only 'Ramp' (see missing: legal name).",
+   "fix": "Search the legal name and suppress the bare-word owner when a legal name is known."
+  },
+  {
+   "item": "Brief 'WHAT CHECKS OUT' and the timeline start with 'ramp.com: registered 1994-03-14' (#103).",
+   "why": "Ramp was founded in 2019 and ran on tryramp.com. The 1994 date belongs to a previous domain holder, so this suggests a company history that never existed.",
+   "cause": "sources/domains.js reports the registration date of the domain without checking it against the company's founding date.",
+   "fix": "When a domain's registration date is earlier than the company's founding, label it 'domain registered by an earlier holder; acquired later' and keep it off the timeline and out of WHAT CHECKS OUT."
+  },
+  {
+   "item": "#118 'Y Combinator lists ... Paribus; Eric Glyman is not on its founder list' (possible) and #102, the same URL, graded company.",
+   "why": "The same record is graded two ways. The 'not on its founder list' wording also suggests his co-founder claim is doubtful, although Wikipedia, Crunchbase and his own bios agree he co-founded Paribus. YC's directory simply lists one founder.",
+   "cause": "sources/ yc-directory connector emitted two findings for the same slug under two threads (company:Ramp because of 'formerly Ramp', and Paribus).",
+   "fix": "Dedupe by slug. When other confirmed records state the co-founding, phrase the absence as 'YC directory lists only Karim Atiyeh' and do not leave it as a namesake."
+  },
+  {
+   "item": "Coverage 'Not covered: Court dockets ... including US state courts and the Delaware Court of Chancery'.",
+   "why": "This contradicts the screens, which show Delaware Chancery, Superior and Supreme searched and clear (3 lookups).",
+   "cause": "The static notCovered text in report.js is not adjusted when the delaware-courts connector ran.",
+   "fix": "Drop the Chancery mention when delaware-courts answered."
+  },
+  {
+   "item": "Screen 'SEC company filings (Form D fundraises, cyber-incident reports)' is shown as clear (9 lookups, 0 records), while Form D record #10 exists under 'SEC Form D notices'.",
+   "why": "An investor reads 'Form D: clear' next to a Form D record. The screens attribute the record to a different source family.",
+   "cause": "#10 has source 'sec-filings' but the label 'SEC Form D notices'; the screen groups by source id.",
+   "fix": "Count records in a screen by the record's sourceLabel family, or relabel."
+  }
+ ],
+ "noise": [
+  {
+   "item": "#5 'Body found near Misty Water Boat Ramp ... homicide' and #7 'Son-in-law of The Ramp church founder ... abused two minors', both medium severity and numbered 5 and 7.",
+   "why": "These are unrelated crime stories. They are correctly demoted to 'possible', but they still carry medium severity and rank above almost all real records. The owner's complaint 'brings up random people' is exactly this.",
+   "fix": "When ordinaryWordOnly demotes a record (companyNamesake), set severity to info and rank it last, or drop it when the subject's name is absent and the record came from a company-only query."
+  },
+  {
+   "item": "Gazette notices for RAMP & CO LTD (#2-4), ICIJ 'RAMP LTD.' in the Bahamas Leaks (#51), state registers RAMP LLC in CT, CO, TX and NY (#117, #119-121), HN 'Tesla ... Ramp Up' / 'Production Ramp-Up' / 'kvh/ramp' (#134-136).",
+   "why": "These match the word 'Ramp' only. The Gazette items become three 'Rule out a namesake' lines in the brief's GAPS, while the real Airwallex item sits next to them.",
+   "fix": "Fold company-name-only register hits into one counted line per source. Keep them out of the brief's GAPS unless the subject's name appears."
+  },
+  {
+   "item": "Seven 'archived N times' records (#15-17, #22, #24, #26-28, #106, #122). Six 'claims that changed' entries that are article-body or marketing-copy diffs (#19, #21, #30, #33, #37, #105). Forty-two of 138 records are archive records in total.",
+   "why": "They use up record numbers and push real findings down. A 'bio rewritten' entry for a Fortune article is not a changed claim.",
+   "fix": "Fold 'archived N times' into the snapshot record. Only emit claim changes for title, employer, school, degree or date fields."
+  },
+  {
+   "item": "#99 Reddit 'world's first AI software engineer', graded confirmed. #85 Clay dossier. #137 tradersunion.",
+   "why": "These are low-value aggregators and a passing quote. Reddit is graded confirmed just for 'names Ramp'.",
+   "fix": "Grade passing quotes on forums as info-only press and rank them low. Treat SEO dossier sites as low priority."
+  },
+  {
+   "item": "Brief bullets that quote boilerplate: ABS-15G cover-page text and the LittleSis line 'Eric Glyman has a position (co-founder CEO) at Ramp. co-founder CEO'.",
+   "why": "The quote adds nothing, and the LittleSis text is garbled and repeated.",
+   "fix": "Pick the quote sentence that names the person and states the fact. Clean the LittleSis template."
+  }
+ ],
+ "presentation": [
+  "The record numbering ranks medium-severity name-only junk (#2-#7) above the person's core records. The first confirmed fact about him is #10. Rank tied records ahead of possible ones regardless of severity.",
+  "The profile card is nearly empty for one of the best-documented founders in fintech: one role, a school without degree or year, no earlier roles, no companies founded, no investments. Meanwhile 'about' repeats five interview blurbs. An investor sees a weaker card than the free Wikipedia article (#92) that the check itself found.",
+  "'Claims that changed' leads with real and useful items (#1 CEO to Co-CEO, #8 Paribus dates, #109 Twitter headline), but six page-text diffs bury them. One of those diffs is another employee's bio.",
+  "Related parties show Zachary Frankel and Keith Rabois with '0 records' and no role beyond 'Director of Ramp Business Corp'. Say board member and investor (Founders Fund) when a record states it, and add Gene Lee as co-founder.",
+  "The brief's GAPS mixes real coverage gaps with three Gazette 'rule out a namesake' lines for a different company, while the one real company controversy (Airwallex lobbying) is also filed there as a namesake.",
+  "The quote for the Form D amount is cut at '$1,850,00', which reads as $185k. Never cut inside a number.",
+  "Ramp company context (valuation path, investors, the 2026 co-CEO change, regulatory letters) has no section of its own. 'About their companies' is empty although such records exist.",
+  "Local-limit vs defect: the empty founded, investments, recognition and boards lists, the null degree, and the bare brief are partly because no model ran. But report.js:738-740 hard-codes them empty on the pattern path, so the fallback can never fill them, and that is a code defect. Press coverage was good (Google News worked), so search throttling explains little here. Semantic Scholar being busy is a local or transient limit. The missing WV AG letter is a real coverage gap, not a local limit."
+ ],
+ "notes": "Ground truth comes from public knowledge plus three web searches: Clay/Greylock/Crunchbase summaries, the ago.wv.gov FIND Act letter of 2026-07-27, and Bloomberg/SiliconANGLE/Sacra on funding. Glyman: Harvard BA Economics and East Asian Studies, 2012. Financial analyst in New York 2012-14 (Millstein & Co. per one profile, unverified). Paribus co-founder and CEO 2014-Feb 2019 (YC S15; acquired by Capital One in 2016 and became Capital One Shopping). Ramp co-founded March 2019 with Karim Atiyeh and Gene Lee; CEO from 2020; co-CEO with Atiyeh from about September 2026. Director of Ramp Business Corp and its UK subsidiaries. Two patents (Paribus, Capital One). Angel investor. Ramp valuations: $13B (Mar 2025), $22.5B (Jul 2025), $32B (Nov 2025, Lightspeed), $44B (Jun 2026), $60B with $1.85B raised (Oct 2026; matches Form D #10). No lawsuit naming Glyman was found. Company matters: the WV AG FIND Act letter (Jul 2026) and the Airwallex lobbying report (Oct 2026). I found no awards, so none are claimed.\n\nWhat the report gets right: no namesake record is pinned on him (red flags 0, correct). The SEC records (Form D, Marqeta S-1/A exhibit, ABS-15G) are strong, official ties. The patent via Paribus is confirmed. The archived Twitter and Crunchbase snapshots document Paribus dates and Harvard '12. The screens are broad, honest and clearly labelled (CourtListener shown as not enabled; Semantic Scholar shown as not answering). Press is plentiful and correctly tied.\n\nThe main defects, in order of investor impact:\n1. The pattern profile drops facts its own records state: Paribus, Capital One, the degree, co-CEO, founded and investments (profile.js PRIOR and TITLE_FORMS; report.js:738-740 hard-coded empties).\n2. The legal name 'Ramp Business Corp' is never used as an alias, so Companies House records stay 'possible' and the trademark, LDA, CFPB, GLEIF and USAspending lookups search the bare word 'Ramp' (registries.js personAtCompany matchFixed; ip.js accepted owners; government.js exact names).\n3. The real company controversy (Airwallex) is demoted to namesake (report.js ordinaryWordOnly BUSINESS word list).\n4. There is no state attorney-general coverage (the WV letter was missed).\n5. The archive diff attributes another employee's bio to him (archive.js).\n6. extract.js reads another person's parenthetical role ('Co-founder of Village Global') as his.\n\nNo temporary test file was created, so nothing needed deleting. No repo files were changed."
+}

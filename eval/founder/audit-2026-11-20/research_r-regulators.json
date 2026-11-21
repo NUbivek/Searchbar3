@@ -1,0 +1,298 @@
+{
+ "candidates": [
+  {
+   "id": "opensanctions-regulatory",
+   "label": "Regulator enforcement lists outside the current set (OpenSanctions bulk files)",
+   "what": "One cached index covering about 20 enforcement lists the check does not read today: France AMF sanctions, ESMA/EU national sanctions, Swiss FINMA rulings, DFSA prohibitions, India NSE/SEBI debarments, Turkey CMB bans, SEC Fair Fund and PAUSE actions, NFA, OFAC and BIS enforcement, EU EDES. Each list is named in the record.",
+   "level": "both",
+   "endpoint": "https://data.opensanctions.org/datasets/latest/<dataset>/targets.simple.csv (307 redirect to /artifacts/<dataset>/<version>/targets.simple.csv). Catalogue: https://data.opensanctions.org/datasets/latest/index.json",
+   "keyless": true,
+   "verifiedLive": true,
+   "nonCommercialOnly": true,
+   "termsUrl": "https://www.opensanctions.org/docs/commercial/exemption/",
+   "termsSummary": "CC BY-NC 4.0. Bulk files carry no sign-up or key requirement for non-commercial use. Compliance screening inside a for-profit business needs a paid licence. The hosted API needs a key and is not used. robots.txt on data.opensanctions.org says Disallow: /, but the bulk files are published for download.",
+   "value": 4,
+   "effort": 2,
+   "request": "curl -sL -A 'records-reader/1.0' https://data.opensanctions.org/datasets/latest/us_sec_harmed_investors/targets.simple.csv  -> returned 846 targets, including 'Nikola Corporation' (id NK-6wuX5uNwKt934iXCHKQgse). Also tested: fr_amf_regulatory_sanctions (397 rows), us_nfa_enforcement_actions (148 rows).",
+   "responseShape": "CSV columns: id, schema (Person|Company|LegalEntity|Organization), name, aliases (;-separated), birth_date, countries, addresses, identifiers, sanctions (free text, e.g. 'Manquement d'initié' or 'DECISION IN DISCIPLINARY CASES - 2022-08-18'), phones, emails, program_ids, dataset (list title), first_seen, last_seen, last_change. Record link: https://www.opensanctions.org/entities/<id>/. Proposed set, about 9 MB: fr_amf_regulatory_sanctions, eu_esma_sanctions, ch_finma_rulings, ch_finma_warnings, ae_dfsa_prohibited, in_nse_debarred, tr_cmb_banned, lu_administrative_sanctions, my_aob_sanctions, us_sec_pause, us_sec_harmed_investors, us_nfa_enforcement_actions, us_ofac_enforcement_actions, us_bis_export, us_bis_antiboycott, us_ddtc_enforcements, eu_edes, br_tcu_disqualified, fr_illegal_financial_services. Leave out lists already read directly (SAM, OCC, Fed, FinCEN, FINRA, CSL, Companies House). Match on the normalised name and aliases. A name-only match stays 'possible'.",
+   "privacyNotes": "Drop birth_date, addresses, identifiers, phones and emails before indexing. Keep only name, aliases, countries, sanctions text, dataset, dates and id.",
+   "risks": "Investor diligence could be treated as 'compliance screening' and so commercial. Needs the owner's sign-off, as with EBRD. Third-party aggregation, so link to the entity page, which cites the original regulator. The sg_mas_enforcement_actions list is currently empty."
+  },
+  {
+   "id": "sfc-hk-enforcement",
+   "label": "Hong Kong SFC enforcement news",
+   "what": "Hong Kong Securities and Futures Commission enforcement releases since 1997: bans, prosecutions, Market Misconduct Tribunal outcomes and freezing orders. Each release lists the people and firms it targets. In testing it found the Tiger Asia / Bill Hwang bans.",
+   "level": "both",
+   "endpoint": "POST https://apps.sfc.hk/edistributionWeb/api/news/search (JSON body). Release page: https://apps.sfc.hk/edistributionWeb/gateway/EN/news-and-announcements/news/doc?refNo=<newsRefNo>",
+   "keyless": true,
+   "verifiedLive": true,
+   "nonCommercialOnly": true,
+   "termsUrl": "https://www.sfc.hk/en/Quick-links/Others/Hyperlink-policy",
+   "termsSummary": "robots.txt on apps.sfc.hk disallows only /publicregWeb/, /productlistWeb/ and a survey path; /edistributionWeb/api is allowed. SFC owns copyright. Material may be downloaded for personal use or use within one organisation, with the SFC copyright line. Show the title and link, not the full text.",
+   "value": 3,
+   "effort": 2,
+   "request": "curl -s -A 'records-reader/1.0' -H 'Content-Type: application/json' --data '{\"lang\":\"EN\",\"category\":\"enforcement\",\"pageNo\":0,\"pageSize\":3000}' https://apps.sfc.hk/edistributionWeb/api/news/search  -> all 2,601 items (940 KB) in one call. The keyword field is ignored, and year/month must be omitted (-1 returns a 500).",
+   "responseShape": "{items:[{newsRefNo:'14PR120', title, issueDate (ISO), newsType:'EF', targetCeList:[{ceName:'HWANG Sung Kook Bill', masked:false}]}], total}. Cache the whole list daily and match the person or company against ceName. Names are written SURNAME first, then given names and an optional English name. Skip entries with masked:true (452 of them). A person name-only match stays 'possible'. Firm names are matched with the existing company-core rule.",
+   "privacyNotes": "Keep only ceName, title, date and refNo. Ignore masked targets. Never fetch or keep release bodies beyond a short quote.",
+   "risks": "This is the search the SFC's own web page calls, and it is not documented as public. Same class of concern as the removed USPTO internal search, so owner sign-off is needed. Terms permit personal or internal use only."
+  },
+  {
+   "id": "crossref-retractions",
+   "label": "Retracted papers (Retraction Watch data via Crossref)",
+   "what": "Retractions and expressions of concern on papers the founder wrote. Covers the full Retraction Watch database that Crossref acquired and made open. A strong integrity signal for academic or biotech founders.",
+   "level": "person",
+   "endpoint": "https://api.crossref.org/v1/works?query.author=<name>&filter=update-type:retraction&rows=20&select=DOI,title,author,update-to,issued,container-title,type (also update-type:expression_of_concern; filter=orcid:<id> when ORCID is known)",
+   "keyless": true,
+   "verifiedLive": true,
+   "nonCommercialOnly": false,
+   "termsUrl": "https://www.crossref.org/documentation/retrieve-metadata/retraction-watch/",
+   "termsSummary": "Crossref metadata is free to reuse without a licence. Crossref asks for a citation to Retraction Watch when its data is used in a published work. The REST API is public, and the polite pool asks for a mailto parameter, so declare FOUNDER_HTTP_CONTACT only if the owner sets it. The scholar connector already uses this host.",
+   "value": 3,
+   "effort": 1,
+   "request": "curl -s -A 'records-reader/1.0' 'https://api.crossref.org/v1/works?query.author=Diederik+Stapel&filter=update-type:retraction&rows=3&select=DOI,title,author,update-to,issued,container-title,type'  -> total-results 30, with source 'retraction-watch'.",
+   "responseShape": "message.items[]: {DOI, title[0] ('Retraction notice to ...'), author[{given,family}], container-title[0], issued.date-parts, update-to[{DOI (the retracted work), type:'retraction', label, source:'retraction-watch'|'publisher', updated.date-time, record-id}]}. query.author is fuzzy, so keep an item only when an author's given+family matches the founder's full name (initials allowed only with a known ORCID or affiliation). Grade 'likely' when the ORCID is known, otherwise 'possible'. Link: https://doi.org/<update-to DOI>.",
+   "privacyNotes": "Keep only the founder's own name. Co-authors' names are not stored or followed as threads.",
+   "risks": "Common names give many fuzzy author hits, so the exact-name filter is essential. Coverage depends on Retraction Watch and Crossmark."
+  },
+  {
+   "id": "asic-banned-disqualified",
+   "label": "Australia ASIC banned and disqualified persons and organisations",
+   "what": "ASIC's register of people banned from financial services or credit, or disqualified from managing corporations, and of banned organisations. Gives the ban type and start and end dates.",
+   "level": "both",
+   "endpoint": "CKAN: https://data.gov.au/data/api/3/action/package_show?id=asic-banned-disqualified-per (and asic-banned-disqualified-org). Take the CSV resource URL from it, e.g. https://data.gov.au/data/dataset/e08a07dc-e1e7-4ab9-95c0-a7930d2f6a39/resource/741da9e3-7e0c-458e-830c-c518698e1788/download/bd_per_202611.csv",
+   "keyless": true,
+   "verifiedLive": true,
+   "nonCommercialOnly": false,
+   "termsUrl": "https://data.gov.au/data/dataset/asic-banned-disqualified-per",
+   "termsSummary": "Creative Commons Attribution 3.0 Australia: free reuse with attribution, commercial use included. Updated monthly. data.gov.au robots.txt says Disallow: /, but the CKAN action API and resource downloads are the published open-data channel.",
+   "value": 3,
+   "effort": 1,
+   "request": "curl -s -A 'records-reader/1.0' 'https://data.gov.au/data/api/3/action/package_search?q=asic%20banned%20disqualified&rows=3'  then  curl -sL -A 'records-reader/1.0' <CSV url>  -> 7,240 rows, 1.3 MB, UTF-8 with BOM.",
+   "responseShape": "Persons CSV header: REGISTER_NAME, BD_PER_NAME ('ABBOTT, BILL' = SURNAME, GIVEN), BD_PER_TYPE (e.g. 'Banned Securities', disqualified director types), BD_PER_DOC_NUM, BD_PER_START_DT and BD_PER_END_DT (dd/mm/yyyy), BD_PER_ADD_LOCAL, BD_PER_ADD_STATE, BD_PER_ADD_PCODE, BD_PER_ADD_COUNTRY, BD_PER_COMMENTS. The organisations file is similar, with BD_ORG_*. Cache monthly. Rebuild 'GIVEN SURNAME' and require the full name. A name match stays 'possible'; the state alone may be shown to help rule namesakes out. Link to the dataset page.",
+   "privacyNotes": "Drop BD_PER_ADD_LOCAL (suburb), BD_PER_ADD_PCODE and any street detail. Keep at most the state and country.",
+   "risks": "Name-only register with no other identifiers, so namesakes are likely. Many entries are decades old; show their dates."
+  },
+  {
+   "id": "ftc-cases",
+   "label": "US FTC cases and proceedings",
+   "what": "Federal Trade Commission consumer-protection and competition cases against a company or named individual, such as FTC v. Vyera/Shkreli. Today these appear only via open-web search, and only if the search happens to surface them.",
+   "level": "both",
+   "endpoint": "https://www.ftc.gov/legal-library/browse/cases-proceedings?search=<term> (the 'search' field. The 'search_api_fulltext' parameter is ignored.)",
+   "keyless": true,
+   "verifiedLive": true,
+   "nonCommercialOnly": false,
+   "termsUrl": "https://www.ftc.gov/site-information/privacy-policy",
+   "termsSummary": "US government work, public domain. robots.txt: Crawl-delay 5. It disallows /search/, ?combine= and ?items_per_page=, but not /legal-library/browse/cases-proceedings?search=. Requests with a plain client name get 404 or 403. A client name that carries a contact URL gets 200.",
+   "value": 3,
+   "effort": 2,
+   "request": "curl -sL -A 'records-reader/1.0 (+<FOUNDER_HTTP_CONTACT>)' 'https://www.ftc.gov/legal-library/browse/cases-proceedings?search=Shkreli'  -> 'Displaying 1 - 3 of 3' with statements in FTC et al. v. Martin Shkreli and FTC v. Vyera Pharmaceuticals.",
+   "responseShape": "HTML. Each result is an <article> whose text begins 'Cases and Proceedings' and gives a type (case, Commissioner Statements, Adjudicative Proceedings), a title (e.g. 'Hims & Hers Health, Inc., FTC v.'), a summary, 'Type of Action Federal|Administrative', 'Last Updated <date>', 'FTC Matter/File Number' or 'Docket Number', and 'Case Status'. The link is the article's href under /legal-library/browse/cases-proceedings/. Count line: 'Displaying X - Y of N'. Keep a company hit only when the case title names the company (headlineNamesCompany). For a person, the full name must appear in the title. Wait at least 5 s between requests.",
+   "privacyNotes": "Do not keep consumer or victim names from case summaries. Use the title and a short summary quote only.",
+   "risks": "Returns nothing unless a contact is declared (FOUNDER_HTTP_CONTACT); report it as 'not enabled on this deployment' when none is set. Drupal markup may change. The search also matches commissioner statements, so classify by type."
+  },
+  {
+   "id": "us-tax-court",
+   "label": "US Tax Court dockets and opinions (DAWSON)",
+   "what": "Tax Court cases where the founder or their company is the petitioner, and opinions naming them (deficiencies, penalties, tax-shelter disputes). Gives the case caption, docket number and opinion title.",
+   "level": "both",
+   "endpoint": "https://public-api-green.dawson.ustaxcourt.gov/public-api/search?petitionerName=<name> (cases) and https://public-api-green.dawson.ustaxcourt.gov/public-api/opinion-search?keyword=<name>&dateRange=allDates&opinionTypes=MOP,SOP,TCOP,OST,RPT (opinions)",
+   "keyless": true,
+   "verifiedLive": true,
+   "nonCommercialOnly": false,
+   "termsUrl": "https://www.ustaxcourt.gov/dawson-tou/",
+   "termsSummary": "Non-parties get free access to unsealed dockets, orders and opinions. The terms of use do not forbid automated access, but the Court may restrict use that 'has the potential to cause disruption'. The API host has no robots.txt (it returns 500). The web app sets noindex.",
+   "value": 2,
+   "effort": 2,
+   "request": "curl -s -A 'records-reader/1.0' 'https://public-api-green.dawson.ustaxcourt.gov/public-api/search?petitionerName=Milton'  -> results of type PublicCaseSearchResult. The '-blue' host answered 'disabled due to a deployment', so try green, then blue.",
+   "responseShape": "Cases: {results:[{entityName:'PublicCaseSearchResult', caseCaption:'X & Y, Petitioners', docketNumber, docketNumberWithSuffix ('17858-21S'), petitionerNames[], petitionerStateNames[], receivedAt}]}. Opinions: {results:[{entityName:'PublicDocumentSearchResult', caseCaption, docketNumber, documentTitle ('Memorandum Opinion Judge ... T.C. Memo. 2025-134'), docketEntryId, filingDate,...}]}. Require the founder's full name in petitionerNames or caseCaption. A name-only match stays 'possible'. Link: https://dawson.ustaxcourt.gov/case-detail/<docketNumber>.",
+   "privacyNotes": "Joint petitions name spouses: drop every co-petitioner name, and never queue relatives from it. Drop petitionerStateNames beyond the state. Never fetch the document text (financial details).",
+   "risks": "This is the search behind the Court's web app, with no published documentation. Same concern class as the USPTO internal search, so owner sign-off is needed. The host flips between green and blue during deployments."
+  },
+  {
+   "id": "nhtsa-recalls",
+   "label": "US vehicle safety recalls (NHTSA)",
+   "what": "Vehicle and equipment recalls filed by the founder's company: defect, consequence and units affected. Relevant to EV, mobility and hardware founders (Nikola: hydrogen-tank and instrument-panel recalls).",
+   "level": "company",
+   "endpoint": "https://datahub.transportation.gov/resource/6axg-epim.json?$where=upper(manufacturer) like '%<COMPANY>%'&$limit=50&$order=report_received_date DESC",
+   "keyless": true,
+   "verifiedLive": true,
+   "nonCommercialOnly": false,
+   "termsUrl": "https://datahub.transportation.gov/",
+   "termsSummary": "US DOT open data, public domain, served by the Socrata SODA API (documented for programmatic use; an app token is optional and only raises throttling limits). robots.txt sets Crawl-delay 1 and Disallow: / for crawlers. api.nhtsa.gov itself has no manufacturer search.",
+   "value": 2,
+   "effort": 1,
+   "request": "curl -s -A 'records-reader/1.0' \"https://datahub.transportation.gov/resource/6axg-epim.json?\\$where=upper(manufacturer)%20like%20'%25NIKOLA%25'&\\$limit=3\"  -> recalls 25V073000 and 24V844000 by 'Nikola Corporation'.",
+   "responseShape": "JSON array of {report_received_date, nhtsa_id, recall_link.url (https://www.nhtsa.gov/recalls?nhtsaId=...), manufacturer, subject, component, mfr_campaign_number, recall_type, potentially_affected, defect_summary, consequence_summary, corrective_action, fire_risk_when_parked, do_not_drive, completion_rate}. Keep a row only when the manufacturer's legal-form-stripped name equals the company's own name (the LIKE is broad). Match 'company'; severity low or medium (high if do_not_drive or fire risk is 'Yes').",
+   "privacyNotes": "corrective_action carries customer-service phone numbers. Quote subject, defect and consequence only.",
+   "risks": "Low value outside hardware and mobility. Manufacturer names vary (subsidiaries)."
+  },
+  {
+   "id": "cpsc-recalls",
+   "label": "US consumer product recalls (CPSC)",
+   "what": "Consumer Product Safety Commission recalls naming the company as maker or brand, with the hazard, injuries and units. Relevant to consumer-hardware founders (Peloton Bike+ recall, about 833,000 units).",
+   "level": "company",
+   "endpoint": "https://www.saferproducts.gov/RestWebServices/Recall?format=json&RecallTitle=<company>  (or &Manufacturer=<company>)",
+   "keyless": true,
+   "verifiedLive": true,
+   "nonCommercialOnly": false,
+   "termsUrl": "https://www.cpsc.gov/Recalls/CPSC-Recalls-Application-Program-Interface-API-Information",
+   "termsSummary": "A documented public recalls service from a US agency; public domain. robots.txt on saferproducts.gov could not be read (an Akamai 'Access Denied' on that path), but the RestWebServices path answers a plain client name.",
+   "value": 2,
+   "effort": 1,
+   "request": "curl -s -A 'records-reader/1.0' 'https://www.saferproducts.gov/RestWebServices/Recall?format=json&RecallTitle=Peloton'  -> 5 recalls.  &Manufacturer=Fisher-Price -> 26.",
+   "responseShape": "JSON array of {RecallID, RecallNumber, RecallDate, Title ('Peloton Recalls ...'), Description, URL (cpsc.gov page), Products[{Name, NumberOfUnits}], Hazards[{Name}], Injuries[{Name}], Manufacturers[{Name}] (often empty), Retailers, Importers, Distributors, Remedies, ConsumerContact, LastPublishDate}. Run both RecallTitle and Manufacturer. Keep a row when the title begins with the company's name or a Manufacturers/Importers name equals it. Match 'company'.",
+   "privacyNotes": "Drop ConsumerContact (phone numbers) and the city in Manufacturers names. Do not keep Injuries text about individuals beyond counts.",
+   "risks": "Title search is broad: a brand name inside another firm's recall can match. Manufacturers is often empty."
+  },
+  {
+   "id": "epa-echo",
+   "label": "US EPA enforcement and compliance (ECHO)",
+   "what": "Environmental inspections, formal enforcement actions, penalties and serious-violator flags for the company's US facilities, under the Clean Air Act, Clean Water Act and RCRA.",
+   "level": "company",
+   "endpoint": "https://echodata.epa.gov/echo/echo_rest_services.get_facilities?output=JSON&p_fn=<NAME> then https://echodata.epa.gov/echo/echo_rest_services.get_qid?output=JSON&qid=<QueryID>&pageno=1",
+   "keyless": true,
+   "verifiedLive": true,
+   "nonCommercialOnly": false,
+   "termsUrl": "https://echo.epa.gov/tools/web-services",
+   "termsSummary": "Documented public web services from a US agency; public domain. robots.txt on echodata.epa.gov says Disallow: * for crawlers, while EPA publishes these services for programmatic use. Keep the pace modest.",
+   "value": 2,
+   "effort": 2,
+   "request": "curl -s -A 'records-reader/1.0' 'https://echodata.epa.gov/echo/echo_rest_services.get_facilities?output=JSON&p_fn=NIKOLA'  -> Results.QueryRows 55, QueryID 671; then get_qid?qid=671 -> Results.Facilities[55].",
+   "responseShape": "Step 1: Results {QueryRows, QueryID, TotalPenalties, FEARows, ...}. Step 2: Results.Facilities[]: {FacName, RegistryID, FacCity, FacState, FacInspectionCount, FacFormalActionCount, FacTotalPenalties ('$0'), FacDateLastFormalAction, FacDateLastPenalty, FacSNCFlg, FacComplianceStatus, FacQtrsWithNC, CAA/CWA/RCRA status fields}. p_fn is a contains-match ('NIKOLA' hits 'NIKOLAS BISCOTTI' and private residences). Keep only facilities whose name, with legal forms stripped, starts with or equals the company core. Report counts of actions and penalties. Link: https://echo.epa.gov/detailed-facility-report?fid=<RegistryID>. Report a QueryRows over-limit error as 'answered in part'.",
+   "privacyNotes": "Never keep FacStreet or FacZip. Skip facilities whose name is a person's name or contains RESIDENCE/HOME (homeowner permits).",
+   "risks": "Mostly relevant to manufacturing or hardware firms. Large companies exceed the query limit and need a state filter. The case-level service parameter names could not be confirmed (p_case_name was ignored)."
+  },
+  {
+   "id": "esma-sanctions-register",
+   "label": "EU ESMA register of national regulators' sanctions",
+   "what": "Administrative sanctions by EU national regulators (BaFin, AMF, CNMV, CONSOB, FSMA and others) under MiFID, UCITS, EMIR and MAR: firm, date, authority, legal framework. This is the direct official source, so it carries no non-commercial limit.",
+   "level": "company",
+   "endpoint": "https://registers.esma.europa.eu/solr/esma_registers_sanctions/select?q=*:*&rows=2000&wt=json&fl=id,sn_entityName,sn_date,sn_ncaCodeFullName,sn_natureFullName,sn_sanctionLegalFrameworkName,sn_countryName,sn_entityLEI",
+   "keyless": true,
+   "verifiedLive": true,
+   "nonCommercialOnly": false,
+   "termsUrl": "https://www.esma.europa.eu/legal-notice",
+   "termsSummary": "Reproduction is authorised provided the source is acknowledged. The text must not imply ESMA endorses a firm, and a summary must carry a non-endorsement disclaimer. No automated-access clause. The registers host's robots.txt returns an HTML page, not rules.",
+   "value": 2,
+   "effort": 1,
+   "request": "curl -s -A 'records-reader/1.0' 'https://registers.esma.europa.eu/solr/esma_registers_sanctions/select?q=*:*&rows=2000&wt=json&fl=id,sn_entityName,sn_date,sn_ncaCodeFullName,sn_natureFullName,sn_sanctionLegalFrameworkName,sn_countryName,sn_entityLEI'  -> 1,315 docs, 505 KB.",
+   "responseShape": "response.docs[]: {id:'sn586', sn_entityName (an HTML anchor wrapping the firm name, e.g. \"<a href='details?core=esma_registers_upreg&docId=ae2978'>CYRRUS, a.s.</a>\"; empty on 920 of 1,315 rows where the target is a person or redacted), sn_date, sn_ncaCodeFullName, sn_natureFullName, sn_sanctionLegalFrameworkName (MiFID 1197, UCITS 65, EMIR 30, MAR 14), sn_countryName, sn_entityLEI}. Cache the whole set daily. Strip the anchor, then match the company core, or the LEI when lei-register found one (that gives 'likely'). Record link: https://registers.esma.europa.eu/publication/searchRegister?core=esma_registers_sanctions.",
+   "privacyNotes": "Do not request sn_text: it holds national decision text with addresses and blanked names. Firm-level only.",
+   "risks": "Firm-level and EU-licensed firms only. Field queries do not work (sn_text search gave 0), so download all and match locally. Overlaps OpenSanctions eu_esma_sanctions; use one."
+  },
+  {
+   "id": "clinicaltrials-investigators",
+   "label": "ClinicalTrials.gov sponsor and investigator records",
+   "what": "Trials the company sponsors and trials where the founder is listed as an overall official or principal investigator: status (terminated, withdrawn), why stopped, and dates. Checks biotech and medtech claims.",
+   "level": "both",
+   "endpoint": "https://clinicaltrials.gov/api/v2/studies?query.spons=<company>&pageSize=50&fields=NCTId,BriefTitle,OverallStatus,WhyStopped,LeadSponsorName,OverallOfficialName,OverallOfficialAffiliation,OverallOfficialRole,StartDate  (person: query.term=AREA[OverallOfficialName]\"<full name>\")",
+   "keyless": true,
+   "verifiedLive": true,
+   "nonCommercialOnly": false,
+   "termsUrl": "https://clinicaltrials.gov/about-site/terms-conditions",
+   "termsSummary": "Public NLM data with a documented API v2 and no key. The terms page has no reuse limits. Caution: robots.txt says 'Disallow: /api/' (allowing only /api/int/ and /api/seo/) with Crawl-delay 1, which contradicts the documented API. The owner must accept that.",
+   "value": 2,
+   "effort": 1,
+   "request": "curl -s -A 'records-reader/1.0' 'https://clinicaltrials.gov/api/v2/studies?query.term=AREA%5BOverallOfficialName%5D%22Eric%20Topol%22&pageSize=3&fields=NCTId,BriefTitle,OverallStatus,LeadSponsorName,OverallOfficialName,OverallOfficialAffiliation'  -> NCT00263042 (TERMINATED, Sanofi) etc.  query.spons=Theranos -> NCT01144793 (collaborator match).",
+   "responseShape": "{studies:[{protocolSection:{identificationModule:{nctId,briefTitle}, statusModule:{overallStatus, whyStopped, startDateStruct.date}, sponsorCollaboratorsModule:{leadSponsor.name, collaborators[]}, contactsLocationsModule:{overallOfficials:[{name:'Eric Topol, MD', affiliation, role}]}}}], nextPageToken}. Strip degrees from the official's name and require the full name. Grade 'likely' when the affiliation is a known school or company, else 'possible'. For a company, keep studies where leadSponsor or a collaborator equals the company. Link: https://clinicaltrials.gov/study/<nctId>.",
+   "privacyNotes": "Never request locations or central contacts (site phone numbers and emails). No participant data exists.",
+   "risks": "Relevant only to health founders. The robots.txt conflict needs a decision. query.spons also matches collaborators."
+  },
+  {
+   "id": "ontario-capital-markets-tribunal",
+   "label": "Ontario Capital Markets Tribunal proceedings (OSC)",
+   "what": "Ontario Securities Commission enforcement proceedings before the Capital Markets Tribunal (e.g. Bridging Finance Inc.): file number, status and dates for a named respondent company.",
+   "level": "company",
+   "endpoint": "https://www.capitalmarketstribunal.ca/en/proceedings?field_proceeding_respondents=<company>",
+   "keyless": true,
+   "verifiedLive": true,
+   "nonCommercialOnly": false,
+   "termsUrl": "https://www.capitalmarketstribunal.ca/en/terms-use",
+   "termsSummary": "robots.txt disallows only /search/ plus Drupal system paths; /en/proceedings with a filter is not disallowed. The terms page was not read in this session, so read it before building.",
+   "value": 2,
+   "effort": 2,
+   "request": "curl -sL -A 'records-reader/1.0' 'https://www.capitalmarketstribunal.ca/en/proceedings?field_proceeding_respondents=Bridging'  -> /en/proceedings/bridging-finance-inc-re (File 2021-15), -re-0 (File 2022-9), -re-1.",
+   "responseShape": "HTML list rows: title link (/en/proceedings/<slug>, e.g. 'Bridging Finance Inc. (Re)'), 'File Number 2022-9', status (Open/Closed), date. Keep rows whose title names the company. Person names did not match in this session: 'David Sharma' via respondent or keyword gave 'no results to show', so treat it as company-level only. The page also has a captcha-protected contact form; never touch it.",
+   "privacyNotes": "Title, file number, status and date only.",
+   "risks": "Person search does not work. Ontario only. Low volume."
+  }
+ ],
+ "rejected": [
+  {
+   "name": "FDIC enforcement decisions and orders (orders.fdic.gov)",
+   "reason": "Salesforce community app that renders through internal Aura calls in a browser. It has no published query service, and FDIC's BankFind service has no enforcement data. Using it would mean driving a browser or calling an undocumented internal service."
+  },
+  {
+   "name": "CFTC enforcement actions",
+   "reason": "Already covered by us-enforcement-actions in courts.js (CFTC press-release search, person and company)."
+  },
+  {
+   "name": "CFPB enforcement actions",
+   "reason": "Already covered at company level in us-enforcement-actions. Extending the existing connector to person names (the /enforcement/actions/?title= search) is a small change, not a new source."
+  },
+  {
+   "name": "SEC litigation releases, administrative proceedings, 8-K Item 1.05 via EDGAR full-text search",
+   "reason": "Already in sec.js (releaseList for both kinds; 8-K item 1.05 and pre-1.05 incident wording)."
+  },
+  {
+   "name": "NLRB case search",
+   "reason": "robots.txt disallows /search/ (where /search/case/<term> lives). The recent-filings report ignores the name filter (returned the latest filings, not matches). Cases often name individual employee charging parties."
+  },
+  {
+   "name": "OSHA establishment search (osha.gov/ords/imis)",
+   "reason": "CloudFront returns 403 'Request blocked' to a plain automated client, both for robots.txt and for the search. Access would need a browser disguise."
+  },
+  {
+   "name": "DOL enforcement data service (apiprod.dol.gov v4, OSHA/WHD)",
+   "reason": "Returns 401: a key tied to a signed-in Open Data Portal account is required. Free but not keyless; could be an optional switch like the CourtListener token if the owner registers. Not verified with data."
+  },
+  {
+   "name": "US state attorneys general",
+   "reason": "No unified source exists. Each of 50+ offices has its own press pages, several behind bot protection. The open-web search already lists oag.ca.gov and ag.ny.gov among regulator hosts."
+  },
+  {
+   "name": "Free bankruptcy records",
+   "reason": "PACER is paid. The only free federal route is CourtListener/RECAP, which the check already uses when COURTLISTENER_API_TOKEN is set. The Gazette and BODACC already cover UK and French insolvency."
+  },
+  {
+   "name": "UK FCA register service and FCA website search",
+   "reason": "The register service returned 403 'Missing Headers': it needs X-Auth-Email and X-Auth-Key from a registered account. The fca.org.uk robots.txt disallows /*? for all agents, which covers the search and final-notice listings."
+  },
+  {
+   "name": "UK Insolvency Service Individual Insolvency Register",
+   "reason": "Not called: personal bankruptcy entries carry home addresses and dates of birth, which the privacy rules ban. Disqualified directors already come through Companies House, and insolvency notices through The Gazette."
+  },
+  {
+   "name": "Canada CSA disciplined list (securities-administrators.ca)",
+   "reason": "Cloudflare challenge with a captcha returns 403 to a plain client, even with a contact URL in the client name. It would need a browser disguise."
+  },
+  {
+   "name": "India SEBI orders search",
+   "reason": "The orders listing endpoint returned HTTP 530 from bot protection. SEBI and NSE debarments are reachable through the OpenSanctions in_nse_debarred list instead (14,439 targets)."
+  },
+  {
+   "name": "Singapore MAS enforcement actions",
+   "reason": "mas.gov.sg served a 'Maintenance' page (noindex) during this session, and the OpenSanctions sg_mas_enforcement_actions list currently has 0 targets. Recheck later; robots.txt allows access with Crawl-delay 2."
+  },
+  {
+   "name": "Germany BaFin and France AMF direct pages",
+   "reason": "Not added separately. Their sanctions reach the check through the ESMA sanctions register (BaFin rows confirmed) and the OpenSanctions fr_amf_regulatory_sanctions list (397 rows). The direct pages are HTML listings with no search service."
+  },
+  {
+   "name": "Australia AUSTRAC enforcement",
+   "reason": "Not called. Only a handful of actions against large reporting entities, published as HTML media releases, so low value. ASIC's banned and disqualified register is the useful Australian source."
+  },
+  {
+   "name": "OpenSanctions hosted search service (api.opensanctions.org)",
+   "reason": "Returns 'No API key provided'. Free keys are granted only to journalists, nonprofits and academics. Use the keyless bulk files instead."
+  },
+  {
+   "name": "EPA ECHO case-level search (case_rest_services.get_cases)",
+   "reason": "The case-name parameter tried (p_case_name, then p_fn) was ignored, so the query hit the 313,844-row limit. Facility-level search (epa-echo above) works and is proposed instead."
+  },
+  {
+   "name": "NHTSA api.nhtsa.gov recallsByVehicle",
+   "reason": "Needs make, model and year, and has no manufacturer search (Nikola TRE 2022 returned 0). The DOT data hub dataset 6axg-epim is used instead."
+  }
+ ]
+}

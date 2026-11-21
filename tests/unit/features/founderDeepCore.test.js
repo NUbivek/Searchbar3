@@ -12,8 +12,9 @@ describe('guardrails', () => {
     expect(redactPII('Reach Jane at jane.doe@example.com or (415) 555-0100.')).toBe('Reach Jane at [email removed] or [phone removed].');
     expect(redactPII('She lives at 1234 Elm Street, Apt 5B, Palo Alto.')).toBe('She [location removed].');
     expect(redactPII('SSN 123-45-6789 on file')).toMatch(/\[ID number removed\]/);
-    expect(redactPII('born on March 3, 1984 in Lyon')).toBe('born in 1984 in Lyon');
-    expect(redactPII('DOB: 03/03/1984')).toBe('DOB 1984');
+    // round 3: the year of birth goes too (rule 3: no dates of birth), the place stays
+    expect(redactPII('born on March 3, 1984 in Lyon')).toBe('born in Lyon');
+    expect(redactPII('DOB: 03/03/1984')).toBe('DOB [date removed]'); // round 3: the year goes too
     // ordinary numbers, years and money are untouched
     expect(redactPII('Raised $113 million in 2023 at a 2,000 million valuation, case 3:18-cr-00258.')).toBe('Raised $113 million in 2023 at a 2,000 million valuation, case 3:18-cr-00258.');
   });

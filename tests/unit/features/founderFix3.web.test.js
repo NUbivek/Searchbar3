@@ -60,8 +60,9 @@ describe('a one-word company name is not placed by its position at the start of 
   test('the same word in lower case makes a mid-sentence capital weak too', async () => {
     const s = roe();
     expect(await keptByBoth(s, 'Flow', r('Misconduct investigation into the Flow model of stagnation point flow'))).toBe(false);
-    // without the lower-case use, the same mid-sentence capital still places it
-    expect(await keptByBoth(s, 'Flow', r('Tenants file fraud lawsuit against Flow over rents'))).toBe(true);
+    // R3: "Flow" is an ordinary word: a mid-sentence capital alone no longer makes a record the company's
+    // (design decision 1: never the bare word); the surname, a legal form or a known legal name does
+    expect(await keptByBoth(s, 'Flow', r('Tenants file fraud lawsuit against Flow over rents'))).toBe(false);
     // and the surname still places a weak name
     expect(await keptByBoth(s, 'Flow', r("Investors sue Roe's Flow, citing poor cash flow and fraud"))).toBe(true);
   });
@@ -85,7 +86,9 @@ describe('later ventures, their funding and the company\'s backers are searched 
     const q = Object.fromEntries(webTemplates({ kind: 'subject', value: s.name }, s).map((t) => [t.template, t.params.query]));
     expect(q['q.later-ventures']).toBe('"Jane Roe" (raises OR funding OR "backed by" OR launches OR "new company")');
     expect(q['q.later-ventures']).not.toContain('WeWork');
-    expect(q['q.prior-ventures']).toContain('-"WeWork"');
+    // R3: earlier ventures are asked WITH the known company (excluding it left mostly namesakes)
+    expect(q['q.prior-ventures']).toContain('"Jane Roe" WeWork (');
+    expect(q['q.prior-ventures']).not.toContain('-"WeWork"');
   });
 
   test('a plain news pass for 3 to 8 years ago', () => {
@@ -98,8 +101,9 @@ describe('later ventures, their funding and the company\'s backers are searched 
   test('a one-word company is searched for funding with the person named; every company for advisers and shareholders', () => {
     const s = neumann();
     const one = Object.fromEntries(webTemplates({ kind: 'company', value: 'Flow' }, s).map((t) => [t.template, t.params.query]));
-    expect(one['q.company-funding']).toBe('"Flow" "Jane Roe" (funding OR raises OR investors OR led)');
-    expect(one['q.company-backers']).toBe('"Flow" (adviser OR advisor OR shareholder OR board)');
+    expect(one['q.company-funding']).toBe('"Flow" "Jane Roe" (raises OR "Series A" OR "Series B" OR "seed round" OR "led by" OR valuation)');
+    // R3: an ordinary word is never searched alone: with the person's name until a legal name or domain is known
+    expect(one['q.company-backers']).toBe('"Flow" "Jane Roe" (adviser OR advisor OR shareholder OR board)');
     const two = Object.fromEntries(webTemplates({ kind: 'company', value: 'Acme Robotics Inc.' }, s).map((t) => [t.template, t.params.query]));
     expect(two['q.company-funding']).toBeUndefined();
     expect(two['q.company-backers']).toBe('"Acme Robotics" (adviser OR advisor OR shareholder OR board)');

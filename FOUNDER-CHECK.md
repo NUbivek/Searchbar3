@@ -12,48 +12,164 @@ back them. The page (`/founder`) gives two things:
   until a round finds nothing new.
 
 Everything shown is a record with a link, a quote taken from the source, and
-a grade for whether it is really about this person. Nothing is invented: the
-written summary may only cite records the check found, and citations are
-checked in code.
+a grade for whether it is really about this person. The written summary may
+only cite records the check found and showed the model; the code checks what
+each line cites and removes what it cannot back (see "The brief" below), but
+it does not check that a sentence reads its record rightly, so the page marks
+an AI brief "AI-written; check it against the cited records".
 
 ## What the deep check looks at
 
 | Area | Sources | What they add |
 |---|---|---|
 | The open web and news | Open-web search (several search engines, tried in turn; the two metered search services only as a capped last resort), news archives by era | Profiles, press, interviews, disputes, and the pages other sources then dig into. About fifteen query patterns per person (lawsuit, fraud, employment disputes, insolvency, prior ventures, education, family and related parties, forums), each scored separately |
+| Pages about the person | Page reader (`sources/pages.js`) | Opens up to ten pages the check already tied to the person (team and bio pages, personal sites, profiles and interviews whose headline names them) and keeps the sentences about their career and education. One request per page, identified as an automated reader, only where the site's robots.txt allows. LinkedIn, X, Facebook and Instagram are never opened: their public profile lines come from search results |
+| More courts and agency orders | Delaware courts (Chancery, Superior, Supreme: opinions and orders; the last 12 years always, and back to 2000 when dated records show activity then), EU courts and competition decisions, Canadian federal courts, US agency orders in the Federal Register (`sources/courtsMore.js`); US FTC cases (needs a declared contact) and the EU register of national regulators' sanctions (`sources/regulatorsMore.js`) | Company and shareholder disputes, competition and consumer-protection cases, agency orders naming the person or company |
+| Bank regulators and FinCEN | Federal Reserve, OCC and NCUA enforcement actions and prohibition orders, FinCEN enforcement actions (`sources/debarment.js`) | Orders against a named person or firm; also screens associates and relatives |
+| Development banks | The EBRD list of barred firms and people, which also carries World Bank, ADB, IDB and AfDB debarments (`sources/debarment.js`) | Whether the person, a company, an associate or a relative is barred from development-bank contracts, by which bank, on what grounds and until when |
+| FDA debarment | The FDA debarment list for drug product applications, current and ended (`sources/fdaDebarment.js`) | Whether the person or a company is barred from drug applications, since when and for how long. The list gives names only, so a hit on a person is a name match to verify |
+| Foreign-agent registrations | The Justice Department's FARA files: short forms, registrants and foreign principals (`sources/fara.js`) | Whether the person registered as a foreign agent, or their company is a registrant or a foreign principal, and for whom. Registration is lawful and is never worded as a red flag |
+| Recalls and data-protection fines (company level) | US vehicle safety recalls (NHTSA) and consumer product recalls (CPSC) (`sources/recalls.js`); EU data-protection fines from the CMS Enforcement Tracker (`sources/gdprFines.js`) | Recalls filed by or naming the company; fines EU and EEA authorities published against it. Never a private individual |
+| Retracted papers | Crossref's record of retraction notices and expressions of concern, which carries the Retraction Watch database (`sources/retractions.js`) | Papers the person wrote that were retracted or questioned; tied to them only with an ORCID iD, a matching affiliation or a paper already theirs |
+| US federal records | Federal contracts, grants and loans (USAspending), lobbying registrations and activity (never contribution reports), CFPB consumer complaints, Federal Register documents, FDA recalls, NIH grants (`sources/government.js`) | What the company sells to or receives from government, who lobbies for it, complaints and recalls |
+| Professional footprint | Semantic Scholar, Stack Overflow, npm packages, Bluesky, Mastodon, the person's own writing feeds (`sources/presence.js`); Hugging Face accounts, books on Open Library, Rust packages when a contact is declared (`sources/presenceMore.js`) | Research output, technical work, books and their own words; an account found by name alone stays a name match |
+| Degrees and grants | DataCite dissertation records and US National Science Foundation awards (`sources/academicMore.js`) | Independent proof of a degree (school, year), and grants on which the person is principal investigator or that went to their company |
 | Earlier versions of pages | Web archive (Internet Archive) | Older captures of LinkedIn, Indeed resume, AngelList, Crunchbase, about.me, GitHub, X and company team pages; what a profile said in each year; **claims that changed** between versions (a degree, an employer, a title that was altered or removed) |
 | Identity and public roles | Wikidata, Wikipedia, LittleSis, GitHub, Hacker News, linked accounts (Keybase), academic record (ORCID, Crossref, theses.fr), scholarly publications (OpenAlex), US nonprofit filings (Form 990) | Education and career as the public record has them, public office, board seats and foundations, a claimed doctorate checked against thesis registries, handles and sites the person has linked |
 | Family and related parties | Wikidata and LittleSis relatives and their roles, related-party passages in SEC filings, family wording in press, the second reader | Relatives who hold a business, political or philanthropic role, organisations they share with the founder; each is screened against watchlists and searched together with the founder |
 | Courts and enforcement | US Department of Justice press releases, federal court case titles (Internet Archive copy of dockets), federal dockets and opinions (CourtListener, when `COURTLISTENER_API_TOKEN` is set), SEC enforcement releases, CFTC and CFPB enforcement actions, FINRA BrokerCheck and SEC adviser records, The Gazette (UK insolvency and disqualification notices), UK court judgments, the French official commercial bulletin (BODACC) | Charges, pleas, convictions, sentences, civil suits, bars, insolvency |
-| Sanctions and watchlists | Sanctions lists (US Consolidated Screening List, UN, EU, UK, Canada), US federal exclusion lists (SAM.gov, HHS OIG), wanted lists (FBI, EU Most Wanted), ICIJ Offshore Leaks (the founder and their companies only) | Name screens for the founder, their companies, associates and relatives; a clean screen is reported as such, and the report marks any related person who was not screened in that run |
-| Filings and company records | SEC filings (full-text search, Form D fundraises, insider filings), UK Companies House (officers, disqualified directors), French company register, US state business registers, Legal Entity Identifier register, Y Combinator directory, patents, US trademarks, domain history | Roles and dates independent of what the founder says, earlier companies, dissolutions, co-directors and co-founders, inventorship |
-| Breach and leak-site exposure (company level) | Ransomware leak-site listings (RansomLook), known data breaches (Have I Been Pwned catalogue), regulators' breach registers | Whether the founder's companies appear as victims or in breach notices. Organisation, date and counts only |
+| Sanctions and watchlists | Sanctions lists (US Consolidated Screening List, UN, EU, UK, Canada), US federal exclusion lists (SAM.gov, for exclusions currently in force only: its public search does not show exclusions that have ended, so a past SAM debarment is not covered; and HHS OIG read from its official monthly file), wanted lists (FBI, EU Most Wanted; the founder only), ICIJ Offshore Leaks (the founder and their companies only) | Name screens for the founder, their companies, associates and relatives, under every way the name is written (middle names, suffixes, reordered names) and under any other name given. A clean screen is reported as such with the date of the list copy; a list or register copy older than a day, read because its refresh failed, is named with its date ("list as of ...") and the screen counts as answered in part; a list that failed, a name that could not be screened or a result that was cut is "answered in part", never clean; the report marks any related person who was not fully screened |
+| Filings and company records | SEC filings (full-text search, Form D fundraises, insider filings, proxy disclosures of legal proceedings, 8-K events such as bankruptcy, auditor changes and restatements), UK Companies House (officers, disqualified directors, owners with control, charges, insolvency, overdue filings), French company register, US state business registers (the report names the states searched), the registers of Norway, the Czech Republic and Finland for companies placed there (`sources/registriesIntl.js`), Legal Entity Identifier register, Y Combinator directory, domain history. Patents and US trademarks are off (see "Choices the owner should know about") | Roles and dates independent of what the founder says, earlier companies, dissolutions, co-directors and co-founders. Everything is searched under every known name of the company: the name typed, and the legal name and domain learned from a record tied to the person |
+| Breach and leak-site exposure (company level) | Ransomware leak-site listings from two live indexes (RansomLook, RansomFeed) and a historical archive (ransomwatch, 2020 to mid-2025) (`sources/exposure.js`, `leakSitesMore.js`); known data breaches (Have I Been Pwned catalogue); breach notices filed with regulators (California, Washington, Oregon, Delaware, Vermont, Maryland, Indiana, the UK ICO) (`breachRegistersMore.js`) | Whether the founder's companies appear as victims or in breach notices. Organisation, date and counts only; a criminal's claim is always "claimed, unverified". A listing that matches only an ordinary word is never the company's, and when the company's own domain was looked up and nothing names it the record says so |
 
 The exact list is `CONNECTORS` in `src/server/founder/sources/index.js`;
 `tests/unit/features/founderSources.registry.test.js` holds every source to
 the contract.
 
+Six sources are built and switched off until the owner agrees to their
+terms (see "Choices the owner should know about"): the OpenSanctions bundle,
+Australia's banned and disqualified register, Hong Kong's securities
+enforcement news, the US Tax Court search, podcast episodes, and the
+estimated infostealer exposure of a company's domain. Each is named in
+`FOUNDER_SOURCES_ON` to turn it on.
+
 Sources that need something this deployment does not have are listed in the
-report under "Did not answer", with the reason. What no free source covers
+report under "Did not answer", with the reason. What the sources this check uses cannot reach
 (state and county courts, commercial credit and criminal-record files,
 private financials) is listed in every report.
 
 ## What the report shows
 
-- **The brief**: a written summary by the strongest available AI model, every
-  sentence cited to a numbered record, or a summary assembled from the
-  records themselves when no model is available.
-- **Red flags**: serious matters tied to the person. Twenty reports of one
-  sentencing are one matter, led by the most official record, with the rest
-  listed under it.
+- **Summary**: the person in one line and honest counts: red flags, matters
+  about their companies, records tied to them, screens answered out of
+  screens asked. "0 red flags" is shown as reassuring only when every court,
+  regulator and watchlist screen answered in full. When a company was typed
+  and no record ties the person to it, the report says so first.
+- **The brief**: a written summary by the strongest available AI model, or a
+  brief assembled from the report's own fields when no model answers. Either
+  way it has the same ten sections: bottom line; red flags; career and
+  education; company; what checks out; claims that changed over time; related
+  parties; public-record screens; gaps and unverified claims; and questions
+  for the founder that are specific to this person. What `writeDeepBrief`
+  checks in an AI answer:
+  - a citation counts only if the model was shown that record (or a summary
+    line citing it); others are removed;
+  - a factual line with no citation left is removed;
+  - in the bottom line, red flags, career, company and what checks out, a
+    line citing only name-only records (or records tied only through a
+    company the check assumed) is removed;
+  - a red flag must share a distinctive word with a record it cites, and may
+    not rest only on the person's own posts; what checks out may not rest
+    only on a domain an earlier holder registered;
+  - links and images are removed, and the privacy rules apply to every line;
+  - when more than a fifth of the lines are removed the answer goes to the
+    next model, and failing that the assembled brief is used; a section left
+    empty is filled from the assembled brief, and the page says which.
+  The code does not check that a sentence reads its record rightly: the page
+  marks an AI brief "AI-written; check it against the cited records".
+  Name-only records are never stated as facts.
+- **Profile**: a résumé: current role, every earlier role with years,
+  education with degree, field and year, companies founded and what became of
+  them, boards, investments, recognition, where they are based (city only)
+  and public profile links. It is built without a model from structured
+  fields (Wikidata, ORCID, filings and registers naming the person as an
+  officer, thesis and grant records), from the person's own profile text
+  (search-result lines of their profile, archived bios) and from sentences
+  about them; a model, when one answers, adds lines that code keeps only if
+  the cited record states them word for word about the person. A colleague's
+  or interviewer's job is never credited to the person. A role is "current"
+  only when the newest record says so. **To confirm with the person** lists
+  leads (for example a name-only broker registration whose dates fit their
+  bio) apart from facts. Every line links to its record.
+- **Company**: legal names and domains, founding year, funding rounds with
+  date, lead and investors, and standing, each cited.
+- **Public-record screens**: every sanctions, court, regulator, breach and
+  register source that was asked, each with its result: no match, records,
+  name matches to rule out, answered in part, did not answer, not run, or not
+  enabled. These screens always run, early, and are never dropped when the
+  check stops; one that could not run is shown as such, never as clean.
+- **Your network** (signed in, with contacts imported in the Network Map tab):
+  whether the person is already a contact, people you know who overlapped
+  with them at a company in the same years, sat on the same boards or work at
+  their investors, and a shortlist of who to call for a reference, best
+  placed first, with what to ask. Relatives are never suggested. When no
+  company is typed and exactly one contact has that name, the contact's
+  company is used only as an assumption: records tied through it are "likely"
+  at most and marked, and the report says which company was assumed. Contacts
+  never leave the account: only a company name is ever used as a search term.
+  A failed lookup is shown as failed, never as "nobody".
+- **Red flags**: serious matters tied to the person, sanctions, debarments,
+  wanted notices, criminal and regulator actions first. Twenty reports of one
+  sentencing are one matter, led by the most official record, with its latest
+  outcome (dismissed, acquitted, settled, pardoned) beside it. An acquittal,
+  a dismissed suit or a suit the person brought is not a high red flag.
 - **About their companies**: serious records about a company the person
   founded or runs that do not name them. Context, not a finding about them.
 - **Possible namesakes to rule out**: serious records that match the name only.
-- **Claims that changed over time**: differences between archived versions
-  of the same profile or bio.
-- **Related parties**, a **timeline** from dated records, every record by
-  kind, and **what was searched**, what did not answer, and what no free
-  source covers.
+- **Name matches only**: every other record that shares the name and nothing
+  else, collapsed. For a company named with an ordinary word, records that
+  match only the word ("boat ramp", Ethereum's "The Merge") leave the
+  numbered report: they are counted and listed here with a one-line reason.
+- **Claims that changed over time**: only changes to a claim (title,
+  employer, school, degree, dates) in text about the person, between archived
+  versions of the same profile or bio. Wording edits and other people's bios
+  are not claims that changed.
+- **Related parties** with their roles, a **timeline** of career, company and
+  legal events with their real dates, every record by kind with filters, and
+  **what was searched**, what did not answer, and what the sources this check
+  uses cannot reach.
+  One page is one record: an archived copy, the page reader's text and a
+  search result for the same address are grouped.
+- **On the page**: a check survives a reload, a closed tab and a sign-in;
+  "Recent checks" reopens a finished check without running it again; the
+  report can be printed or copied as text.
+
+## The quick brief
+
+The quick brief reads the pages a search finds about the person (name and
+company beside each other; other people's profiles and name-only pages are
+left out or marked) and asks a model for a short brief, several model
+services side by side so one slow service does not cost the answer. Before
+it is shown, every line is checked against the sources it cites
+(`src/server/search/answer.js`, `checkClaims`):
+
+- a sentence rests on the citation of its own line (models cite once per
+  paragraph); a year, a number or a name that no source tied to the person
+  gives is removed; a fact another such source gives is a loose citation
+  and stays;
+- a sentence that states a legal or regulatory matter (charged, convicted,
+  sued, fined, investigated and the like) stays only when its cited source,
+  or two other sources tied to the person, state that matter; an invented
+  one is removed, and an answer with two of them is refused;
+- "no litigation was found", the caveat that absence is not proof, and
+  reference questions are not claims;
+- an answer is refused, and the next model asked, only when more than half
+  of it is unsupported. If no model's answer passes, the brief is assembled
+  from the sources and says so.
+
+With no company typed and several people of that name found, the page asks
+which person is meant instead of writing one merged brief. Signed-out
+visitors get 15 quick briefs per ten minutes and 40 per hour.
 
 ## How it works
 
@@ -76,10 +192,13 @@ lot about one person); at most 12 checks an hour per account.
 | File | What it does |
 |---|---|
 | `src/server/founder/deepCheck.js` | the loop: plans lookups per thread, runs them best-first within a time budget, notes and pulls threads, re-grades earlier records as more becomes known, stops when dry or at the limits |
-| `src/server/founder/identity.js` | who a record is about: `confirmed` (names the person with a company known to be theirs), `likely` (with a known school, associate, handle or domain), `possible` (the name only: may be a namesake) |
+| `src/server/founder/identity.js`, `names.js` | who a record is about: `confirmed` (names the person beside a company known to be theirs), `likely` (with a known school, associate, handle or domain, or through a weaker anchor), `possible` (the name only: may be a namesake). `names.js` is the one matcher for names and companies that the quick brief and the deep check share |
 | `src/server/founder/guardrails.js` | the privacy rules, applied to every record |
 | `src/server/founder/finding.js` | the one shape every source returns (`makeFinding`, `makeThread`) |
 | `src/server/founder/extract.js` | reads text for companies, schools, associates, relatives in public roles, handles and profile pages |
+| `src/server/founder/profileModel.js` | the model-read profile and its word-for-word check against the cited record |
+| `src/server/founder/networkLink.js`, `src/components/founder/NetworkLinks.js`, `src/pages/api/founder/history.js` | the pairing with the Network Map: the person as a contact, people around them, reference shortlist, checks already run |
+| `src/server/founder/profile.js`, `companyFacts.js` | the résumé (roles, education, founded, boards, investments, recognition, leads to confirm) and the company's facts (legal names, funding, investors), read from tied records with no model |
 | `src/server/founder/gaps.js` | the second reader: a model proposes missed threads and searches; code keeps only what the cited record states |
 | `src/server/founder/report.js` | ranks and numbers the records, builds red flags, possible namesakes, claims that changed, related parties, timeline, coverage; writes the brief |
 | `src/server/founder/sources/` | one file per family of sources; `index.js` lists them all |
@@ -92,9 +211,22 @@ lot about one person); at most 12 checks an hour per account.
 
 1. **Never pin a namesake's record on the founder.** A record that matches
    by name alone is graded `possible`, shown under "Possible namesakes to
-   rule out", never under red flags, and never followed for more threads. A
-   company named with an ordinary word (Stripe, Flow) only confirms identity
-   when it is written as a name.
+   rule out", never under red flags, and never followed for more threads.
+   - The name must be the full name: middle names, initials, suffixes,
+     accents, "Surname, Given" and register capitals are the same person;
+     initials alone, a nickname, another given name or a longer hyphenated
+     surname are not.
+   - The company must sit beside the name (same sentence or the next) and
+     must not be given to someone else in between.
+   - A company named with an ordinary word (Ramp, Merge, Stripe, Flow) counts
+     only when the text uses it as a company (a business word, a legal form,
+     its domain or a learned legal name beside it), never on a capital letter
+     or a headline alone.
+   - A very common name (John Smith, Wei Zhang) needs the company or another
+     fact in the same record; a very large employer with a common name gives
+     `likely` at most.
+   - A record graded `likely` never becomes the evidence that confirms other
+     records or itself, and nothing an AI model proposes confirms anything.
 2. **Privacy.** No home addresses, phone numbers, personal email addresses,
    dates of birth or ID numbers. Nothing about children, health, religion,
    sexuality or immigration status. No people-search or data-broker sites,
@@ -168,8 +300,12 @@ checked in full.
 | `COURTLISTENER_API_TOKEN` | turns on US federal dockets and opinions (a free CourtListener account) |
 | `FOUNDER_DEEP_PUBLIC=true` | lets a check run without sign-in (local testing only) |
 | `FOUNDER_SOURCES_OFF` | comma-separated source ids to switch off |
-| `SEC_USER_AGENT` | a declared contact for SEC requests, if the default is ever refused |
-| `FOUNDER_HTTP_CONTACT` | a URL or address the owner chooses to declare to the sites it asks (nothing is declared by default) |
+| `FOUNDER_SOURCES_ON` | comma-separated ids of sources that are off until the owner agrees to their terms: `opensanctions-lists`, `asic-banned`, `sfc-hk-enforcement`, `us-tax-court`, `podcast-episodes`, `infostealer-exposure` |
+| `SEC_USER_AGENT` | optional: a name and contact email declared to the SEC instead of the signed-in person's, for example "Example Research ops@example.com". An email in `FOUNDER_HTTP_CONTACT` also works. Without either, the signed-in person's name and email are declared to www.sec.gov for the check they run (see "Choices the owner should know about") |
+| `FOUNDER_HTTP_CONTACT` | optional: a URL or address the owner chooses to declare to every site the check asks (nothing is declared by default). When set, it is declared to the FTC case search and crates.io instead of the signed-in person's contact |
+| `FOUNDER_ALLOWED_EMAILS` | comma-separated addresses or `@domains` allowed to sign in; empty means any Google account, as before. Quotes and `mailto:` around an entry are tolerated. A value that is set but holds no valid address or domain refuses every account (it fails closed, and the server log says why) |
+| `FOUNDER_GOOGLE_PATENTS=on` | turns the patent search back on (see "Choices the owner should know about") |
+| `GITHUB_TOKEN` | optional, a token with no scopes: a larger hourly allowance for GitHub lookups |
 | `FOUNDER_SEARCH_GOOGLE_NEWS=0` | turns off the Google News feed (see "Choices the owner should know about") |
 | `FOUNDER_SEARCH_METERED=0` | stops the deep check from ever using the site's backup search service |
 | `FOUNDER_SEARCH_BRAVE_HTML=1` | turns on Brave Search (off by default) |
@@ -177,6 +313,71 @@ checked in full.
 
 ## Choices the owner should know about
 
+- **Development banks' debarment list (on since 2026-11-20).**
+  `mdbDebarmentConnector` in `sources/debarment.js` screens the EBRD's list of
+  barred firms and people, which carries World Bank, ADB, IDB and AfDB
+  debarments too. The publisher's terms allow "personal, non-commercial use"
+  only. The owner confirmed that this site is non-commercial and asked for the
+  list to be on. If the site is ever used commercially, switch it off with
+  `FOUNDER_SOURCES_OFF=mdb-debarment`.
+
+- **The contact declared to the SEC, the FTC and crates.io (since 2026-11-21).**
+  These three sites refuse automated readers that do not name a contact.
+  Nobody has to configure anything: the signed-in person's name and email
+  from Google sign-in are named to www.sec.gov, www.ftc.gov and crates.io,
+  in the User-Agent of that check's requests to those hosts only (a redirect
+  elsewhere is not followed), and to no other site (`src/server/founder/contact.js`).
+  The contact is never saved in the check, its report, a log or an error; the
+  page is told only where it came from and shows one line when it is the
+  person's. When the owner sets `SEC_USER_AGENT` (or `FOUNDER_HTTP_CONTACT`),
+  that contact wins and no person's address is sent. The local test account
+  (…@localhost) is not a contact: without a setting, those lookups are
+  reported as not answered in local testing.
+- **Sources built and switched off (`FOUNDER_SOURCES_ON`).** Each needs the
+  owner's yes because of its terms:
+  - `opensanctions-lists`: about 30 lists (Interpol red notices, the World
+    Bank, ADB, IDB and AfDB debarment lists, FINRA bars, regulators in
+    France, Switzerland, India and elsewhere). The licence is non-commercial
+    and the data host's robots file says no, while the publisher's own
+    documentation invites scheduled downloads.
+  - `asic-banned`: Australia's banned and disqualified register. Open licence
+    and a documented interface, but the host's robots file says no.
+  - `sfc-hk-enforcement`: Hong Kong securities enforcement news. Robots allow
+    it; the terms allow personal or internal use, and the search behind the
+    page is not documented as public.
+  - `us-tax-court`: the search behind the court's own web application, not a
+    documented public service.
+  - `podcast-episodes`: Apple's podcast directory. A documented, keyless
+    search whose path the host's robots file closes to crawlers.
+  - `infostealer-exposure`: a provider's estimate of how many infected
+    computers held logins for the company's own domain. Counts and dates
+    only; the provider offers the lookup for defensive use.
+- **Sources on because the owner said the site is non-commercial.** The
+  development banks' list (above) and EU data-protection fines (CMS
+  Enforcement Tracker, CC BY-NC-SA, credited in each record). Switch either
+  off with `FOUNDER_SOURCES_OFF` if the site is ever used commercially.
+- **Patents and trademarks are off.** The patent search used Google Patents,
+  whose terms bar automated querying and which turns automated readers away;
+  `FOUNDER_GOOGLE_PATENTS=on` turns it back on at the owner's risk. The
+  trademark search called the USPTO web application's internal search, which
+  rule 4 of the handover lists as removed, so it is not enabled. A permitted
+  route for both exists (the USPTO Open Data Portal) and needs a registered
+  account, which is the owner's to create.
+- **Who can sign in.** Any Google account can sign in and run checks unless
+  `FOUNDER_ALLOWED_EMAILS` is set.
+- **Debug routes.** In production the debug routes (`/api/debug/...`) follow
+  the same model as the rest of the site: any signed-in account may call them
+  (when `FOUNDER_ALLOWED_EMAILS` is set, only accounts on it); a signed-out
+  caller gets 401 and is asked to sign in. Each account has its own hourly
+  limit, and model runs through them share one hourly cap of 40 across all
+  accounts.
+- **Quick brief limits.** Signed-out visitors: 15 quick briefs per ten
+  minutes and 40 per hour per address. Signed-in: 30 and 120 per account
+  (`QUICK_LIMITS` in `src/pages/api/founder/index.js`).
+- **Stricter identity choices.** A person known by one name is tied to a
+  record only when their company is named beside them. A very large employer
+  beside a common name gives "likely", not "confirmed", until a second fact
+  agrees. A pardoned conviction is graded medium and shown with the pardon.
 - **Google News feed.** Most open-web lookups are answered by Google's news
   search feed. The feed is published for programs to read, but the site's
   crawler rules do not list that path among the allowed ones. It is used
@@ -198,11 +399,47 @@ checked in full.
   onion search engines and a ransomware-victim feed were removed or never
   used because their terms do not allow automated or business use.
   Political donation records are excluded by design.
+- **Not covered by any free, permitted source.** US state trial courts,
+  German and Dutch judgments (published without names), commercial credit
+  and criminal-record files, private financials. Federal opinions, full
+  party lists and case numbers need the CourtListener setting; without it
+  only archived case titles are searched.
 - **Pace.** Sources are asked no faster than they allow (the web archive
   about 15 times a minute; two sites ask for ten seconds between requests),
   so a full check takes three to five minutes, and several checks run back
   to back will find less news until the search allowances refill (about ten
   minutes).
+
+## How the loop runs
+
+- **Anchors from likely records never confirm.** A company, school, handle or
+  domain learned from a record graded likely (of any kind) may raise another
+  record to likely at most, never to confirmed. A likely grade that rests only
+  on a weak basis (a related record, an event, a reversed name, or a list
+  sharing one surname such as "Patrick and John Collison") never makes that
+  record's threads trusted.
+- **Screens are retried once.** A court, regulator or watchlist screen that
+  timed out or got a server error (5xx) is run once more before it is
+  reported as not answered.
+- **Earlier companies typed are screened**, under their own names, unless one
+  is a very large employer; then it is only checked for ties to the person.
+  The report's coverage lists which were screened and which were only checked
+  for ties.
+- **Per-check allowances.** Presence sources (Hugging Face, Open Library,
+  crates.io, npm, Stack Overflow, Bluesky, Mastodon, writing feeds) at most 5
+  lookups each per check; the web archive at most 12. Lookups past an
+  allowance are reported as not run.
+- **Waiting for a source.** A lookup whose host or search engine says when it
+  is free again waits for that time while the check is under 12 minutes old
+  (`LIMITS.maxWaitAgeMs`; a search engine's allowance window and its pause
+  after a block are both ten minutes). Past that it is reported as not run.
+  A check never sits through more than two steps in a row with nothing run
+  (`LIMITS.maxIdleSteps`): the lookups still waiting are then reported as not
+  run, so the page is not left on a stuck bar for its last few lookups.
+- **Starting again.** Starting a check of a person who already has one
+  running resumes that check only when the details given match the ones it
+  started with. Otherwise the running check is stopped and replaced by a new
+  one with the new details, and the page says so.
 
 ## Limits per check
 
