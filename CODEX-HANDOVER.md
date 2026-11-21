@@ -13,7 +13,7 @@ state things are in and how to run the maintenance loop.
 | Live site | https://diligence.bivek.ai (Vercel project `searchbar3`, team `1bivekadhikari-1506s-projects`) |
 | Production branch | `openclaw-fixes` at `87b8248`, released 2026-11-17 at the owner's request. Everything dated 2026-11-20 and later is on preview only |
 | Working branch | `claude/research-hub-fix` (every change lands here first) |
-| Tests | TESTCOUNT passing (`npx jest`); production build compiles (`NEXT_DIST_DIR=.next-build npm run build`) |
+| Tests | 3,813 passing (`npx jest`); production build compiles (`NEXT_DIST_DIR=.next-build npm run build`) |
 
 Released on 2026-11-17 (all live):
 

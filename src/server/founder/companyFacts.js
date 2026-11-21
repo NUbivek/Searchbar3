@@ -186,7 +186,10 @@ const RAISE = /\b(?:rais(?:e[sd]?|ing)|closed|clos(?:es|ing)|secur(?:e[sd]?|ing)
 // An amount with no round named is funding only in a sentence about funding...
 const FUNDING_NOUN = /\b(?:funding|financing|fund-?rais\w*|round|investments?|investors?|backers?|venture|capital|led by|equity|seed)\b/i;
 // ...and never in one about a crime, a fine, a settlement or a forfeiture ("closed a $5 million settlement").
-const NOT_FUNDING = /\b(?:fraud\w*|crim\w*|fine[sd]?(?!-)|penalt\w*|settle\w*|forfeit\w*|restitution|seiz\w*|stolen|theft|embezzl\w*|launder\w*|ponzi|charged|indict\w*|convict\w*|sentenc\w*|judgments?|damages|bail|lawsuits?|sued|disgorge\w*|bribe\w*)\b/i;
+const NOT_FUNDING = /\b(?:fraud\w*|defraud\w*|scam\w*|swindl\w*|crim\w*|fine[sd]?(?!-)|penalt\w*|settle\w*|forfeit\w*|restitution|seiz\w*|stolen|theft|embezzl\w*|launder\w*|ponzi|charged|indict\w*|convict\w*|sentenc\w*|judgments?|damages|bail|lawsuits?|sued|disgorge\w*|bribe\w*)\b/i;
+// ...unless the company itself is the one raising, right before the figure: a headline rarely names the round
+// ("Ramp raises $300M", "Ramp Secures $30M For Money-saving Company Credit"). The crime words above still rule it out.
+const COMPANY_RAISES = '(?:[\'’]s)?\\s+(?:rais(?:es|ed|ing)|secur(?:es|ed|ing)|clos(?:es|ed|ing)|lands|landed|bags|bagged|nabs|nabbed|picks up|picked up)\\s+(?:an?\\s+|another\\s+|new\\s+|fresh\\s+)*$';
 const NOT_INVESTOR = /^(?:the|a|an|and|its|their|his|her|existing|new|other|several|many|investors?|participation|backers?|funds?)$/i;
 
 /** Investor names from a list: "Accel, NEA and Addition" (never the person or the company itself). */
@@ -342,7 +345,9 @@ export function buildCompanyFacts(subject, findings = [], threads = []) {
         const before = s.slice(Math.max(0, m.index - 70), m.index);
         const after = s.slice(m.index + m[0].length, m.index + m[0].length + 220);
         const round = m[2] ? tidy(m[2]).replace(/^series/i, 'Series').replace(/^seed(?: round)?$/i, 'Seed').replace(/^pre-seed$/i, 'Pre-seed') : (after.match(new RegExp(`^\\s*(?:in\\s+)?(?:a\\s+|its\\s+)?(${ROUND})`, 'i')) || [])[1] || null;
-        const isValuation = /^\s*(?:post-money\s+|pre-money\s+)?valuation\b/i.test(after) || /\b(?:valued at|valuation of|valuation to|worth)\s*$/i.test(before) || /\bat an?\s*$/i.test(before);
+        // a person's net worth is neither the company's value nor money it raised
+        if (/\bnet worth\b[^.;$]{0,30}$/i.test(before) || /^\s*(?:in\s+)?(?:personal\s+)?(?:net worth|fortune)\b/i.test(after)) continue;
+        const isValuation = /^\s*(?:post-money\s+|pre-money\s+)?valuation\b/i.test(after) || /\b(?:valued at|valuation of|valuation to|worth)\s*$/i.test(before) || /\bat\s+(?:an?\s+)?$/i.test(before);
         if (isValuation) {
           addStanding('valuation', m[1], clipAround(s, m.index), f.id, dateIn(s, f.date), how);
           continue;
@@ -352,7 +357,11 @@ export function buildCompanyFacts(subject, findings = [], threads = []) {
           continue;
         }
         if (!(RAISE.test(before) || round)) continue;
-        if (!round && (!FUNDING_NOUN.test(s) || NOT_FUNDING.test(s))) continue;
+        const companyRaises = new RegExp(`(?<![\\p{L}\\p{N}])${co}${COMPANY_RAISES}`, 'iu').test(s.slice(0, m.index));
+        // a bare "<Company> secured $3 million" headline counts only when nothing in the record is about a crime,
+        // a fine or a settlement ("... to forfeit in the case")
+        const bareHeadline = !FUNDING_NOUN.test(s);
+        if (!round && ((bareHeadline && !companyRaises) || NOT_FUNDING.test(s) || (bareHeadline && NOT_FUNDING.test(text)))) continue;
         const lead = (after.match(/\bled by\s+([A-Z][^,;.()]{1,60}?)(?=\s*(?:,|;|\.|\(|$|\s+with\b|\s+and\s+(?:participation|existing|others)|\s+alongside\b|\s+at\b|\s+in\b|\s+on\b))/) || [])[1] || null;
         const more = (after.match(/\b(?:with participation from|participation from|alongside|joined by|investors include|backed by|from investors)\s+([^.;()]{3,220})/i) || [])[1] || '';
         const list = investorList(subject, more, company);
@@ -406,7 +415,8 @@ export function buildCompanyFacts(subject, findings = [], threads = []) {
   return {
     legalNames, domains: domains.filter((x) => !earlierDomain(x)),
     founded: foundedYear ? { year: foundedYear, ids: [...ranked[0][1]] } : null,
-    funding: fin([...funding.values()]).sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))),
+    // the newest round first; a round with no date goes last
+    funding: fin([...funding.values()]).sort((a, b) => Number(Boolean(b.date)) - Number(Boolean(a.date)) || String(b.date || '').localeCompare(String(a.date || ''))),
     // an investor named only in a round left out above goes with it
     investors: fin([...investors.values()]).filter((x) => x.ids.some((id) => !outIds.has(id))).sort((a, b) => b.ids.length - a.ids.length).slice(0, 25),
     // dated sentences first, then other sentences, headlines last; the newest first within each

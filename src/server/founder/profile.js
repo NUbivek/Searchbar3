@@ -33,6 +33,8 @@ const tidy = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 export function sentencesOf(text) {
   return String(text || '')
     .replace(/\b(Mr|Mrs|Ms|Dr|Prof|Inc|Corp|Co|Ltd|St|Jr|Sr|vs|U\.S|B\.S|B\.A|M\.S|M\.A|Ph\.D|M\.B\.A|Acq|acq)\./g, '$1․')
+    // "ranked No. 3 on the Midas List": a rank's "No." never ends the sentence
+    .replace(/\bNo\.(?=\s*\d)/g, 'No․')
     .split(/(?<=[.!?])\s+(?=["“'(]?[A-Z0-9])|\n+|\s+[·|]\s+/)
     .map((s) => tidy(s.replace(/․/g, '.')))
     .filter((s) => s.length >= 12);
@@ -314,6 +316,31 @@ function normTitle(raw) {
   if (labels.length && !left) return labels.join(' and ');
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
+/* ----------------------------------------------------------------------- rankings, lists and awards */
+
+// A ranking, list, club or award is recognition, never an employer: "an official member of Forbes' 400 billionaires
+// list" is not a job at "Forbes' 400". The publishers that run such lists, and what a list's name looks like.
+const LIST_BRAND = "(?:Forbes|Fortune|TIME|Time|Inc\\.?|Bloomberg|Crain['’]s|Hurun|Sunday Times|MIT Technology Review|Business Insider|Fast Company|Midas)";
+const BRAND_NUMBER = new RegExp(`^(?:the\\s+)?${LIST_BRAND}['’]?s?\\s+(?:[A-Z][\\p{L}'’&.-]*\\s+){0,3}?\\d{2,4}\\b`, 'u');
+const LIST_END = /\b(?:\d{2,3}\s+Under\s+\d{2}|List|Lists|Ranking|Rankings|Hall of Fame|Honou?r Roll)$/i;
+// words after a name that make it a ranking ("Forbes' 400 billionaires list", "Hurun rich list")
+const LIST_AFTER = /^\s*(?:[\p{L}'’-]+\s+){0,2}(?:list|lists|ranking|rankings)\b/iu;
+/**
+ * Is this "organisation" a ranking or a list ("Forbes' 400", "Fortune 500", "30 Under 30", "Midas List")? `after` is
+ * the text right after it in the sentence, which may say so ("... billionaires list"). Shared with profileModel.js.
+ */
+export function isRankingName(org, after = '') {
+  const o = tidy(String(org || '')).replace(/^the\s+/i, '');
+  if (!o) return false;
+  if (BRAND_NUMBER.test(o) || LIST_END.test(o) || /\b\d{2,3}\s+Under\s+\d{2}\b/i.test(o) || /^Midas\b/.test(o)) return true;
+  // a brand alone ("Forbes", "Bloomberg") or a name with a number only when the words after it say "list"
+  return LIST_AFTER.test(String(after || '')) && (new RegExp(`^${LIST_BRAND}\\b`, 'u').test(o) || /\d/.test(o) || /\b(?:Billionaires?|Rich|Richest|Power)\b/i.test(o));
+}
+/** A list's name as shown: "Forbes' 400" -> "Forbes 400", "the TIME 100" -> "TIME 100". Shared with profileModel.js. */
+export const rankingText = (s) => tidy(String(s || '').replace(/^the\s+/i, '').replace(new RegExp(`^(${LIST_BRAND})['’]s?(?=\\s)`, 'u'), '$1'));
+// the name of a list, in a sentence: "Forbes' 400", "Forbes 30 Under 30", "the Midas List", "Bloomberg Billionaires List"
+const LIST_NAME = `(?:${LIST_BRAND}['’]?s?\\s+(?:[A-Z\\d][\\p{L}\\p{N}'’&.-]*\\s+){0,4}?(?:\\d{2,3}\\s+Under\\s+\\d{2}|\\d{2,4}|List)(?![\\p{L}\\p{N}])|(?:[A-Z\\d][\\p{L}\\p{N}'’&.-]*\\s+){0,4}?(?:\\d{2,3}\\s+Under\\s+\\d{2}|List)(?![\\p{L}\\p{N}]))`;
+
 const ROLE_WORD = /\b(?:partner|founder|ceo|cto|coo|cfo|president|director|manager|engineer|investor|analyst|associate|principal|vp|vice president|head|lead|chief|officer|advis[eo]r|consultant|professor|researcher|scientist|designer|developer|chair\w*|owner|member|fellow|intern|staff|operator|entrepreneur)\b/i;
 
 /* ----------------------------------------------------------------------- reading organisations */
@@ -584,9 +611,12 @@ export function buildProfile(subject, findings, threads = []) {
   const addRole = (r) => {
     const org = okOrg(r.org);
     if (!org) return;
+    // a ranking or a list ("member of Forbes' 400") is never an employer; the recognition patterns read it
+    if (isRankingName(org, r.after)) return;
     if (okSchool(org) && !r.basis) return;
     SCHOOL.lastIndex = 0;
-    roles.push({ ...r, org, title: r.title ? normTitle(r.title) : null });
+    const { after, ...rest } = r;
+    roles.push({ ...rest, org, title: r.title ? normTitle(r.title) : null });
   };
   const addVote = (label, id, date, strong, end = false) => votes.push({ label, id, date: date || '', strong, end });
   const addFounded = (x) => {
@@ -650,7 +680,11 @@ export function buildProfile(subject, findings, threads = []) {
       for (const p of list(d.positions).slice(0, 12)) if (p.of && p.title) roleFrom(p.of, p.title, p.from, p.to);
       for (const x of list(d.founded).slice(0, 12)) if (x.org) addFounded({ org: x.org, year: year(x.year), id: f.id });
       for (const b of list(d.boards).slice(0, 12)) if (b.org) boards.push({ org: b.org, role: /advis/i.test(b.role || '') ? 'Advisor' : /chair/i.test(b.role || '') ? 'Chair of the board' : 'Board member', from: year(b.from), to: year(b.to), id: f.id });
-      for (const m of list(d.memberships).slice(0, 12)) if (m.org && !/\b(?:party|parti|partei)\b/i.test(m.org)) boards.push({ org: m.org, role: 'Member', from: year(m.from), to: year(m.to), id: f.id });
+      for (const m of list(d.memberships).slice(0, 12)) {
+        if (!m.org || /\b(?:party|parti|partei)\b/i.test(m.org)) continue;
+        if (isRankingName(m.org)) recog.push({ text: rankingText(m.org), year: year(m.from), id: f.id });
+        else boards.push({ org: m.org, role: 'Member', from: year(m.from), to: year(m.to), id: f.id });
+      }
       for (const a of list(d.awards).slice(0, 12)) if (a.text) recog.push({ text: tidy(a.text), year: year(a.year), id: f.id });
     }
     // a Wikidata record from before the sources wrote these fields: its statements, parsed from the quote
@@ -671,7 +705,8 @@ export function buildProfile(subject, findings, threads = []) {
         } else if (mine && st.kind === 'award received') {
           recog.push({ text: st.b, year: year(st.q['point in time']) || from, id: f.id });
         } else if (mine && st.kind === 'member of' && !/\bparty\b/i.test(st.b)) {
-          boards.push({ org: st.b, role: 'Member', from, to, id: f.id });
+          if (isRankingName(st.b)) recog.push({ text: rankingText(st.b), year: year(st.q['point in time']) || from, id: f.id });
+          else boards.push({ org: st.b, role: 'Member', from, to, id: f.id });
         } else if (inverse && st.kind === 'founded by') {
           addFounded({ org: st.a, year: from, id: f.id });
         } else if (inverse && st.kind === 'board member') {
@@ -1008,7 +1043,7 @@ export function buildProfile(subject, findings, threads = []) {
               // "worked at Capital One as a Senior Director": the title after the organisation
               const asTitle = !role && list.length === 1 ? (s.slice(o.end).match(/^\s*,?\s+as\s+(?:an?\s+|the\s+|its\s+)?([A-Za-z][\p{L}.'’/&-]*(?:\s+(?:of\s+)?[A-Za-z][\p{L}.'’/&-]*){0,4}?)(?=\s*(?:[.,;]|$)|\s+(?:from|in|until|before|and|for|where|when)\b)/u) || [])[1] : null;
               if (asTitle && (ROLE_WORD.test(asTitle) || titlesIn(asTitle).length)) role = tidy(asTitle.replace(/\.+$/, ''));
-              addRole({ org: o.org, title: list.length === 1 ? role : null, from: span?.from ?? year(joinedIn), to: span?.to ?? null, current: span?.current ? true : span?.to ? false : p.current, id: f.id, date: unit.date, basis: 'text' });
+              addRole({ org: o.org, title: list.length === 1 ? role : null, from: span?.from ?? year(joinedIn), to: span?.to ?? null, current: span?.current ? true : span?.to ? false : p.current, id: f.id, date: unit.date, basis: 'text', after: s.slice(o.end, o.end + 40) });
             }
           }
         }
@@ -1018,7 +1053,7 @@ export function buildProfile(subject, findings, threads = []) {
           if (hm && (titlesIn(hm[1]).length || ROLE_WORD.test(hm[1]))) {
             const o = orgAt(s, hm[0].length);
             if (o && isCompany(o.org)) { for (const label of titlesIn(hm[1])) addVote(label, f.id, unit.date, true); } else if (o && !URLISH.test(s.slice(o.start, o.end + 4))) {
-              addRole({ org: o.org, title: hm[1], from: null, to: null, current: true, id: f.id, date: unit.date, basis: 'text' });
+              addRole({ org: o.org, title: hm[1], from: null, to: null, current: true, id: f.id, date: unit.date, basis: 'text', after: s.slice(o.end, o.end + 40) });
               if (/found/i.test(hm[1])) addFounded({ org: o.org, id: f.id });
             }
           }
@@ -1039,7 +1074,7 @@ export function buildProfile(subject, findings, threads = []) {
         // --- board seats and advisory roles
         for (const m of s.matchAll(/\b(?:(?:sits|sat|serves|served|joined|has served)\s+on\s+the\s+(advisory board|board of directors|board)\s+(?:of|at|for)|board (?:member|director|seat)\s+(?:of|at)|member of the (advisory )?board(?: of directors)?\s+(?:of|at)|joined the (advisory )?board of|(?:an?\s+)?(advis[oe]r)\s+(?:to|at|of|for)|(advises)|chair(?:man|woman|person)? of the board (?:of|at))\s+/gi)) {
           const o = orgAt(s, m.index + m[0].length);
-          if (!o || !mine(m.index) || !okOrg(o.org)) continue;
+          if (!o || !mine(m.index) || !okOrg(o.org) || isRankingName(o.org, s.slice(o.end, o.end + 40))) continue;
           const advisory = Boolean(m[2] || m[3] || m[4] || /advis/i.test(m[1] || '') || m[5]);
           const span = spanAfter(s, o.org);
           boards.push({ org: o.org, role: /chair/i.test(m[0]) ? 'Chair of the board' : advisory ? 'Advisor' : 'Board member', from: span?.from ?? null, to: span?.to ?? null, id: f.id });
@@ -1063,16 +1098,21 @@ export function buildProfile(subject, findings, threads = []) {
           /\bnamed\s+(?:to|on|in|as|one of)\s+(?:the\s+)?((?:[A-Z\d][\p{L}\p{N}'’&.-]*\s+){0,6}?(?:\d{2,3}\s+Under\s+\d{2}|[A-Z][\p{L}]*\s+List|list|100|50|Award))/gu,
           /\b((?:Forbes|Fortune|Inc\.?|TIME|Time|Bloomberg|Crain['’]s|MIT Technology Review|Business Insider)\s+(?:[A-Z\d][\p{L}\p{N}'’&.-]*\s+){0,4}?(?:\d{2,3}\s+Under\s+\d{2}|100|50|List))\b/gu,
           /\b(?:won|wins|received|awarded|recipient of|honou?red with)\s+(?:the\s+|an?\s+)?((?:[A-Z\d][\p{L}\p{N}'’&.-]*\s+){1,6}(?:Award|Prize|Medal|Fellowship|Scholarship))/gu,
+          // a place on a list: "an official member of Forbes' 400", "joins the Bloomberg Billionaires List",
+          // "ranked No. 3 on the Midas List", "named to the TIME 100"
+          new RegExp(`\\b(?:(?:an?\\s+)?(?:official\\s+|new\\s+|newest\\s+)?members?\\s+of|joins|joined|made|makes|lands?\\s+on|landed\\s+on|added\\s+to|debut(?:s|ed)?\\s+on|appear(?:s|ed)?\\s+on|rank(?:s|ed)\\s+(?:No\\.?\\s*\\d+\\s+|#\\s?\\d+\\s+|\\d+(?:st|nd|rd|th)\\s+)?(?:on|in)|named\\s+(?:to|on))\\s+(?:the\\s+|this\\s+year['’]s\\s+)?(${LIST_NAME})`, 'gu'),
         ];
         const seenRec = new Set();
         for (const re of recPatterns) {
           for (const m of s.matchAll(re)) {
-            const text = tidy(m[1].replace(/^the\s+/i, '').replace(/\s+list$/i, ''));
+            const text = rankingText(m[1].replace(/\s+list$/, ''));
             if (text.length < 4 || seenRec.has(text.toLowerCase()) || !mine(m.index)) continue;
             seenRec.add(text.toLowerCase());
             const tail = s.slice(m.index + m[0].length, m.index + m[0].length + 30);
             const y = (tail.match(/^\s*(?:list\s+)?(?:\(|in\s+|for\s+|,\s*|class of\s+)((?:19|20)\d\d)\b/i) || [])[1] || (s.slice(Math.max(0, m.index - 12), m.index).match(/((?:19|20)\d\d)\s*$/) || [])[1] || (s.match(/\bclass of ((?:19|20)\d\d)\b/i) || [])[1];
-            recog.push({ text, year: year(y), id: f.id });
+            // a news item about joining a list dates it ("now an official member of Forbes' 400", 2020-09-09);
+            // a bio or a profile page carries no such date, so its list keeps no year unless the sentence gives one
+            recog.push({ text, year: year(y) || (f.category === 'press' && !unit.own ? year(unit.date) : null), id: f.id });
           }
         }
 
@@ -1187,6 +1227,11 @@ export function buildProfile(subject, findings, threads = []) {
     roleMap.set('\u0000company', e);
   }
   const resumeRoles = [];
+  // How recent the records behind a role are: an encyclopedia article counts from its last revision ("is now the
+  // CEO of SyberJet" in an article revised in 2026), anything else from its capture or publication date.
+  const recordDate = new Map(all.map((f) => [f.id, String(f.data?.revisedAt || f.data?.capturedAt || f.date || '')]));
+  const newestOf = (ids) => [...ids].map((id) => recordDate.get(id) || '').sort().pop() || '';
+  const sortKeys = new Map(); // row -> { newest, isCo }
   for (const [k, e] of roleMap) {
     let current;
     if (k === '\u0000company' && e.current != null) current = e.current;
@@ -1201,9 +1246,21 @@ export function buildProfile(subject, findings, threads = []) {
       if (!sorted.length) current = false;
     }
     const title = e.titles.length ? (e.titles.length <= 2 ? e.titles.join('; ') : `${e.titles.slice(0, 2).join('; ')}`) : null;
-    resumeRoles.push({ org: e.org, title, from: e.from, to: current ? null : e.to, current, ids: [...e.ids].slice(0, 6), basis: e.basis, ...viaOf(e.facts) });
+    const row = { org: e.org, title, from: e.from, to: current ? null : e.to, current, ids: [...e.ids].slice(0, 6), basis: e.basis, ...viaOf(e.facts) };
+    sortKeys.set(row, { newest: newestOf(e.ids), isCo: k === '\u0000company' });
+    resumeRoles.push(row);
   }
-  resumeRoles.sort((a, b) => (Number(b.current) - Number(a.current)) || ((b.from || b.to || 0) - (a.from || a.to || 0)));
+  // The order a résumé reads in: what they do now (the role the newest record states first), then their role at
+  // the company the user asked about, then earlier roles, the latest first.
+  resumeRoles.sort((a, b) => {
+    const ka = sortKeys.get(a);
+    const kb = sortKeys.get(b);
+    return (Number(b.current) - Number(a.current))
+      || (a.current && b.current ? kb.newest.localeCompare(ka.newest) : 0)
+      || (Number(kb.isCo) - Number(ka.isCo))
+      || ((b.from || b.to || 0) - (a.from || a.to || 0))
+      || kb.newest.localeCompare(ka.newest);
+  });
 
   /* ---- education grouped by school ("Harvard", "Harvard College" and "Harvard University" are one school) */
   const rootOf = schoolRoot;
@@ -1219,6 +1276,20 @@ export function buildProfile(subject, findings, threads = []) {
     if (x.from && (!e.from || x.from < e.from)) e.from = x.from;
     if (x.to && (!e.to || x.to > e.to)) e.to = x.to;
     if (x.basis === 'record') e.basis = 'record';
+  }
+  // A bare "Columbia" beside one "Columbia University" is the same school ("From Columbia CS to ..." in a live
+  // report gave two lines). Beside both a university and a college of that name it stays apart: it could be either.
+  for (const [k, e] of [...eduMap]) {
+    if (k.includes('|')) continue;
+    const fuller = [...eduMap.keys()].filter((x) => x.startsWith(`${k}|`));
+    if (fuller.length !== 1) continue;
+    const t = eduMap.get(fuller[0]);
+    for (const id of e.ids) t.ids.add(id);
+    for (const field of ['degree', 'field', 'note']) if (!t[field] && e[field]) t[field] = e[field];
+    if (e.from && (!t.from || e.from < t.from)) t.from = e.from;
+    if (e.to && (!t.to || e.to > t.to)) t.to = e.to;
+    if (e.basis === 'record') t.basis = 'record';
+    eduMap.delete(k);
   }
   const resumeEducation = [...eduMap.values()].map((e) => ({
     school: [...e.names.entries()].sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)[0][0],

@@ -144,6 +144,33 @@ private financials) is listed in every report.
   "Recent checks" reopens a finished check without running it again; the
   report can be printed or copied as text.
 
+## The quick brief
+
+The quick brief reads the pages a search finds about the person (name and
+company beside each other; other people's profiles and name-only pages are
+left out or marked) and asks a model for a short brief, several model
+services side by side so one slow service does not cost the answer. Before
+it is shown, every line is checked against the sources it cites
+(`src/server/search/answer.js`, `checkClaims`):
+
+- a sentence rests on the citation of its own line (models cite once per
+  paragraph); a year, a number or a name that no source tied to the person
+  gives is removed; a fact another such source gives is a loose citation
+  and stays;
+- a sentence that states a legal or regulatory matter (charged, convicted,
+  sued, fined, investigated and the like) stays only when its cited source,
+  or two other sources tied to the person, state that matter; an invented
+  one is removed, and an answer with two of them is refused;
+- "no litigation was found", the caveat that absence is not proof, and
+  reference questions are not claims;
+- an answer is refused, and the next model asked, only when more than half
+  of it is unsupported. If no model's answer passes, the brief is assembled
+  from the sources and says so.
+
+With no company typed and several people of that name found, the page asks
+which person is meant instead of writing one merged brief. Signed-out
+visitors get 15 quick briefs per ten minutes and 40 per hour.
+
 ## How it works
 
 ```
@@ -398,6 +425,9 @@ checked in full.
   is free again waits for that time while the check is under 12 minutes old
   (`LIMITS.maxWaitAgeMs`; a search engine's allowance window and its pause
   after a block are both ten minutes). Past that it is reported as not run.
+  A check never sits through more than two steps in a row with nothing run
+  (`LIMITS.maxIdleSteps`): the lookups still waiting are then reported as not
+  run, so the page is not left on a stuck bar for its last few lookups.
 - **Starting again.** Starting a check of a person who already has one
   running resumes that check only when the details given match the ones it
   started with. Otherwise the running check is stopped and replaced by a new

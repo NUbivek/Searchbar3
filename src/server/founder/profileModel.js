@@ -22,7 +22,7 @@
  */
 import { chatJson, reportAnswerQuality } from '../llm/providers';
 import { restoreSubject } from './identity';
-import { sentencesOf, opensOnSubject, placeOnly, maskSubject, bringsInSomeoneElse, leadsToSomeoneElse as tiedToSomeoneElse, HANDOFF, RELATION, NAME_RUN, isPersonRun, schoolRoot, pronounsAreTheirs } from './profile';
+import { sentencesOf, opensOnSubject, placeOnly, maskSubject, bringsInSomeoneElse, leadsToSomeoneElse as tiedToSomeoneElse, HANDOFF, RELATION, NAME_RUN, isPersonRun, schoolRoot, pronounsAreTheirs, isRankingName, rankingText } from './profile';
 import { privacyReason } from './guardrails';
 
 const str = { type: 'string' };
@@ -291,7 +291,17 @@ export function verifyProfile(subject, records, data) {
       out.kept += 1;
     }
   };
-  take('roles', data?.roles, (x, ok) => {
+  // A ranking or a list the model read as a job ("Official member" of "Forbes' 400") is recognition: it is checked
+  // and kept as one, never as a role
+  const listed = (x) => {
+    const org = tidy(x?.org);
+    const q = String(x?.quote || '');
+    const at = org ? q.toLowerCase().indexOf(org.toLowerCase()) : -1;
+    return Boolean(org) && isRankingName(org, at >= 0 ? q.slice(at + org.length, at + org.length + 40) : '');
+  };
+  const rawRoles = Array.isArray(data?.roles) ? data.roles : [];
+  const rawRecognition = [...(Array.isArray(data?.recognition) ? data.recognition : []), ...rawRoles.filter(listed).map((x) => ({ title: x.org, year: x.from || 0, record: x.record, quote: x.quote }))];
+  take('roles', rawRoles.filter((x) => !listed(x)), (x, ok) => {
     const { quote, main } = ok;
     const from = yearBeside(quote, main, x.from);
     const to = yearBeside(quote, main, x.to);
@@ -305,7 +315,8 @@ export function verifyProfile(subject, records, data) {
   take('boards', data?.boards, (x, { quote, main }) => ({ org: main, role: stated(quote, x.role, 40) }));
   take('founded', data?.founded, (x, { quote, main }) => ({ org: main, year: yearBeside(quote, main, x.year) }));
   take('investments', data?.investments, (x, { main }) => ({ org: main }), 20);
-  take('recognition', data?.recognition, (x, { quote, main }) => ({ title: main, year: yearBeside(quote, main, x.year) }));
+  // a news item about making a list dates it; a bio or profile page does not, so there the quote must give the year
+  take('recognition', rawRecognition, (x, { f, quote, main }) => ({ title: rankingText(main), year: yearBeside(quote, main, x.year) || (f.category === 'press' && isRankingName(main, quote.slice(indexOfMain(quote, main) + main.length)) ? Number(String(f.date || '').slice(0, 4)) || null : null) }));
   const places = [];
   const saved = out.basedIn;
   out.basedIn = places;
@@ -351,7 +362,12 @@ export function mergeProfile(base, verified) {
   const v = verified || {};
   // the model's rows first; a model row's current:false only means the quote did not say "now", while a
   // pattern-read row's current:false means the records end it
-  const roles = [...(v.roles || []).map((r) => ({ ...r, model: true })), ...(b.roles || [])].filter((r) => r && r.org);
+  // a list carried as a role (a profile saved before lists were told apart) is recognition
+  const allRoles = [...(v.roles || []).map((r) => ({ ...r, model: true })), ...(b.roles || [])].filter((r) => r && r.org);
+  const listRows = allRoles.filter((r) => isRankingName(r.org));
+  const roles = allRoles.filter((r) => !isRankingName(r.org));
+  // the order the pattern-read profile gave its roles (profile.js: current by newest record, the company, earlier)
+  const baseOrder = new Map((b.roles || []).filter((r) => r && r.org).map((r, i) => [orgKey(r.org), i]));
   // One row per organisation: the model's "CEO" and the pattern-read "Founder, CEO, Executive Chairman" at Nikola
   // are one role, its titles joined and its years the widest the rows give
   const byOrg = new Map();
@@ -380,15 +396,26 @@ export function mergeProfile(base, verified) {
     else row.current = Boolean(endYear) && nows.some((r) => Number(String(r.date || '').slice(0, 4)) > endYear);
     if (row.current) row.to = null;
   }
+  const dateOf = (row) => row.rows.map((r) => String(r.date || '')).sort().pop() || '';
+  const coKey = b.company ? orgKey(b.company) : null;
+  const isCo = (row) => Boolean(coKey) && (orgKey(row.org) === coKey || orgKey(row.org).startsWith(`${coKey} `));
+  const at = (row) => (baseOrder.has(orgKey(row.org)) ? baseOrder.get(orgKey(row.org)) : null);
+  // current roles first (the pattern-read order, which ranks them by their newest record, and then a model's row by
+  // its record's date), then the company typed, then earlier roles by start year, latest first
+  merged.sort((x, y) => (Number(Boolean(y.current)) - Number(Boolean(x.current)))
+    || (x.current && y.current ? (at(x) != null && at(y) != null ? at(x) - at(y) : at(x) != null ? -1 : at(y) != null ? 1 : dateOf(y).localeCompare(dateOf(x))) : 0)
+    || (Number(isCo(y)) - Number(isCo(x)))
+    || (startOf(y) - startOf(x))
+    || ((at(x) ?? 1e6) - (at(y) ?? 1e6)));
   const cleanRows = merged.map(({ rows, date, model, ...r }) => r);
-  cleanRows.sort((x, y) => startOf(y) - startOf(x));
   // schools grouped the way profile.js groups them: "Harvard College" and "Harvard University" are one school
   const education = mergeList(v.education || [], b.education || [], (e) => (e.school ? schoolRoot(e.school) : null), ['degree', 'field', 'from', 'to', 'note']);
   const boards = mergeList(v.boards || [], b.boards || [], (e) => (e.org ? orgKey(e.org) : null), ['role']);
   // the pattern-read items keep their fuller fields (co-founders, outcome); a model's item adds its citations
   const founded = mergeList(b.founded || [], v.founded || [], (e) => (e.org ? orgKey(e.org) : null), ['year', 'with', 'outcome', 'program']);
   const investments = mergeList(b.investments || [], (v.investments || []).map((x) => ({ text: x.text || (x.org ? `Investor in ${x.org}` : ''), ...x })), (e) => (e.org ? orgKey(e.org) : e.text ? flat(e.text).trim() : null));
-  const recognition = mergeList(b.recognition || [], (v.recognition || []).map((x) => ({ text: x.text || x.title, title: x.title || x.text, ...x })), (e) => (e.text || e.title ? flat(e.text || e.title).trim() : null), ['year']);
+  const fromRoles = listRows.map((r) => ({ text: rankingText(r.org), year: null, cites: r.cites || [] }));
+  const recognition = mergeList([...(b.recognition || []), ...fromRoles], (v.recognition || []).map((x) => ({ text: x.text || x.title, title: x.title || x.text, ...x })), (e) => (e.text || e.title ? flat(e.text || e.title).trim() : null), ['year']);
   const basedIn = v.basedIn || b.basedIn || null;
   const now = cleanRows.find((r) => r.current && r.title);
   const headline = b.headline || (now ? `${now.title}, ${now.org}` : null);

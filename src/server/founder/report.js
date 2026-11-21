@@ -21,7 +21,7 @@
  * answers, the brief is assembled from the report's own fields
  * (quotedDeepBrief). Every factual line of either brief cites a record.
  */
-import { CATEGORIES } from './finding';
+import { CATEGORIES, statesConviction, reversesConviction, partOfConviction } from './finding';
 import { buildProfile, isPersonRun } from './profile';
 import { matchRank, restoreSubject, personKey, slugCandidates, nameTokens } from './identity';
 import { companyKeys, nameMatcher } from '../founderCheck';
@@ -1128,6 +1128,41 @@ export function buildReport(state) {
   // Records tied only through a company the check assumed (no company typed: inferred from the sources or taken
   // from a contact): they hold only if that is the right person, so they are shown apart, never as red flags.
   const ifRightPerson = [];
+  // The outcome a record gives (finding.js data.outcome is { outcome, role }; a saved check may hold plain text).
+  // An acquittal, dismissal or drop the record reports beside the person's conviction ended only some counts: the
+  // record's outcome is the conviction (a check saved before finding.js read it so still holds the acquittal).
+  const recordOutcome = (f) => {
+    const o = f.data?.outcome;
+    const text = o && typeof o === 'object' ? o.outcome || null : o || null;
+    if (!text) return null;
+    const role = o && typeof o === 'object' ? o.role || null : null;
+    if (o?.otherCounts) return { text: String(text), role, otherCounts: String(o.otherCounts) };
+    if (partOfConviction(textOf(f), String(text), subject.hasName)) return { text: 'convicted', role, otherCounts: String(text) };
+    return { text: String(text), role };
+  };
+  // What the reader sees: "convicted (acquitted on some counts)", so the count that went the other way is not lost.
+  const OTHER_COUNTS = { acquitted: 'acquitted on some counts', dismissed: 'some counts dismissed', dropped: 'some counts dropped' };
+  const shownOutcome = (o, f) => ({
+    text: o.otherCounts && OTHER_COUNTS[o.otherCounts] ? `${o.text} (${OTHER_COUNTS[o.otherCounts]})` : o.text,
+    role: o.role, date: f.date || null, n: f.n, ...(o.otherCounts ? { otherCounts: o.otherCounts } : {}),
+  });
+  // Records tied to a person that state they were convicted, found or pleaded guilty, or sentenced.
+  const convictions = cited.filter((f) => (f.match === 'confirmed' || f.match === 'likely') && !eventOnly(f) && statesConviction(textOf(f), subject.hasName));
+  const YEAR_MS = 365 * 24 * 3600 * 1000;
+  const CLEARS_COUNTS = new Set(['acquitted', 'dismissed', 'dropped']);
+  const criminalMatter = (m) => ['charges', 'conviction', 'sentence', 'appeal', 'pardon'].some((t) => tagsOf(m).has(t)) || Boolean(stageOf(m)) || CRIMINAL.test(textOf(m));
+  /**
+   * An acquittal, dismissal or drop (record r) is never the outcome of, and never lowers, a criminal matter m of a
+   * person for whom a tied record states a conviction or sentence in the same case (the matter itself, or the same
+   * case number) or the same period (within a year): it ended some counts, not the case. Only a pardon, a reversal
+   * on appeal or a vacated conviction ends a conviction; a civil matter keeps its outcome.
+   */
+  const clearingBlocked = (r, outcomeText, m) => {
+    if (!CLEARS_COUNTS.has(outcomeText) || reversesConviction(textOf(r)) || !criminalMatter(m)) return false;
+    if (statesConviction(textOf(m), subject.hasName)) return true;
+    return convictions.some((c) => c !== r && c.n !== r.n && whoOf(c) === whoOf(r) && Boolean(c.assumedTie) === Boolean(r.assumedTie)
+      && ((docketOf(c) && docketOf(c) === docketOf(r)) || (when(c) && when(r) && Math.abs(when(c) - when(r)) <= YEAR_MS)));
+  };
   for (const list of [...matters.values()].flat()) {
     // A record tied only through an event another record reports is not, by itself, about the person.
     const person = list.filter((f) => (f.match === 'confirmed' || f.match === 'likely') && !eventOnly(f) && !f.assumedTie);
@@ -1141,13 +1176,13 @@ export function buildReport(state) {
     const lead = tied.reduce((best, f) => (Number(passing(best)) - Number(passing(f)) || sourceAuthority(f) - sourceAuthority(best)) > 0 ? f : best, tied[0]);
     // The matter's latest outcome a record gives (dismissed, acquitted, settled, pardoned: finding.js data.outcome).
     // data.outcome is { outcome, role } (finding.js); a saved check may hold the outcome as plain text.
-    const outcomeOf = (f) => (f.data?.outcome && typeof f.data.outcome === 'object' ? f.data.outcome.outcome || null : f.data?.outcome || null);
-    const outcomes = list.filter((f) => outcomeOf(f) && (f.match !== 'possible' || !person.length))
+    // An acquittal, dismissal or drop is never the outcome of a criminal matter of a person convicted in that case
+    // or period (clearingBlocked).
+    const outcomes = list.filter((f) => recordOutcome(f) && (f.match !== 'possible' || !person.length) && !clearingBlocked(f, recordOutcome(f).text, lead))
       .sort((a, b) => when(b) - when(a) || b.n - a.n);
-    const roleOf = (f) => (f.data?.outcome && typeof f.data.outcome === 'object' ? f.data.outcome.role || null : null);
     const entry = {
       ...lead, more: list.filter((f) => f !== lead).map(short),
-      ...(outcomes.length ? { outcome: { text: String(outcomeOf(outcomes[0])), role: roleOf(outcomes[0]), date: outcomes[0].date || null, n: outcomes[0].n } } : {}),
+      ...(outcomes.length ? { outcome: shownOutcome(recordOutcome(outcomes[0]), outcomes[0]) } : {}),
       // tied to them only by a report that mentions them in passing: listed, and said to be so
       ...(person.length && person.every(passing) ? { passing: true } : {}),
     };
@@ -1190,12 +1225,15 @@ export function buildReport(state) {
     dismissed: ['charges', 'lawsuit', 'investigation', 'penalty', 'fraud', 'settlement'], dropped: ['charges', 'lawsuit', 'investigation', 'fraud'], won: ['lawsuit', 'charges', 'appeal'],
   };
   const endOf = (f) => {
-    const own = f.data?.outcome && typeof f.data.outcome === 'object' ? f.data.outcome.outcome : f.data?.outcome;
+    // a conviction with some counts cleared is no end of a matter (recordOutcome), so it never joins one as its end
+    const own = recordOutcome(f)?.text;
+    if (own === 'convicted') return null;
     if (own && !(own === 'won' && /\bwon['’]t\b/i.test(`${f.title || ''} ${f.quote || ''}`) && !/\b(?:wins?|prevail\w*)\b|\bwon\b(?!['’])/i.test(`${f.title || ''} ${f.quote || ''}`))) return { text: String(own), role: f.data?.outcome?.role || null };
     // a saved record read before outcomes were stored: its headline alone says how the matter ended ("won't
     // testify" is not a case won)
     const read = matterOutcome(String(f.title || '').replace(/\bwon['’]t\b/gi, 'will not'), { person: subject.hasName });
-    return read.outcome ? { text: read.outcome, role: read.role } : null;
+    if (!read.outcome || partOfConviction(String(f.title || ''), read.outcome, subject.hasName)) return null;
+    return { text: read.outcome, role: read.role };
   };
   const allMatters = () => [...redFlags, ...ifRightPerson, ...companyMatters];
   // Agencies named by their initials ("SEC moves to drop case"): a shared one is a strong sign of the same matter.
@@ -1238,7 +1276,9 @@ export function buildReport(state) {
     const convicted = (m) => tagsOf(m).has('conviction') || tagsOf(m).has('sentence');
     const fitsEnd = (m) => whoOf(m) === whoOf(r) && Boolean(m.assumedTie) === Boolean(r.assumedTie) && [...tagsOf(m)].some((t) => ENDS[end.text].includes(t))
       && !(end.text !== 'pardoned' && CIVIL_END.test(m.title || ''))
-      && !(convicted(m) && !['pardoned', 'overturned', 'vacated'].includes(end.text));
+      && !(convicted(m) && !['pardoned', 'overturned', 'vacated'].includes(end.text))
+      // nor is a criminal matter of a person convicted in that case or period (an acquittal on one count)
+      && !clearingBlocked(r, end.text, m);
     const led = allMatters().find((m) => m.n === r.n);
     const within = allMatters().find((m) => m !== led && (m.more || []).some((x) => x.n === r.n));
     let target = within && fitsEnd(within) ? within : null;
@@ -1504,14 +1544,18 @@ export function buildReport(state) {
   const identityNote = withCompany ? null
     : `No record found ties ${state.name} to ${state.company}. Confirm their identity and their role at ${state.company} directly; the counts below are not evidence of a clean record.`;
   const identity = identityNote ? { ...(state.identity || {}), note: [state.identity?.note, identityNote].filter(Boolean).join(' ') } : state.identity;
-  // A very common name: counts only, never a namesake's details. Several organisations among the name-only
-  // records also say the name is shared.
+  // A very common name: counts only, never a namesake's details. Only the built-in name lists say a name is common.
+  // Name-only records naming several organisations prove nothing about the name: a well-known person's own press
+  // often names no company in its snippet. They are counted, and said to possibly include other people.
   const possibleOrgs = new Set(cited.filter((f) => f.match === 'possible')
     .map((f) => f.data?.company || f.data?.firm || f.data?.employer || (Array.isArray(f.data?.assignees) ? f.data.assignees[0] : ''))
     .filter(Boolean).map((o) => companyKeys(String(o))[0] || norm(o)));
   const common = isCommonName(state.name || '');
-  const commonName = common || possibleOrgs.size >= 3
-    ? { common: true, reason: common ? 'very common name' : 'name-only records name several organisations', nameOnlyRecords: count('possible'), organisations: possibleOrgs.size }
+  const commonName = common
+    ? { common: true, reason: 'very common name', nameOnlyRecords: count('possible'), organisations: possibleOrgs.size }
+    : null;
+  const nameOnly = !common && possibleOrgs.size >= 3
+    ? { records: count('possible'), organisations: possibleOrgs.size, mayIncludeOthers: true }
     : null;
 
   // The published profile, with leads to confirm with the person: name-only records that name an employer their
@@ -1533,6 +1577,7 @@ export function buildReport(state) {
     identity,
     identityNote,
     commonName,
+    nameOnly,
     generatedAt: new Date().toISOString(),
     profile: published,
     companyFacts: reportCompanyFacts(profile.companyFacts, cite, { records: new Map(cited.map((f) => [f.n, f])), company: state.company || '' }),
@@ -2186,6 +2231,17 @@ function silentSentence(report) {
   return `Of the public-record screens, ${andList(text)} (see Public-record screens).`;
 }
 
+// A place on a list or ranking (a rich list, "30 Under 30", a hall of fame): something said about the person, not a
+// role they hold.
+const LIST_ORG = /\b(?:forbes|fortune|time|inc\.?|bloomberg)\b['’]?s?\s*\d{2,}\b|\b\d+\s+under\s+\d+\b|\b(?:rich|billionaires?|power|top)\s+(?:list|\d+)\b|\brankings?\b|\bhall of fame\b/i;
+function listRole(r) {
+  const title = String(r.title || '');
+  const org = String(r.org || '');
+  return LIST_ORG.test(org) || (/\b(?:member|honou?ree|listee|nominee)\b/i.test(title) && !/\bboard\b/i.test(title) && /\d/.test(org));
+}
+// Titles of a job, which say who someone is before a membership does.
+const JOB_TITLE = /\b(?:co-?founder|founder|ceo|cto|coo|cfo|chief|chair\w*|president|director|partner|head|manag\w+|owner|principal|vp|vice president|executive|officer|lead|engineer|professor|investor|advis[eo]r)\b/i;
+
 /**
  * The brief's sections built from the report's own fields, as arrays of lines by heading. Every factual line
  * cites its records; record text is made inert (no links, images, markup or brackets); nothing is cut inside
@@ -2207,10 +2263,22 @@ function assembleSections(report) {
   const bottom = [];
   if (report.identityNote) bottom.push(inert(report.identityNote));
   if (report.assumedCompany && !report.company) bottom.push(`No company was typed; the check took ${inert(report.assumedCompany)} as theirs, so confirm that this is the right person.`);
-  const current = roles.find((r) => r.current);
-  if (current && refs(current.cites)) bottom.push(`${name} is ${current.title ? `${inert(current.title)} of` : 'at'} ${inert(current.org)}${current.from ? ` (since ${current.from})` : ''} ${refs(current.cites, 2)}.`);
-  else if (p.headline && refs(p.headlineCites)) bottom.push(`${name}: ${inert(p.headline)} ${refs(p.headlineCites, 2)}.`);
-  const earlier = roles.filter((r) => r !== current && !r.current && refs(r.cites)).slice(0, 3);
+  // Who they are: the profile's headline first (what they are known for), then a current role it does not name, then
+  // earlier roles. A current role at the headline's company says the same as the headline, with its dates, so it
+  // stands in for it. A place on a list or ranking ("Official member of Forbes' 400") is never a role that opens it,
+  // and a job comes before a membership.
+  const roleKey = (o) => companyKeys(String(o || ''))[0] || norm(o);
+  const currentRoles = roles.filter((r) => r.current && refs(r.cites) && !listRole(r))
+    .sort((a, b) => Number(JOB_TITLE.test(b.title || '')) - Number(JOB_TITLE.test(a.title || '')) || Number(b.basis === 'record') - Number(a.basis === 'record'));
+  const headline = p.headline && refs(p.headlineCites) ? p.headline : '';
+  const inHeadline = (r) => Boolean(headline) && (norm(headline).includes(norm(r.org)) || (p.company && roleKey(p.company) === roleKey(r.org)));
+  const roleWords = (r) => `${r.title ? `${inert(r.title)} of` : 'at'} ${inert(r.org)}${r.from ? ` (since ${r.from})` : ''} ${refs(r.cites, 2)}`;
+  const main = currentRoles.find((r) => p.company && roleKey(p.company) === roleKey(r.org)) || (headline ? null : currentRoles[0]);
+  if (main) bottom.push(`${name} is ${roleWords(main)}.`);
+  else if (headline) bottom.push(`${name}: ${inert(headline)} ${refs(p.headlineCites, 2)}.`);
+  const alsoNow = currentRoles.filter((r) => r !== main && !inHeadline(r)).slice(0, 2);
+  if (alsoNow.length) bottom.push(`${main ? 'Also' : 'Currently'} ${alsoNow.map(roleWords).join('; ')}.`);
+  const earlier = roles.filter((r) => !r.current && refs(r.cites)).slice(0, 3);
   if (earlier.length) bottom.push(`Earlier roles: ${earlier.map((r) => `${roleText(r).replace(/^Worked at/, 'worked at')} ${refs(r.cites, 1)}`).join('; ')}.`);
   const schools = education.filter((e) => refs(e.cites)).slice(0, 2);
   if (schools.length) bottom.push(`Education: ${schools.map((e) => `${eduText(e)} ${refs(e.cites, 1)}`).join('; ')}.`);
@@ -2224,7 +2292,11 @@ function assembleSections(report) {
   const records = Number(t.records) || 0;
   const tied = (Number(t.confirmed) || 0) + (Number(t.likely) || 0);
   bottom.push(`Of ${plural(records, 'record', 'records')} collected, ${tied} ${tied === 1 ? 'is' : 'are'} tied to ${name}${t.company ? `, ${t.company} concern ${co ? inert(co) : 'their companies'} without naming them` : ''} and ${t.possible || 0} match the name only${t.wordOnly && co ? `; ${t.wordOnly} more that match only the word "${inert(co)}" were set aside` : ''}.`);
-  if (report.commonName) bottom.push(`${report.commonName.reason === 'very common name' ? `${name} is a very common name` : 'The records that match the name only name several organisations, so the name is shared'}: those records are kept apart and are not findings about this person.`);
+  // Only the name lists make a name common; otherwise the name-only records may, not do, include namesakes (a saved
+  // report may still carry the older guess in commonName, read here as a possibility too).
+  const possible = Number(t.possible) || 0;
+  if (report.commonName?.reason === 'very common name') bottom.push(`${name} is a very common name: the ${possible === 1 ? 'record' : `${possible} records`} that match the name only ${possible === 1 ? 'was' : 'were'} not tied to this person by a second fact; ${possible === 1 ? 'it is' : 'they are'} kept apart and ${possible === 1 ? 'is not a finding' : 'are not findings'} about this person.`);
+  else if ((report.nameOnly || report.commonName) && possible > 0) bottom.push(`The ${possible === 1 ? 'record' : `${possible} records`} that match the name only ${possible === 1 ? 'was' : 'were'} not tied to ${name} by a second fact and ${possible === 1 ? 'is' : 'are'} kept apart; ${possible === 1 ? 'it' : 'they'} may include other people of the same name.`);
   const flags = listOf(report.redFlags);
   // the most serious matter with its latest outcome ("pardoned, 2025-03-28"), as the red flag shows it
   if (flags.length) bottom.push(`${plural(flags.length, 'serious matter is', 'serious matters are')} tied to ${name}; the most serious: ${inert(clipWords(flags[0].title, 160))}${dated(flags[0])} [Source ${flags[0].n}]${outcomeText(flags[0])}.`);

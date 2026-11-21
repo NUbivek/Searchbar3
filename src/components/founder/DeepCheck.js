@@ -161,9 +161,16 @@ function Summary({ report, onPrint, onCopy, copied, onRerun, rerunning, assumed,
         {report.coverage && <span>{report.coverage.lookups} lookups in {report.coverage.rounds} rounds across {report.coverage.searched?.length || 0} sources</span>}
       </p>
       {note && <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800" data-testid="identity-note">{note}</p>}
-      {common && (
+      {/* "Common" only when the name lists say so. Otherwise the name-only records are a possibility, not a fact
+          about the name: for a rare name most of them are the person's own press that names no company. */}
+      {common && common.reason === 'very common name' && (
         <p className="mt-3 rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700">
-          A common name: {common.nameOnlyRecords ?? 0} record{common.nameOnlyRecords === 1 ? '' : 's'} match the name only{common.organisations ? `, naming ${common.organisations} different organisations` : ''}. Only records tied by more than the name are treated as about this person.
+          A very common name: {common.nameOnlyRecords ?? 0} record{common.nameOnlyRecords === 1 ? '' : 's'} match the name only{common.organisations ? `, naming ${common.organisations} different organisations` : ''}. Only records tied by more than the name are treated as about this person.
+        </p>
+      )}
+      {(report.nameOnly?.records > 0 || (common && common.reason !== 'very common name' && common.nameOnlyRecords > 0)) && !(common && common.reason === 'very common name') && (
+        <p className="mt-3 rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs text-slate-700" data-testid="name-only-note">
+          {report.nameOnly?.records ?? common.nameOnlyRecords} record{(report.nameOnly?.records ?? common.nameOnlyRecords) === 1 ? '' : 's'} match the name only and were not tied to this person by a second fact. They are kept apart and may include other people of the same name.
         </p>
       )}
       {seeded && (

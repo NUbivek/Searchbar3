@@ -149,8 +149,14 @@ export function makeFinding(subject, f) {
   // kept so the report can show it beside the matter. Read from the cleaned grade text, never a private sentence.
   let data = f.data || null;
   if (!data?.outcome && subject && typeof subject.hasName === 'function') {
-    const told = matterOutcome(gradeText || clipLines(cleanSentences(cleanText(text).slice(0, PRE_CLIP)).text, 1500), { person: subject.hasName });
-    if (told.outcome || told.role) data = { ...(data || {}), outcome: { outcome: told.outcome || null, role: told.role || null } };
+    const read = gradeText || clipLines(cleanSentences(cleanText(text).slice(0, PRE_CLIP)).text, 1500);
+    const told = matterOutcome(read, { person: subject.hasName });
+    // "Convicted on three counts and acquitted on a fourth" is a conviction: the count that went the other way is
+    // kept as a note, never as the matter's outcome (a reader would be told a convicted person was acquitted).
+    const part = partOfConviction(read, told.outcome, subject.hasName);
+    if (told.outcome || told.role) {
+      data = { ...(data || {}), outcome: { outcome: part ? 'convicted' : told.outcome || null, role: told.role || null, ...(part ? { otherCounts: told.outcome } : {}) } };
+    }
   }
   // The privacy rules run on the full text before it is clipped: a phone number or a birth date cut in half
   // at the clip would no longer be recognised. The text is only pre-cut to a bound the rules can read quickly.
@@ -271,6 +277,59 @@ const NOT_ACCUSED = new Set(['plaintiff', 'witness', 'victim', 'juror']);
 // Words of a conviction and its sentence: a pardon follows one, so they are part of the pardoned matter.
 const CONVICTION_WORDS = /\b(?:convict(?:s|ed|ions?)?|found guilty|guilty verdict|plead(?:ed|s)? guilty|pled guilty|sentenced|imprison\w*|jailed)\b/gi;
 
+// Outcomes that can end some counts of a case while others end in a conviction.
+const COUNT_ENDS = new Set(['acquitted', 'dismissed', 'dropped']);
+// A statement that someone was convicted, found or pleaded guilty, or sentenced.
+const STATES_CONVICTION = /\b(?:convicted|found guilty|guilty verdicts?|plead(?:ed|s)? guilty|pled guilty|sentenced)\b/gi;
+// Words just before it that make it no statement at all: a denial ("never convicted") or a possibility ("could be
+// sentenced", "faces being sentenced", "if convicted").
+const NOT_A_STATEMENT = /\b(?:not|never|no|without|n['’]t|could|would|might|may|faces?|facing|if|unless|risks?|risking)\b(?:\s+[\p{L}'’]+){0,3}\s*$/iu;
+// A clearing outcome that ends the conviction itself: on appeal, at a retrial, the conviction overturned or vacated.
+const REVERSAL = /\b(?:on appeal|appeals? court|appellate|retrial|re-?tried|overturn\w*|quash\w*|revers\w*|vacat\w*|set aside)\b/i;
+// A person's name in a sentence, or a pronoun standing for one.
+const NAME_OR_PRONOUN = /\b(?:[Hh]e|[Ss]he|[Tt]hey|[Hh]im|[Hh]er|[Hh]is|[Tt]heir|[A-Z][\p{L}'’-]+ [A-Z][\p{L}'’-]+)\b/gu;
+// A headline in title case ("Former Nikola CEO Milton Convicted"): every capitalised pair looks like a name there,
+// so the nearest-name test cannot be read from it.
+const titleCase = (s) => {
+  const words = s.match(/\b\p{L}[\p{L}'’-]*/gu) || [];
+  return words.length >= 3 && words.filter((w) => /^\p{Lu}/u.test(w)).length / words.length > 0.6;
+};
+
+/**
+ * Whether a text states that the person (`hasName`, identity's subject.hasName) was convicted, found or pleaded
+ * guilty, or sentenced. A conviction told of another named person ("her co-founder John Doe was convicted") does
+ * not count: the nearest name before the words must be theirs, a pronoun, or none at all (a summary about them).
+ */
+export function statesConviction(text, hasName = null) {
+  const str = String(text || '');
+  for (const sentence of str.split(/(?<=[.;!?])\s+|\n+/)) {
+    for (const m of sentence.matchAll(STATES_CONVICTION)) {
+      const before = sentence.slice(0, m.index);
+      if (NOT_A_STATEMENT.test(before.slice(-40))) continue;
+      const near = titleCase(sentence) ? null : [...before.matchAll(NAME_OR_PRONOUN)].pop();
+      if (near && /\s/.test(near[0]) && typeof hasName === 'function' && !hasName(near[0])) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+/** A clearing outcome that ended a conviction itself (on appeal, at a retrial, quashed, reversed or vacated). */
+export function reversesConviction(text) {
+  return REVERSAL.test(String(text || ''));
+}
+
+/**
+ * Whether an acquittal, dismissal or drop a text reports ended only some counts of a case that, by the same text,
+ * ended in the person's conviction or sentence ("convicted on three counts and acquitted on a fourth"). Then the
+ * matter's outcome is the conviction, not the count that went the other way. An acquittal on appeal ends the
+ * conviction itself and is not such a part.
+ */
+export function partOfConviction(text, outcome, hasName = null) {
+  if (!COUNT_ENDS.has(outcome)) return false;
+  return statesConviction(text, hasName) && !reversesConviction(text);
+}
+
 /**
  * How much a record would matter if it is about the subject, judged from
  * its own words. Sources that know better (a sanctions list, a court
@@ -297,6 +356,8 @@ function gradeByOutcome(t, subject, base) {
     if (left === 'high') return disputedSeverity(t, base);
     return 'medium';
   }
+  // an acquittal, dismissal or drop of some counts beside a conviction does not soften the conviction
+  if (outcome && EXCULPATORY.has(outcome) && partOfConviction(t, outcome, person)) return disputedSeverity(t, base);
   if (outcome && EXCULPATORY.has(outcome)) {
     const left = rawSeverity(withoutClearedProbes(rest));
     if (left === 'high') return disputedSeverity(t, base);
