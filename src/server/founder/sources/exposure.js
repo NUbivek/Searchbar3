@@ -28,13 +28,25 @@
  *     searched by name at all;
  *   - a domain matches only the same registrable domain.
  *
+ * Grading. A match is the company's ("company") only when it rests on the
+ * company's own domain, or on its exact name when that name is not one
+ * ordinary word ("Theranos", "Change Healthcare"; not "Bolt" or "Merge"). A
+ * match on an ordinary word alone, or one that adds a general word ("Meta
+ * Financial Group"), is a possible namesake: graded "possible", kept off the
+ * timeline, and, where the company's own domain was looked up and nothing
+ * names it, the record says so.
+ *
  * The federal health register (HHS OCR) is not included: its export needs a
  * session and three chained requests, which is too slow for a live lookup.
  */
 import { getJson, getText, htmlToText } from '../http';
 import { makeFinding } from '../finding';
-import { cached } from '../cache';
+import { cachedEntry } from '../cache';
 import { isSensitive, mentionsMinor } from '../guardrails';
+import { isOrdinaryWordCompany, companyKeys } from '../names';
+
+const switchedOff = (id) => String(process.env.FOUNDER_SOURCES_OFF || '').split(',').map((x) => x.trim()).filter(Boolean).includes(id);
+const OFF_REASON = 'This source is not enabled on this deployment.';
 
 const CATEGORY = 'exposure';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -256,6 +268,70 @@ function targetOf(task, ctx, kinds) {
   return { kind: 'company', key, term: searchTerm(key.name) };
 }
 
+/**
+ * The company's own registrable domains the check knows (domain anchors and learned domains of the company),
+ * when their name part is the company's name. Used to tell the company's own breach from a namesake's.
+ */
+function ownDomainsOf(key, ctx) {
+  const out = new Set();
+  const subject = ctx?.subject;
+  const values = [...(subject?.anchors?.domains?.values?.() || []), ...[...(subject?.anchors?.aliases?.values?.() || [])].filter((a) => /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(String(a.value || '')))].map((a) => a.value);
+  for (const value of values) {
+    const d = registrableDomain(value);
+    if (d && !SHARED_DOMAINS.has(d) && matchOrgName(key, d) === 'exact') out.add(d);
+  }
+  return out;
+}
+
+/** Fuller legal names the check has learned for this company (identity.addCompanyAlias), of two words or more. */
+function legalNamesOf(key, ctx) {
+  const of = companyKeys(key.name)[0] || key.name.toLowerCase();
+  return [...(ctx?.subject?.anchors?.aliases?.values?.() || [])]
+    .filter((a) => a.of === of && !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(String(a.value || '')) && companyKey(a.value).full.length >= 2)
+    .map((a) => a.value);
+}
+
+/** Is the company named distinctively enough for its exact name alone to stand for it? */
+const distinctiveName = (key) => key.specific && (key.full.length >= 2 || !isOrdinaryWordCompany(key.full.join(' ')));
+
+/**
+ * The grade of a record matched by name: the company's when the match is on its own domain or on its exact,
+ * distinctive name; otherwise a possible namesake. `domainNote` says that the company's own domain was looked
+ * up and named nowhere.
+ */
+function gradeMatch(target, grade, { onOwnDomain = false, domainNote = '', recordName = '', ctx = null } = {}) {
+  if (target.kind === 'domain' || onOwnDomain) return { match: 'company', severity: 'medium', extra: {} };
+  // A legal name learned for the company ("Uber Technologies, Inc.", "Merge API, Inc.") written in the entry is the company
+  // (whole: the bare brand of "Uber Technologies" alone does not count)
+  const byLegalName = Boolean(recordName) && legalNamesOf(target.key, ctx).some((n) => containsRun(dropThe(orgTokens(recordName)), companyKey(n).full));
+  const strong = byLegalName || ((grade === 'exact' || grade === 'leading' || grade === 'contains') && distinctiveName(target.key));
+  if (strong) return { match: 'company', severity: 'medium', extra: {} };
+  const why = grade === 'padded'
+    ? `the name adds a general word to ${target.key.name}, so it may be another company`
+    : `"${target.key.name}" is an ordinary word other organisations also use, so it may be another company`;
+  return { match: 'possible', severity: 'low', why, extra: { excludeFromTimeline: true, companyNamesake: true, ...(domainNote ? { ownDomainChecked: domainNote } : {}) } };
+}
+
+/** How an organisation name matches the company: its own name, or a legal name learned for it ("Merge API, Inc."). */
+function nameGradeOf(target, name, ctx) {
+  const grade = matchOrgName(target.key, name);
+  if (grade === 'exact') return grade;
+  const tokens = dropThe(orgTokens(name));
+  return legalNamesOf(target.key, ctx).some((n) => containsRun(tokens, companyKey(n).full)) ? 'exact' : grade;
+}
+
+/** The learned legal name of the company written in a text, as learned ("Merge API, Inc."), or ''. */
+function legalNameIn(target, text, ctx) {
+  const tokens = dropThe(orgTokens(text));
+  return legalNamesOf(target.key, ctx).find((n) => containsRun(tokens, companyKey(n).full)) || '';
+}
+
+/** The grade fields of a regulator notice matched by name (notices carry no website). */
+function registerGrade(target, grade, recordName, ctx) {
+  const g = gradeMatch(target, grade, { recordName, ctx });
+  return { severity: g.severity, match: g.match, matchReasons: [MATCH_REASON[grade](target.key.name), ...(g.why ? [g.why] : [])] };
+}
+
 /* ------------------------------------------------------------------ */
 /* Dates and numbers                                                   */
 /* ------------------------------------------------------------------ */
@@ -355,6 +431,8 @@ export const leakSiteConnector = {
   kinds: LEAK_SITES_KINDS,
   prior: 0.3,
   timeoutMs: 16000,
+  enabled: () => !switchedOff(LEAK_SITES_ID),
+  unavailableReason: OFF_REASON,
   async run(task, ctx) {
     const target = targetOf(task, ctx, LEAK_SITES_KINDS);
     if (target.skip) return { findings: [], threads: [], notes: target.note ? [target.note] : [] };
@@ -362,29 +440,40 @@ export const leakSiteConnector = {
       return { findings: [], threads: [], notes: [tooGeneralNote(task.value)] };
     }
 
-    // The name and the domain reach different records, so a multi-word name is also searched joined up ("mgmresorts").
-    const queries = [target.kind === 'domain' ? target.domain : target.term];
+    // The name and the domain reach different records, so a multi-word name is also searched joined up ("mgmresorts"),
+    // and the company's own website, when known, is searched too: a listing that names it is the company's, and when
+    // none does, a listing that matches only the name says so.
+    const own = target.kind === 'company' ? [...ownDomainsOf(target.key, ctx)].slice(0, 2) : [];
+    const queries = [{ q: target.kind === 'domain' ? target.domain : target.term }];
     if (target.kind === 'company') {
       const joined = squash(target.key.core);
-      if (joined.length >= 5 && joined !== target.term.toLowerCase()) queries.push(joined);
+      if (joined.length >= 5 && joined !== target.term.toLowerCase()) queries.push({ q: joined });
+      for (const d of own) if (!queries.some((x) => x.q === d)) queries.push({ q: d, domain: d });
     }
     const posts = [];
     const leaks = [];
+    const domainAnswered = [];
     for (let i = 0; i < queries.length; i += 1) {
       try {
-        const found = await ransomlookSearch(queries[i], ctx.deadline);
+        const found = await ransomlookSearch(queries[i].q, ctx.deadline);
         posts.push(...found.posts);
         leaks.push(...found.leaks);
+        if (queries[i].domain) domainAnswered.push(queries[i].domain);
       } catch (error) {
         if (i === 0) throw error; // the main search failed: the source is down
       }
     }
 
     const company = target.kind === 'company' ? target.key.name : target.domain;
+    const namesOwn = (text) => domainsIn(text).some((d) => own.includes(d));
     const gradeOf = (name) => (target.kind === 'company'
-      ? matchOrgName(target.key, name)
+      ? (namesOwn(name) ? 'exact' : nameGradeOf(target, name, ctx))
       : (domainsIn(name).includes(target.domain) ? 'exact' : null));
-    const reasonOf = (grade) => (target.kind === 'company' ? MATCH_REASON[grade](company) : `exact match on the domain ${target.domain}`);
+    const reasonOf = (grade, onOwn) => (target.kind === 'company'
+      ? (onOwn ? `the listing names the company's own website (${own.join(', ')})` : MATCH_REASON[grade](company))
+      : `exact match on the domain ${target.domain}`);
+    // Said on a name-only listing when the company's own website was searched and no listing names it
+    const domainNote = domainAnswered.length && !posts.some((p) => namesOwn(p.title)) ? `No listing names ${domainAnswered.join(' or ')}.` : '';
 
     // One finding per group (each group has one public page in the index), dated at first sight.
     // Only the organisation's own name is shown: never the rest of a headline written by the attacker.
@@ -393,9 +482,10 @@ export const leakSiteConnector = {
       const grade = gradeOf(post.title);
       if (!grade) continue;
       const group = groupName(post.group);
-      const entry = listings.get(group.toLowerCase()) || { group, page: groupPage(post.group), grade, names: [], days: new Set() };
+      const entry = listings.get(group.toLowerCase()) || { group, page: groupPage(post.group), grade, names: [], days: new Set(), onOwn: false };
       if ((MATCH_RANK[grade] ?? 9) < (MATCH_RANK[entry.grade] ?? 9)) entry.grade = grade;
-      const shown = target.kind === 'company' ? ownNameIn(target.key, post.title) : '';
+      if (target.kind === 'company' && namesOwn(post.title)) entry.onOwn = true;
+      const shown = target.kind === 'company' ? (ownNameIn(target.key, post.title) || legalNameIn(target, post.title, ctx) || (namesOwn(post.title) ? domainsIn(post.title).find((d) => own.includes(d)) : '')) : '';
       if (shown) entry.names.push(shown);
       if (post.seen) entry.days.add(post.seen);
       listings.set(group.toLowerCase(), entry);
@@ -408,15 +498,16 @@ export const leakSiteConnector = {
       const first = days[0] || null;
       const last = days[days.length - 1] || null;
       const by = entry.group || 'an extortion group';
+      const g = gradeMatch(target, entry.grade, { onOwnDomain: entry.onOwn, domainNote, recordName: organisation, ctx });
       return {
         grade: entry.grade, date: first,
         finding: makeFinding(ctx.subject, {
           source: LEAK_SITES_ID, sourceLabel: RANSOMLOOK_LABEL, category: CATEGORY,
           title: `${organisation} listed by ${by} on a ransomware leak site (claimed, unverified)`,
-          quote: [field('Victim listed', organisation), field('Group', by), field('First seen', first), days.length > 1 ? `Listed on ${days.length} dates, most recently ${last}.` : ''].filter(Boolean).join(' '),
+          quote: [field('Victim listed', organisation), field('Group', by), field('First seen', first), days.length > 1 ? `Listed on ${days.length} dates, most recently ${last}.` : '', g.match === 'possible' ? domainNote : ''].filter(Boolean).join(' '),
           url: atText(entry.page, organisation),
-          date: first, severity: 'medium', match: 'company', matchReasons: [reasonOf(entry.grade)],
-          data: { organisation, group: entry.group || null, firstSeen: first, lastSeen: last, listings: Math.max(1, days.length), nameMatch: entry.grade, status: 'claimed, unverified' },
+          date: first, severity: g.severity, match: g.match, matchReasons: [reasonOf(entry.grade, entry.onOwn), ...(g.why ? [g.why] : [])],
+          data: { organisation, group: entry.group || null, firstSeen: first, lastSeen: last, listings: Math.max(1, days.length), nameMatch: entry.onOwn ? 'domain' : entry.grade, status: 'claimed, unverified', ...g.extra },
         }),
       };
     });
@@ -429,7 +520,8 @@ export const leakSiteConnector = {
       const domain = registrableDomain(leak.name);
       const id = `${leak.name}|${leak.records}|${leak.indexed}`;
       if (!domain || seenLeaks.has(id)) continue;
-      const hit = target.kind === 'company' ? matchOrgName(target.key, leak.name) === 'exact' : domain === target.domain;
+      // With the company's own website known, only that website's entries are the company's (a "merge.cd" is not merge.dev)
+      const hit = target.kind === 'company' ? (own.length ? own.includes(domain) : matchOrgName(target.key, leak.name) === 'exact') : domain === target.domain;
       if (!hit) continue;
       seenLeaks.add(id);
       entries.push({ ...leak, labels: dataFieldLabels(leak.columns), date: leak.indexed });
@@ -441,6 +533,7 @@ export const leakSiteConnector = {
       const [top] = shown;
       const describe = (e) => [field('Records', e.records), field('Data fields', e.labels.join(', ')), field('Indexed', e.indexed)].filter(Boolean).join(' ');
       const names = [...new Set(entries.map((e) => e.name))];
+      const g = gradeMatch(target, 'exact', { onOwnDomain: own.length > 0 });
       leakFindings.push(makeFinding(ctx.subject, {
         source: LEAK_SITES_ID, sourceLabel: RANSOMLOOK_LABEL, category: CATEGORY,
         title: entries.length === 1
@@ -448,10 +541,10 @@ export const leakSiteConnector = {
           : `${names.length === 1 ? top.name : company} has ${entries.length} entries in a catalogue of breached databases (unverified listings)`,
         quote: entries.length === 1 ? describe(top) : shown.map((e) => `${e.name}. ${describe(e)}`).join(' '),
         url: atText(`${RANSOMLOOK}/leaks`, top.name),
-        date: top.indexed, severity: 'medium', match: 'company',
-        matchReasons: [target.kind === 'company' ? `the domain ${top.name} matches the name ${company}` : reasonOf('exact')],
+        date: top.indexed, severity: g.severity, match: g.match,
+        matchReasons: [target.kind === 'company' ? (own.length ? `the domain ${top.name} is the company's own website` : `the domain ${top.name} matches the name ${company}`) : reasonOf('exact'), ...(g.why ? [g.why] : [])],
         data: {
-          domain: top.name, records: top.records || null, dataFields: top.labels, indexed: top.indexed, status: 'unverified listing',
+          domain: top.name, records: top.records || null, dataFields: top.labels, indexed: top.indexed, status: 'unverified listing', ...g.extra,
           ...(entries.length > 1 ? { entries: shown.map((e) => ({ domain: e.name, records: e.records || null, dataFields: e.labels, indexed: e.indexed })) } : {}),
         },
       }));
@@ -476,7 +569,9 @@ const PROTECTED_CLASS = /sexual|hiv|health|medical|religio|disabilit|ethnic|\bra
 const ABBREVIATION = /(?:\b(?:Inc|Ltd|Corp|Co|Mr|Mrs|Ms|Dr|St|No|vs|approx|U\.S|U\.K|e\.g|i\.e)|\b[A-Z])\.$/;
 
 /** Text a source wrote, or '' when it touches a protected matter or a child (the record is kept, the text is not). */
-const publishable = (text) => { const t = oneLine(text); return t && !isSensitive(t) && !mentionsMinor(t) ? t : ''; };
+// A breach description that names a protected kind of data ("a mental health start-up exposed therapy notes") is
+// left out: the data-class label already says sensitive details were exposed.
+const publishable = (text) => { const t = oneLine(text); return t && !isSensitive(t) && !mentionsMinor(t) && !PROTECTED_CLASS.test(t) ? t : ''; };
 
 /** The first sentence of the catalogue's own description, as plain text. */
 function firstSentence(html) {
@@ -508,7 +603,15 @@ function compactCatalogue(list) {
     }));
 }
 
-const loadCatalogue = (deadline) => cached(HIBP_CACHE_KEY, DAY_MS, async () => compactCatalogue(await getJson(`${HIBP}/api/v3/breaches`, { deadline, timeoutMs: 12000 })));
+/**
+ * The catalogue, downloaded once a day. The download runs on its own time (the cache's loader deadline), so a
+ * caller short of time does not fail it for everyone; a caller out of time gets an error, not an empty list.
+ * `asOf` is set when an older copy stood in for a failed refresh.
+ */
+async function loadCatalogue(deadline) {
+  const entry = await cachedEntry(HIBP_CACHE_KEY, DAY_MS, async ({ deadline: loadDeadline } = {}) => compactCatalogue(await getJson(`${HIBP}/api/v3/breaches`, { deadline: loadDeadline, timeoutMs: 12000 })), { deadline });
+  return { list: entry.value, asOf: entry.fresh ? '' : new Date(entry.at).toISOString().slice(0, 10) };
+}
 
 export const breachCatalogueConnector = {
   id: CATALOGUE_ID,
@@ -516,20 +619,17 @@ export const breachCatalogueConnector = {
   kinds: CATALOGUE_KINDS,
   prior: 0.3,
   timeoutMs: 15000,
+  enabled: () => !switchedOff(CATALOGUE_ID),
+  unavailableReason: OFF_REASON,
   async run(task, ctx) {
     const target = targetOf(task, ctx, CATALOGUE_KINDS);
     if (target.skip) return { findings: [], threads: [], notes: target.note ? [target.note] : [] };
-    const catalogue = await loadCatalogue(ctx.deadline);
+    const { list: catalogue, asOf } = await loadCatalogue(ctx.deadline);
+    const notes = asOf ? [`The breach catalogue could not be refreshed; its copy of ${asOf} was searched.`] : [];
 
     // The company's own website, when the check already knows it ("bolt.com" for Bolt): an entry of the same
     // name on another website ("Bolt", bolt.cd, a file-sharing site) is a namesake, not this company.
-    const ownDomains = new Set();
-    if (target.kind === 'company') {
-      for (const { value } of ctx.subject?.anchors?.domains?.values?.() || []) {
-        const d = registrableDomain(value);
-        if (d && matchOrgName(target.key, d) === 'exact') ownDomains.add(d);
-      }
-    }
+    const ownDomains = target.kind === 'company' ? ownDomainsOf(target.key, ctx) : new Set();
 
     const hits = [];
     for (const entry of catalogue) {
@@ -538,28 +638,35 @@ export const breachCatalogueConnector = {
         if (entry.domain && entry.domain === target.domain) hits.push({ entry, grade: 'exact', reason: `exact match on the domain ${target.domain}`, date: entry.breachDate });
         continue;
       }
-      const byName = matchOrgName(target.key, entry.title);
+      if (entry.domain && ownDomains.has(entry.domain)) {
+        hits.push({ entry, grade: 'exact', onOwn: true, reason: `the breached website ${entry.domain} is the company's own`, date: entry.breachDate });
+        continue;
+      }
+      const byName = nameGradeOf(target, entry.title, ctx);
       const byDomain = entry.domain && matchOrgName(target.key, entry.domain) === 'exact';
       if (byName) hits.push({ entry, grade: byName, reason: MATCH_REASON[byName](target.key.name), date: entry.breachDate });
       else if (byDomain) hits.push({ entry, grade: 'exact', reason: `the domain ${entry.domain} matches the name ${target.key.name}`, date: entry.breachDate });
     }
+    // Where the company's own website is known and no entry is on it, a name-only entry says so
+    const domainNote = ownDomains.size && !hits.some((h) => h.onOwn) ? `No entry in the catalogue is for ${[...ownDomains].join(' or ')}.` : '';
 
-    const findings = hits.sort(bestFirst).slice(0, MAX_PER_SOURCE).map(({ entry, grade, reason }) => {
+    const findings = hits.sort(bestFirst).slice(0, MAX_PER_SOURCE).map(({ entry, grade, reason, onOwn }) => {
       // Labels of the kinds of data, generalised where a label names a protected matter.
       const classes = [...new Set(entry.classes.map((c) => (PROTECTED_CLASS.test(c) || isSensitive(c) ? 'Sensitive personal details' : c)))];
       const summary = publishable(entry.summary);
       const accounts = count(entry.count);
       const when = longDate(entry.breachDate);
+      const g = gradeMatch(target, grade, { onOwnDomain: Boolean(onOwn), domainNote, recordName: entry.title, ctx });
       return makeFinding(ctx.subject, {
         source: CATALOGUE_ID, sourceLabel: HIBP_LABEL, category: CATEGORY,
         title: `${entry.title} data breach${when ? `, ${when}` : ''}${accounts ? `: ${accounts} accounts` : ''}`,
-        quote: [field('Website', entry.domain), field('Compromised data', classes.join(', ')), entry.verified ? 'Verified breach.' : 'Unverified breach.', summary].filter(Boolean).join(' '),
+        quote: [field('Website', entry.domain), field('Compromised data', classes.join(', ')), entry.verified ? 'Verified breach.' : 'Unverified breach.', summary, g.match === 'possible' ? domainNote : ''].filter(Boolean).join(' '),
         url: `${HIBP}/Breach/${encodeURIComponent(entry.name)}`,
-        date: entry.breachDate, severity: 'medium', match: 'company', matchReasons: [reason],
-        data: { organisation: entry.title, domain: entry.domain || null, breachDate: entry.breachDate, addedDate: entry.addedDate, accounts: entry.count || null, dataClasses: classes, verified: entry.verified, nameMatch: grade },
+        date: entry.breachDate, severity: g.severity, match: g.match, matchReasons: [reason, ...(g.why ? [g.why] : [])],
+        data: { organisation: entry.title, domain: entry.domain || null, breachDate: entry.breachDate, addedDate: entry.addedDate, accounts: entry.count || null, dataClasses: classes, verified: entry.verified, nameMatch: grade, ...g.extra },
       });
     }).filter(Boolean);
-    return { findings, threads: [], notes: [] };
+    return { findings, threads: [], notes };
   },
 };
 
@@ -587,7 +694,7 @@ async function californiaNotices(target, ctx, notes) {
     if (!org) continue;
     listed += 1;
     const organisation = oneLine(htmlToText(org[2]));
-    const grade = matchOrgName(target.key, organisation);
+    const grade = nameGradeOf(target, organisation, ctx);
     if (!grade) continue;
     const href = String(org[1] || '').replace(/&amp;/g, '&');
     const url = /^https:\/\/oag\.ca\.gov\//i.test(href) ? href : href.startsWith('/') ? `https://oag.ca.gov${href}` : listUrl;
@@ -602,8 +709,8 @@ async function californiaNotices(target, ctx, notes) {
         source: REGISTERS_ID, sourceLabel: label, category: CATEGORY,
         title: `${organisation}: data breach notice filed with the California Attorney General${reported ? `, reported ${longDate(reported)}` : ''}`,
         quote: [field('Organization Name', organisation), field('Date(s) of Breach', breachDates), field('Reported Date', reportedText)].filter(Boolean).join(' '),
-        url, date: reported, severity: 'medium', match: 'company', matchReasons: [MATCH_REASON[grade](target.key.name)],
-        data: { register: 'California Attorney General', organisation, reported, breachDates: breachDates || null, affected: null, nameMatch: grade },
+        url, date: reported, ...registerGrade(target, grade, organisation, ctx),
+        data: { register: 'California Attorney General', organisation, reported, breachDates: breachDates || null, affected: null, nameMatch: grade, ...gradeMatch(target, grade, { recordName: organisation, ctx }).extra },
       }),
     });
   }
@@ -623,7 +730,7 @@ async function washingtonNotices(target, ctx, notes) {
   const out = [];
   for (const row of rows) {
     const organisation = oneLine(row?.name);
-    const grade = matchOrgName(target.key, organisation);
+    const grade = nameGradeOf(target, organisation, ctx);
     if (!grade) continue;
     const reported = isoDay(row.datesubmitted);
     const start = isoDay(row.datestart);
@@ -645,8 +752,8 @@ async function washingtonNotices(target, ctx, notes) {
           field('Days elapsed before notification', count(row.dayselapsedbeforenotification)),
         ].filter(Boolean).join(' '),
         url: id ? `${resource}/${id}.json` : 'https://data.wa.gov/d/sb4j-ca4h',
-        date: reported, severity: 'medium', match: 'company', matchReasons: [MATCH_REASON[grade](target.key.name)],
-        data: { register: 'Washington Attorney General', organisation, reported, breachDates: breachDates || null, affected: affected || null, cause: cause || null, attackType: attack || null, nameMatch: grade },
+        date: reported, ...registerGrade(target, grade, organisation, ctx),
+        data: { register: 'Washington Attorney General', organisation, reported, breachDates: breachDates || null, affected: affected || null, cause: cause || null, attackType: attack || null, nameMatch: grade, ...gradeMatch(target, grade, { recordName: organisation, ctx }).extra },
       }),
     });
   }
@@ -673,7 +780,7 @@ async function oregonNotices(target, ctx) {
     const cells = [...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => oneLine(htmlToText(m[1])));
     if (cells.length < 6) continue;
     const [organisation, reportedText, breachText, discoveredText, , affectedText] = cells;
-    const grade = matchOrgName(target.key, organisation);
+    const grade = nameGradeOf(target, organisation, ctx);
     if (!grade) continue;
     const [from, to] = breachText.split(/\s+-\s+/).map((s) => oneLine(s));
     const breachDates = from && to && to !== from ? `${from} - ${to}` : from || to || '';
@@ -684,7 +791,7 @@ async function oregonNotices(target, ctx) {
     });
   }
   if (!notices.length) return [];
-  const base = { source: REGISTERS_ID, sourceLabel: label, category: CATEGORY, url: listUrl, severity: 'medium', match: 'company' };
+  const base = { source: REGISTERS_ID, sourceLabel: label, category: CATEGORY, url: listUrl };
   if (notices.length === 1) {
     const [n] = notices;
     return [{
@@ -692,8 +799,8 @@ async function oregonNotices(target, ctx) {
       finding: makeFinding(ctx.subject, {
         ...base,
         title: `${n.organisation}: data breach notice filed with the Oregon Department of Justice${n.reported ? `, reported ${longDate(n.reported)}` : ''}${n.affected ? ` (${n.affected} people affected)` : ''}`,
-        quote: n.quote, date: n.reported, matchReasons: [MATCH_REASON[n.grade](target.key.name)],
-        data: { register: 'Oregon Department of Justice', organisation: n.organisation, reported: n.reported, breachDates: n.breachDates || null, affected: n.affected || null, nameMatch: n.grade },
+        quote: n.quote, date: n.reported, ...registerGrade(target, n.grade, n.organisation, ctx),
+        data: { register: 'Oregon Department of Justice', organisation: n.organisation, reported: n.reported, breachDates: n.breachDates || null, affected: n.affected || null, nameMatch: n.grade, ...gradeMatch(target, n.grade, { recordName: n.organisation, ctx }).extra },
       }),
     }];
   }
@@ -706,9 +813,9 @@ async function oregonNotices(target, ctx) {
       ...base,
       title: `${best.organisation}: ${notices.length} data breach notices filed with the Oregon Department of Justice${latest ? `, most recently reported ${longDate(latest)}` : ''}`,
       quote: notices.slice(0, 4).map((n) => n.quote).join(' '),
-      date: latest, matchReasons: [MATCH_REASON[best.grade](target.key.name)],
+      date: latest, ...registerGrade(target, best.grade, best.organisation, ctx),
       data: {
-        register: 'Oregon Department of Justice', organisation: best.organisation, reported: latest, nameMatch: best.grade,
+        register: 'Oregon Department of Justice', organisation: best.organisation, reported: latest, nameMatch: best.grade, ...gradeMatch(target, best.grade, { recordName: best.organisation, ctx }).extra,
         notices: notices.slice(0, MAX_PER_SOURCE).map((n) => ({ organisation: n.organisation, reported: n.reported, breachDates: n.breachDates || null, affected: n.affected || null })),
       },
     }),
@@ -728,7 +835,7 @@ async function icoActions(target, ctx, notes) {
   for (const row of body.results) {
     // The list also holds action against named individuals: only an entry titled with the company is kept.
     const organisation = oneLine(row?.title);
-    const grade = matchOrgName(target.key, organisation);
+    const grade = nameGradeOf(target, organisation, ctx);
     if (!grade) continue;
     const meta = oneLine(row.filterItemMetaData);
     const date = ukDay(meta) || isoDay(row.createdDateTime);
@@ -741,8 +848,8 @@ async function icoActions(target, ctx, notes) {
         title: `${organisation}: UK Information Commissioner's Office enforcement action${action ? ` (${action})` : ''}${date ? `, ${longDate(date)}` : ''}`,
         quote: publishable(htmlToText(row.description)) || [field('Organisation', organisation), field('Action', meta)].filter(Boolean).join(' '),
         url: /^\/[^/]/.test(path) ? `https://ico.org.uk${path}` : 'https://ico.org.uk/action-weve-taken/enforcement/',
-        date, severity: 'medium', match: 'company', matchReasons: [MATCH_REASON[grade](target.key.name)],
-        data: { register: "UK Information Commissioner's Office", organisation, reported: date, action: action || null, breachDates: null, affected: null, nameMatch: grade },
+        date, ...registerGrade(target, grade, organisation, ctx),
+        data: { register: "UK Information Commissioner's Office", organisation, reported: date, action: action || null, breachDates: null, affected: null, nameMatch: grade, ...gradeMatch(target, grade, { recordName: organisation, ctx }).extra },
       }),
     });
   }
@@ -765,6 +872,8 @@ export const breachRegistersConnector = {
   kinds: REGISTERS_KINDS,
   prior: 0.35,
   timeoutMs: 12000,
+  enabled: () => !switchedOff(REGISTERS_ID),
+  unavailableReason: OFF_REASON,
   async run(task, ctx) {
     const target = targetOf(task, ctx, REGISTERS_KINDS);
     if (target.skip) return { findings: [], threads: [], notes: target.note ? [target.note] : [] };

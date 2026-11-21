@@ -111,8 +111,10 @@ describe('item 1: copies of one page that may mix two people', () => {
       snapRoute(pages(li('Jane Roe', 'Founder, Acmeworks', [['Founder', 'Acmeworks'], ['Director', 'Unrelated Media Group']], ['Stanford University']))),
     ]);
     const out = await archiveConnector.run({ kind: 'url', value: addr, depth: 1 }, ctxFor(subject));
-    expect(out.findings.find((f) => / as of 2015-01-01/.test(f.title)).match).toBe('confirmed');
-    expect(out.findings.find((f) => / as of 2020-01-01/.test(f.title)).match).toBe('confirmed');
+    // R3: the 2015 copy is graded like the 2020 one and adds nothing to it: folded into the page's record
+    const page = out.findings.find((f) => / as of 2020-01-01/.test(f.title));
+    expect(page.match).toBe('confirmed');
+    expect(page.data.versions.map((v) => v.date)).toEqual(['2015-01-01']);
     expect(out.threads.find((t) => t.value === 'Acmeworks')).toMatchObject({ trusted: true });
     expect(out.threads.find((t) => t.value === 'Unrelated Media Group')).toMatchObject({ trusted: false });
   });
@@ -185,8 +187,10 @@ describe('item 13: linked profiles and changes that only add', () => {
     const plan = archiveConnector.plan({ kind: 'url', value: addr, why: 'linked from their Crunchbase profile' }, subject)[0];
     expect(plan.params.linkedFrom).toBe('their Crunchbase profile');
     const out = await archiveConnector.run({ kind: 'url', value: addr, template: plan.template, params: plan.params, depth: 2 }, ctxFor(subject));
+    // R3: one record for the page, the earlier version folded into it
     const versions = out.findings.filter((f) => / as of /.test(f.title));
-    expect(versions).toHaveLength(2);
+    expect(versions).toHaveLength(1);
+    expect(versions[0].data.versions.map((v) => v.date)).toEqual(['2018-01-01']);
     for (const f of versions) expect(f).toMatchObject({ match: 'likely', matchReasons: ['profile linked from their Crunchbase profile'] });
     const change = out.findings.find((f) => f.data.kind === 'change');
     expect(change).toBeTruthy();
@@ -237,10 +241,8 @@ describe('item 13: linked profiles and changes that only add', () => {
     ]);
     const out = await archiveConnector.run({ kind: 'url', value: addr, depth: 1 }, ctxFor(subject));
     const changes = out.findings.filter((f) => f.data.kind === 'change');
-    const bio = changes.find((f) => f.data.field === 'bio');
-    expect(bio).toBeTruthy();
-    expect(bio.title).toMatch(/bio expanded/);
-    expect(bio.severity).toBe('info');
+    // R3: the longer bio claims nothing new (no employer, school, degree, title or year): not a claim that changed
+    expect(changes.find((f) => f.data.field === 'bio')).toBeUndefined();
     const headline = changes.find((f) => f.data.field === 'headline');
     expect(headline).toBeTruthy();
     expect(headline.severity).toBe('info');

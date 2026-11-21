@@ -152,10 +152,26 @@ function onSite(result, sites) {
 const hostOnlySites = (query) => String(query).replace(/(?<![\w-])(site:)(?:https?:\/\/)?([^\s()/]+)\/[^\s()]*/gi, '$1$2');
 const withoutParens = (query) => tidy(String(query).replace(/[()]/g, ' '));
 
-const REGION = {
+/**
+ * The news edition, DuckDuckGo region and Wikipedia language for each language a question may be asked in.
+ * Hindi and Indonesian have no DuckDuckGo region of their own: the country's English one is used.
+ */
+export const REGION = {
   fr: { gnews: 'hl=fr&gl=FR&ceid=FR:fr', ddg: 'fr-fr', wiki: 'fr' },
   de: { gnews: 'hl=de&gl=DE&ceid=DE:de', ddg: 'de-de', wiki: 'de' },
   es: { gnews: 'hl=es&gl=ES&ceid=ES:es', ddg: 'es-es', wiki: 'es' },
+  pt: { gnews: 'hl=pt-BR&gl=BR&ceid=BR:pt-419', ddg: 'br-pt', wiki: 'pt' },
+  it: { gnews: 'hl=it&gl=IT&ceid=IT:it', ddg: 'it-it', wiki: 'it' },
+  nl: { gnews: 'hl=nl&gl=NL&ceid=NL:nl', ddg: 'nl-nl', wiki: 'nl' },
+  sv: { gnews: 'hl=sv&gl=SE&ceid=SE:sv', ddg: 'se-sv', wiki: 'sv' },
+  pl: { gnews: 'hl=pl&gl=PL&ceid=PL:pl', ddg: 'pl-pl', wiki: 'pl' },
+  ja: { gnews: 'hl=ja&gl=JP&ceid=JP:ja', ddg: 'jp-jp', wiki: 'ja' },
+  ko: { gnews: 'hl=ko&gl=KR&ceid=KR:ko', ddg: 'kr-kr', wiki: 'ko' },
+  zh: { gnews: 'hl=zh-CN&gl=CN&ceid=CN:zh-Hans', ddg: 'cn-zh', wiki: 'zh' },
+  he: { gnews: 'hl=he&gl=IL&ceid=IL:he', ddg: 'il-he', wiki: 'he' },
+  hi: { gnews: 'hl=hi&gl=IN&ceid=IN:hi', ddg: 'in-en', wiki: 'hi' },
+  id: { gnews: 'hl=id&gl=ID&ceid=ID:id', ddg: 'id-en', wiki: 'id' },
+  tr: { gnews: 'hl=tr&gl=TR&ceid=TR:tr', ddg: 'tr-tr', wiki: 'tr' },
 };
 
 /* ------------------------------------------------------------------ parsers */
@@ -549,24 +565,31 @@ async function takeTurn(engine, { deadline, maxWaitMs, siteSearch = false }) {
 }
 
 /**
- * The earliest time an engine of the kind asked for (web falls through to news, so both count) can take a question;
- * `only` narrows the engines that count (an archive question waits for a general web search).
+ * The earliest time one of the given engines can take a question: only the engines that could take THIS
+ * question count (a search restricted to a site can only go to an engine that takes site:, a window in the
+ * past only to one that covers it), or a site search would be retried every half second while the only engine
+ * that can take it is paused. A search restricted to a site may use the engine's whole allowance (takeTurn
+ * keeps the reserve for it), so the reserve is not subtracted for one.
+ * @param {string[]} ids the engines that may answer, from engineOrder
+ * @returns {number|null} null when none of them is switched on
  */
-function nextFreeAt(news, only = null) {
+export function nextFreeAt(ids, { siteSearch = false } = {}) {
   const now = Date.now();
   const times = [];
-  for (const engine of ENGINES) {
-    if (!isEnabled(engine) || (news && engine.kind !== 'news') || (only && !only(engine))) continue;
+  for (const id of ids || []) {
+    const engine = engineById(id);
+    if (!engine || !isEnabled(engine)) continue;
     const h = stateOf(engine.id);
     let at = Math.max(now, h.cooldownUntil || 0, h.nextFreeAt || 0);
     if (engine.budget) {
       const recent = h.recent.filter((t) => t > now - engine.budget.perMs).sort((x, y) => x - y);
-      const allowance = engine.budget.max - (engine.budget.reserve || 0);
+      const allowance = engine.budget.max - (siteSearch ? 0 : engine.budget.reserve || 0);
+      if (allowance <= 0) continue;
       if (recent.length >= allowance) at = Math.max(at, recent[recent.length - allowance] + engine.budget.perMs);
     }
     times.push(at);
   }
-  return times.length ? Math.min(...times) + 500 : now + 60000;
+  return times.length ? Math.min(...times) + 500 : null;
 }
 
 function meteredLeft() {
@@ -602,36 +625,85 @@ function finish(raw, { num, sites, after, before, withinDays, accept }) {
 }
 
 const ARCHIVE_NOT_RUN = 'needs a general web search; news feed covers recent items only';
+const SITE_NOT_RUN = 'needs a general web search that can look inside one site, and none is switched on here';
 const OUTCOME_WORDS = { paused: 'paused after it asked us to slow down', resting: 'resting (its allowance for now is used)', busy: 'busy', blocked: 'asked us to slow down', failed: 'did not answer', nothing: 'found nothing' };
+const WAITING = new Set(['resting', 'paused', 'busy', 'blocked']);
+
+/** A search that should be asked again when an engine is free: deepCheck re-queues it for `retryAt`. */
+function restingError(message, retryAt) {
+  const error = new Error(message);
+  error.code = 'SEARCH_RESTING';
+  error.retryAt = retryAt;
+  return error;
+}
 
 /**
  * One search, on the best engine that is available.
  *
  * @param {string} query quoted phrases, OR groups in parentheses, site: restrictions
  * @param {{ news?: boolean, num?: number, withinDays?: number, after?: string, before?: string, deadline?: number,
- *           allowMetered?: boolean, lang?: 'fr'|'de'|'es', prefer?: 'reference'|'archive', accept?: (result) => boolean }} options
+ *           allowMetered?: boolean, lang?: string, prefer?: 'reference'|'archive', accept?: (result) => boolean,
+ *           needGeneral?: boolean, maxWaitMs?: number }} options
  *   after/before are ISO days. accept: keep only the results it returns true for.
  *   prefer 'archive': no news feeds; rejects (not run) when no general web search answered and Wikipedia found nothing.
+ *   needGeneral: a web question that a news headline cannot answer well (the seed, the adverse questions). When
+ *   every general web search is resting or paused, and one is free again within maxWaitMs (default 8 minutes),
+ *   the search is not handed to the news feeds: it rejects with code SEARCH_RESTING and retryAt, so the check
+ *   asks again later. Past that wait it goes on to the news feeds, and the answer says so (headlinesOnly).
  * @returns {Promise<{ results: Array<{ title, snippet, url, date, host?, publisher? }>, engine: string|null,
- *                     tried: Array<{ id: string, outcome: string, count?: number, error?: string }> }>}
+ *                     tried: Array<{ id: string, outcome: string, count?: number, error?: string }>,
+ *                     general: boolean, headlinesOnly: boolean, generalWaiting: boolean, generalRetryAt: number|null }>}
  *   `host` is the publisher's host when `url` is a forwarding link (Google News).
+ *   general: a general web search (DuckDuckGo, Brave, the backup service) answered this question.
+ *   headlinesOnly: a web question that only the news feeds or the encyclopedia answered: it was NOT searched on
+ *   the open web, and the caller must say so rather than count it as searched.
+ *   generalWaiting / generalRetryAt: no general web search could be asked now (resting, paused, busy) and when
+ *   the first one is free again.
  *   Resolves with no results when the engines answered and found nothing; rejects only when none answered.
  */
-export async function keylessSearch(query, { news = false, num = 10, withinDays, after, before, deadline, allowMetered = false, lang, prefer = null, accept = null } = {}) {
+export async function keylessSearch(query, { news = false, num = 10, withinDays, after, before, deadline, allowMetered = false, lang, prefer = null, accept = null, needGeneral = false, maxWaitMs = 8 * 60 * 1000 } = {}) {
   const q = tidy(query);
   const tried = [];
-  if (!q) return { results: [], engine: null, tried };
+  const blank = { general: false, headlinesOnly: false, generalWaiting: false, generalRetryAt: null };
+  if (!q) return { results: [], engine: null, tried, ...blank };
   const sites = siteFilters(q);
+  const siteSearch = sites.length > 0;
   await within(loadSharedRests(), SHARED_WAIT_MS);
-  const candidates = engineOrder({ news, prefer, query: q, withinDays, after, before }).map(engineById);
+  const order = engineOrder({ news, prefer, query: q, withinDays, after, before });
+  const candidates = order.map(engineById);
+  const generalIds = order.filter((id) => engineById(id)?.general);
+  // A site search no switched-on engine can take: not run, and said so plainly (no waiting: none will be free).
+  if (siteSearch && !candidates.length) {
+    const error = new Error(`Not run: ${SITE_NOT_RUN}`);
+    error.notRun = SITE_NOT_RUN;
+    throw error;
+  }
 
   let asked = 0;
   let answered = 0;
   let generalAnswered = 0; // DuckDuckGo, Brave or the backup service: a search of the whole web, any year
+  const generalState = () => {
+    const general = tried.filter((t) => t.id === 'metered' || engineById(t.id)?.general);
+    const waiting = !news && generalAnswered === 0 && generalIds.length > 0 && general.length > 0 && general.every((t) => WAITING.has(t.outcome));
+    return { waiting, retryAt: waiting ? nextFreeAt(generalIds, { siteSearch }) : null };
+  };
+  const answer = (results, engine) => {
+    const g = generalState();
+    // A web question answered by the news feeds or the encyclopedia alone was not searched on the open web.
+    const headlinesOnly = !news && prefer !== 'archive' && generalAnswered === 0 && answered > 0;
+    return { results, engine, tried, general: generalAnswered > 0, headlinesOnly, generalWaiting: g.waiting, generalRetryAt: g.retryAt };
+  };
   for (const engine of candidates) {
     if (asked >= MAX_ENGINES_PER_CALL) break;
     if (engine.lastResort && answered > 0) continue; // the others answered: nothing to gain from the slow one
-    const skip = await takeTurn(engine, { deadline, siteSearch: sites.length > 0, maxWaitMs: asked === 0 && !tried.some((t) => t.outcome === 'busy') ? QUEUE_FIRST_MS : QUEUE_NEXT_MS });
+    // The general web searches were all skipped: for a question that needs one, wait for it instead of the news feeds
+    if (needGeneral && !engine.general && generalAnswered === 0 && !news) {
+      const g = generalState();
+      if (g.waiting && g.retryAt && g.retryAt - Date.now() <= maxWaitMs) {
+        throw restingError(`Waiting for a general web search (${tried.map((t) => `${engineById(t.id)?.label || t.id}: ${OUTCOME_WORDS[t.outcome] || t.outcome}`).join('; ')})`, g.retryAt);
+      }
+    }
+    const skip = await takeTurn(engine, { deadline, siteSearch, maxWaitMs: asked === 0 && !tried.some((t) => t.outcome === 'busy') ? QUEUE_FIRST_MS : QUEUE_NEXT_MS });
     if (skip) { tried.push({ id: engine.id, outcome: skip }); continue; }
     asked += 1;
     try {
@@ -640,7 +712,7 @@ export async function keylessSearch(query, { news = false, num = 10, withinDays,
       answered += 1;
       if (engine.general) generalAnswered += 1;
       tried.push({ id: engine.id, outcome: results.length ? 'results' : 'nothing', count: results.length });
-      if (results.length) return { results, engine: engine.id, tried };
+      if (results.length) return answer(results, engine.id);
     } catch (error) {
       tried.push({ id: engine.id, outcome: markFailure(engine, error), error: tidy(error?.message || error).slice(0, 120) });
     }
@@ -661,7 +733,7 @@ export async function keylessSearch(query, { news = false, num = 10, withinDays,
       answered += 1;
       generalAnswered += 1;
       tried.push({ id: 'metered', outcome: results.length ? 'results' : 'nothing', count: results.length });
-      if (results.length) return { results, engine: 'metered', tried };
+      if (results.length) return answer(results, 'metered');
     } catch (error) {
       tried.push({ id: 'metered', outcome: 'failed', error: tidy(error?.message || error).slice(0, 120) });
     }
@@ -675,26 +747,55 @@ export async function keylessSearch(query, { news = false, num = 10, withinDays,
     error.notRun = ARCHIVE_NOT_RUN;
     // The general web searches were only resting or busy: the caller can ask again when one is free.
     const general = tried.filter((t) => t.id === 'metered' || engineById(t.id)?.general);
-    if (general.length && general.every((t) => t.outcome === 'resting' || t.outcome === 'paused' || t.outcome === 'busy')) {
+    const at = nextFreeAt(generalIds, { siteSearch });
+    if (general.length && general.every((t) => WAITING.has(t.outcome)) && at) {
       error.code = 'SEARCH_RESTING';
-      error.retryAt = nextFreeAt(false, (e) => e.general);
+      error.retryAt = at;
     }
     throw error;
   }
 
   if (answered === 0) {
     const reasons = why();
-    const error = new Error(`No search engine answered${reasons ? ` (${reasons})` : ''}`);
     // Every engine that was not asked was resting or busy, none actually failed: the caller can wait and ask
-    // again when the first one is free, instead of counting this as a failed lookup.
+    // again when the first one that can take THIS question is free, instead of counting this as a failed lookup.
     const waiting = tried.length > 0 && tried.every((t) => t.outcome === 'resting' || t.outcome === 'paused' || t.outcome === 'busy');
-    if (waiting) {
-      error.code = 'SEARCH_RESTING';
-      error.retryAt = nextFreeAt(news);
-    }
+    const at = waiting ? nextFreeAt(order, { siteSearch }) : null;
+    if (waiting && at) throw restingError(`No search engine answered${reasons ? ` (${reasons})` : ''}`, at);
+    const error = new Error(`No search engine answered${reasons ? ` (${reasons})` : ''}`);
     throw error;
   }
-  return { results: [], engine: null, tried };
+  return answer([], null);
+}
+
+/**
+ * Find the publisher's own address of a headline the Google News feed gave (its links only forward, and
+ * decoding them would mean asking Google's internal pages). Bing News is asked for the exact headline; an
+ * article is taken only when its title is the same headline and it is on the same publisher's site.
+ * Resolves to the address, or null (nothing matched, or Bing News is resting).
+ */
+export async function resolveHeadline(title, host, { deadline } = {}) {
+  const headline = tidy(title).replace(/\s+[-–|]\s+[^-–|]{2,60}$/, ''); // "Headline - Publisher": the feed appends the publisher
+  const site = String(host || '').toLowerCase().replace(/^www\./, '');
+  if (headline.length < 20 || !site) return null;
+  const engine = engineById('bingnews');
+  if (!engine || !isEnabled(engine)) return null;
+  const skip = await takeTurn(engine, { deadline, maxWaitMs: QUEUE_NEXT_MS });
+  if (skip) return null;
+  const norm = (s) => tidy(s).toLowerCase().replace(/[‘’“”"']/g, '').replace(/\s+[-–|]\s+[^-–|]{2,60}$/, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  try {
+    const results = await engine.search(`"${headline.replace(/"/g, '')}"`, { deadline });
+    markOk(engine, results.length);
+    const want = norm(headline);
+    const hit = results.find((r) => {
+      const h = hostOf(r.url);
+      return (h === site || h.endsWith(`.${site}`)) && norm(r.title) === want && !isBlockedUrl(r.url);
+    });
+    return hit ? hit.url : null;
+  } catch (error) {
+    markFailure(engine, error);
+    return null;
+  }
 }
 
 /** What each engine is doing, for the coverage note. */
@@ -712,15 +813,37 @@ export function engineHealth() {
   });
   const used = METERED_PER_HOUR - meteredLeft();
   const names = (list) => list.map((e) => e.label).join(', ');
-  const on = engines.filter((e) => e.state !== 'off');
+  // Only an engine that really answered is said to have run: one that was resting or paused all along did not.
+  const ran = engines.filter((e) => e.state !== 'off' && e.answers > 0);
   const paused = engines.filter((e) => e.state === 'paused');
+  const resting = engines.filter((e) => e.state === 'resting');
   const note = [
-    `Open-web and news searches ran on ${names(on)}.`,
-    paused.length ? `${names(paused)} asked for fewer searches and ${paused.length === 1 ? 'is' : 'are'} paused for now; the others covered.` : '',
+    ran.length ? `Open-web and news searches were answered by ${names(ran)}.` : 'No search engine has answered yet.',
+    paused.length ? `${names(paused)} asked for fewer searches and ${paused.length === 1 ? 'is' : 'are'} paused for now.` : '',
+    resting.length ? `${names(resting)} ${resting.length === 1 ? 'has' : 'have'} used ${resting.length === 1 ? 'its' : 'their'} searches for now and ${resting.length === 1 ? 'is' : 'are'} resting.` : '',
     used ? `${used} search${used === 1 ? '' : 'es'} this hour used the backup search service (at most ${METERED_PER_HOUR} an hour).` : '',
   ].filter(Boolean).join(' ');
   // usedThisHour is this server instance's count; the shared limit is kept in the database.
   return { engines, metered: { configured: webSearchConfigured() && meteredOn(), usedThisHour: used, hourlyLimit: METERED_PER_HOUR }, note };
+}
+
+/**
+ * The coverage line for the open-web questions of one check, from the check's own counts (deepCheck keeps them
+ * in ctx.spend under these keys; engineHealth's counts are per server process and say nothing about one check).
+ *   general     questions a general web search answered
+ *   headlines   questions only the news feeds or the encyclopedia answered (not searched on the open web)
+ *   none        questions no engine could take (not run)
+ * @param {{ general?: number, headlines?: number, none?: number }} counts
+ * @returns {string} '' when there is nothing to say
+ */
+export const SEARCH_COUNT_KEYS = { general: 'web-search:general', headlines: 'web-search:headlines', none: 'web-search:none' };
+export function searchCoverageNote({ general = 0, headlines = 0, none = 0 } = {}) {
+  const total = general + headlines + none;
+  if (!total || (headlines === 0 && none === 0)) return '';
+  const parts = [];
+  if (headlines) parts.push(`${headlines} of ${total} open-web question${total === 1 ? ' was' : 's were'} answered from news headlines or the encyclopedia only, because no general web search was available to take ${headlines === 1 ? 'it' : 'them'}`);
+  if (none) parts.push(`${none} could not be asked at all`);
+  return `${parts.join('; ')}. Those questions count as not searched on the open web.`;
 }
 
 /** Forget all health, pacing and allowances (tests). Pacing waits are off in tests unless asked for. */

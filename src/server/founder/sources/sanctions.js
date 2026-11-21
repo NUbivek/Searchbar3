@@ -11,7 +11,9 @@
  *                    date, link, the list's own role or reason text) and kept
  *                    by cache.js: memory, then the database, then the network.
  *   us-exclusions    people and firms barred from US federal contracts
- *                    (SAM.gov) and federal health programmes (HHS OIG).
+ *                    (SAM.gov, searched by name, ended exclusions included)
+ *                    and federal health programmes (the HHS OIG's official
+ *                    LEIE file, read whole once a day).
  *   offshore-leaks   the ICIJ Offshore Leaks database (Panama, Paradise and
  *                    Pandora Papers and others).
  *   wanted-lists     the FBI wanted list and the EU Most Wanted list.
@@ -24,11 +26,19 @@
  *           adds middle names), and for a person the listed name either runs
  *           first name ... last name or starts with the surname followed by
  *           the first name ("Rachael Elizabeth Holmes" is not "Elizabeth Holmes")
- * There is no fuzzy matching. A hit on a person is a name match and nothing
- * more: it is graded by makeFinding ("possible") unless the list's own text
- * names something the person is known for, and every title says "verify
- * identity". A company is matched only on tier 1 of its name with the legal
- * form removed, never on part of a name (a bracketed part included).
+ *   tier 3  a variant of the name: another spelling of the given name
+ *           (Muhammad for Mohammed), a nickname (Samuel for Sam) or one extra
+ *           trailing surname (Garcia Lopez for Garcia). Always 'possible'.
+ * There is no fuzzy matching. A name typed in Cyrillic or Greek is screened
+ * in Latin letters (transliterate). A hit on a person is a name match and
+ * nothing more: it is 'possible' unless the list's own text names the company
+ * the check was started with (gradeListedPerson; a former employer never
+ * counts), and every title says "verify identity". A company is matched only
+ * on tier 1 of one of its known names (the name typed and the legal names
+ * learned during the check) with the legal form removed, never on part of a
+ * name (a bracketed part included); a match on a one-word name stays
+ * 'possible'. A name that cannot be screened, a list that could not be read,
+ * an older list copy and a cut search are reported as partial, never clean.
  *
  * Never stored, never returned: addresses, dates and places of birth,
  * passport and identity numbers, nationality, physical descriptions,
@@ -39,10 +49,16 @@
  */
 import { request, getJson } from '../http';
 import { makeFinding } from '../finding';
-import { cached } from '../cache';
+import { cachedEntry } from '../cache';
 import { mentionsMinor } from '../guardrails';
+import { parsePersonName, personNameVariants, personNameMatcher, companyKeys, isBroadOrganisation } from '../names';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** "2026-11-20" from an epoch time or an ISO string ('' when there is none). */
+const dayOf = (t) => {
+  const ms = typeof t === 'number' ? t : Date.parse(t || '');
+  return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : '';
+};
 const MAX_RECORDS_SHOWN = 6;
 
 const oneLine = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
@@ -159,7 +175,12 @@ export function personOrderMatch(want, listed) {
   return false;
 }
 
-/** The name as given and without middle initials ("Elizabeth A. Holmes" -> also "Elizabeth Holmes"). */
+/**
+ * The searched forms of a person's name: as given, without middle initials ("Elizabeth A. Holmes" -> also
+ * "Elizabeth Holmes"), and (through the shared name parser) without titles, generational suffixes or middle
+ * names ("Albert Kelly Jr." -> "Albert Kelly", "Trevor Roy Milton" -> "Trevor Milton"), so a list that files the
+ * person under a shorter form is still read.
+ */
 export function personVariants(name) {
   const words = oneLine(name).split(' ').filter(Boolean);
   const out = [words.join(' ')];
@@ -167,7 +188,54 @@ export function personVariants(name) {
     const core = words.filter((w, i) => i === 0 || i === words.length - 1 || !/^[A-Za-z]\.?$/.test(w));
     if (core.length >= 2 && core.length < words.length) out.push(core.join(' '));
   }
-  return out.filter(Boolean);
+  // The parser reads Latin script only; a name in another script is left to transliterate().
+  if (/[A-Za-z]/.test(name || '')) out.push(...personNameVariants(name));
+  const seen = new Set();
+  return out.filter((v) => {
+    const key = orderedTokens(v).join(' ') || v;
+    if (!v || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// ICAO 9303 transliteration (the one printed in passports), and the spelling most press and many lists use
+// where it differs (Й Y, Ю YU, Я YA): "Юрий" is IURII in a passport and YURIY or YURI on a list.
+const CYRILLIC = {
+  А: 'A', Б: 'B', В: 'V', Г: 'G', Д: 'D', Е: 'E', Ё: 'E', Ж: 'ZH', З: 'Z', И: 'I', Й: 'I', К: 'K', Л: 'L', М: 'M', Н: 'N', О: 'O',
+  П: 'P', Р: 'R', С: 'S', Т: 'T', У: 'U', Ф: 'F', Х: 'KH', Ц: 'TS', Ч: 'CH', Ш: 'SH', Щ: 'SHCH', Ъ: 'IE', Ы: 'Y', Ь: '', Э: 'E',
+  Ю: 'IU', Я: 'IA', Є: 'IE', І: 'I', Ї: 'I', Ґ: 'G', Ў: 'U',
+};
+const CYRILLIC_COMMON = { ...CYRILLIC, Й: 'Y', Ю: 'YU', Я: 'YA', Ъ: '', Є: 'YE', Ї: 'YI' };
+const GREEK = {
+  Α: 'A', Β: 'V', Γ: 'G', Δ: 'D', Ε: 'E', Ζ: 'Z', Η: 'I', Θ: 'TH', Ι: 'I', Κ: 'K', Λ: 'L', Μ: 'M', Ν: 'N', Ξ: 'X', Ο: 'O',
+  Π: 'P', Ρ: 'R', Σ: 'S', Τ: 'T', Υ: 'Y', Φ: 'F', Χ: 'CH', Ψ: 'PS', Ω: 'O',
+};
+const NON_LATIN = /[Ͱ-Ͽἀ-῿Ѐ-ӿ]/;
+
+/**
+ * A name written in Cyrillic or Greek, in Latin letters ("Олег Дерипаска" -> ["Oleg Deripaska"]), so it can be
+ * screened at all: every list here is compared in Latin letters. Up to two spellings; [] for any other text.
+ */
+export function transliterate(text) {
+  // Composed form: Й and Ї are letters of their own, not И or І with a mark
+  const s = String(text ?? '').normalize('NFC');
+  if (!NON_LATIN.test(s)) return [];
+  // Greek vowel pairs ICAO writes as two Latin letters: ΟΥ OU, ΑΥ AV, ΕΥ EV (an accent on either is dropped)
+  const pairs = s.replace(/([ΑΕΟαεοΆΈΌάέό])([ΥυΎύ])/g, (m, a) => {
+    const base = a.normalize('NFD')[0];
+    const latin = { Ο: 'OU', Α: 'AV', Ε: 'EV' }[base.toUpperCase()];
+    return base === base.toUpperCase() ? latin : latin.toLowerCase();
+  });
+  const read = (table) => pairs.replace(/[Ͱ-Ͽἀ-῿Ѐ-ӿ]/g, (c) => {
+    const up = c.toUpperCase();
+    // A Greek accent (tonos) is dropped: Ά is read as Α
+    const greek = GREEK[up.normalize('NFD')[0]];
+    const latin = table[up] ?? greek ?? '';
+    return c === up ? latin : latin.toLowerCase();
+  });
+  return [...new Set([read(CYRILLIC), read(CYRILLIC_COMMON)].map((v) => oneLine(v)).filter((v) => /[A-Za-z]/.test(v)))]
+    .map((v) => v.split(' ').map((w) => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w)).join(' '));
 }
 
 /** A listed name as written, and without a bracketed part ("Hanif Computer Zone (HCZ)"). */
@@ -176,11 +244,82 @@ const listedForms = (name) => {
   return bare && bare !== name ? [name, bare] : [name];
 };
 
+/** A listed name with the given name first: "GARCIA LOPEZ, Juan Carlos" -> "Juan Carlos GARCIA LOPEZ". */
+const givenFirstForms = (listed) => listedForms(listed).flatMap((form) => {
+  const at = form.indexOf(',');
+  return at > 0 ? [form, `${form.slice(at + 1)} ${form.slice(0, at)}`] : [form];
+});
+
+// Spellings of one given name that lists and passports use interchangeably (transliterations, not nicknames;
+// nicknames come from the shared name parser).
+const SPELLINGS = [
+  'MOHAMMED MUHAMMAD MOHAMMAD MOHAMED MUHAMMED MOHAMAD MUHAMED MOHAMMEDE', 'AHMED AHMAD AHMET', 'HUSSEIN HUSSAIN HUSAIN HOSSEIN',
+  'ALEKSANDR ALEXANDER ALEKSANDER ALEXANDR OLEKSANDR', 'YURI YURIY YURY IURII IURI', 'SERGEI SERGEY SERGUEI SERGII SERHII SERHIY',
+  'DMITRI DMITRY DMITRIY DMITRII', 'ANDREI ANDREY ANDRII ANDRIY', 'ALEXEI ALEXEY ALEKSEI ALEKSEY OLEKSII OLEKSIY',
+  'NIKOLAI NIKOLAY', 'EVGENY EVGENII EVGENIY YEVGENY YEVGENIY', 'ARKADY ARKADIY ARKADII', 'VALERY VALERIY VALERII',
+  'GENNADY GENNADIY GENNADII', 'ANATOLY ANATOLIY ANATOLII', 'VASILY VASILIY VASILII VASSILY', 'GRIGORY GRIGORIY GRIGORII',
+  'MAXIM MAKSIM', 'YULIA YULIYA IULIIA', 'NATALIA NATALYA NATALIIA', 'TATIANA TATYANA TETIANA',
+].map((g) => g.split(' '));
+const SPELLING_OF = new Map();
+SPELLINGS.forEach((g, i) => g.forEach((w) => SPELLING_OF.set(w, i)));
+
+const nicknameMemo = new Map();
+/** Whether two given names (upper case) are the same name in another spelling or a nickname of it (Sam, Samuel). */
+function sameGivenName(a, b) {
+  if (a === b) return true;
+  if (SPELLING_OF.has(a) && SPELLING_OF.get(a) === SPELLING_OF.get(b)) return true;
+  const key = `${a}|${b}`;
+  if (!nicknameMemo.has(key)) {
+    const cap = (w) => w[0] + w.slice(1).toLowerCase();
+    // A fixed made-up surname: only the given names are compared
+    let same = false;
+    try { same = personNameMatcher(`${cap(a)} Qzxvbt`).kind(`${cap(b)} Qzxvbt`) === 'nickname'; } catch { same = false; }
+    if (nicknameMemo.size > 5000) nicknameMemo.clear();
+    nicknameMemo.set(key, same);
+  }
+  return nicknameMemo.get(key);
+}
+
+/** The searched given name and surname as upper-case words ({ given: 'SAM', surname: ['BANKMAN', 'FRIED'] }). */
+function givenAndSurname(variant) {
+  const p = parsePersonName(variant);
+  const given = orderedTokens(p.given)[0];
+  const surname = orderedTokens(p.surname);
+  return given && given.length > 1 && surname.length ? { given, surname } : null;
+}
+
+const endsWith = (list, tail) => tail.length <= list.length && tail.every((w, i) => list[list.length - tail.length + i] === w);
+
+/**
+ * Tier 3: a listed name that is a variant of the searched one, never the same name. The listed given name is
+ * the searched one in another spelling or its nickname, or the list adds one trailing surname ("Juan Carlos
+ * Garcia Lopez" for Juan Garcia, "BANKMAN-FRIED, Samuel Benjamin" for Sam Bankman-Fried). Such a match is only
+ * ever 'possible'.
+ */
+function variantMatch(variants, listed) {
+  for (const v of variants) {
+    const want = givenAndSurname(v);
+    if (!want) continue;
+    for (const form of givenFirstForms(listed)) {
+      const have = orderedTokens(form);
+      if (have.length < 1 + want.surname.length || !sameGivenName(want.given, have[0])) continue;
+      const rest = have.slice(1);
+      const otherGiven = have[0] !== want.given;
+      if (otherGiven && endsWith(rest, want.surname)) return true;
+      // One more surname at the end ("Garcia Lopez"), never a lone initial
+      const extra = rest[rest.length - 1];
+      if (rest.length > want.surname.length && extra.length > 1 && endsWith(rest.slice(0, -1), want.surname)) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * The best match between a searched person and one listed name.
  * @param {string[]} variants the searched name and its variants
  * @param {string} listed
- * @returns {0|1|2}
+ * @returns {0|1|2|3} 1 the same words, 2 the list adds middle names, 3 a variant of the name (another
+ *   spelling, a nickname, an extra trailing surname: always 'possible'), 0 no match
  */
 export function matchPersonName(variants, listed) {
   let best = 0;
@@ -195,6 +334,7 @@ export function matchPersonName(variants, listed) {
       if (tier && (!best || tier < best)) best = tier;
     }
   }
+  if (!best && variantMatch(variants.filter((v) => isFullName(nameTokens(v))), listed)) return 3;
   return best;
 }
 
@@ -246,27 +386,35 @@ function prepare(index) {
 /**
  * Screen one name against a compact index.
  * @param {object} index
- * @param {string[]} names the searched name and its variants (one entry for a company)
+ * @param {string[]} names the searched name and its variants; for a company, every known name of it (the name
+ *   as typed first, then fuller legal names learned during the check)
  * @param {'person'|'company'} mode
- * @returns {Array<{ row: object, tier: 1|2, matched: string, alias: boolean }>} tier 1 first
+ * @returns {Array<{ row: object, tier: 1|2|3, matched: string, alias: boolean, via?: string }>} tier 1 first;
+ *   `via` (companies) is the known name that matched
  */
 export function screenIndex(index, names, mode) {
   const hits = [];
   const table = prepare(index);
   if (mode === 'company') {
-    const want = companyTokens(names[0]);
-    if (want.join('').length < 3) return hits;
+    const wants = names.map((n) => ({ name: n, tokens: companyTokens(n) })).filter((w) => w.tokens.join('').length >= 3);
+    if (!wants.length) return hits;
     index.rows.forEach((row, i) => {
       if (row.t === 'person') return;
-      for (const name of table[i]) {
-        if (!want.every((t) => name.k.includes(` ${t} `))) continue;
-        if (matchCompanyName(names[0], name.s)) { hits.push({ row, tier: 1, matched: name.s, alias: name.alias }); return; }
+      // A fuller legal name is tried before the bare name, so a record it matches is reported through it
+      for (const want of [...wants].sort((a, b) => b.tokens.length - a.tokens.length)) {
+        for (const name of table[i]) {
+          if (!want.tokens.every((t) => name.k.includes(` ${t} `))) continue;
+          if (matchCompanyName(want.name, name.s)) { hits.push({ row, tier: 1, matched: name.s, alias: name.alias, via: want.name }); return; }
+        }
       }
     });
     return hits;
   }
-  const wants = names.map((n) => ({ set: nameTokens(n), order: orderedTokens(n) })).filter((w) => isFullName(w.set));
+  const full = names.filter((n) => isFullName(nameTokens(n)));
+  const wants = full.map((n) => ({ set: nameTokens(n), order: orderedTokens(n) }));
   if (!wants.length) return hits;
+  // Variants (tier 3) are looked for only in rows that carry every word of a searched surname
+  const surnames = full.map(givenAndSurname).filter(Boolean).map((w) => w.surname);
   index.rows.forEach((row, i) => {
     if (row.t === 'entity') return;
     let best = null;
@@ -277,6 +425,12 @@ export function screenIndex(index, names, mode) {
         // A longer listed name must also have the first and last name in order
         if (tier === 2 && !personOrderMatch(want.order, name.o)) continue;
         if (!best || tier < best.tier) best = { row, tier, matched: name.s, alias: name.alias };
+      }
+    }
+    if (!best) {
+      for (const name of table[i]) {
+        if (!surnames.some((s) => s.every((t) => name.k.includes(` ${t} `)))) continue;
+        if (variantMatch(full, name.s)) { best = { row, tier: 3, matched: name.s, alias: name.alias }; break; }
       }
     }
     if (best) hits.push(best);
@@ -387,9 +541,17 @@ function cleanAliases(primary, aliases, { max = 25 } = {}) {
 // Details that must not be kept even when a list puts them in its free text.
 const PERSONAL = /\b(born|birth|d\.?o\.?b\.?|passport|national (?:id|identification)|identity (?:card|number)|id (?:no|number)|tax (?:id|number)|address|resid(?:es|ing|ence|ent)|lives in|living in|nationality|citizen(?:ship)?)\b/i;
 
+// A family tie of the listed person ("together with her husband Kim Su Gwang, her father-in-law ..."): a third
+// party's family is never shown. Lower case only, or a capitalised kin word opening a sentence with "of" or "to"
+// ("Brother of the minister"), so a name such as "Son Hyok" is not read as a son.
+const KIN_START = /^(?:Wife|Husband|Spouse|Sons?|Daughters?|Father|Mother|Brother|Sister|Sibling|Niece|Nephew|Cousin|Uncle|Aunt|Grand(?:son|daughter|father|mother)|Widow(?:er)?)(?:-in-law)?\s+(?:of|to)\b/;
+// "Parent company", "sister company" and "child soldiers" are not family; children are left to mentionsMinor.
+const KIN = /\b(?:wife|wives|husband|spouse|sons?|daughters?|fathers?|mothers?|brothers?|(?:sisters?|siblings?)(?!\s+(?:compan|organi[sz]ation|entit|firm|bank|vessel|ship|concern))|nieces?|nephews?|cousins?|uncles?|aunts?|grand(?:son|daughter|father|mother|child|children)s?|step(?:son|daughter|father|mother|brother|sister)s?|(?:\w+)-in-law|in-laws?|widow(?:er)?|relatives?|family members?)\b/;
+
 /** The role or reason a list gives, without sentences that carry personal details or family members. */
 export function reasonText(text, max = 260) {
-  const kept = oneLine(text).split(/(?<=[.;])\s+/).filter((s) => s && !PERSONAL.test(s) && !mentionsMinor(s) && !/https?:\/\//i.test(s));
+  const kept = oneLine(text).split(/(?<=[.;])\s+/).filter((s) => s && !PERSONAL.test(s) && !mentionsMinor(s) && !/https?:\/\//i.test(s)
+    && !KIN.test(s) && !KIN_START.test(s));
   return clipText(kept.join(' '), max);
 }
 
@@ -635,27 +797,116 @@ const notScreenedNote = () => {
   return off.length ? `Not screened on this deployment: ${off.map((l) => `the ${l.name} (${l.off})`).join('; ')}.` : null;
 };
 
-const loadIndex = (list, deadline) => cached(list.cacheKey, DAY_MS, () => list.load(deadline));
+/**
+ * A list's compact index from the cache, with the date of the copy. The loader gets the cache's own deadline
+ * (a shared list load must not die with the first caller's deadline); this caller waits only until its own.
+ * @returns {Promise<{ index: object, at: number, fresh: boolean, asOf: string }>} fresh is false when an older
+ *   copy stands in for a download that failed; asOf is the day of the copy
+ */
+async function loadIndex(list, deadline) {
+  const entry = await cachedEntry(list.cacheKey, DAY_MS, ({ deadline: d }) => list.load(d), { deadline });
+  return { index: entry.value, at: entry.at, fresh: entry.fresh !== false, asOf: dayOf(entry.at) || dayOf(entry.value?.at) };
+}
+
+/** "(list as of 2026-11-20)": every "no match" says which copy of a list was read. */
+const asOfText = (copy) => (copy?.asOf ? ` (list as of ${copy.asOf})` : '');
+/** A stale copy (a refresh failed) is screened, but the screen is only partly current: said in notes and partial. */
+const staleParts = (label, copy) => (copy && !copy.fresh && copy.asOf
+  ? { note: `${label}: the latest copy could not be downloaded, so the copy of ${copy.asOf} was screened`, partial: `${label}: list as of ${copy.asOf}` }
+  : null);
 
 /* ------------------------------------------------------------------ */
 /* Findings                                                            */
 /* ------------------------------------------------------------------ */
 
 const isPersonTask = (task) => task.kind !== 'company';
-const searchedNames = (task, ctx) => {
-  if (task.kind === 'company') return [oneLine(task.value)];
-  if (task.kind === 'subject' && ctx?.subject?.variants?.length) return [...new Set([...ctx.subject.variants, ...personVariants(ctx.subject.name)])];
-  return personVariants(task.value);
-};
+const isDomain = (s) => /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(s) && /\.[a-z]{2,}$/i.test(s);
+
+/**
+ * Every known name of a company: the name as given, then the fuller legal names the check has learned for it
+ * through identity.addCompanyAlias ("Ramp" -> "Ramp Business Corporation"). Domains are left out. Lists and
+ * registers are searched under each, because a one-word name finds every unrelated firm that shares the word,
+ * while the legal name finds the company itself.
+ * @param {object} subject
+ * @param {string} company
+ * @param {number} [max]
+ * @returns {string[]}
+ */
+export function companyNames(subject, company, max = 3) {
+  const typed = oneLine(company);
+  const out = [typed];
+  const key = companyKeys(typed)[0];
+  const aliases = subject?.anchors?.aliases;
+  if (key && aliases && typeof aliases.values === 'function') {
+    for (const a of aliases.values()) if (a && a.of === key && a.value && !isDomain(a.value)) out.push(oneLine(a.value));
+  }
+  const seen = new Set();
+  return out.filter((n) => {
+    const k = companyTokens(n).join(' ') || n.toLowerCase();
+    if (!n || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).slice(0, max);
+}
+
+/** A company name of one distinctive word once the legal form is removed ("Flow Inc." -> FLOW). */
+export const isOneWordCompany = (name) => companyTokens(name).length < 2;
+
+/**
+ * The names a lookup screens. A company: its known names. A person: their name and variants, plus the name in
+ * Latin letters when it was typed in Cyrillic or Greek.
+ */
+export function screenNames(task, ctx) {
+  if (task.kind === 'company') return companyNames(ctx?.subject, task.value);
+  const base = task.kind === 'subject' && ctx?.subject?.variants?.length
+    ? [...ctx.subject.variants, ...personVariants(ctx.subject.name), ...personVariants(task.value)]
+    : personVariants(task.value);
+  const latin = base.flatMap((n) => transliterate(n)).flatMap((n) => personVariants(n));
+  return [...new Set([...base, ...latin])];
+}
+const searchedNames = screenNames;
+
+/**
+ * The grade of a listed person (a sanctions list, an exclusion list, a regulator's order) for the person being
+ * checked. The list gives the name; the record's own words (the bank, the role, the reason) are then read with
+ * the person's name the way makeFinding reads any record. A namesake who worked at a bank the person also
+ * worked at is common, so an employer or any other organisation learned from other records never raises such a
+ * record: only a company the check was started with (origin 'given') does.
+ *   tier 3 (a variant of the name)                                  'possible'
+ *   the record names no company the check was started with           'possible'
+ *   the same name (tier 1), the given company named, not a huge firm  as makeFinding grades it ('confirmed')
+ *   otherwise (a longer listed name, a very large organisation)       'likely' at most
+ * A held grade is fixed, so a later re-grade with new anchors cannot raise it.
+ * @param {object} subject
+ * @param {object} f the finding fields for makeFinding (no match fields)
+ * @param {{ tier: number, context: string, possibleTitle?: string }} opts possibleTitle replaces the title of
+ *   a 'possible' result
+ */
+export function gradeListedPerson(subject, f, { tier, context = '', possibleTitle } = {}) {
+  const held = (match, reasons) => makeFinding(subject, { ...f, ...(match === 'possible' && possibleTitle ? { title: possibleTitle } : {}), match, matchReasons: reasons });
+  if (Number(tier) >= 3) return held('possible', ['only a variant of the name matches (another spelling, a nickname or an extra surname)']);
+  const graded = makeFinding(subject, { ...f, matchText: `${properCase(subject.name)}. ${oneLine(context)}` });
+  if (!graded || (graded.match !== 'confirmed' && graded.match !== 'likely')) return held('possible', ['matched by name only']);
+  const given = [...(subject.anchors?.companies?.values?.() || [])].find((a) => a.origin === 'given' && typeof a.test === 'function' && a.test(oneLine(context)));
+  if (!given) {
+    return held('possible', ['matched by name only', 'the record names an organisation the person is linked to only through other records, where a namesake may also have worked']);
+  }
+  const broad = isBroadOrganisation(given.value);
+  if (graded.match === 'confirmed' && Number(tier) === 1 && !broad) return graded;
+  const why = broad ? `${given.value} is a very large organisation, so the same name there may be someone else`
+    : Number(tier) !== 1 ? 'the listed name has words the searched name lacks' : 'not named beside the person';
+  return held('likely', [...(graded.matchReasons || []).slice(0, 3), why]);
+}
 
 /**
  * Grade and build one finding for a name match.
- *   subject    graded by makeFinding from the person's name plus the list's own context
+ *   subject    gradeListedPerson: the person's name plus the list's own context, held below 'confirmed' unless
+ *              the same name sits beside the company the check was started with
  *   company    'company' (the caller has already required tier 1); 'possible' (held) when the caller
- *              says the name is a single word once the legal form is removed (meta.coreOnly)
+ *              says the name matched is a single word once the legal form is removed (meta.coreOnly)
  *   associate, relative   title names who it is about; 'possible' unless the record also names the subject
  */
-function gradedFinding(task, ctx, f, context, coreOnly = false) {
+function gradedFinding(task, ctx, f, context, coreOnly = false, tier = 1) {
   const subject = ctx.subject;
   if (task.kind === 'company' && coreOnly) {
     return makeFinding(subject, { ...f, match: 'possible', matchReasons: ['only the company name\'s one distinctive word matches; many unrelated companies share a one-word name'] });
@@ -663,10 +914,12 @@ function gradedFinding(task, ctx, f, context, coreOnly = false) {
   if (task.kind === 'company') return makeFinding(subject, { ...f, match: 'company', matchReasons: ['the listed name is the same as the company name'] });
   if (task.kind === 'associate' || task.kind === 'relative') {
     const reason = `name match on ${task.kind === 'relative' ? 'a relative' : 'an associate'} of the subject`;
-    return makeFinding(subject, f) || makeFinding(subject, { ...f, match: 'possible', matchReasons: [reason] });
+    const named = makeFinding(subject, f);
+    // A record that also names the subject is graded on its text, but never above 'likely' from a list
+    if (named && named.match === 'confirmed') return makeFinding(subject, { ...f, match: 'likely', matchReasons: named.matchReasons });
+    return named || makeFinding(subject, { ...f, match: 'possible', matchReasons: [reason] });
   }
-  return makeFinding(subject, { ...f, matchText: `${properCase(subject.name)}. ${context}` })
-    || makeFinding(subject, { ...f, match: 'possible', matchReasons: ['matched by name only'] });
+  return gradeListedPerson(subject, f, { tier, context });
 }
 
 /** "Father John Roe" / "Associate Jane Roe": who a record found for a related person is about. */
@@ -688,7 +941,8 @@ function matchFinding(task, ctx, meta, records) {
   const first = shown[0];
   const tag = first.tag ? ` (${first.tag})` : '';
   const head = records.length === 1 ? `${first.name}${tag}` : `${records.length} ${meta.noun || 'listed names'}, first ${first.name}${tag}`;
-  const base = `Name match ${meta.where}: ${head}: verify identity`;
+  // Records come best first: when the best is a variant of the name, every record is
+  const base = `${first.tier >= 3 ? 'Name variant match' : 'Name match'} ${meta.where}: ${head}: verify identity`;
   const about = aboutPrefix(task);
   const title = about ? `${about}: ${lowerFirst(base)}` : base;
   const room = Math.max(150, Math.floor(660 / shown.length));
@@ -709,7 +963,9 @@ function matchFinding(task, ctx, meta, records) {
       records: shown.map((r) => ({ name: r.name, tier: r.tier, url: r.url, ...(r.tag ? { programme: r.tag } : {}), ...(r.date ? { listed: r.date } : {}) })),
       ...(records.length > shown.length ? { moreRecords: records.length - shown.length } : {}),
     },
-  }, shown.map((r) => `${r.context || ''}`).join(' '), Boolean(meta.coreOnly));
+  }, shown.map((r) => `${r.context || ''}`).join(' '), Boolean(meta.coreOnly),
+  // Several records share one grade: it is only as strong as the weakest name among them
+  Math.max(...shown.map((r) => Number(r.tier) || 1)));
   // A list's reason text must never cost the hit itself: without it the record is still reported.
   return build(true) || build(false);
 }
@@ -741,25 +997,47 @@ function listRecord(list, index, hit) {
   };
 }
 
-/** Screen one name against one list. Resolves to { finding, clean }. */
+/**
+ * Company hits split by how they matched: through a name of two or more distinctive words (the company), or
+ * only through a one-word name ("Flow Inc." -> FLOW), which many unrelated firms share and which is held as
+ * 'possible'. Each group becomes its own finding.
+ */
+const byStrength = (task, hits) => (isPersonTask(task)
+  ? [{ hits, coreOnly: false }]
+  : [{ hits: hits.filter((h) => !isOneWordCompany(h.via || task.value)), coreOnly: false }, { hits: hits.filter((h) => isOneWordCompany(h.via || task.value)), coreOnly: true }])
+  .filter((g) => g.hits.length);
+
+/** Screen one name against one list. Resolves to { findings, clean, copy }. */
 async function screenList(list, task, ctx) {
-  const index = await loadIndex(list, ctx.deadline);
+  const copy = await loadIndex(list, ctx.deadline);
+  const { index } = copy;
   const hits = screenIndex(index, searchedNames(task, ctx), isPersonTask(task) ? 'person' : 'company');
-  const finding = matchFinding(task, ctx, {
+  const findings = byStrength(task, hits).map((g) => matchFinding(task, ctx, {
     source: 'sanctions-lists',
     sourceLabel: groupLabel(),
     category: 'sanctions',
     severity: 'high',
     where: `on the ${list.name}`,
-    data: { list: list.name, listKey: list.key, listReadAt: index.at, ...(index.asOf ? { listDated: index.asOf } : {}) },
-  }, hits.map((h) => listRecord(list, index, h)));
-  return { finding, clean: hits.length === 0 };
+    coreOnly: g.coreOnly,
+    data: { list: list.name, listKey: list.key, listReadAt: new Date(copy.at || Date.now()).toISOString(), ...(index.asOf ? { listDated: index.asOf } : {}), ...(copy.fresh ? {} : { listStale: true }) },
+  }, g.hits.map((h) => listRecord(list, index, h)))).filter(Boolean);
+  return { findings, clean: hits.length === 0, copy };
 }
 
 /** False when a name cannot be screened at all (a single word for a person, a two-letter company). */
 const canScreen = (task, ctx) => (isPersonTask(task)
   ? searchedNames(task, ctx).some((v) => isFullName(nameTokens(v)))
-  : companyTokens(task.value).join('').length >= 3);
+  : searchedNames(task, ctx).some((n) => companyTokens(n).join('').length >= 3));
+
+/**
+ * A name that cannot be screened was not looked up at all: never a clean result. `partial` makes the report
+ * list the screen as not done, not as "no match".
+ */
+const notScreened = (label, task, extraNotes = []) => ({
+  findings: [], threads: [],
+  notes: [...extraNotes, `${label}: "${oneLine(task.value)}" could not be screened (a single word, or too short a name)`],
+  partial: [`${oneLine(task.value).slice(0, 40)}: name could not be screened`],
+});
 
 /* ------------------------------------------------------------------ */
 /* 1. Sanctions lists                                                  */
@@ -788,27 +1066,39 @@ export const sanctionsListsConnector = {
     const notes = [];
     const off = notScreenedNote();
     if (off) notes.push(off);
-    if (!canScreen(task, ctx)) return { findings: [], threads: [], notes: [...notes, `${groupLabel()}: "${name}" is too short a name to screen`] };
+    if (!canScreen(task, ctx)) return notScreened(groupLabel(), task, notes);
 
     const wanted = String(task.template || ALL_LISTS);
     if (wanted !== ALL_LISTS) {
       const list = activeLists().find((l) => `list.${l.key}` === wanted);
       if (!list) throw new Error(`Unknown sanctions list: ${wanted}`);
-      const { finding, clean } = await screenList(list, task, ctx);
-      if (clean) notes.push(`${list.name}: no match for ${name}`);
-      return { findings: [finding].filter(Boolean), threads: [], notes };
+      const { findings, clean, copy } = await screenList(list, task, ctx);
+      if (clean) notes.push(`${list.name}: no match for ${name}${asOfText(copy)}`);
+      const stale = staleParts(list.name, copy);
+      if (stale) notes.push(stale.note);
+      return { findings, threads: [], notes, ...(stale ? { partial: [stale.partial] } : {}) };
     }
 
     const lists = activeLists();
     const results = await Promise.allSettled(lists.map((l) => screenList(l, task, ctx)));
     const failed = lists.filter((l, i) => results[i].status === 'rejected');
     if (failed.length === lists.length) throw results[0].reason;
-    const findings = results.map((r) => (r.status === 'fulfilled' ? r.value.finding : null)).filter(Boolean);
+    const findings = results.flatMap((r) => (r.status === 'fulfilled' ? r.value.findings : []));
+    const partial = [];
     const cleanLists = lists.filter((l, i) => results[i].status === 'fulfilled' && results[i].value.clean);
-    if (cleanLists.length === lists.length) notes.push(`${groupLabel()}: no match for ${name}`);
-    else for (const l of cleanLists) notes.push(`${l.name}: no match for ${name}`);
-    for (const l of failed) notes.push(`${l.name}: could not be read, so ${name} was not screened against it`);
-    return { findings, threads: [], notes };
+    const dates = [...new Set(cleanLists.map((l) => results[lists.indexOf(l)].value.copy?.asOf).filter(Boolean))];
+    if (cleanLists.length === lists.length) notes.push(`${groupLabel()}: no match for ${name}${dates.length === 1 ? ` (lists as of ${dates[0]})` : ''}`);
+    else for (const l of cleanLists) notes.push(`${l.name}: no match for ${name}${asOfText(results[lists.indexOf(l)].value.copy)}`);
+    lists.forEach((l, i) => {
+      const stale = results[i].status === 'fulfilled' ? staleParts(l.name, results[i].value.copy) : null;
+      if (stale) { notes.push(stale.note); partial.push(stale.partial); }
+    });
+    // A list that could not be read was not screened: the lookup is partly answered, never clean
+    for (const l of failed) {
+      notes.push(`${l.name}: could not be read, so ${name} was not screened against it`);
+      partial.push(`${l.name}: not read`);
+    }
+    return { findings, threads: [], notes, ...(partial.length ? { partial } : {}) };
   },
 };
 
@@ -818,20 +1108,60 @@ export const sanctionsListsConnector = {
 
 const EXCLUSIONS_LABEL = 'US federal exclusion lists (SAM.gov, HHS OIG)';
 const SAM_SEARCH = 'https://sam.gov/api/prod/sgs/v1/search/';
+const SAM_PAGE_SIZE = 50;
+// A common name brings back many rows: up to three pages are read, and a longer answer is reported as partial.
+const SAM_MAX_PAGES = 3;
 const OIG_URL = 'https://exclusions.oig.hhs.gov/';
+// The official monthly file of the whole List of Excluded Individuals/Entities (about 11 MB). It replaces the
+// search form, which showed one page of results at a time.
+const LEIE_CSV = 'https://oig.hhs.gov/exclusions/downloadables/UPDATED.csv';
+const LEIE_CACHE_KEY = 'watchlist:leie:v2';
 
-/** The shortest searched form of a person's name: first and last name, no middle initials. */
-const coreName = (variants) => variants.slice().sort((a, b) => a.split(' ').length - b.split(' ').length)[0];
+/** The shortest searched form of a person's name that can be screened: first and last name, no middle initials. */
+const coreName = (variants) => {
+  const usable = variants.filter((v) => isFullName(nameTokens(v)));
+  return (usable.length ? usable : variants).slice().sort((a, b) => a.split(' ').length - b.split(' ').length)[0];
+};
+
+/** A SAM.gov date ("2019-05-01", "05/01/2019") as yyyy-mm-dd, or '' ("Indefinite", empty). */
+const samDate = (s) => {
+  const t = oneLine(s);
+  const us = t.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (us) return `${us[3]}-${us[1]}-${us[2]}`;
+  return (t.match(/^\d{4}-\d{2}-\d{2}/) || [])[0] || '';
+};
+
+/** One SAM.gov exclusions search, read page by page up to SAM_MAX_PAGES. Ended exclusions are included. */
+async function samSearch(q, ctx) {
+  const rows = [];
+  let total = 0;
+  for (let page = 0; page < SAM_MAX_PAGES; page += 1) {
+    // No is_active filter: an exclusion that has ended is still part of the person's record
+    const url = `${SAM_SEARCH}?index=ex&q=${encodeURIComponent(q.toLowerCase())}&qMode=ALL&page=${page}&size=${SAM_PAGE_SIZE}&mode=search&sort=-relevance`;
+    const json = await getJson(url, { deadline: ctx.deadline, accept: 'application/hal+json', timeoutMs: 12000 });
+    if (!json || (json.page == null && json._embedded == null)) throw new Error('SAM.gov did not return a search result');
+    const got = Array.isArray(json._embedded?.results) ? json._embedded.results : [];
+    rows.push(...got);
+    total = Math.max(total, Number(json.page?.totalElements) || 0, rows.length);
+    if (got.length < SAM_PAGE_SIZE || rows.length >= total) break;
+  }
+  return { rows, total };
+}
 
 async function screenSam(task, ctx) {
   const name = oneLine(task.value);
   const person = isPersonTask(task);
   const variants = searchedNames(task, ctx);
-  const q = person ? normalizeName(coreName(variants)) : companyTokens(name).join(' ');
-  const url = `${SAM_SEARCH}?index=ex&q=${encodeURIComponent(q.toLowerCase())}&qMode=ALL&page=0&size=50&mode=search&sort=-relevance&is_active=true`;
-  const json = await getJson(url, { deadline: ctx.deadline, accept: 'application/hal+json', timeoutMs: 12000 });
-  if (!json || (json.page == null && json._embedded == null)) throw new Error('SAM.gov did not return a search result');
-  const rows = Array.isArray(json._embedded?.results) ? json._embedded.results : [];
+  // A company is searched under each known name (up to two): its legal name finds it far better than one word
+  const queries = person ? [normalizeName(coreName(variants))] : variants.slice(0, 2).map((n) => companyTokens(n).join(' ')).filter((q) => q.length >= 3);
+  const rows = [];
+  const seenIds = new Set();
+  let cut = 0;
+  for (const q of [...new Set(queries)]) {
+    const answer = await samSearch(q, ctx);
+    for (const r of answer.rows) if (r?._id && !seenIds.has(r._id)) { seenIds.add(r._id); rows.push(r); }
+    if (answer.total > answer.rows.length) cut = Math.max(cut, answer.total - answer.rows.length);
+  }
   const seen = new Set();
   const hits = [];
   for (const r of rows) {
@@ -839,21 +1169,28 @@ async function screenSam(task, ctx) {
     const individual = /individual/i.test(r?.classification?.code || '');
     // Rows copied from the Treasury sanctions list are already covered by the screening list
     if (!listed || !r?._id || individual !== person || /OFAC/i.test(`${r.excludingAgency || ''} ${r.excludingAgencyDesc || ''}`)) continue;
-    const tier = person ? matchPersonName(variants, listed) : (matchCompanyName(name, listed) ? 1 : 0);
+    const via = person ? '' : variants.find((n) => matchCompanyName(n, listed)) || '';
+    const tier = person ? matchPersonName(variants, listed) : (via ? 1 : 0);
     if (!tier) continue;
     const key = [normalizeName(listed), r.excludingAgency, r.exclusionType, r.activationDate].join('|');
     if (seen.has(key)) continue;
     seen.add(key);
-    hits.push({ r, listed, tier });
+    hits.push({ r, listed, tier, via });
   }
   hits.sort((a, b) => a.tier - b.tier);
-  const findings = hits.slice(0, 5).map(({ r, listed, tier }) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const findings = hits.slice(0, 5).map(({ r, listed, tier, via }) => {
     const agency = oneLine(r.excludingAgencyDesc || r.excludingAgency);
     const state = r.address?.state && /^(USA|US)$/i.test(r.address?.country || '') ? `${r.address.state}, USA` : oneLine(r.address?.country);
+    const ended = samDate(r.terminationDate);
+    const over = Boolean(ended && ended < today);
     return matchFinding(task, ctx, {
-      source: 'us-exclusions', sourceLabel: EXCLUSIONS_LABEL, category: 'sanctions', severity: 'high',
-      where: 'on the SAM.gov exclusion list',
-      data: { list: 'SAM.gov exclusions', excludingAgency: agency, exclusionType: oneLine(r.exclusionType) || null },
+      source: 'us-exclusions', sourceLabel: EXCLUSIONS_LABEL, category: 'sanctions',
+      // An exclusion that has ended still matters, but it is no longer a bar
+      severity: over ? 'medium' : 'high',
+      where: over ? `on the SAM.gov exclusion list (exclusion ended ${ended})` : 'on the SAM.gov exclusion list',
+      coreOnly: !person && isOneWordCompany(via || name),
+      data: { list: 'SAM.gov exclusions', excludingAgency: agency, exclusionType: oneLine(r.exclusionType) || null, ...(over ? { ended } : {}) },
     }, [{
       name: listed,
       tag: [agency, oneLine(r.exclusionType)].filter(Boolean).join(', '),
@@ -864,7 +1201,7 @@ async function screenSam(task, ctx) {
         r.exclusionType ? `Exclusion type: ${oneLine(r.exclusionType)}` : '',
         r.exclusionProgram ? `Exclusion program: ${oneLine(r.exclusionProgram)}` : '',
         r.activationDate ? `Active date: ${oneLine(r.activationDate)}` : '',
-        `Termination date: ${oneLine(r.terminationDate) || 'Indefinite'}`,
+        over ? `Exclusion ended ${ended}` : `Termination date: ${oneLine(r.terminationDate) || 'Indefinite'}`,
         state ? `State: ${state}` : '',
       ].filter(Boolean).join(' | '),
       url: `https://sam.gov/exclusion/${encodeURIComponent(r._id)}/view`,
@@ -875,11 +1212,12 @@ async function screenSam(task, ctx) {
   const notes = [];
   if (!hits.length) notes.push(`SAM.gov exclusion list: no match for ${name}`);
   if (hits.length > 5) notes.push(`SAM.gov exclusion list: ${hits.length} records match the name ${name}; the first 5 are shown`);
-  if (Number(json.page?.totalElements) > rows.length) notes.push(`SAM.gov exclusion list: ${json.page.totalElements} records contain the words of the name ${name}; the first ${rows.length} were read`);
-  return { findings, threads: [], notes };
+  // A cut answer may hold the matching record on a page not read: the screen is partial, never clean
+  if (cut) notes.push(`SAM.gov exclusion list: ${cut + rows.length} records contain the words of the name ${name}; the first ${rows.length} were read`);
+  return { findings, threads: [], notes, ...(cut ? { partial: [`SAM.gov exclusion list: ${rows.length} of ${cut + rows.length} records read`] } : {}) };
 }
 
-/** Rows of the HHS OIG search result table: [last, first, middle, general, specialty, exclusion]. */
+/** Rows of the HHS OIG search result table: [last, first, middle, general, specialty, exclusion]. Kept for old callers. */
 export function parseOigResults(html) {
   const grid = String(html).match(/<table[^>]*id="ctl00_cpExclusions_gvEmployees"[\s\S]*?<\/table>/i);
   if (!grid) return null;
@@ -890,70 +1228,115 @@ export function parseOigResults(html) {
     .map((cells) => cells.slice(0, 6));
 }
 
+const leieDate = (s) => {
+  const m = oneLine(s).match(/^(\d{4})(\d{2})(\d{2})$/);
+  return m && m[1] !== '0000' ? `${m[1]}-${m[2]}-${m[3]}` : '';
+};
+
+/**
+ * Build the compact index from the LEIE file. Only names, the general category, the specialty, the exclusion
+ * type and its date are read: the file's birth date, address, NPI and UPIN columns are never read or kept.
+ * About 84,000 rows, packed so the stored copy stays small enough for the shared cache: each row is
+ * [name, 0 person | 1 entity, general, specialty, exclusion type, date], the three repeated texts as positions
+ * in `dict`. leieRows() turns it back into rows { n, t, g, s, x, d }.
+ */
+export function parseLeie(text, { minRows = 1000 } = {}) {
+  if (!/\n\s*$/.test(String(text).slice(-8))) throw new Error(INCOMPLETE);
+  let col = null;
+  const rows = [];
+  const dict = { g: [], s: [], x: [] };
+  const at = { g: new Map(), s: new Map(), x: new Map() };
+  const code = (k, v) => {
+    if (!at[k].has(v)) { at[k].set(v, dict[k].length); dict[k].push(v); }
+    return at[k].get(v);
+  };
+  eachCsvRow(String(text), ',', (f) => {
+    if (!col) {
+      col = Object.fromEntries(f.map((h, i) => [oneLine(h).toUpperCase(), i]));
+      for (const need of ['LASTNAME', 'FIRSTNAME', 'MIDNAME', 'BUSNAME', 'GENERAL', 'SPECIALTY', 'EXCLTYPE', 'EXCLDATE']) {
+        if (col[need] == null) throw new Error('The HHS OIG exclusion file is not in the expected format');
+      }
+      return;
+    }
+    if (f.length < 8) return;
+    const get = (k) => oneLine(f[col[k]]);
+    const last = get('LASTNAME');
+    const first = get('FIRSTNAME');
+    const business = get('BUSNAME');
+    const person = Boolean(last);
+    const n = person ? `${last}, ${[first, get('MIDNAME')].filter(Boolean).join(' ')}`.replace(/,\s*$/, '') : business;
+    if (!n || !isLatin(n)) return;
+    rows.push([n, person ? 0 : 1, code('g', clipText(get('GENERAL'), 40)), code('s', clipText(get('SPECIALTY'), 60)), code('x', clipText(get('EXCLTYPE'), 20)), leieDate(get('EXCLDATE'))]);
+  });
+  if (rows.length < minRows) throw new Error('The HHS OIG exclusion file had too few entries to be the whole list');
+  return { v: 2, key: 'leie', at: new Date().toISOString(), dict, packed: rows };
+}
+
+const unpacked = new WeakMap();
+/** The LEIE index as rows { n, t, g, s, x, d } (built once per loaded copy, so screenIndex's own memo holds). */
+export function leieRows(index) {
+  let out = unpacked.get(index);
+  if (!out) {
+    const { dict = {}, packed = [] } = index || {};
+    out = {
+      at: index?.at,
+      rows: packed.map(([n, t, g, s, x, d]) => compact({ n, t: t ? 'entity' : 'person', g: dict.g?.[g], s: dict.s?.[s], x: dict.x?.[x], d })),
+    };
+    unpacked.set(index, out);
+  }
+  return out;
+}
+
+const LEIE_LIST = {
+  name: 'HHS OIG exclusion list',
+  cacheKey: LEIE_CACHE_KEY,
+  load: async (deadline) => parseLeie(await fetchList(LEIE_CSV, { deadline, timeoutMs: 24000 })),
+};
+
 async function screenOig(task, ctx) {
   const name = oneLine(task.value);
-  const variants = searchedNames(task, ctx);
-  const words = normalizeName(coreName(variants)).split(' ');
-  const [first, last] = [words[0], words[words.length - 1]];
-  // The site needs to see that cookies work before it shows the form
-  const page = await request(OIG_URL, { deadline: ctx.deadline, timeoutMs: 10000, headers: { Cookie: 'AspxAutoDetectCookieSupport=1' } });
-  const session = (String(page.headers?.get?.('set-cookie') || '').match(/ASP\.NET_SessionId=[^;,\s]+/) || [])[0];
-  const fields = {};
-  for (const m of page.text.matchAll(/<input[^>]+type="hidden"[^>]*>/gi)) {
-    const key = (m[0].match(/name="([^"]*)"/) || [])[1];
-    if (key && key.startsWith('__')) fields[key] = decodeXml((m[0].match(/value="([^"]*)"/) || [])[1] || '');
-  }
-  if (!fields.__VIEWSTATE || !/txtSPLastName/.test(page.text)) throw new Error('The HHS OIG search page was not in the expected format');
-  const form = new URLSearchParams(fields);
-  form.set('ctl00$cpExclusions$txtSPLastName', last);
-  form.set('ctl00$cpExclusions$txtSPFirstName', first);
-  form.set('ctl00$cpExclusions$ibSearchSP.x', '20');
-  form.set('ctl00$cpExclusions$ibSearchSP.y', '10');
-  const result = await request(OIG_URL, {
-    method: 'POST', deadline: ctx.deadline, timeoutMs: 10000, body: form.toString(),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Cookie: ['AspxAutoDetectCookieSupport=1', session].filter(Boolean).join('; ') },
+  const copy = await loadIndex(LEIE_LIST, ctx.deadline);
+  const index = leieRows(copy.index);
+  const person = isPersonTask(task);
+  const hits = screenIndex(index, searchedNames(task, ctx), person ? 'person' : 'company');
+  const records = (h) => ({
+    name: h.row.n,
+    tag: h.row.x || '',
+    quote: [`Listed name: ${h.row.n}`, h.row.g ? `General: ${h.row.g}` : '', h.row.s ? `Specialty: ${h.row.s}` : '', h.row.x ? `Exclusion: ${h.row.x}` : '', h.row.d ? `Excluded: ${h.row.d}` : ''].filter(Boolean).join(' | '),
+    context: [h.row.g, h.row.s].filter(Boolean).join(' '),
+    url: OIG_URL,
+    date: h.row.d || null,
+    tier: h.tier,
   });
-  const rows = parseOigResults(result.text);
-  if (!rows && !/No Results were found/i.test(result.text)) throw new Error('The HHS OIG search did not return a result page');
-  const stampLine = oneLine((result.text.match(/Source data updated on[^<]*/i) || [])[0]);
-  const records = (rows || []).map(([l, f, m, general, specialty, exclusion]) => {
-    const listed = `${l}, ${[f, m].filter(Boolean).join(' ')}`;
-    return {
-      name: listed,
-      tag: exclusion,
-      quote: [`Listed name: ${listed}`, general ? `General: ${general}` : '', specialty ? `Specialty: ${specialty}` : '', exclusion ? `Exclusion: ${exclusion}` : ''].filter(Boolean).join(' | '),
-      context: [general, specialty].filter(Boolean).join(' '),
-      url: OIG_URL,
-      tier: matchPersonName(variants, `${f} ${m} ${l}`),
-    };
-  }).filter((r) => r.tier).sort((a, b) => a.tier - b.tier);
-  const finding = matchFinding(task, ctx, {
+  const findings = byStrength(task, hits).map((g) => matchFinding(task, ctx, {
     source: 'us-exclusions', sourceLabel: EXCLUSIONS_LABEL, category: 'sanctions', severity: 'high',
-    where: 'on the HHS OIG exclusion list', noun: 'listed people',
-    data: { list: 'HHS OIG List of Excluded Individuals/Entities', ...(stampLine ? { sourceStamp: stampLine } : {}) },
-  }, records);
-  const notes = records.length ? [] : [`HHS OIG exclusion list: no match for ${name}`];
-  if (rows && /Page\$\d+/.test(result.text)) notes.push(`HHS OIG exclusion list: more people share the name ${name} than one result page holds; only the first page was read`);
-  return { findings: [finding].filter(Boolean), threads: [], notes };
+    where: 'on the HHS OIG exclusion list', noun: person ? 'listed people' : 'listed firms',
+    coreOnly: g.coreOnly,
+    data: { list: 'HHS OIG List of Excluded Individuals/Entities', listReadAt: new Date(copy.at || Date.now()).toISOString(), ...(copy.fresh ? {} : { listStale: true }) },
+  }, g.hits.map(records))).filter(Boolean);
+  const notes = hits.length ? [] : [`HHS OIG exclusion list: no match for ${name}${asOfText(copy)}`];
+  const stale = staleParts(LEIE_LIST.name, copy);
+  if (stale) notes.push(stale.note);
+  return { findings, threads: [], notes, ...(stale ? { partial: [stale.partial] } : {}) };
 }
 
 export const exclusionsConnector = {
   id: 'us-exclusions',
   label: EXCLUSIONS_LABEL,
-  kinds: ['subject', 'company'],
+  // Associates and relatives are screened too (a debarred co-founder matters), graded 'possible' unless the
+  // record also names the person being checked
+  kinds: ['subject', 'company', 'associate', 'relative'],
   prior: 0.4,
-  timeoutMs: 15000,
-  /** A person is searched on both lists. A company only on SAM.gov, which also carries the health exclusions of firms. */
+  // The LEIE file is about 11 MB: a cold load needs longer than a search
+  timeoutMs: 25000,
+  /** A person is screened on both lists. A company only on SAM.gov, which also carries the health exclusions of firms. */
   plan(thread) {
     const sam = { template: 'excl.sam', prior: 0.4, why: 'search the SAM.gov exclusion list by name' };
-    return thread?.kind === 'company' ? [sam] : [sam, { template: 'excl.leie', prior: 0.4, why: 'search the HHS OIG exclusion list by name' }];
+    return thread?.kind === 'company' ? [sam] : [sam, { template: 'excl.leie', prior: 0.4, why: 'screen the name against the HHS OIG exclusion list' }];
   },
   async run(task, ctx) {
-    if (!canScreen(task, ctx)) return { findings: [], threads: [], notes: [`${EXCLUSIONS_LABEL}: "${oneLine(task.value)}" is too short a name to screen`] };
-    if (task.template === 'excl.leie') {
-      if (!isPersonTask(task)) return { findings: [], threads: [], notes: [] };
-      return screenOig(task, ctx);
-    }
+    if (!canScreen(task, ctx)) return notScreened(EXCLUSIONS_LABEL, task);
+    if (task.template === 'excl.leie') return screenOig(task, ctx);
     return screenSam(task, ctx);
   },
 };
@@ -976,9 +1359,11 @@ export const offshoreLeaksConnector = {
   async run(task, ctx) {
     const name = oneLine(task.value);
     if (task.kind !== 'subject' && task.kind !== 'company') return { findings: [], threads: [], notes: [] };
-    if (!canScreen(task, ctx)) return { findings: [], threads: [], notes: [`${ICIJ_LABEL}: "${name}" is too short a name to search`] };
+    if (!canScreen(task, ctx)) return notScreened(ICIJ_LABEL, task);
     const person = isPersonTask(task);
-    const variants = searchedNames(task, ctx).slice(0, 3);
+    // Forms that can be screened only (a name typed in Cyrillic is searched in Latin letters); a company under
+    // each known name
+    const variants = searchedNames(task, ctx).filter((v) => (person ? isFullName(nameTokens(v)) : companyTokens(v).join('').length >= 3)).slice(0, 3);
     // A person is looked for as an officer (or intermediary) of an offshore entity; a company as the entity itself,
     // or as an officer or intermediary of one. Address records are never requested.
     const types = person ? ['Officer', 'Intermediary'] : ['Entity', 'Officer', 'Intermediary'];
@@ -992,15 +1377,17 @@ export const offshoreLeaksConnector = {
       for (const node of Array.isArray(list) ? list : []) {
         const kind = oneLine(node?.types?.[0]?.name);
         if (!node?.id || !node?.name || !types.includes(kind) || byId.has(String(node.id))) continue;
-        const tier = person ? matchPersonName(variants, node.name) : (matchCompanyName(name, node.name) ? 1 : 0);
-        if (tier) byId.set(String(node.id), { node, kind, tier });
+        const via = person ? '' : [...variants].sort((a, b) => companyTokens(b).length - companyTokens(a).length).find((n) => matchCompanyName(n, node.name)) || '';
+        const tier = person ? matchPersonName(variants, node.name) : (via ? 1 : 0);
+        if (tier) byId.set(String(node.id), { node, kind, tier, via });
       }
     }
     const hits = [...byId.values()].sort((a, b) => a.tier - b.tier);
     // A one-word company name ("Flow Inc." -> FLOW) matches every offshore shell that shares the word:
-    // such a hit is held as 'possible', never reported as the company's own record.
-    const coreOnly = !person && companyTokens(name).length < 2;
-    const findings = hits.slice(0, 5).map(({ node, kind, tier }) => {
+    // such a hit is held as 'possible', never reported as the company's own record. A hit through a learned
+    // legal name of two or more words is the company's.
+    const findings = hits.slice(0, 5).map(({ node, kind, tier, via }) => {
+      const coreOnly = !person && isOneWordCompany(via || name);
       const description = oneLine(node.description);
       const leak = (description.match(/extracted from the (.+?) data\.?$/i) || [])[1] || '';
       return matchFinding(task, ctx, {
@@ -1086,14 +1473,21 @@ export function parseEuMostWanted(html) {
   return stamp('eu-most-wanted', {}, rows);
 }
 
+const EU_WANTED_LIST = {
+  name: 'EU Most Wanted list',
+  cacheKey: 'watchlist:eu-most-wanted:v1',
+  load: async (deadline) => parseEuMostWanted((await request(EU_WANTED, { deadline, timeoutMs: 12000 })).text),
+};
+
 async function screenEuWanted(task, ctx) {
   const name = oneLine(task.value);
-  const index = await cached('watchlist:eu-most-wanted:v1', DAY_MS, async () => parseEuMostWanted((await request(EU_WANTED, { deadline: ctx.deadline, timeoutMs: 12000 })).text));
+  const copy = await loadIndex(EU_WANTED_LIST, ctx.deadline);
+  const { index } = copy;
   const hits = screenIndex(index, searchedNames(task, ctx), 'person').filter((h) => h.tier === 1);
   const findings = hits.slice(0, 3).map(({ row }) => matchFinding(task, ctx, {
     source: 'wanted-lists', sourceLabel: WANTED_LABEL, category: 'sanctions', severity: 'high',
     where: 'on the EU Most Wanted list',
-    data: { list: 'EU Most Wanted', listReadAt: index.at },
+    data: { list: 'EU Most Wanted', listReadAt: new Date(copy.at || Date.now()).toISOString(), ...(copy.fresh ? {} : { listStale: true }) },
   }, [{
     name: row.n,
     tag: row.p || '',
@@ -1101,7 +1495,10 @@ async function screenEuWanted(task, ctx) {
     url: `https://eumostwanted.eu${row.u}`,
     tier: 1,
   }])).filter(Boolean);
-  return { findings, threads: [], notes: findings.length ? [] : [`EU Most Wanted list: no match for ${name}`] };
+  const notes = findings.length ? [] : [`EU Most Wanted list: no match for ${name}${asOfText(copy)}`];
+  const stale = staleParts(EU_WANTED_LIST.name, copy);
+  if (stale) notes.push(stale.note);
+  return { findings, threads: [], notes, ...(stale ? { partial: [stale.partial] } : {}) };
 }
 
 export const wantedConnector = {
@@ -1118,7 +1515,7 @@ export const wantedConnector = {
   },
   async run(task, ctx) {
     if (task.kind !== 'subject') return { findings: [], threads: [], notes: [] };
-    if (!canScreen(task, ctx)) return { findings: [], threads: [], notes: [`${WANTED_LABEL}: "${oneLine(task.value)}" is too short a name to search`] };
+    if (!canScreen(task, ctx)) return notScreened(WANTED_LABEL, task);
     return task.template === 'wanted.eu' ? screenEuWanted(task, ctx) : screenFbi(task, ctx);
   },
 };

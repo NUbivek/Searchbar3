@@ -21,15 +21,18 @@
 import { nameMatcher, normalizePersonName, companyKeys } from '../founderCheck';
 import {
   companyKeyStrict as strictKey, companyMentionMatcher, companyMatchForms, cooccurrences, isCommonName, isBroadOrganisation,
-  describedAsSomeoneElse, parsePersonName, isOrdinaryWordCompany, personNameVariants,
+  describedAsSomeoneElse, parsePersonName, isOrdinaryWordCompany, personNameVariants, personNameMatcher, isLargeEmployer,
 } from './names';
 
 const stripAccents = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** Lowercase ASCII tokens of a name: "José María O'Neil-Smith" -> ["jose", "maria", "oneil", "smith"]. */
+/**
+ * Lowercase tokens of a name: "José María O'Neil-Smith" -> ["jose", "maria", "oneil", "smith"]. Letters of other
+ * scripts are kept ("Аркадий Волож" -> ["аркадий", "волож"]), so a name in Cyrillic or Han is not an empty list.
+ */
 export function nameTokens(name) {
-  return stripAccents(name).toLowerCase().replace(/['’.]/g, '').split(/[^a-z0-9]+/).filter(Boolean);
+  return stripAccents(name).toLowerCase().replace(/['’.]/g, '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 }
 
 /**
@@ -61,7 +64,9 @@ export function personKey(name) {
  * dropped for the short forms.
  */
 export function slugCandidates(name) {
+  // Web addresses and handles are written in plain Latin letters: a name in another script has no slug here.
   const tokens = nameTokens(name);
+  if (tokens.some((t) => !/^[a-z0-9]+$/.test(t))) return [];
   if (tokens.length < 2) return [];
   const first = tokens[0];
   const last = tokens[tokens.length - 1];
@@ -103,29 +108,116 @@ function orgMatcher(org, subject = null) {
   return test;
 }
 
+/** Typed other names, cleaned: a list or one string split on ";" or new lines; the main name and repeats dropped. */
+function cleanOtherNames(list, person) {
+  const raw = Array.isArray(list) ? list : String(list || '').split(/[;\n]+/);
+  const out = [];
+  const seen = new Set([personKey(person)]);
+  for (const r of raw) {
+    const n = normalizePersonName(String(r || '').replace(/["“”„]/g, '').trim());
+    if (!n || n.length < 2 || n.length > 120) continue;
+    const k = personKey(n);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(n);
+  }
+  return out.slice(0, 5);
+}
+
 /**
  * The subject of a check and everything known about them so far.
- * @param {{ name: string, company?: string }} input
+ * `otherNames` are names the user typed for the same person (a former or maiden name, a name in another script,
+ * an anglicised name). They are graded exactly like the main name, and are listed in `searchNames` for sources
+ * to search. Names found later in tied records go through addNameAlias and are graded 'likely' at most.
+ * @param {{ name: string, company?: string, otherNames?: string[]|string }} input
  */
-export function createSubject({ name, company = '' }) {
+export function createSubject({ name, company = '', otherNames = [] }) {
   const person = normalizePersonName(name);
   // Search forms: as typed, and given name plus surname without any middle name.
   const variants = personNameVariants(person);
+  const typedOthers = cleanOtherNames(otherNames, person);
+  const otherVariants = typedOthers.flatMap((n) => personNameVariants(n));
   const subject = {
     name: person,
     variants,
-    hasName: nameMatcher(variants),
+    hasName: nameMatcher([...variants, ...otherVariants]),
     slugs: slugCandidates(person),
     company: String(company || '').trim(),
     // A very common full name ("John Smith") needs the company or another anchor beside it in the same record.
     common: isCommonName(person),
-    anchors: { companies: new Map(), schools: new Map(), people: new Map(), handles: new Map(), domains: new Map(), roles: new Map(), related: new Map(), events: new Map(), aliases: new Map() },
+    // A person known by one name ("Budi"): only ever tied with the company beside the name, and then 'likely'
+    // unless a second fact is there too.
+    mononym: Boolean(personNameMatcher(person).mononym),
+    otherNames: typedOthers,
+    searchNames: [...new Set([...variants, ...otherVariants])],
+    anchors: { companies: new Map(), schools: new Map(), people: new Map(), handles: new Map(), domains: new Map(), roles: new Map(), related: new Map(), events: new Map(), aliases: new Map(), otherNames: new Map() },
   };
   // A generational suffix typed with the name ("John Smith Jr.") is kept so "John Smith Sr." is not taken for them.
   const typedSuffix = parsePersonName(String(name || '').replace(/["“”„]/g, '')).suffix;
-  if (typedSuffix) subject.hasName = nameMatcher([`${person} ${typedSuffix}`]);
+  if (typedSuffix) subject.hasName = nameMatcher([`${person} ${typedSuffix}`, ...otherVariants]);
+  for (const n of typedOthers) subject.anchors.otherNames.set(personKey(n), { value: n, origin: 'given', typed: true, test: nameMatcher(personNameVariants(n)) });
   if (subject.company) addAnchor(subject, 'companies', subject.company, 'given');
   return subject;
+}
+
+/**
+ * Learn another name of the person from a record already tied to them (Wikidata "also known as" or birth name,
+ * "formerly known as", "née" in a confirmed record). A record that names the person only under it is graded
+ * 'likely' at most: the alias came from a source, not from the user. Refused: a one-word name, the person's own
+ * name, a name already known. Returns true when the name is new. Kept by exportAnchors / restoreSubject (kind
+ * 'otherNames': { value, origin, typed: false }).
+ */
+export function addNameAlias(subject, { alias, origin = 'found' } = {}) {
+  const n = normalizePersonName(String(alias || '').replace(/["“”„]/g, '').trim());
+  if (!n || n.length > 120) return false;
+  const parts = parsePersonName(n);
+  // A one-word alias ("Smith") would tie every namesake's record; a name in a script without spaces is a full name.
+  if (!parts.surname && !/[\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(n)) return false;
+  if (subject.hasName(n)) return false;
+  if (!subject.anchors.otherNames) subject.anchors.otherNames = new Map();
+  const key = personKey(n);
+  if (subject.anchors.otherNames.has(key)) return false;
+  subject.anchors.otherNames.set(key, { value: n, origin, typed: false, test: nameMatcher(personNameVariants(n)) });
+  return true;
+}
+
+const ALIAS_NAME = String.raw`(\p{Lu}[\p{L}'’.-]*(?:\s+\p{Lu}[\p{L}'’.-]*){0,3})`;
+// The phrase that introduces another name of the person, right after their name (an aside may sit between).
+const ALIAS_CUES = [
+  { how: 'née', re: new RegExp(String.raw`^[\s,(]*(?:n[ée]e|born)\s+(\p{Lu}[\p{L}'’-]+)(?=\s*[),;.]|\s*$)`, 'u'), surnameOnly: true },
+  { how: 'formerly known as', re: new RegExp(String.raw`^[\s,(]*(?:formerly|previously|once)\s+(?:known\s+as|named|called)\s+${ALIAS_NAME}`, 'u') },
+  { how: 'also known as', re: new RegExp(String.raw`^[\s,(]*(?:also\s+known\s+as|a\.?k\.?a\.?|aka|alias)\s+${ALIAS_NAME}`, 'u') },
+  { how: 'born', re: new RegExp(String.raw`^[\s,(]*born\s+(?:as\s+)?${ALIAS_NAME}`, 'u') },
+];
+
+/**
+ * Other names a text gives for the person, read only right beside their full name: "Jane Doe (née Smith)" gives
+ * Jane Smith, "Jane Doe, formerly known as Janet Rowe" gives Janet Rowe, "born Jane Ann Black" gives that name.
+ * A caller turns them into 'alias' threads, and only from a record tied to the person (confirmed or likely).
+ * @returns {{ name: string, how: string }[]}
+ */
+export function findNameAliases(subject, text) {
+  const str = String(text || '');
+  const out = [];
+  const seen = new Set();
+  const given = parsePersonName(subject.name).given;
+  for (const nm of subject.hasName.positions(str)) {
+    const after = str.slice(nm.end, nm.end + 120);
+    for (const cue of ALIAS_CUES) {
+      const m = after.match(cue.re);
+      if (!m) continue;
+      // "née Smith" is the surname only: the given name stays the person's.
+      const name = cue.surnameOnly ? `${given} ${m[1]}` : m[1].replace(/[.,]+$/, '').trim();
+      if (!parsePersonName(name).surname) continue;
+      if (subject.hasName(name)) continue;
+      const k = personKey(name);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ name, how: cue.how });
+      break;
+    }
+  }
+  return out;
 }
 
 // An origin of 'encyclopedia' (or 'encyclopedia:<finding id>') marks an organisation or person linked to the
@@ -142,7 +234,7 @@ const isEncyclopedia = (origin) => /^encyclopedia(?::|$)/.test(String(origin || 
  */
 export function addAnchor(subject, kind, value, origin = 'found') {
   const v = String(value || '').trim();
-  if (v.length < 2 || !subject.anchors[kind] || kind === 'roles' || kind === 'events' || kind === 'related' || kind === 'aliases') return false;
+  if (v.length < 2 || !subject.anchors[kind] || kind === 'roles' || kind === 'events' || kind === 'related' || kind === 'aliases' || kind === 'otherNames') return false;
   const key = kind === 'companies' ? (companyKeys(v)[0] || v.toLowerCase()) : v.toLowerCase();
   if (!key || subject.anchors[kind].has(key)) return false;
   if (isEncyclopedia(origin)) {
@@ -167,7 +259,9 @@ export function addAnchor(subject, kind, value, origin = 'found') {
     : kind === 'handles' || kind === 'domains' ? ((text) => new RegExp(`(?<![A-Za-z0-9_])@?${escapeRe(v)}(?![A-Za-z0-9_])`, 'i').test(text))
     : orgMatcher(v, subject);
   if (!test) return false;
-  subject.anchors[kind].set(key, { value: v, origin, test });
+  // A very large employer or a university ("Google", "Deloitte", "Stanford University") has thousands of people
+  // with any given name: naming it beside the person is one fact, not enough to confirm on its own.
+  subject.anchors[kind].set(key, { value: v, origin, test, ...(kind === 'companies' && isLargeEmployer(v) ? { broad: true } : {}) });
   return true;
 }
 
@@ -320,17 +414,23 @@ function withinTenure(date, from, to) {
 export function exportAnchors(subject) {
   const out = {};
   for (const [kind, map] of Object.entries(subject.anchors)) {
-    out[kind] = [...map.values()].map(({ value, origin, role, from, to, as, date, docket, of }) => (kind === 'roles' ? { value, org: value, role, from, to, origin }
+    out[kind] = [...map.values()].map(({ value, origin, role, from, to, as, date, docket, of, typed }) => (kind === 'roles' ? { value, org: value, role, from, to, origin }
       : kind === 'events' ? { value, event: value, date, origin, ...(docket ? { docket } : {}) }
         : kind === 'related' ? { value, as, origin }
-          : kind === 'aliases' ? { value, of, origin } : { value, origin }));
+          : kind === 'aliases' ? { value, of, origin }
+            : kind === 'otherNames' ? { value, origin, typed: Boolean(typed) } : { value, origin }));
   }
   return out;
 }
 
-/** Rebuild a subject from { name, company, anchors } saved by exportAnchors. */
-export function restoreSubject({ name, company, anchors = {} }) {
-  const subject = createSubject({ name, company });
+/**
+ * Rebuild a subject from { name, company, anchors } saved by exportAnchors. Typed other names come back from
+ * `otherNames` when given, else from the saved anchors marked typed; found aliases come back through addNameAlias.
+ */
+export function restoreSubject({ name, company, otherNames, anchors = {} }) {
+  const typed = otherNames !== undefined ? otherNames
+    : (anchors.otherNames || []).filter((a) => a && a.typed).map((a) => a.value);
+  const subject = createSubject({ name, company, otherNames: typed });
   // Aliases attach to company anchors, so they are restored after every company.
   const kinds = Object.entries(anchors).sort(([a], [b]) => Number(a === 'aliases') - Number(b === 'aliases'));
   for (const [kind, list] of kinds) {
@@ -342,6 +442,7 @@ export function restoreSubject({ name, company, anchors = {} }) {
         if (owner) addCompanyAlias(subject, { company: owner.value, alias: a.value, origin: a.origin });
       }
       else if (kind === 'related') addAnchor(subject, a.as === 'people' ? 'people' : 'companies', a.value, a.origin);
+      else if (kind === 'otherNames') { if (!a.typed) addNameAlias(subject, { alias: a.value, origin: a.origin }); }
       else addAnchor(subject, kind, a.value, a.origin);
     }
   }
@@ -386,7 +487,17 @@ export function matchSubject(subject, text, { date } = {}) {
     }
     return { hits, far };
   };
-  const names = subject.hasName.positions(str);
+  let names = subject.hasName.positions(str);
+  // Another name found in a tied record (not typed by the user): used only when the main and typed names are
+  // absent, and the grade it gives is capped at 'likely'.
+  let viaAlias = null;
+  if (!names.length) {
+    for (const a of (subject.anchors.otherNames || new Map()).values()) {
+      if (a.typed || typeof a.test?.positions !== 'function') continue;
+      const ps = a.test.positions(str);
+      if (ps.length) { names = ps; viaAlias = a; break; }
+    }
+  }
   if (!names.length) {
     // The full name is required: a role alone never ties a record to them (lead rule)
     const weak = typeof subject.hasName.weakPositions === 'function' ? subject.hasName.weakPositions(str) : [];
@@ -412,6 +523,9 @@ export function matchSubject(subject, text, { date } = {}) {
   masked += str.slice(from);
   const common = Boolean(subject.common);
   let other = 0;
+  // Facts other than the company that the record gives about this person (a school, an associate, a handle, a
+  // domain): a second fact that lets a large employer or a one-word name confirm.
+  let personal = 0;
   for (const kind of ['schools', 'people', 'handles', 'domains', 'related']) {
     // An encyclopedia link never raises a very common name: too many namesakes share such a link.
     if (kind === 'related' && common) continue;
@@ -421,6 +535,7 @@ export function matchSubject(subject, text, { date } = {}) {
       // For a very common name a school counts only beside the name ("John Smith, a Stanford graduate").
       if (common && kind === 'schools' && typeof a.test.positions === 'function' && !cooccurrences(str, names, a.test.positions(str), { isSelf }).length) continue;
       other += 1;
+      if (kind !== 'related') personal += 1;
       basis.add(kind);
       reasons.push(`names ${a.value}`);
     }
@@ -436,11 +551,35 @@ export function matchSubject(subject, text, { date } = {}) {
     }
   }
   if (!company && far.length) reasons.push(`names ${far[0].value}, but not beside the person's name`);
-  if (company) return { level: 'confirmed', reasons: reasons.slice(0, 4), basis: [...basis] };
-  if (other > 0) return { level: 'likely', reasons: reasons.slice(0, 4), basis: [...basis] };
-  const role = roleMatch(subject, str, date, true);
-  if (role) return { ...role, basis: ['role'] };
-  return { level: 'possible', reasons: ['matched by name only', ...reasons].slice(0, 4) };
+  let result;
+  if (company) {
+    // Only a company that is not a very large employer confirms on its own. Google, Deloitte or a university next
+    // to "John Smith" fits thousands of people: a second fact (a school, an associate, a handle, another company of
+    // theirs, the role they held) is needed. A one-word name always needs that second fact.
+    const narrow = hits.filter((a) => !a.broad);
+    const role = personal > 0 || hits.length > 1 ? null : roleMatch(subject, str, date, true);
+    const second = personal > 0 || hits.length > 1 || Boolean(role);
+    const confirms = subject.mononym ? second : (narrow.length > 0 || second);
+    if (!confirms) {
+      reasons.push(subject.mononym ? 'the person is known by one name: a second fact is needed to confirm'
+        : `${hits[0].value} is a very large organisation: a second fact is needed to confirm`);
+    }
+    result = { level: confirms ? 'confirmed' : 'likely', reasons: reasons.slice(0, 4), basis: [...basis] };
+  } else if (subject.mononym) {
+    // One word alone is shared by too many people to keep even as 'possible'.
+    return { level: 'none', reasons: [], weak: 'mononym-without-company' };
+  } else if (other > 0) {
+    result = { level: 'likely', reasons: reasons.slice(0, 4), basis: [...basis] };
+  } else {
+    const role = roleMatch(subject, str, date, true);
+    result = role ? { ...role, basis: ['role'] } : { level: 'possible', reasons: ['matched by name only', ...reasons].slice(0, 4) };
+  }
+  if (viaAlias) {
+    if (result.level === 'confirmed') result.level = 'likely';
+    result.basis = [...new Set([...(result.basis || []), 'alias'])];
+    result.reasons = [`names the person as ${viaAlias.value}, another name found in a linked record`, ...result.reasons].slice(0, 4);
+  }
+  return result;
 }
 
 /**

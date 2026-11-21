@@ -80,7 +80,8 @@ describe('reading the report', () => {
     expect(by['Acme Robotics'].tie).toBe('current');
     expect(by['Beta Labs'].tie).toBe('founded');
     expect(by.Expanse).toMatchObject({ tie: 'earlier', role: 'Chief of Staff' });
-    expect(by['Gamma Bank'].tie).toBe('other');
+    // a board seat is its own tie now (audit 2026-11-20, network-profile-roles-ignored)
+    expect(by['Gamma Bank'].tie).toBe('board');
     expect(by['Delta Holdings']).toBeUndefined();
     expect(cos.filter((c) => c.name === 'Acme Robotics')).toHaveLength(1);
   });
@@ -145,7 +146,7 @@ describe('people around them', () => {
   const group = (key) => net.groups.find((g) => g.key === key);
 
   test('grouped by how they relate, with counts; the person themself is not listed', () => {
-    expect(net.groups.map((g) => g.key)).toEqual(['current', 'earlier', 'founded', 'parties', 'investors', 'other']);
+    expect(net.groups.map((g) => g.key)).toEqual(['current', 'earlier', 'founded', 'board', 'parties', 'investors']);
     expect(group('current').people.map((p) => p.name)).toEqual(['Cara Chief', 'Ann Junior']);
     expect(group('founded').people.map((p) => p.name)).toEqual(['Bob Builder']);
     expect(group('parties').people.map((p) => p.name)).toEqual(['Sam Lee']);
@@ -168,13 +169,14 @@ describe('people around them', () => {
     expect(link.seniority('Senior Engineer')).toBe(1);
     expect(link.seniority('Engineer')).toBe(0);
   });
-  test('reference shortlist: five, former colleagues first, at most two per company, no junior current colleague', () => {
+  // Ranked by how well each is placed to know them (audit 2026-11-20, network-shortlist-ranking):
+  // the named co-founder first, then a company they founded, then former colleagues.
+  test('reference shortlist: five, best placed first, at most two per company, no junior current colleague', () => {
     const names = net.references.map((r) => r.name);
-    expect(names).toHaveLength(5);
-    expect(names.slice(0, 2)).toEqual(['Dan Director', 'Eve Engineer']);
+    expect(names).toEqual(['Sam Lee', 'Bob Builder', 'Dan Director', 'Eve Engineer', 'Gus Board']);
     expect(names).not.toContain('Fred Firm'); // third at Expanse
     expect(names).not.toContain('Ann Junior');
-    expect(net.references[0].ask).toMatch(/Chief of Staff/);
+    expect(net.references.find((r) => r.name === 'Dan Director').ask).toMatch(/Chief of Staff/);
     net.references.forEach((r) => expect(r.ask).toEqual(expect.any(String)));
   });
   test('only current colleagues: no junior one is suggested, and the page says why', () => {
@@ -234,7 +236,11 @@ describe('store.findContactsByNames', () => {
     await expect(store.findContactsByNames('user-1', ['Wei Li'])).rejects.toThrow(/more than/);
     // the callers treat that as "could not be read": no seed, and no "not one of your contacts"
     expect(await link.companySeed('user-1', 'Wei Li', '')).toBeNull();
-    expect(await link.networkForReport('user-1', { ...REPORT, name: 'Wei Li' })).toEqual({ available: false, reason: expect.stringMatching(/could not be read/) });
+    // the parts that did read are still shown, and the failed one is named (audit 2026-11-20, network-all-or-nothing)
+    const net = await link.networkForReport('user-1', { ...REPORT, name: 'Wei Li' });
+    expect(net.self).toBeNull();
+    expect(net.failed.self).toBe(true);
+    expect(net.notes.join(' ')).toMatch(/could not be read/);
     console.warn.mockRestore();
   });
 });
@@ -255,8 +261,10 @@ describe('companySeed', () => {
   });
   test('exactly one contact with the full name: only their company comes back', async () => {
     const s = fakeStore([contact('Jane Doe', 'Acme Robotics', 'CEO', { email: 'jane@acme.test', location: 'Oakland', profileUrl: 'https://x.test/jd' }), contact('John Doe', 'Other')]);
-    const seed = await link.companySeed('user-1', 'Jane Doe', '', { store: s });
-    expect(seed).toEqual({ company: 'Acme Robotics' });
+    // only after the user said yes to the question (audit 2026-11-20, network-seed-namesake-anchors-check)
+    expect(await link.companySeed('user-1', 'Jane Doe', '', { store: s })).toBeNull();
+    const seed = await link.companySeed('user-1', 'Jane Doe', '', { store: s, confirmedCompany: 'Acme Robotics' });
+    expect(seed).toEqual({ company: 'Acme Robotics', origin: 'network' });
     expect(s.findContactsByNames).toHaveBeenCalledWith('user-1', ['Jane Doe']);
   });
   test('two contacts with the name, or one without a company: no seed', async () => {
@@ -283,7 +291,7 @@ describe('networkForReport', () => {
     s.findContactsAtCompanies.mockImplementation(async (_u, names) => (names.includes('Expanse') ? [contact('Dan Director', 'Expanse', 'Director', { matchedCompany: 'Expanse', email: 'dan@x.test', location: 'Austin' })] : []));
     const net = await link.networkForReport('user-1', REPORT, { store: s, investors: ['Omega Ventures'] });
     for (const mock of [s.countContacts, s.findContactsByNames, s.findContactsAtCompanies]) mock.mock.calls.forEach((c) => expect(c[0]).toBe('user-1'));
-    expect(s.findContactsAtCompanies).toHaveBeenCalledWith('user-1', ['Omega Ventures']);
+    expect(s.findContactsAtCompanies).toHaveBeenCalledWith('user-1', ['Omega Ventures'], expect.objectContaining({ investor: true }));
     expect(net.self).toMatchObject({ name: 'Jane Doe' });
     expect(net.references[0].name).toBe('Dan Director');
     const text = JSON.stringify(net);
@@ -339,7 +347,7 @@ describe('listFinishedChecks', () => {
     const [sql, params] = db.query.mock.calls[0];
     expect(sql).toMatch(/WHERE user_id = \$1 AND status = 'done'/);
     expect(params[0]).toBe('user-1');
-    expect(checks).toEqual([{ name: 'Jane Doe', company: 'Acme', date: '2026-11-19T10:00:00.000Z', redFlags: 2 }]);
+    expect(checks).toEqual([{ id: null, name: 'Jane Doe', company: 'Acme', seededCompany: null, status: 'done', date: '2026-11-19T10:00:00.000Z', redFlags: 2 }]);
   });
   test('kept in memory: another user\'s checks are never listed', async () => {
     const memory = new Map([
@@ -388,18 +396,20 @@ describe('POST /api/founder/deep with a network', () => {
   });
   const leaked = (text) => /private\.test|Hidden City|Secret Title|profiles\.test/.test(text);
 
-  test('no company typed and one contact with the name: the check starts on their company, and nothing else of theirs goes out', async () => {
+  // A namesake contact never anchors a check without the user's yes (audit 2026-11-20,
+  // network-seed-namesake-anchors-check): the check starts without the contact's company.
+  test('no company typed and one contact with the name: the contact\'s company is not used silently, and nothing of theirs goes out', async () => {
     const started = await call({ action: 'start', name: 'Jane Doe', company: '' });
     expect(started.status).toBe(200);
     expect(mockTasks.length).toBeGreaterThan(0);
     const sent = JSON.stringify(mockTasks);
-    expect(sent).toMatch(/Acme Robotics/);
+    expect(sent).not.toMatch(/Acme Robotics/);
     expect(leaked(sent)).toBe(false);
     // finish the check: the report carries the pairing, and still no private field
     let r = started;
     for (let i = 0; i < 30 && !r.body.done; i += 1) r = await call({ action: 'step', jobId: started.body.jobId });
     expect(r.body.done).toBe(true);
-    expect(r.body.report.network).toMatchObject({ available: true, seededCompany: 'Acme Robotics' });
+    expect(r.body.report.network).toMatchObject({ available: true, seededCompany: null });
     expect(leaked(JSON.stringify(mockTasks))).toBe(false);
   });
 

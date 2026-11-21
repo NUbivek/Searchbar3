@@ -98,7 +98,9 @@ describe('court-dockets (CourtListener, token)', () => {
     const civil = byCase['Smith v. Nikola Corporation'];
     expect(civil.match).toBe('confirmed');
     expect(civil.severity).toBe('medium');
-    expect(civil.quote).toContain('Parties: John Smith; Nikola Corporation; Trevor R. Milton.');
+    // R3: only the person and their known companies are named; other parties are counted.
+    expect(civil.quote).toContain('Parties include: Nikola Corporation; Trevor R. Milton; and 1 other party.');
+    expect(civil.quote).not.toContain('John Smith');
     expect(byCase['Trevor Milton v. Acme Roofing LLC'].match).toBe('possible');
   });
 
@@ -324,9 +326,12 @@ describe('fr-bodacc', () => {
   });
 
   test('a company not in the French register is not searched', async () => {
-    const calls = fakeNet([['api.gleif.org', { data: [] }]]);
+    const calls = fakeNet([['api.gleif.org', { data: [] }], ['recherche-entreprises.api.gouv.fr', { results: [] }]]);
     const out = await bodaccConnector.run({ kind: 'company', value: 'Nikola' }, ctxFor(milton()));
-    expect(calls.every((c) => c.url.includes('gleif'))).toBe(true);
+    // R3: the French company register is asked after the LEI register; the bulletin itself is never asked.
+    expect(calls.some((c) => c.url.includes('recherche-entreprises'))).toBe(true);
+    expect(calls.every((c) => !c.url.includes('bodacc'))).toBe(true);
+    expect(out.partial).toBeUndefined();
     expect(out.findings).toHaveLength(0);
   });
 });

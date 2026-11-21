@@ -1,6 +1,7 @@
-import { getUserId } from '../../../server/auth';
+import { debugAccess } from '../../../server/auth';
 import { chatComplete, chatJson, describeChain, llmStatus } from '../../../server/llm/providers';
-import { sampleState } from '../../../server/founder/sample';
+import { sampleState, sampleSearchers, SAMPLE_SUBJECT } from '../../../server/founder/sample';
+import { runFounderCheck } from '../../../server/founderCheck';
 import { buildReport, writeDeepBrief } from '../../../server/founder/report';
 import { findGaps } from '../../../server/founder/gaps';
 import { readProfile } from '../../../server/founder/profileModel';
@@ -11,15 +12,40 @@ import { readProfile } from '../../../server/founder/profileModel';
  *                                        to confirm a provider accepts the request the chain sends
  * GET /api/debug/llm-check?run=brief  -> the deep background check's report writer on a fictional sample
  * GET /api/debug/llm-check?run=gaps   -> its second reader on the same fictional sample
- * GET /api/debug/llm-check?run=profile -> its profile reader (roles, education, boards) on the same fictional sample
+ * GET /api/debug/llm-check?run=profile -> its profile reader (roles, education, boards) on the same fictional sample,
+ *                                        with checks of what it should find, so a silent fall back to rules shows
+ * GET /api/debug/llm-check?run=quick  -> the quick brief's writer on fictional search results (no search is made)
  *
- * Open in development and on preview deployments (which sit behind the
- * host's own sign-in); in production it requires a signed-in session.
- * Never returns keys.
+ * Who may call it is decided by debugAccess (src/server/auth.js): open in
+ * development; on a preview deployment open behind the host's own sign-in but
+ * limited per caller and per deployment each hour; in production only an
+ * allowed signed-in account (a 404 for everyone else), limited per hour.
+ * Every run is bounded in time, never returns keys, and a run that fails
+ * answers with a plain message, never the inner error.
  */
 export const config = { maxDuration: 60 };
 
-const RUNS = ['chat', 'analysis', 'extract', 'json', 'brief', 'gaps', 'profile'];
+const RUNS = ['chat', 'analysis', 'extract', 'json', 'brief', 'gaps', 'profile', 'quick'];
+
+/** A skipped provider's reason, cut short: it is for telling services apart, not for reading their errors. */
+const skippedOf = (list) => (Array.isArray(list) ? list.slice(0, 12).map(({ provider, model, why }) => ({ provider, model, why: String(why || '').slice(0, 80) })) : undefined);
+
+/**
+ * What the profile reader should find in the fictional sample: her studies at Harrowgate, her earlier role
+ * running Tidewater Drones, her director's seat at Lumenfold Robotics, and nothing about her brother Casey
+ * (a relative is never given a role in her profile).
+ */
+function profileChecks(profile) {
+  const roles = [...(profile?.resume?.roles || []), ...(profile?.roles || []), ...(profile?.boards || [])];
+  const schools = [...(profile?.resume?.education || []), ...(profile?.education || [])];
+  const text = (x) => Object.values(x || {}).filter((v) => typeof v === 'string').join(' ');
+  return {
+    harrowgateEducation: schools.some((e) => /Harrowgate/i.test(text(e))),
+    tidewaterChiefExecutive: roles.some((r) => /Tidewater/i.test(text(r)) && /chief executive|\bCEO\b|ran|founder/i.test(text(r))),
+    lumenfoldDirector: roles.some((r) => /Lumenfold/i.test(text(r)) && /director|founder|chief executive|\bCEO\b/i.test(text(r))),
+    noRoleForCasey: !JSON.stringify(profile || {}).match(/Casey/i),
+  };
+}
 
 /** The route always answers inside its own time limit, whatever a model service does. */
 const within = (promise, ms) => {
@@ -35,14 +61,20 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'GET');
     return res.status(405).json({ error: 'Method not allowed' });
   }
-  const open = process.env.NODE_ENV !== 'production' || process.env.VERCEL_ENV === 'preview';
-  if (!open) {
-    const userId = await getUserId(req, res);
-    if (!userId) return res.status(401).json({ error: 'Sign in to view model diagnostics.' });
-  }
+  const run = String(req.query?.run || '');
+  if (!(await debugAccess(req, res, { route: 'llm-check', costly: Boolean(run) }))) return undefined;
   res.setHeader('Cache-Control', 'no-store');
-  const run = String(req.query.run || '');
-  const personal = req.query.personal === '1';
+  try {
+    return await answer(req, res, run);
+  } catch (error) {
+    // The inner error can name addresses or a service's own words; it goes to the server log only.
+    console.error('llm-check run failed:', error?.message);
+    return res.status(500).json({ run, ok: false, error: 'The run failed.' });
+  }
+}
+
+async function answer(req, res, run) {
+  const personal = req.query?.personal === '1';
   const deadline = Date.now() + 50000;
 
   if (!run) {
@@ -67,17 +99,28 @@ export default async function handler(req, res) {
   if (run === 'profile') {
     const state = sampleState();
     const report = buildReport(state);
-    const profile = await within(readProfile(report, state, { deadline: Date.now() + 40000 }), 50000);
-    return res.status(200).json({ run, ok: profile?.readBy === 'model', ms: Date.now() - started, readBy: profile?.readBy || 'rules', profile: profile || null });
+    // `trace` lets the reader say why it fell back (no records, no model, check failed, nothing verified).
+    const trace = {};
+    const profile = await within(readProfile(report, state, { deadline: Date.now() + 40000, trace }), 50000);
+    const checks = profileChecks(profile);
+    const readBy = profile?.readBy || 'rules';
+    const ok = readBy === 'model' && Object.values(checks).every(Boolean);
+    return res.status(200).json({ run, ok, ms: Date.now() - started, readBy, checks, ...(Object.keys(trace).length ? { trace } : {}), profile: profile || null });
+  }
+  if (run === 'quick') {
+    const out = await within(runFounderCheck({ ...SAMPLE_SUBJECT, deadline: Date.now() + 44000 }, { searchers: sampleSearchers() }), 52000);
+    if (!out) return res.status(200).json({ run, ok: false, ms: Date.now() - started, note: 'no model answered inside the time limit' });
+    const sources = Array.isArray(out.sources) ? out.sources.length : 0;
+    return res.status(200).json({ run, ok: out.briefInfo?.mode === 'ai', ms: Date.now() - started, mode: out.briefInfo?.mode || 'none', sources, briefInfo: out.briefInfo || null, brief: out.brief || null });
   }
   if (run === 'json') {
     const schema = { type: 'object', properties: { capital: { type: 'string' }, country: { type: 'string' } }, required: ['capital', 'country'], additionalProperties: false };
-    const out = await chatJson([{ role: 'user', content: 'Which city is the capital of France? Answer for the country France.' }], { schema, name: 'capital', deadline, personal, check: (d) => /paris/i.test(String(d?.capital)) });
-    return res.status(200).json({ run, ok: Boolean(out), ms: Date.now() - started, ...(out ? { provider: out.providerLabel, model: out.model, data: out.data, skipped: out.skipped } : {}) });
+    const out = await within(chatJson([{ role: 'user', content: 'Which city is the capital of France? Answer for the country France.' }], { schema, name: 'capital', deadline, personal, check: (d) => /paris/i.test(String(d?.capital)) }), 52000);
+    return res.status(200).json({ run, ok: Boolean(out), ms: Date.now() - started, ...(out ? { provider: out.providerLabel, model: out.model, data: out.data, skipped: skippedOf(out.skipped) } : {}) });
   }
-  const out = await chatComplete(
+  const out = await within(chatComplete(
     [{ role: 'system', content: 'You are a careful analyst. Answer in one short sentence.' }, { role: 'user', content: 'A company was founded in 2012 and shut down in 2019. For how many years did it operate? Reply with the number and the word "years".' }],
     { task: run, maxTokens: 200, deadline, personal, accept: (text) => /\b(7|seven)\b/i.test(text) },
-  );
-  return res.status(200).json({ run, ok: Boolean(out), ms: Date.now() - started, ...(out ? { provider: out.providerLabel, model: out.model, answerMs: out.ms, text: out.text.slice(0, 160), skipped: out.skipped } : {}) });
+  ), 52000);
+  return res.status(200).json({ run, ok: Boolean(out), ms: Date.now() - started, ...(out ? { provider: out.providerLabel, model: out.model, answerMs: out.ms, text: String(out.text || '').slice(0, 160), skipped: skippedOf(out.skipped) } : {}) });
 }

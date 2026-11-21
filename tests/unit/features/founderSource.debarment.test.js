@@ -32,6 +32,8 @@ const FRB_RECENT = '﻿' + JSON.stringify({ eaitems: [
   { id: '48994', edt: '2026-11-16', tdt: '1950-01-01', type: 'Cease and Desist Order, Civil Money Penalty', person: 'Rush F. Harding III', porg: 'First Security Bancorp, Searcy, Arkansas', url: '/newsevents/pressreleases/enforcement20261119a.htm', urlname: 'Press Release' },
   { id: '48881', edt: '2026-11-09', tdt: '1950-01-01', type: 'Prohibition from Banking', person: 'Katilyn M. Robinson', porg: 'United Community Bank, Greenville, South Carolina', url: 'https://www.federalreserve.gov/newsevents/pressreleases/enforcement20261112a.htm', urlname: 'Press Release' },
   { id: '47000', edt: '2024-06-14', tdt: '1950-01-01', type: 'Cease and Desist Order', bkorg: 'Evolve Bancorp, Inc., West Memphis, Arkansas and Evolve Bank &amp; Trust, West Memphis, Arkansas', url: '/newsevents/pressreleases/enforcement20240614a.htm', urlname: 'Press Release' },
+  // The recent file must carry a fair number of recent actions to be accepted (round 3: watchlists-frb-recent-empty)
+  ...Array.from({ length: 20 }, (_, i) => ({ id: `r${i}`, edt: new Date(Date.now() - (i + 1) * 86400000).toISOString().slice(0, 10), tdt: '1950-01-01', type: 'Written Agreement', bkorg: `Recent Filler Bank ${i}, Town, Ohio`, url: `/recent${i}.htm` })),
   { updateDate: '2026-11-19' },
 ] });
 const FRB_OLD = '﻿' + JSON.stringify({ eaitems: [
@@ -181,8 +183,10 @@ describe('development bank debarments', () => {
     const f = out.findings[0];
     expect(f).toMatchObject({ source: 'mdb-debarment', category: 'sanctions', severity: 'high', url: EBRD_PAGE, date: '2021-08-06' });
     expect(f.title).toMatch(/Debarred by the Asian Development Bank: Ademhan, Abdulhamit/);
-    expect(f.matchFixed).toBeUndefined();
-    expect(['possible', 'likely', 'confirmed']).toContain(f.match);
+    // The record names no company the check was started with: possible, and held there so a later anchor
+    // (say a former employer) cannot raise a namesake's debarment (round 3)
+    expect(f.match).toBe('possible');
+    expect(f.matchFixed).toBe(true);
     expect(out.notes).toContain(MDB_NOTE);
     // POSTs the page's own download form
     expect(calls[0].init.method).toBe('POST');
@@ -225,7 +229,7 @@ describe('development bank debarments', () => {
     const subject = createSubject({ name: 'Jane Roe', company: 'Acme' });
     const out = await mdbDebarmentConnector.run(subjectTask(subject, 'debar.mdb'), ctxFor(subject));
     expect(out.findings).toEqual([]);
-    expect(out.notes).toContain('Development bank debarment list: no match for Jane Roe');
+    expect(out.notes).toEqual(expect.arrayContaining([expect.stringMatching(/^Development bank debarment list: no match for Jane Roe \(list as of \d{4}-\d{2}-\d{2}\)$/)]));
     __resetCacheForTests();
     serve({ 'ebrd.com': { status: 500, body: 'error' } });
     await expect(mdbDebarmentConnector.run(subjectTask(subject, 'debar.mdb'), ctxFor(subject))).rejects.toThrow(/HTTP 500/);
@@ -240,7 +244,8 @@ describe('US bank regulators', () => {
 
   test('Federal Reserve: the person at a bank already tied to them is graded up by makeFinding, and the bank becomes a thread', async () => {
     serve(ALL_LISTS);
-    const subject = createSubject({ name: 'Rush Harding', company: 'First Security Bancorp' });
+    // The listed name is the typed one (tier 1) beside the company the check was started with
+    const subject = createSubject({ name: 'Rush F. Harding', company: 'First Security Bancorp' });
     const out = await usBankRegulatorsConnector.run(subjectTask(subject, 'bank.frb'), ctxFor(subject));
     expect(out.findings).toHaveLength(1);
     const f = out.findings[0];
@@ -248,6 +253,11 @@ describe('US bank regulators', () => {
     expect(f.match).toBe('confirmed');
     expect(f.matchFixed).toBeUndefined();
     expect(out.threads).toEqual([expect.objectContaining({ kind: 'company', value: 'First Security Bancorp', trusted: true })]);
+    // Typed without the middle initial the list adds (tier 2): likely at most, and no trusted thread (round 3)
+    const shorter = createSubject({ name: 'Rush Harding', company: 'First Security Bancorp' });
+    const out2 = await usBankRegulatorsConnector.run(subjectTask(shorter, 'bank.frb'), ctxFor(shorter));
+    expect(out2.findings[0].match).toBe('likely');
+    expect(out2.threads).toEqual([]);
   });
 
   test('Federal Reserve: a namesake with nothing else in common stays possible', async () => {
@@ -336,8 +346,9 @@ describe('FinCEN enforcement actions', () => {
     const out = await fincenActionsConnector.run(subjectTask(subject, 'fincen.actions'), ctxFor(subject));
     expect(out.findings).toHaveLength(1);
     expect(out.findings[0]).toMatchObject({ source: 'fincen-actions', category: 'regulatory', date: '2020-10-19' });
-    expect(['confirmed', 'likely']).toContain(out.findings[0].match);
-    expect(out.findings[0].matchFixed).toBeUndefined();
+    // "Larry Dean Harmon" adds a middle name to the searched one: likely at most, held there (round 3)
+    expect(out.findings[0].match).toBe('likely');
+    expect(out.findings[0].matchFixed).toBe(true);
   });
 
   test('a namesake stays possible; a company is matched on its whole name', async () => {
@@ -353,7 +364,7 @@ describe('FinCEN enforcement actions', () => {
   test('no match is reported; a page without the list is an error', async () => {
     serve(ALL_LISTS);
     const subject = createSubject({ name: 'Jane Roe', company: 'Acme' });
-    expect((await fincenActionsConnector.run(subjectTask(subject, 'fincen.actions'), ctxFor(subject))).notes).toContain('FinCEN enforcement actions: no match for Jane Roe');
+    expect((await fincenActionsConnector.run(subjectTask(subject, 'fincen.actions'), ctxFor(subject))).notes).toEqual([expect.stringMatching(/^FinCEN enforcement actions: no match for Jane Roe \(list as of \d{4}-\d{2}-\d{2}\)$/)]);
     __resetCacheForTests();
     serve({ 'fincen.gov': '<html>Please try again later</html>' });
     await expect(fincenActionsConnector.run(subjectTask(subject, 'fincen.actions'), ctxFor(subject))).rejects.toThrow(/did not list/);

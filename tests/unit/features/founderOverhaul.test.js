@@ -64,8 +64,17 @@ describe('report', () => {
   }
 
   test('a name-only record that names an employer from their own bio is likely theirs, never confirmed', () => {
+    // round 3: the employer must come from two of their records (one sentence is too thin); with one, the
+    // record stays possible and is shown as a lead to confirm
+    const one = buildReport(state([
+      rec({ title: 'Founder story', quote: 'Jane Roe, co-founder of Acme, previously worked at Credit Suisse.' }),
+      rec({ source: 'finra-brokercheck', category: 'regulatory', match: 'possible', title: 'Jane Roe (CRD 1): no disclosures', quote: 'Jane Roe, CRD 1. Firms: Credit Suisse Securities (USA) LLC (2015 to 2017).' }),
+    ]));
+    expect(one.sections.find((s) => s.key === 'regulatory').items.map((f) => f.match)).toEqual(['possible']);
+    expect(one.profile.leads.map((l) => l.text)).toEqual(['Jane Roe (CRD 1): no disclosures']);
     const report = buildReport(state([
       rec({ title: 'Founder story', quote: 'Jane Roe, co-founder of Acme, previously worked at Credit Suisse.' }),
+      rec({ title: 'Founder story 2', quote: 'Jane Roe previously worked at Credit Suisse.' }),
       rec({ source: 'finra-brokercheck', category: 'regulatory', match: 'possible', title: 'Jane Roe (CRD 1): no disclosures', quote: 'Jane Roe, CRD 1. Firms: Credit Suisse Securities (USA) LLC (2015 to 2017).' }),
       rec({ source: 'finra-brokercheck', category: 'regulatory', match: 'possible', title: 'Jane Roe (CRD 2): no disclosures', quote: 'Jane Roe, CRD 2. Firms: Other Bank LLC.' }),
     ]));
@@ -298,6 +307,7 @@ test('a one-word company name that is an ordinary word: news about the word is n
   const report = buildReport(s);
   expect(report.companyMatters.map((m) => m.title)).toEqual(['Ramp sued by rival fintech over trade secrets']);
   expect(report.redFlags).toHaveLength(0);
-  // they stay listed, as name matches only
-  expect(report.sections.flatMap((x) => x.items).filter((f) => f.match === 'possible')).toHaveLength(2);
+  // round 3: they leave the numbered report and are counted and listed with the reason
+  expect(report.sections.flatMap((x) => x.items).filter((f) => f.match === 'possible')).toHaveLength(0);
+  expect(report.wordOnly.count).toBe(2);
 });

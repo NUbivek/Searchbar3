@@ -169,7 +169,9 @@ describe('domainHistoryConnector', () => {
 
     fakeNetwork();
     const before = (await run('nikolamotor.com', { params: { foundedYear: 2020 } })).findings[0];
-    expect(before.title).toBe('nikolamotor.com: registered 2014-12-21; first archived 2016-05-10; last archived 2020-11-04; 572 captures (registered 6 years before the stated 2020 founding)');
+    // round 3: a domain years older than the company was an earlier holder's, and its date stays off the timeline
+    expect(before.title).toBe('nikolamotor.com: registered 2014-12-21; first archived 2016-05-10; last archived 2020-11-04; 572 captures (registered 6 years before the stated 2020 founding: registered by an earlier holder and acquired later)');
+    expect(before.data).toMatchObject({ earlierHolder: true, excludeFromTimeline: true, foundedYear: 2020 });
     expect(before.severity).toBe('info'); // a domain older than the company is normal: domains are bought
 
     fakeNetwork();

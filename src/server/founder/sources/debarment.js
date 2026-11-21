@@ -26,12 +26,16 @@
  * Name matching is the strict matching of the sanctions screens (sanctions.js):
  * a person is matched only on their first and last name in order, never on a
  * part of a name and never fuzzily; a company only on its whole name with the
- * legal form removed. A hit on a person is graded by makeFinding from the
- * person's name plus the record's own context (the bank or credit union it
- * names, the reason given): it is 'possible' unless that context names
- * something already tied to the person. No source here sets 'confirmed'.
- * Associates and relatives are screened by name only and stay 'possible'
- * unless the record also names the subject.
+ * legal form removed. A hit on a person is graded by sanctions.gradeListedPerson
+ * from the person's name plus the record's own context (the bank or credit
+ * union it names, the reason given): it is 'possible' unless that context
+ * names the company the check was started with (a namesake at a former
+ * employer is common, so an employer learned from other records never
+ * counts), and 'likely' at most unless the listed name is exactly the
+ * searched one. No source here sets 'confirmed' by hand. Associates and
+ * relatives are screened by name only and stay 'possible' unless the record
+ * also names the subject. Lists are read through the cache with the date of
+ * the copy; an older copy standing in for a failed download is partial.
  *
  * Never read or kept: addresses, nationality of a person, dates of birth,
  * the person's city. The EBRD file's address column is skipped.
@@ -49,8 +53,11 @@
  */
 import { request, htmlToText } from '../http';
 import { makeFinding, makeThread, severityFromText } from '../finding';
-import { cached } from '../cache';
-import { normalizeName, nameTokens, companyTokens, matchPersonName, matchCompanyName, personVariants } from './sanctions';
+import { cachedEntry } from '../cache';
+import {
+  normalizeName, nameTokens, companyTokens, matchPersonName, matchCompanyName, screenNames, gradeListedPerson,
+} from './sanctions';
+import { parsePersonName } from '../names';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_FINDINGS = 6;
@@ -68,8 +75,6 @@ const clipText = (s, n) => {
   return `${(space > n * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:(]+$/, '')}…`;
 };
 const capitalise = (s) => String(s || '').replace(/^\s*([a-z])/, (m, c) => c.toUpperCase());
-/** "elizabeth HOLMES" -> "Elizabeth Holmes", so the grader (which wants a capitalised name) can read it. */
-const properCase = (s) => oneLine(s).split(' ').map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
 /** Entities decoded, tags removed, one line. */
 const plain = (s) => oneLine(htmlToText(String(s ?? '')));
 const isLatin = (name) => normalizeName(name).length >= 2;
@@ -227,18 +232,25 @@ export function screenRows(index, names, mode) {
   const hits = [];
   const lines = tokenLine(index);
   if (mode === 'company') {
-    const want = companyTokens(firmCore(names[0]));
-    if (want.join('').length < 3) return hits;
+    // Every known name of the company, the longest (a learned legal name) first
+    const wants = names.map((n) => ({ name: n, tokens: companyTokens(firmCore(n)) })).filter((w) => w.tokens.join('').length >= 3)
+      .sort((a, b) => b.tokens.length - a.tokens.length);
+    if (!wants.length) return hits;
     index.rows.forEach((row, i) => {
-      if (row.t === 'person' || !want.every((t) => lines[i].includes(` ${t} `))) return;
-      const matched = [row.n, ...(row.a || []), ...(row.c || [])].find((x) => sameFirm(names[0], x));
-      if (matched) hits.push({ row, tier: 1, matched });
+      if (row.t === 'person') return;
+      for (const want of wants) {
+        if (!want.tokens.every((t) => lines[i].includes(` ${t} `))) continue;
+        const matched = [row.n, ...(row.a || []), ...(row.c || [])].find((x) => sameFirm(want.name, x));
+        if (matched) { hits.push({ row, tier: 1, matched, via: want.name }); return; }
+      }
     });
     return hits;
   }
   const variants = names.filter((v) => isFullName(nameTokens(v)));
   if (!variants.length) return hits;
-  const needs = variants.map((v) => nameTokens(v));
+  // A row is read when it carries every word of a searched name, or every word of a searched surname (a variant
+  // of the name: another spelling, a nickname or an extra surname, matched as tier 3)
+  const needs = [...variants.map((v) => nameTokens(v)), ...variants.map((v) => nameTokens(parsePersonName(v).surname)).filter((t) => t.length)];
   index.rows.forEach((row, i) => {
     if (row.t === 'entity') return;
     if (!needs.some((need) => need.every((t) => lines[i].includes(` ${t} `)))) return;
@@ -257,15 +269,12 @@ export function screenRows(index, names, mode) {
 /* ------------------------------------------------------------------ */
 
 const isPersonTask = (task) => task.kind !== 'company';
-const searchedNames = (task, ctx) => {
-  if (task.kind === 'company') return [oneLine(task.value)];
-  if (task.kind === 'subject' && ctx?.subject?.variants?.length) return [...new Set([...ctx.subject.variants, ...personVariants(ctx.subject.name)])];
-  return personVariants(task.value);
-};
+/** The same names the sanctions screens use: variants and Latin spellings of a person, every known name of a company. */
+const searchedNames = (task, ctx) => screenNames(task, ctx);
 /** False when a name cannot be screened at all (a single word for a person, a two-letter company). */
 const canScreen = (task, ctx) => (isPersonTask(task)
   ? searchedNames(task, ctx).some((v) => isFullName(nameTokens(v)))
-  : companyTokens(firmCore(task.value)).join('').length >= 3);
+  : searchedNames(task, ctx).some((n) => companyTokens(firmCore(n)).join('').length >= 3));
 /** The shortest searched form of a person's name: first and last name, no middle initials. */
 const coreName = (variants) => variants.filter((v) => isFullName(nameTokens(v))).sort((a, b) => a.split(' ').length - b.split(' ').length)[0] || variants[0];
 
@@ -291,10 +300,11 @@ const aboutPrefix = (task) => (task.kind === 'associate' || task.kind === 'relat
  *              one word once the legal form is removed
  *   associate, relative   'possible' unless the record also names the subject
  */
-function graded(task, ctx, f, context) {
+function graded(task, ctx, f, context, { tier = 1, via = '' } = {}) {
   const subject = ctx.subject;
   if (task.kind === 'company') {
-    if (companyTokens(firmCore(task.value)).length < 2) {
+    // Held when the name that matched is one word (a learned legal name of two or more words is the company)
+    if (companyTokens(firmCore(via || task.value)).length < 2) {
       return makeFinding(subject, { ...f, match: 'possible', matchReasons: ['only the company name\'s one distinctive word matches; many unrelated companies share a one-word name'] });
     }
     return makeFinding(subject, { ...f, match: 'company', matchReasons: ['the listed name is the same as the company name'] });
@@ -303,24 +313,43 @@ function graded(task, ctx, f, context) {
     const reason = `name match on ${task.kind === 'relative' ? 'a relative' : 'an associate'} of the subject`;
     return makeFinding(subject, f) || makeFinding(subject, { ...f, match: 'possible', matchReasons: [reason] });
   }
-  // The name was matched part by part above; the grade then rests on what else the record names.
-  const matchText = `${properCase(subject.name)}. ${context}`;
-  const build = (title, byName) => (byName
-    ? makeFinding(subject, { ...f, title, match: 'possible', matchReasons: ['matched by name only'] })
-    : makeFinding(subject, { ...f, title, matchText }));
-  let byName = false;
-  let found = build(f.title, false);
-  if (!found) { byName = true; found = build(f.title, true); }
-  // A name-only match says so in its title, so a namesake's record is never read as theirs
-  if (found && found.match === 'possible') return build(`${f.title}: name match only, verify identity`, byName) || found;
-  return found;
+  // The name was matched part by part above; the grade then rests on what else the record names, and only a
+  // company the check was started with can raise it (a namesake at a former employer is common). A name-only
+  // match says so in its title, so a namesake's record is never read as theirs.
+  return gradeListedPerson(subject, f, { tier, context, possibleTitle: `${f.title}: name match only, verify identity` });
 }
 
-/** A bank a confirmed or likely record ties the person to: worth following. The town and state are left off. */
+/**
+ * A bank a confirmed record ties the person to: worth following. The town and state are left off. Only a
+ * 'confirmed' grade (the same name beside the company the check was started with) raises a thread: a 'likely'
+ * list match may still be a namesake, and a trusted thread from it would spread to every later lookup.
+ */
 function institutionThread(task, finding, institution, why) {
-  if (task.kind !== 'subject' || !finding || !['confirmed', 'likely'].includes(finding.match)) return null;
+  if (task.kind !== 'subject' || !finding || finding.match !== 'confirmed') return null;
   return makeThread('company', oneLine(String(institution || '').split(',')[0]), why, { trusted: true });
 }
+
+/**
+ * A whole list from the cache, with the date of the copy. The loader gets the cache's own deadline (a shared
+ * download must not die with the first caller's deadline); the caller waits only until its own. A failed
+ * download is tried once more on a server error by the cache itself.
+ * @returns {Promise<{ index: object, at: number, fresh: boolean, asOf: string }>}
+ */
+async function loadList(key, loader, deadline) {
+  const entry = await cachedEntry(key, DAY_MS, ({ deadline: d }) => loader(d), { deadline });
+  const at = Number(entry.at) || Date.parse(entry.value?.at || '') || Date.now();
+  return { index: entry.value, at, fresh: entry.fresh !== false, asOf: new Date(at).toISOString().slice(0, 10) };
+}
+/** "(list as of 2026-11-20)": every "no match" says which copy of a list was read. */
+const asOfText = (copy) => (copy?.asOf ? ` (list as of ${copy.asOf})` : '');
+/** An older copy stood in for a failed download: the screen ran, but is only partly current. */
+function withStale(out, label, copy) {
+  if (!copy || copy.fresh) return out;
+  out.notes.push(`${label}: the latest copy could not be downloaded, so the copy of ${copy.asOf} was screened`);
+  out.partial = [...(out.partial || []), `${label}: list as of ${copy.asOf}`];
+  return out;
+}
+const readAt = (copy) => new Date(copy.at).toISOString();
 
 const atLeastMedium = (sev) => (sev === 'high' ? 'high' : 'medium');
 /** Prohibitions, removals, debarments and cease-and-desist orders are the gravest a regulator issues. */
@@ -383,14 +412,17 @@ export function parseEbrd(text) {
   return { v: 1, key: 'ebrd', at: new Date().toISOString(), rows };
 }
 
-const loadEbrd = (deadline) => cached('debarment:ebrd:v1', DAY_MS, async () => parseEbrd((await request(EBRD_CSV, {
-  method: 'POST', body: EBRD_FORM, deadline, timeoutMs: 18000, maxBytes: 8 * 1024 * 1024, accept: 'text/csv',
+const loadEbrd = (deadline) => loadList('debarment:ebrd:v1', async (d) => parseEbrd((await request(EBRD_CSV, {
+  method: 'POST', body: EBRD_FORM, deadline: d, timeoutMs: 18000, maxBytes: 8 * 1024 * 1024, accept: 'text/csv',
   headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-})).text));
+})).text), deadline);
 
-function ebrdFinding(task, ctx, hit, index) {
+function ebrdFinding(task, ctx, hit, copy) {
   const { row } = hit;
   const fromBank = (row.g || '').match(/cross-debarment from (.+)/i)?.[1] || (/primary/i.test(row.g || '') ? 'EBRD' : '');
+  const bank = fromBank ? `the ${fromBank.replace(/^the /i, '')}` : 'a development bank';
+  // An end date already past is a debarment that has ended: still on the record, no longer a bar
+  const ended = /^\d{4}-\d{2}-\d{2}$/.test(row.e || '') && row.e < new Date().toISOString().slice(0, 10) ? row.e : '';
   const quote = [
     `Listed name: ${row.n}`,
     hit.matched !== row.n ? `Also listed as: ${hit.matched}` : '',
@@ -406,12 +438,13 @@ function ebrdFinding(task, ctx, hit, index) {
   ].filter(Boolean).join(' | ');
   const finding = graded(task, ctx, {
     source: MDB_ID, sourceLabel: MDB_LABEL, category: 'sanctions', severity: 'high',
-    title: `${aboutPrefix(task)}Debarred by ${fromBank ? `the ${fromBank.replace(/^the /i, '')}` : 'a development bank'}: ${row.n}`,
+    title: `${aboutPrefix(task)}${ended ? `Formerly debarred by ${bank} (ended ${ended})` : `Debarred by ${bank}`}: ${row.n}`,
     quote,
     url: EBRD_PAGE,
     date: row.d || row.f || null,
-    data: { list: 'EBRD ineligible entities', grounds: row.g || null, debarredBy: fromBank || null, searched: oneLine(task.value), tier: hit.tier, listReadAt: index.at },
-  }, [row.r, row.q, row.k].filter(Boolean).join('. '));
+    ...(ended ? { severity: 'medium' } : {}),
+    data: { list: 'EBRD ineligible entities', grounds: row.g || null, debarredBy: fromBank || null, searched: oneLine(task.value), tier: hit.tier, listReadAt: readAt(copy), ...(ended ? { ended } : {}) },
+  }, [row.r, row.q, row.k].filter(Boolean).join('. '), { tier: hit.tier, via: hit.via });
   return finding;
 }
 
@@ -427,13 +460,13 @@ export const mdbDebarmentConnector = {
   async run(task, ctx) {
     if (!canScreen(task, ctx)) return tooShort(MDB_LABEL, task);
     const name = oneLine(task.value);
-    const index = await loadEbrd(ctx.deadline);
-    const hits = screenRows(index, searchedNames(task, ctx), isPersonTask(task) ? 'person' : 'company');
-    const findings = hits.slice(0, MAX_FINDINGS).map((h) => ebrdFinding(task, ctx, h, index)).filter(Boolean);
+    const copy = await loadEbrd(ctx.deadline);
+    const hits = screenRows(copy.index, searchedNames(task, ctx), isPersonTask(task) ? 'person' : 'company');
+    const findings = hits.slice(0, MAX_FINDINGS).map((h) => ebrdFinding(task, ctx, h, copy)).filter(Boolean);
     const notes = [MDB_NOTE];
-    if (!hits.length) notes.push(`Development bank debarment list: no match for ${name}`);
+    if (!hits.length) notes.push(`Development bank debarment list: no match for ${name}${asOfText(copy)}`);
     if (hits.length > MAX_FINDINGS) notes.push(`Development bank debarment list: ${hits.length} entries match the name ${name}; the first ${MAX_FINDINGS} are shown`);
-    return { findings, threads: [], notes };
+    return withStale({ findings, threads: [], notes }, 'Development bank debarment list', copy);
   },
 };
 
@@ -481,6 +514,13 @@ export function parseFrb(recentText, oldText) {
   const recent = frbItems(recentText, 'recent actions');
   const old = frbItems(oldText, 'earlier actions');
   if (old.length < 500) throw new Error('The Federal Reserve file of earlier actions had too few entries to be whole');
+  // The recent file carries every action of the last few years: an emptied or renamed file would silently drop
+  // them all, so it must hold a fair number of actions and at least one from the last 18 months
+  const recentActions = recent.filter((x) => x && typeof x === 'object' && x.type);
+  const since = new Date(Date.now() - 548 * DAY_MS).toISOString().slice(0, 10);
+  if (recentActions.length < 20 || !recentActions.some((x) => String(x.edt || '').slice(0, 10) >= since)) {
+    throw new Error('The Federal Reserve recent actions file had too few entries');
+  }
   const rows = [];
   for (const it of [...recent, ...old]) {
     if (!it || typeof it !== 'object' || !it.type) continue;
@@ -503,18 +543,19 @@ export function parseFrb(recentText, oldText) {
   return { v: 1, key: 'frb', at: new Date().toISOString(), ...(updated ? { asOf: updated } : {}), rows };
 }
 
-const loadFrb = (deadline) => cached('enforcement:frb:v1', DAY_MS, async () => {
-  const [recent, old] = await Promise.all(FRB_FILES.map((url) => request(url, { deadline, timeoutMs: 15000, accept: 'application/json' })));
+const loadFrb = (deadline) => loadList('enforcement:frb:v1', async (d) => {
+  const [recent, old] = await Promise.all(FRB_FILES.map((url) => request(url, { deadline: d, timeoutMs: 15000, accept: 'application/json' })));
   return parseFrb(recent.text, old.text);
-});
+}, deadline);
 
 async function screenFrb(task, ctx) {
   const name = oneLine(task.value);
-  const index = await loadFrb(ctx.deadline);
+  const copy = await loadFrb(ctx.deadline);
+  const { index } = copy;
   const hits = screenRows(index, searchedNames(task, ctx), isPersonTask(task) ? 'person' : 'company');
   const findings = [];
   const threads = [];
-  for (const { row, matched } of hits.slice(0, MAX_FINDINGS)) {
+  for (const { row, matched, tier, via } of hits.slice(0, MAX_FINDINGS)) {
     const who = row.t === 'person' ? row.n : matched;
     const f = graded(task, ctx, {
       source: BANK_ID, sourceLabel: BANK_LABEL, category: 'regulatory', severity: actionSeverity(row.k),
@@ -529,16 +570,16 @@ async function screenFrb(task, ctx) {
       ].filter(Boolean).join(' | '),
       url: row.u,
       date: row.d || null,
-      data: { agency: 'Federal Reserve', action: row.k, institution: row.o || null, searched: name, listReadAt: index.at, ...(index.asOf ? { listDated: index.asOf } : {}) },
-    }, [row.o, row.k].filter(Boolean).join('. '));
+      data: { agency: 'Federal Reserve', action: row.k, institution: row.o || null, searched: name, listReadAt: readAt(copy), ...(index.asOf ? { listDated: index.asOf } : {}) },
+    }, [row.o, row.k].filter(Boolean).join('. '), { tier, via });
     if (!f) continue;
     findings.push(f);
     const t = institutionThread(task, f, row.o, 'named with the person in a Federal Reserve enforcement action');
     if (t) threads.push(t);
   }
-  const notes = hits.length ? [] : [`Federal Reserve enforcement actions: no match for ${name}`];
+  const notes = hits.length ? [] : [`Federal Reserve enforcement actions: no match for ${name}${asOfText(copy)}`];
   if (hits.length > MAX_FINDINGS) notes.push(`Federal Reserve enforcement actions: ${hits.length} actions match the name ${name}; the first ${MAX_FINDINGS} are shown`);
-  return { findings, threads, notes };
+  return withStale({ findings, threads, notes }, 'Federal Reserve enforcement actions', copy);
 }
 
 /* ---- OCC ---- */
@@ -555,12 +596,20 @@ async function screenOcc(task, ctx) {
   const name = oneLine(task.value);
   const person = isPersonTask(task);
   const variants = searchedNames(task, ctx);
-  const q = person ? coreName(variants) : companyTokens(firmCore(name)).join(' ');
-  const url = `${OCC_SEARCH}?q=${encodeURIComponent(q)}&srt=1&pg=1&pgsz=${OCC_PAGE_SIZE}`;
-  const { text } = await request(url, { deadline: ctx.deadline, timeoutMs: 12000, accept: 'application/json' });
-  let rows;
-  try { rows = JSON.parse(text); } catch { throw new Error('The OCC enforcement action search did not return a result'); }
-  if (!Array.isArray(rows)) throw new Error('The OCC enforcement action search did not return a result');
+  // A company is searched under its name and, when one was learned, its legal name
+  const queries = [...new Set(person ? [coreName(variants)] : variants.slice(0, 2).map((n) => companyTokens(firmCore(n)).join(' ')).filter((x) => x.length >= 3))];
+  const q = queries[0];
+  const rows = [];
+  let cut = false;
+  for (const query of queries) {
+    const url = `${OCC_SEARCH}?q=${encodeURIComponent(query)}&srt=1&pg=1&pgsz=${OCC_PAGE_SIZE}`;
+    const { text } = await request(url, { deadline: ctx.deadline, timeoutMs: 12000, accept: 'application/json' });
+    let got;
+    try { got = JSON.parse(text); } catch { throw new Error('The OCC enforcement action search did not return a result'); }
+    if (!Array.isArray(got)) throw new Error('The OCC enforcement action search did not return a result');
+    if (got.length >= OCC_PAGE_SIZE) cut = true;
+    rows.push(...got);
+  }
   // One docket can carry several actions (a removal order and a penalty): one finding per person and docket.
   const groups = new Map();
   for (const r of rows) {
@@ -568,18 +617,22 @@ async function screenOcc(task, ctx) {
     const individual = /individual/i.test(r.EnforcementInstIAPType || '');
     let tier = 0;
     let listed = '';
+    let via = '';
     if (person) {
       if (!individual) continue;
       listed = personNameForms(`${oneLine(r.FirstName)} ${oneLine(r.LastName)}`).name;
       tier = matchPersonName(variants, listed);
     } else {
       if (individual) continue;
-      listed = [oneLine(r.CompanyName), oneLine(r.BankName)].find((x) => x && sameFirm(name, x)) || '';
+      for (const known of variants) {
+        listed = [oneLine(r.CompanyName), oneLine(r.BankName)].find((x) => x && sameFirm(known, x)) || '';
+        if (listed) { via = known; break; }
+      }
       tier = listed ? 1 : 0;
     }
     if (!tier) continue;
     const key = `${normalizeName(listed)}|${oneLine(r.DocketNumber) || oneLine(r.DocumentNumber)}`;
-    const g = groups.get(key) || { listed, tier, rows: [] };
+    const g = groups.get(key) || { listed, tier, via, rows: [] };
     g.rows.push(r);
     groups.set(key, g);
   }
@@ -609,7 +662,7 @@ async function screenOcc(task, ctx) {
       url: doc ? `${OCC_PDF}${doc}.pdf` : `${OCC_PAGE}?q=${encodeURIComponent(q)}`,
       date,
       data: { agency: 'OCC', actions, docket: oneLine(first.DocketNumber) || null, institution: bank || null, searched: name },
-    }, [bank, subjects.join('. ')].filter(Boolean).join('. '));
+    }, [bank, subjects.join('. ')].filter(Boolean).join('. '), { tier: g.tier, via: g.via });
     if (!f) continue;
     findings.push(f);
     const t = institutionThread(task, f, bank, 'named with the person in an OCC enforcement action');
@@ -619,7 +672,7 @@ async function screenOcc(task, ctx) {
   if (person) notes.push(OCC_NOTE);
   if (!groups.size) notes.push(`OCC enforcement actions: no match for ${name}`);
   if (groups.size > MAX_FINDINGS) notes.push(`OCC enforcement actions: ${groups.size} matching records; the first ${MAX_FINDINGS} are shown`);
-  const partial = rows.length >= OCC_PAGE_SIZE ? [`OCC enforcement actions (more than ${OCC_PAGE_SIZE} actions carry the words of the name; the first ${OCC_PAGE_SIZE} were read)`] : null;
+  const partial = cut ? [`OCC enforcement actions (more than ${OCC_PAGE_SIZE} actions carry the words of the name; the first ${OCC_PAGE_SIZE} were read)`] : null;
   return { findings, threads, notes, ...(partial ? { partial } : {}) };
 }
 
@@ -660,15 +713,15 @@ export function parseNcua(text) {
   return { v: 1, key: 'ncua', at: new Date().toISOString(), rows };
 }
 
-const loadNcua = (deadline) => cached('enforcement:ncua:v1', DAY_MS, async () => parseNcua((await request(NCUA_CSV, { deadline, timeoutMs: 15000, accept: 'text/csv' })).text));
+const loadNcua = (deadline) => loadList('enforcement:ncua:v1', async (d) => parseNcua((await request(NCUA_CSV, { deadline: d, timeoutMs: 15000, accept: 'text/csv' })).text), deadline);
 
 async function screenNcua(task, ctx) {
   const name = oneLine(task.value);
-  const index = await loadNcua(ctx.deadline);
-  const hits = screenRows(index, searchedNames(task, ctx), isPersonTask(task) ? 'person' : 'company');
+  const copy = await loadNcua(ctx.deadline);
+  const hits = screenRows(copy.index, searchedNames(task, ctx), isPersonTask(task) ? 'person' : 'company');
   const findings = [];
   const threads = [];
-  for (const { row } of hits.slice(0, MAX_FINDINGS)) {
+  for (const { row, tier, via } of hits.slice(0, MAX_FINDINGS)) {
     const f = graded(task, ctx, {
       source: BANK_ID, sourceLabel: BANK_LABEL, category: 'regulatory', severity: row.t === 'person' ? 'high' : 'medium',
       title: `${aboutPrefix(task)}NCUA administrative order: ${row.n}${row.t === 'person' && row.o ? ` (${row.o})` : ''}`,
@@ -682,16 +735,16 @@ async function screenNcua(task, ctx) {
       ].filter(Boolean).join(' | '),
       url: row.u,
       date: row.y || null,
-      data: { agency: 'NCUA', docket: row.i || null, institution: row.o || null, searched: name, listReadAt: index.at },
-    }, [row.o, row.r].filter(Boolean).join('. '));
+      data: { agency: 'NCUA', docket: row.i || null, institution: row.o || null, searched: name, listReadAt: readAt(copy) },
+    }, [row.o, row.r].filter(Boolean).join('. '), { tier, via });
     if (!f) continue;
     findings.push(f);
     const t = institutionThread(task, f, row.o, 'named with the person in an NCUA administrative order');
     if (t) threads.push(t);
   }
-  const notes = hits.length ? [] : [`NCUA administrative orders: no match for ${name}`];
+  const notes = hits.length ? [] : [`NCUA administrative orders: no match for ${name}${asOfText(copy)}`];
   if (hits.length > MAX_FINDINGS) notes.push(`NCUA administrative orders: ${hits.length} orders match the name ${name}; the first ${MAX_FINDINGS} are shown`);
-  return { findings, threads, notes };
+  return withStale({ findings, threads, notes }, 'NCUA administrative orders', copy);
 }
 
 const BANK_LISTS = [
@@ -778,7 +831,7 @@ export function parseFincen(html) {
   return { v: 1, key: 'fincen', at: new Date().toISOString(), rows };
 }
 
-const loadFincen = (deadline) => cached('enforcement:fincen:v1', DAY_MS, async () => parseFincen((await request(FINCEN_PAGE, { deadline, timeoutMs: 15000, accept: 'text/html' })).text));
+const loadFincen = (deadline) => loadList('enforcement:fincen:v1', async (d) => parseFincen((await request(FINCEN_PAGE, { deadline: d, timeoutMs: 15000, accept: 'text/html' })).text), deadline);
 
 export const fincenActionsConnector = {
   id: FINCEN_ID,
@@ -792,9 +845,9 @@ export const fincenActionsConnector = {
   async run(task, ctx) {
     if (!canScreen(task, ctx)) return tooShort(FINCEN_LABEL, task);
     const name = oneLine(task.value);
-    const index = await loadFincen(ctx.deadline);
-    const hits = screenRows(index, searchedNames(task, ctx), isPersonTask(task) ? 'person' : 'company');
-    const findings = hits.slice(0, MAX_FINDINGS).map(({ row }) => graded(task, ctx, {
+    const copy = await loadFincen(ctx.deadline);
+    const hits = screenRows(copy.index, searchedNames(task, ctx), isPersonTask(task) ? 'person' : 'company');
+    const findings = hits.slice(0, MAX_FINDINGS).map(({ row, tier, via }) => graded(task, ctx, {
       source: FINCEN_ID, sourceLabel: FINCEN_LABEL, category: 'regulatory', severity: actionSeverity(row.n),
       title: `${aboutPrefix(task)}FinCEN enforcement action: ${row.n}`,
       quote: [
@@ -805,10 +858,10 @@ export const fincenActionsConnector = {
       ].filter(Boolean).join(' | '),
       url: row.u,
       date: row.d,
-      data: { agency: 'FinCEN', matter: row.i || null, institutionType: row.k || null, searched: name, listReadAt: index.at },
-    }, [row.n, row.k].filter(Boolean).join('. '))).filter(Boolean);
-    const notes = hits.length ? [] : [`FinCEN enforcement actions: no match for ${name}`];
+      data: { agency: 'FinCEN', matter: row.i || null, institutionType: row.k || null, searched: name, listReadAt: readAt(copy) },
+    }, [row.n, row.k].filter(Boolean).join('. '), { tier, via })).filter(Boolean);
+    const notes = hits.length ? [] : [`FinCEN enforcement actions: no match for ${name}${asOfText(copy)}`];
     if (hits.length > MAX_FINDINGS) notes.push(`FinCEN enforcement actions: ${hits.length} actions match the name ${name}; the first ${MAX_FINDINGS} are shown`);
-    return { findings, threads: [], notes };
+    return withStale({ findings, threads: [], notes }, 'FinCEN enforcement actions', copy);
   },
 };

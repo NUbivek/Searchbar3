@@ -103,9 +103,10 @@ test('the brief lists the screens that came back clean, even with red flags', ()
     gnews: { label: 'Google News', runs: 3, findings: 0, errors: 0 },
   };
   const report = buildReport(state([rec({ title: 'John Smith indicted', url: 'https://a.test/5', date: '2021-07-29' })], { sources }));
-  expect(cleanScreens(report.coverage)).toEqual(['sanctions (US, UN, EU, UK, Canada)', 'US exclusion lists', 'ICIJ Offshore Leaks']);
+  // labelled as the screens checklist labels them (round 3: one source of truth for clean screens)
+  expect(cleanScreens(report.coverage)).toEqual(['Sanctions lists', 'US exclusions', 'ICIJ']);
   const brief = quotedDeepBrief(report, 'test');
-  expect(brief).toMatch(/Screens with no match: sanctions \(US, UN, EU, UK, Canada\), US exclusion lists, ICIJ Offshore Leaks\./);
+  expect(brief).toMatch(/Screens with no match: Sanctions lists, US exclusions, ICIJ\./);
   expect(brief).not.toMatch(/Screens with no match:.*(?:wanted|DOJ)/);
 });
 

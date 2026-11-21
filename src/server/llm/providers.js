@@ -162,6 +162,10 @@ let prunedUsage = false;
 const listCache = new Map(); // provider id -> { at, models }
 const cooldowns = new Map(); // "provider:model" or "provider:*" -> { until, why }
 const quotaCache = new Map(); // provider id -> { at, remaining }
+// Lookups already on their way (model lists, the OpenRouter allowance): a second request made meanwhile, such
+// as the quick brief's early set-up and the brief itself, waits on the same lookup instead of starting its own.
+const listInFlight = new Map(); // provider id -> Promise
+const quotaInFlight = new Map(); // provider id -> Promise
 
 /** The API key for a provider (keyEnv may list alternative names). */
 export function providerKey(p) {
@@ -215,6 +219,13 @@ async function fetchModelList(p) {
 async function listAllowed(p) {
   const cached = listCache.get(p.id);
   if (cached && Date.now() - cached.at < LIST_CACHE_MS) return cached.models;
+  if (listInFlight.has(p.id)) return listInFlight.get(p.id);
+  const loading = loadAllowed(p, cached).finally(() => listInFlight.delete(p.id));
+  listInFlight.set(p.id, loading);
+  return loading;
+}
+
+async function loadAllowed(p, cached) {
   let raw;
   let failed = false;
   try {
@@ -327,6 +338,7 @@ function restAfter(p, model, error) {
  */
 const SHARED_REST_PREFIX = 'llm-rest:';
 let sharedRestsAt = 0;
+let sharedRestsLoading = null;
 
 async function shareRest(key, until, why) {
   if (persistenceMode() === 'none' || !Number.isFinite(until)) return;
@@ -342,8 +354,15 @@ async function shareRest(key, until, why) {
 }
 
 async function loadSharedRests() {
+  // a read already on its way is shared: a request made meanwhile must see the rests it finds, not skip them
+  if (sharedRestsLoading) return sharedRestsLoading;
   if (persistenceMode() === 'none' || Date.now() - sharedRestsAt < 2 * 60000) return;
   sharedRestsAt = Date.now();
+  sharedRestsLoading = readSharedRests().finally(() => { sharedRestsLoading = null; });
+  return sharedRestsLoading;
+}
+
+async function readSharedRests() {
   try {
     const rows = await query('SELECT key, body FROM source_cache WHERE key LIKE $1', [`${SHARED_REST_PREFIX}%`]);
     for (const row of rows || []) {
@@ -380,6 +399,13 @@ function markedSlow(p) {
 async function openRouterRemaining(p) {
   const cached = quotaCache.get(p.id);
   if (cached && Date.now() - cached.at < 3 * 60000) return cached.remaining;
+  if (quotaInFlight.has(p.id)) return quotaInFlight.get(p.id);
+  const asking = askOpenRouterRemaining(p).finally(() => quotaInFlight.delete(p.id));
+  quotaInFlight.set(p.id, asking);
+  return asking;
+}
+
+async function askOpenRouterRemaining(p) {
   let remaining = null;
   try {
     const { data } = await axios.get(`${p.baseUrl}/key`, { headers: { Authorization: `Bearer ${providerKey(p)}` }, timeout: 4000 });
@@ -391,6 +417,26 @@ async function openRouterRemaining(p) {
   }
   quotaCache.set(p.id, { at: Date.now(), remaining });
   return remaining;
+}
+
+/**
+ * Start what building a chain needs (each service's model list, the rests shared between server instances,
+ * the learned statistics and OpenRouter's allowance) without waiting for it. A caller with a person waiting
+ * calls this as soon as it knows it will ask a model, so the set-up runs while it does its other work (the quick
+ * brief's searches); chatComplete then finds it done, or waits on the same lookups. Never throws.
+ * @returns {Promise<void>}
+ */
+export function prepareChain() {
+  if (!llmConfigured()) return Promise.resolve();
+  const enabled = PROVIDERS.filter(providerEnabled);
+  const openRouter = enabled.find((p) => p.id === 'openrouter');
+  return Promise.all([
+    ...enabled.map((p) => listAllowed(p).catch(() => [])),
+    loadSharedRests().catch(() => {}),
+    loadStats('model').catch(() => null),
+    loadStats('model-day').catch(() => null),
+    openRouter ? openRouterRemaining(openRouter).catch(() => null) : null,
+  ]).then(() => undefined, () => undefined);
 }
 
 // ---------------------------------------------------------------------------
@@ -490,10 +536,11 @@ async function buildChain({ task, preferred, personal, promptTokens, deadline, a
  * need room for both, and the amount of thinking is set per task: a report
  * gets more, a plain extraction gets little.
  */
-function requestBody(c, messages, { task, maxTokens, temperature, json, promptTokens, attemptMs = Infinity }) {
-  // With little time left (a fallback after a slow first model), a quick answer beats a thorough one that never arrives
-  const hurried = attemptMs < 20000;
-  const effort = task === 'extract' ? 'low' : hurried ? 'low' : task === 'analysis' ? 'high' : 'medium';
+function requestBody(c, messages, { task, maxTokens, temperature, json, promptTokens, attemptMs = Infinity, effort: asked = null }) {
+  // With little time left (a fallback after a slow first model), a quick answer beats a thorough one that never
+  // arrives; a caller with a person waiting may ask for a quick answer outright (effort 'low').
+  const hurried = attemptMs < 20000 || asked === 'low';
+  const effort = task === 'extract' ? 'low' : hurried ? 'low' : ['medium', 'high'].includes(asked) ? asked : task === 'analysis' ? 'high' : 'medium';
   const body = { model: c.id, messages, temperature };
   const extras = {};
   const id = c.id.toLowerCase();
@@ -503,10 +550,26 @@ function requestBody(c, messages, { task, maxTokens, temperature, json, promptTo
     if (!/^gemma/.test(id)) extras.reasoning_effort = effort;
   } else if (c.p.id === 'groq') {
     // Groq counts the answer allowance against the per-minute limit, so it must fit beside the question.
+    // Hidden reasoning is counted in the same completion allowance as the answer, so a model that reasons gets
+    // room for both: with the answer's allowance alone it spent it on thinking and came back empty or cut short.
     const room = Math.max(600, GROQ_FREE_TPM - 300 - promptTokens);
-    body.max_completion_tokens = Math.min(maxTokens, room, c.maxOut || maxTokens);
-    if (/gpt-oss/.test(id)) { extras.reasoning_effort = effort; extras.include_reasoning = false; }
-    else if (/qwen/.test(id)) { extras.reasoning_effort = task === 'extract' ? 'none' : 'high'; extras.reasoning_format = 'hidden'; }
+    const cap = c.maxOut || Infinity;
+    if (/gpt-oss/.test(id)) {
+      const think = { low: 1000, medium: 2500, high: 5000 }[effort] || 1000;
+      body.max_completion_tokens = Math.min(maxTokens + think, room, cap);
+      extras.reasoning_effort = effort;
+      extras.include_reasoning = false;
+    } else if (/qwen/.test(id)) {
+      // Groq's qwen takes only 'none' or 'default'. It reasons only when there is room beside the answer and the
+      // caller is not in a hurry; otherwise it answers straight away.
+      const spare = Math.min(room, cap) - maxTokens;
+      const reason = task !== 'extract' && effort !== 'low' && spare >= 2500;
+      extras.reasoning_effort = reason ? 'default' : 'none';
+      extras.reasoning_format = 'hidden';
+      body.max_completion_tokens = Math.min(reason ? maxTokens + Math.min(spare, 4000) : maxTokens, room, cap);
+    } else {
+      body.max_completion_tokens = Math.min(maxTokens, room, cap);
+    }
   } else if (c.p.id === 'openrouter') {
     const thinks = !c.params || c.params.includes('reasoning');
     body.max_tokens = thinks ? Math.max(maxTokens + (effort === 'high' ? 8000 : 4000), 8000) : maxTokens;
@@ -540,6 +603,8 @@ const cleanText = (data) => String(data?.choices?.[0]?.message?.content || '').r
  *     retry after they failed.
  *   trace: an array that receives every failed attempt ({ provider, model,
  *     family, why }), so a caller can retry without them even when no model answered.
+ *   effort: 'low' asks every model for a quick answer (little or no thinking), for a caller with a person
+ *     waiting; 'medium' or 'high' set the thinking where there is time. Default: by task.
  *   accept: the caller's own check of the answer (structure, citations). An
  *     answer that fails it counts as a failure of that model and the next
  *     model is asked, instead of the caller giving up on AI altogether.
@@ -547,7 +612,7 @@ const cleanText = (data) => String(data?.choices?.[0]?.message?.content || '').r
  *   null when no provider is configured or every model failed.
  *   skipped: models tried first that failed, e.g. [{ model, provider, why }]
  */
-export async function chatComplete(messages, { preferred = 'auto', task = 'chat', maxTokens = 3000, temperature = 0.2, timeoutMs = 60000, deadline = null, personal = false, accept = null, json = null, avoid = [], trace = null, hedgeMs = 0 } = {}) {
+export async function chatComplete(messages, { preferred = 'auto', task = 'chat', maxTokens = 3000, temperature = 0.2, timeoutMs = 60000, deadline = null, personal = false, accept = null, json = null, avoid = [], trace = null, hedgeMs = 0, effort = null } = {}) {
   if (!llmConfigured()) return null;
   const kind = TASKS.includes(task) ? task : 'chat';
   const promptTokens = estimateTokens(messages);
@@ -610,7 +675,7 @@ export async function chatComplete(messages, { preferred = 'auto', task = 'chat'
     const post = (payload, ms) => Promise.race([axios.post(`${p.baseUrl}/chat/completions`, payload, { headers: requestHeaders, timeout: ms, signal: own.signal }), wallClock]);
     const requestHeaders = { Authorization: `Bearer ${providerKey(p)}`, 'Content-Type': 'application/json', ...(p.id === 'openrouter' ? { 'X-Title': 'Research Hub' } : {}) };
     try {
-      const { body, extras } = requestBody(c, messages, { task: kind, maxTokens, temperature, json, promptTokens, attemptMs });
+      const { body, extras } = requestBody(c, messages, { task: kind, maxTokens, temperature, json, promptTokens, attemptMs, effort });
       if (c.entry.scarce) used.push({ key: `${dayKey(p.resets)}|${p.id}:${c.entry.family}`, win: 1 });
       let response;
       try {
@@ -938,6 +1003,9 @@ export function __resetLlmForTests() {
   listCache.clear();
   cooldowns.clear();
   quotaCache.clear();
+  listInFlight.clear();
+  quotaInFlight.clear();
   sharedRestsAt = 0;
+  sharedRestsLoading = null;
   prunedUsage = false;
 }

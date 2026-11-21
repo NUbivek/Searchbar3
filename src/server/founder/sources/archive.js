@@ -121,6 +121,8 @@ export function pageOf(url) {
   if (/\.(pdf|docx?|pptx?|xlsx?|jpe?g|png|gif|svg|webp|mp4|mp3|zip|json|xml|rss)$/i.test(path)) return null;
   let query = '';
   if (/(^|\.)linkedin\.com$/.test(host)) {
+    // fr.linkedin.com/in/x and uk.linkedin.com/in/x are the same profile; the archive keeps most copies under linkedin.com
+    host = 'linkedin.com';
     const m = path.match(/^\/in\/[^/]+/i) || path.match(/^\/pub\/[^/]+(?:\/[0-9a-z]{1,4}){0,3}/i);
     if (!m || /^\/pub\/dir(\/|$)/i.test(path)) return null; // company pages, posts, name directories
     [path] = m;
@@ -391,6 +393,23 @@ async function readPage(page, ctx, budget, { reserve = 0 } = {}) {
 
 // ---------- turning what was read into findings ----------
 
+/** Does the text name the person: their full name, or their first name used alone (as their own bio does)? */
+function namesThem(subject, text) {
+  const t = String(text || '');
+  if (!t) return false;
+  if (subject.hasName(t)) return true;
+  const first = nameTokens(subject.name)[0] || '';
+  return first.length >= 3 && new RegExp(`(?<![\\p{L}\\p{N}])${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'iu').test(t);
+}
+/** The structured claims of a version, for the profile: titles with employers and dates, schools with degrees. */
+function claimFields(c) {
+  const roles = (c.roles || []).filter((r) => r.org && !NOT_AN_EMPLOYER.test(r.org)).slice(0, 12).map((r) => ({ title: r.title || '', org: r.org, dates: r.dates || '' }));
+  const education = (c.education || []).slice(0, 6).map((e) => ({ school: e.school, degree: e.degree || '', dates: e.dates || '' }));
+  return { format: c.format || '', ...(c.headline ? { headline: c.headline } : {}), roles, education };
+}
+/** Does a version say anything at all (a name line alone, or a builder's placeholder, says nothing)? */
+const saysSomething = (c) => Boolean(c && (c.headline || c.bioText || (c.roles || []).length || (c.education || []).length));
+
 const quoted = (s, n = 80) => `"${clip(s, n)}"`;
 
 /** One line that says what changed, for a finding's title. */
@@ -400,6 +419,7 @@ export function describeChange(d) {
   if (d.field === 'education') {
     if (d.change === 'changed') return `${d.aspect === 'dates' ? 'education dates' : 'degree'} changed from ${quoted(d.before)} to ${quoted(d.after)}`;
     if (d.change === 'removed') return d.aspect === 'section' ? `education no longer listed (${quoted(d.before, 110)})` : `${d.aspect === 'degree' ? 'degree' : 'school'} no longer listed: ${quoted(d.before, 110)}`;
+    if (d.aspect === 'degree') return `degree added to ${quoted(d.before, 80)}: now ${quoted(d.after, 110)}`;
     return `education added: ${quoted(d.after, 110)}`;
   }
   if (d.change === 'changed') return `${d.aspect === 'dates' ? 'role dates' : 'role'} changed from ${quoted(d.before)} to ${quoted(d.after)}`;
@@ -552,9 +572,14 @@ function changeFindings(subject, base, what, page, versions) {
         bioText: from('bio').claims.bioText,
       };
       for (const raw of adjustRoleChanges(compareClaims(older, cur.claims), older, cur.claims)) {
+        // A bio on a page that is not a profile (a blog post's author box, a company's about page) is told about the
+        // person only when it names them: another employee's bio beside their name is not their claim.
+        if (raw.field === 'bio' && cur.claims.format === 'page' && !namesThem(subject, raw.before) && !namesThem(subject, raw.after)) continue;
         // Words only added to a bio or a profile tagline say more, not something different: noted, not flagged.
         const expanded = raw.change === 'changed' && (raw.field === 'bio' || (raw.field === 'headline' && raw.aspect !== 'title')) && onlyAdds(raw.before, raw.after);
-        const d = expanded ? { ...raw, severity: 'info', expanded: true } : raw;
+        let d = expanded ? { ...raw, severity: 'info', expanded: true } : raw;
+        // a degree that appears on a copy with masked lines is shown less sure: the older view may have hidden it
+        if (cur.claims.masked && d.aspect === 'degree' && d.change === 'added') d = { ...d, severity: 'low' };
         // a copy with lines hidden behind asterisks cannot show that something is gone or was reworded, only what was added
         if (cur.claims.masked && d.change !== 'added') continue;
         const source = from(d.field);
@@ -634,9 +659,12 @@ function reportPage(subject, info, { discovered = false, guessed = false, linked
   const fam = familyOf(info.page);
   const what = `${fam.label} ${fam.noun}`;
   if (info.blocked) out.notes.push(`${info.blocked} saved ${info.blocked === 1 ? 'copy' : 'copies'} of ${info.page} showed a sign-in wall instead of the ${fam.noun}.`);
-  const own = info.versions.filter((v) => ownsPage(subject, v.claims));
+  // A copy that names them but says nothing else (a builder's placeholder text, an empty shell) is not kept.
+  const named = info.versions.filter((v) => ownsPage(subject, v.claims));
+  const own = named.filter((v) => saysSomething(v.claims));
   if (!own.length) {
-    if (info.versions.length) out.notes.push(`The saved copies of ${info.page} that were read do not name ${subject.name}.`);
+    if (named.length) out.notes.push(`The saved copies of ${info.page} that were read name ${subject.name} but say nothing else about them.`);
+    else if (info.versions.length) out.notes.push(`The saved copies of ${info.page} that were read do not name ${subject.name}.`);
     return out;
   }
   out.named = true;
@@ -695,35 +723,53 @@ function reportPage(subject, info, { discovered = false, guessed = false, linked
   const brief = guessed && !trusted;
   if (brief) versions = versions.slice(-1);
 
-  if (trusted || !discovered) {
-    out.findings.push(makeFinding(subject, {
-      ...base,
-      matchText: latest.text,
-      ...(latest.fix || {}),
-      title: info.captures === 1 ? `${what} archived once, on ${iso(first)}` : ym(first) === ym(last) ? `${what} archived ${info.captures} times in ${ym(first)}` : `${what} archived ${info.captures} times between ${ym(first)} and ${ym(last)}`,
-      quote: claimsQuote(latest.v.claims, 300),
-      url: `${WB}/web/*/${info.page}`,
-      date: last,
-      severity: 'info',
-      data: { kind: 'snapshot', page, first: iso(first), last: iso(last), captures: info.captures },
-    }));
-  }
-  const snapshotOf = (v, matchText, fix = null) => {
+  // One record per page: its latest version, carrying how often and over what time the page was saved. An earlier
+  // version is its own record only when it lists an employer, a school or a degree the latest does not (what it
+  // adds to the profile); otherwise it is folded into the latest's data. The changes are told separately.
+  const span = info.captures === 1 ? `archived once, on ${iso(first)}` : ym(first) === ym(last) ? `archived ${info.captures} times in ${ym(first)}` : `archived ${info.captures} times between ${ym(first)} and ${ym(last)}`;
+  const summarise = trusted || !discovered;
+  const snapshotOf = (v, matchText, fix = null, extra = null) => {
     const line = claimsHeadline(v.claims);
-    if (!line) return;
+    if (!line && !extra) return;
     out.findings.push(makeFinding(subject, {
       ...base,
       matchText,
       ...(fix || {}),
-      title: `${what} as of ${iso(v.ts)}: ${line}`,
-      quote: claimsQuote(v.claims),
-      url: replayUrl(v.ts, v.original),
-      date: v.ts,
+      title: extra
+        ? `${what}${line ? ` as of ${iso(v.ts)}: ${line}` : ''}${line ? ` (${span})` : ` ${span}`}`
+        : `${what} as of ${iso(v.ts)}: ${line}`,
+      quote: claimsQuote(v.claims, extra ? 300 : 680),
+      // the page's summary keeps its address in the archive's calendar, so another lookup of the page folds into it
+      url: extra ? `${WB}/web/*/${info.page}` : replayUrl(v.ts, v.original),
+      date: extra ? last : v.ts,
       severity: 'info',
-      data: { kind: 'snapshot', page, capturedAt: iso(v.ts) },
+      // the version's own fields, so the profile can read roles and schools as a record (not from a sentence)
+      data: { kind: 'snapshot', page, capturedAt: iso(v.ts), claims: claimFields(v.claims), ...(extra || {}) },
     }));
   };
-  for (const v of versions) snapshotOf(v, v.matchText, v.fix);
+  const latestV = versions[versions.length - 1];
+  const latestOrgs = orgsOf(latestV.claims);
+  const latestDegrees = new Set(latestV.claims.education.map((e) => `${orgKey(e.school)}|${e.degree}`));
+  // A version graded differently from the latest (tied through another copy, held back as a possible mix) keeps
+  // its own record: folding it would lend it the latest's grade.
+  const levelOf = (v) => (v.fix && v.fix.match) || matchSubject(subject, v.matchText || '').level;
+  const latestLevel = levelOf(latestV);
+  const addsToProfile = (v) => levelOf(v) !== latestLevel
+    || orgsOf(v.claims).some((o) => !latestOrgs.some((x) => sameOrg(x, o)))
+    || v.claims.education.some((e) => e.degree && !latestDegrees.has(`${orgKey(e.school)}|${e.degree}`));
+  const folded = [];
+  const kept = [];
+  for (const v of versions.slice(0, -1)) {
+    if (addsToProfile(v)) kept.push(v);
+    else folded.push({ date: iso(v.ts), line: claimsHeadline(v.claims), url: replayUrl(v.ts, v.original) });
+  }
+  if (summarise) {
+    snapshotOf(latestV, latestV.matchText || latest.text, latestV.fix || latest.fix || null, {
+      first: iso(first), last: iso(last), captures: info.captures, replay: replayUrl(latestV.ts, latestV.original),
+      ...(folded.length ? { versions: folded } : {}),
+    });
+  } else snapshotOf(latestV, latestV.matchText, latestV.fix);
+  for (const v of kept) snapshotOf(v, v.matchText, v.fix);
   // copies that carry only the name, next to copies tied to the person: one line each, graded on their own text, never diffed
   const otherSigs = new Set();
   for (const g of others) {

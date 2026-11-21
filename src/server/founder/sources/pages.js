@@ -37,8 +37,10 @@
  *                     GET https://web.archive.org/web/<timestamp>id_/<page>   (the page as served)
  */
 import { request, htmlToText, getJson, HttpError } from '../http';
+import { addCompanyAlias } from '../identity';
+import { companyKeys } from '../names';
 import { cached } from '../cache';
-import { makeFinding, severityFromText } from '../finding';
+import { makeFinding, makeThread, severityFromText } from '../finding';
 import { threadsFromResult, profileFromUrl, structuredData, personFacts, threadsFromFacts } from '../extract';
 import { isBlockedUrl } from '../guardrails';
 import { bioSentences, sentencesOf } from '../profile';
@@ -55,23 +57,46 @@ export const SITE_PATHS = ['/about', '/team', '/leadership', '/about-us', '/comp
 export const SITE_MAX_REQUESTS = 4;
 const SITE_MAX_KEPT = 2;
 const PAGE_TIMEOUT_MS = 12000;
-const NEVER = /(?:^|\.)(?:linkedin\.com|x\.com|twitter\.com|facebook\.com|instagram\.com|tiktok\.com|threads\.net|youtube\.com|youtu\.be|reddit\.com|news\.google\.com|google\.com|bing\.com|duckduckgo\.com|archive\.org|wikipedia\.org|wikidata\.org|github\.com|crunchbase\.com|pitchbook\.com|sec\.gov)$/i;
+// theorg.com: org charts are read from search snippets only (web.js q.profiles), never opened.
+const NEVER = /(?:^|\.)(?:linkedin\.com|x\.com|twitter\.com|facebook\.com|instagram\.com|tiktok\.com|threads\.net|youtube\.com|youtu\.be|reddit\.com|news\.google\.com|google\.com|bing\.com|duckduckgo\.com|archive\.org|wikipedia\.org|wikidata\.org|github\.com|crunchbase\.com|pitchbook\.com|theorg\.com|sec\.gov)$/i;
+/** The most of a page that is read: a bio or an article is far shorter, and the text passes are linear in it. */
+export const MAX_HTML_CHARS = 1000000;
 const NOT_A_PAGE = /\.(?:pdf|docx?|pptx?|xlsx?|zip|png|jpe?g|gif|mp[34]|mov)(?:$|[?#])/i;
 
 const hostOf = (url) => { try { return new URL(url).hostname.toLowerCase().replace(/^www\./, ''); } catch { return ''; } };
+
+/**
+ * A host that is not a public web site: an address written as numbers (IPv4 or IPv6), localhost, or a name
+ * that only exists on a private network (.local, .internal, .localhost, .lan, .home.arpa). The http client also
+ * refuses private addresses that a name resolves to; this keeps such links from being planned at all.
+ */
+function privateHost(u) {
+  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (/^\d+(?:\.\d+){0,3}$/.test(h) || /^0x[0-9a-f]+$/i.test(h) || h.includes(':')) return true;
+  if (h === 'localhost' || /\.(?:localhost|local|internal|lan|intranet|corp|home\.arpa)$/.test(h) || !h.includes('.')) return true;
+  // only the web's own ports
+  return Boolean(u.port) && !((u.protocol === 'http:' && u.port === '80') || (u.protocol === 'https:' && u.port === '443'));
+}
 
 /** May this page be opened at all? */
 export function readable(url) {
   const host = hostOf(url);
   if (!host || !/^https?:/i.test(url) || NEVER.test(host) || NOT_A_PAGE.test(url) || isBlockedUrl(url)) return false;
+  let u;
+  try { u = new URL(String(url)); } catch { return false; }
+  if (privateHost(u) || u.username || u.password) return false;
   const profile = profileFromUrl(url);
   return !profile || !['linkedin', 'x', 'github', 'facebook', 'instagram', 'crunchbase'].includes(profile.platform);
 }
 
 /** A site whose about and team pages may be read: a plain host name, never a social network or a people-search site. */
 function siteOf(value) {
-  const v = String(value || '').trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/^www\./, '').replace(/[/?#].*$/, '').replace(/:\d+$/, '');
-  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(v)) return null;
+  const raw = String(value || '').trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/^www\./, '').replace(/[/?#].*$/, '');
+  // a port other than the web's own is not a public site's about page
+  const port = raw.match(/:(\d+)$/)?.[1];
+  if (port && port !== '80' && port !== '443') return null;
+  const v = raw.replace(/:\d+$/, '');
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(v) || /^[\d.]+$/.test(v)) return null;
   if (!readable(`https://${v}/about`) || /(?:^|\.)(?:medium\.com|substack\.com|wordpress\.com|blogspot\.com|about\.me|wellfound\.com|angel\.co)$/.test(v)) return null;
   return v;
 }
@@ -132,9 +157,17 @@ export function robotsAllow(rules, path) {
 /** 'allowed', 'disallowed', or 'unknown' (the robots file could not be read: the page is left alone). */
 async function robotsVerdict(url, deadline) {
   const u = new URL(url);
-  const rules = await cached(`robots:${u.origin}`, 24 * 3600 * 1000, async () => {
+  // The loader runs on its own deadline (cache.js gives it one): a robots file shared by several lookups is not
+  // cut short, or remembered as failed, because the first caller's step was ending. This caller waits only
+  // until its own deadline.
+  const rules = await cached(`robots:${u.origin}`, 24 * 3600 * 1000, async ({ deadline: loadDeadline } = {}) => {
     try {
-      const text = await request(`${u.origin}/robots.txt`, { timeoutMs: 6000, deadline, retries: 0, maxBytes: 512 * 1024 }).then((r) => r.text);
+      // A robots file may redirect (to the https or www origin); never into a site the reader does not open.
+      // Private addresses are refused by the http client on every hop.
+      const text = await request(`${u.origin}/robots.txt`, {
+        timeoutMs: 6000, deadline: loadDeadline || deadline, retries: 0, maxBytes: 512 * 1024,
+        onHop: (next) => (NEVER.test(hostOf(next)) || isBlockedUrl(next) ? 'the robots file redirects to a site the reader never opens' : true),
+      }).then((r) => r.text);
       return { text: String(text || '').slice(0, 200000) };
     } catch (error) {
       // No robots file (404 and the like) places no limit. Anything else (a timeout, a server error) is
@@ -142,7 +175,7 @@ async function robotsVerdict(url, deadline) {
       if (error?.status >= 400 && error.status < 500 && error.status !== 429) return { text: '' };
       throw error;
     }
-  }, { persist: false }).catch(() => null);
+  }, { persist: false, deadline }).catch(() => null);
   if (!rules) return 'unknown';
   return robotsAllow(parseRobots(rules.text), `${u.pathname}${u.search}`) ? 'allowed' : 'disallowed';
 }
@@ -176,15 +209,19 @@ export async function archivedCopy(url, deadline, { take = () => true } = {}) {
   // checked here, not in the lookup, so a step that ran out of time does not leave a remembered failure behind
   if (deadline && deadline - Date.now() < 1500) throw new HttpError('Out of time', { url: target, retryable: true });
   if (!take()) throw new PageLimit();
-  const found = await cached(`wayback-available:${target}`, 6 * 3600 * 1000, async () => {
-    const data = await getJson(`https://archive.org/wayback/available?url=${encodeURIComponent(target)}`, { timeoutMs: 10000, deadline, retries: 0 });
+  const found = await cached(`wayback-available:${target}`, 6 * 3600 * 1000, async ({ deadline: loadDeadline } = {}) => {
+    const data = await getJson(`https://archive.org/wayback/available?url=${encodeURIComponent(target)}`, { timeoutMs: 10000, deadline: loadDeadline || deadline, retries: 0 });
     const c = data?.archived_snapshots?.closest;
     return c && c.available && String(c.status) === '200' && /^\d{14}$/.test(String(c.timestamp)) ? { timestamp: String(c.timestamp) } : { timestamp: null };
-  }, { persist: false });
+  }, { persist: false, deadline });
   if (!found?.timestamp) return null;
   const ts = found.timestamp;
   if (!take()) throw new PageLimit();
-  const response = await request(`https://web.archive.org/web/${ts}id_/${target}`, { timeoutMs: PAGE_TIMEOUT_MS, deadline, retries: 0, maxBytes: 3 * 1024 * 1024, accept: 'text/html,application/xhtml+xml' });
+  // The archive's copy redirects to the nearest capture, always within web.archive.org; anything else is not followed.
+  const response = await request(`https://web.archive.org/web/${ts}id_/${target}`, {
+    timeoutMs: PAGE_TIMEOUT_MS, deadline, retries: 0, maxBytes: 3 * 1024 * 1024, accept: 'text/html,application/xhtml+xml',
+    onHop: (next) => (hostOf(next) === 'web.archive.org' ? true : 'the web archive sent the reader to another site'),
+  });
   return { html: response.text, date: `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)}`, replay: replayUrl(ts, target) };
 }
 
@@ -207,11 +244,30 @@ async function openPage(url, deadline, { archiveFallback = true, take = () => tr
   if (verdict === 'disallowed') return { status: 'robots' };
   if (verdict === 'unknown') return { status: 'unknown' };
   if (!take()) return { status: 'limit' };
+  // Every redirect hop is judged before it is opened (http.js asks onHop): never a social network or a
+  // people-search site, never a private address (http.js), and only where robots.txt allows this reader.
+  // The first address was judged above.
+  const sameSite = (next) => hostOf(next) === hostOf(url);
+  const onHop = async (next, { hop }) => {
+    if (hop === 0) return true;
+    if (!readable(next)) return 'leads to a site the reader never opens';
+    const v = await robotsVerdict(next, deadline);
+    if (v === 'allowed') return true;
+    return v === 'disallowed' ? 'robots.txt does not allow it' : 'its robots file could not be read';
+  };
   let response;
   try {
-    response = await request(url, { timeoutMs: PAGE_TIMEOUT_MS, deadline, retries: 0, maxBytes: 3 * 1024 * 1024, accept: 'text/html,application/xhtml+xml' });
+    response = await request(url, { timeoutMs: PAGE_TIMEOUT_MS, deadline, retries: 0, maxBytes: 3 * 1024 * 1024, accept: 'text/html,application/xhtml+xml', onHop });
   } catch (error) {
     if (!(error instanceof HttpError)) throw error;
+    // A redirect the reader turned down, or an address that is not public: nothing was sent there, and the
+    // archive is not asked for a copy of a page the reader may not read.
+    if (error.code === 'refused') {
+      const landed = error.hopUrl || url;
+      if (sameSite(landed)) return { status: /robots\.txt does not/.test(String(error.message)) ? 'robots' : /could not be read/.test(String(error.message)) ? 'unknown' : 'elsewhere', landed };
+      return { status: 'elsewhere', landed };
+    }
+    if (error.code === 'blocked') return error.hopUrl && error.hopUrl !== url ? { status: 'elsewhere', landed: error.hopUrl } : { status: 'missing' };
     if (error.status && error.status >= 400 && error.status < 500 && !turnedAway(error)) return { status: 'missing' };
     if (!turnedAway(error) || !archiveFallback) throw error;
     // It timed out because the deadline was near, not because the site is slow: there is no time to ask the
@@ -230,9 +286,10 @@ async function openPage(url, deadline, { archiveFallback = true, take = () => tr
     if (!copy) return { status: 'refused', why };
     return { status: 'ok', html: copy.html, archived: { date: copy.date, replay: copy.replay, why } };
   }
-  // A link that lands somewhere else (another site, or another page of the same site) is judged again where it
-  // landed: never a social network or a people-search site, and only where robots.txt allows automated reading
-  // of that page. A same-site redirect into a path robots.txt closes is not read.
+  // A file that is not a web page (a PDF, an image) is not read as one.
+  const type = String((typeof response.headers?.get === 'function' ? response.headers.get('content-type') : response.headers?.['content-type']) || '').toLowerCase();
+  if (type && !/html|xml|text\/plain/.test(type)) return { status: 'not-page', type: type.split(';')[0].trim() };
+  // Backstop: the landed address is judged again (a transport that followed redirects on its own).
   const landed = response.url || url;
   if (landed.replace(/#.*$/, '') === String(url).replace(/#.*$/, '')) return { status: 'ok', html: response.text };
   if (!readable(landed)) return { status: 'elsewhere', landed };
@@ -242,6 +299,16 @@ async function openPage(url, deadline, { archiveFallback = true, take = () => tr
     return { status: landedVerdict === 'disallowed' ? 'robots' : 'unknown' };
   }
   return { status: 'ok', html: response.text };
+}
+
+/**
+ * A cookie-consent page, a sign-in or subscription wall served in place of the article (HTTP 200): what is
+ * read there is the wall, not the page. Judged on the visible text: short, and saying what a wall says.
+ */
+const WALL_WORDS = /\b(?:subscribe to (?:continue|read)|subscribers? only|to continue reading|already a subscriber|create a free account to|sign in to (?:continue|read)|log in to (?:continue|read)|we value your privacy|cookie (?:settings|preferences|consent)|accept all cookies|manage (?:your )?(?:privacy|cookie) (?:settings|choices)|before you continue|your privacy choices|paywall)\b/i;
+export function isWallPage(html) {
+  const text = pageText(String(html || '').slice(0, MAX_HTML_CHARS));
+  return WALL_WORDS.test(text) && text.replace(/\s+/g, ' ').length < 6000;
 }
 
 /**
@@ -355,9 +422,19 @@ function sentencesLedByThem(subject, text, { aboutThem }) {
   return led;
 }
 
+/** The page's <title>, found with two plain searches (no pattern that backtracks over the whole page). */
 const pageTitle = (html) => {
-  const m = String(html).match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  return m ? htmlToText(m[1]).slice(0, 160) : '';
+  const h = String(html);
+  const lower = h.toLowerCase();
+  let at = lower.indexOf('<title');
+  // "<titlebar>" and the like are not the title element
+  while (at >= 0 && !/[\s>]/.test(lower[at + 6] || '')) at = lower.indexOf('<title', at + 6);
+  if (at < 0) return '';
+  const open = lower.indexOf('>', at);
+  if (open < 0) return '';
+  const close = lower.indexOf('</title', open);
+  if (close < 0) return '';
+  return htmlToText(h.slice(open + 1, Math.min(close, open + 2000))).slice(0, 160);
 };
 const DAY = (iso) => {
   const [y, m, d] = String(iso).split('-').map(Number);
@@ -370,8 +447,10 @@ const DAY = (iso) => {
  * give. A page that does not name the person gives nothing, whatever linked to it.
  * @returns {{ findings: Array, threads: Array }}
  */
-export function readPage(subject, { url, html, archived = null, template = 'read' }) {
+export function readPage(subject, { url, html: rawHtml, archived = null, template = 'read' }) {
   const empty = { findings: [], threads: [] };
+  // A page larger than any bio or article is read up to MAX_HTML_CHARS: every pass below is linear in it
+  const html = String(rawHtml || '').slice(0, MAX_HTML_CHARS);
   const title = pageTitle(html);
   const data = structuredData(html);
   const text = pageText(html);
@@ -482,6 +561,7 @@ const NOTE = {
     ? `${host} did not answer in time and the web archive holds no copy of the page; nothing was read.`
     : `${host} turned the reader away and the web archive holds no copy of the page; nothing was read.`),
   limit: (host) => `Not opened (${MAX_PAGES} pages already read in this check): ${host}`,
+  'not-page': (host) => `${host} answered with a file that is not a web page; it was not read.`,
 };
 
 async function readOne(task, ctx) {
@@ -494,10 +574,50 @@ async function readOne(task, ctx) {
   if (budget.full()) return { ...empty, notes: [NOTE.limit(hostOf(url))] };
   const page = await openPage(url, ctx.deadline, { take: budget.take });
   if (page.status !== 'ok') return { ...empty, notes: NOTE[page.status] ? [NOTE[page.status](hostOf(url), page.landed, page.why)] : [] };
-  const out = readPage(subject, { url, html: page.html, archived: page.archived || null, template: task.template });
+  let out = readPage(subject, { url, html: page.html, archived: page.archived || null, template: task.template });
   const what = page.archived?.why === 'unanswered' ? 'did not answer in time' : 'turned the reader away';
   const notes = page.archived ? [`${hostOf(url)} ${what}; its page was read from the web archive's copy of ${DAY(page.archived.date)}.`] : [];
-  return { ...out, notes };
+  if (out.findings.length) return { ...out, notes };
+  // A consent or subscription wall served in place of the page (HTTP 200) is not the page: the archive's copy
+  // usually holds the article. Tried only for a page the check tied to the person, while the limit allows.
+  const host = hostOf(url);
+  if (!page.archived && isWallPage(page.html)) {
+    let copy = null;
+    let failed = false;
+    if (ctx.deadline && ctx.deadline - Date.now() < ARCHIVE_MIN_MS) failed = true;
+    else {
+      try { copy = await archivedCopy(url, ctx.deadline, { take: budget.take }); } catch { failed = true; }
+    }
+    if (copy) {
+      out = readPage(subject, { url, html: copy.html, archived: { date: copy.date, replay: copy.replay, why: 'wall' }, template: task.template });
+      if (out.findings.length) return { ...out, notes: [`${host} showed a consent or subscription page; the page was read from the web archive's copy of ${DAY(copy.date)}.`] };
+    }
+    return { ...empty, notes: [failed
+      ? `${host} showed a consent or subscription page instead of the article, and the web archive could not be checked; the page could not be read.`
+      : `${host} showed a consent or subscription page instead of the article${copy ? ', and the web archive\'s copy says nothing about them either' : ' and the web archive holds no copy'}; the page could not be read.`] };
+  }
+  // Opened, but nothing on it is about the person: said, so an empty result is not read as a clean page.
+  return { ...empty, notes: [...notes, `${host}: the page was opened but says nothing about ${subject.name}'s career or education that could be kept.`] };
+}
+
+/**
+ * The company's legal name as its own site states it in the footer ("© 2024 Merge API, Inc. All rights
+ * reserved."). Taken only when the name begins with the company's own name, so a hosting provider's or a
+ * parent's footer is not read as the company's.
+ * @returns {string} '' when the page states none
+ */
+const LEGAL_FORM = '(?:Inc\\.?|Incorporated|LLC|L\\.L\\.C\\.|Ltd\\.?|Limited|Corp\\.?|Corporation|PBC|GmbH|AG|S\\.A\\.S\\.?|SAS|S\\.A\\.|B\\.V\\.|N\\.V\\.|Pty\\.? Ltd\\.?|Pte\\.? Ltd\\.?|plc|PLC|Co\\.)';
+const FOOTER_NAME = new RegExp(`(?:©|&copy;|\\(c\\)|Copyright)\\s*(?:(?:19|20)\\d{2}\\s*(?:[-–]\\s*(?:(?:19|20)\\d{2}|present)\\s*)?)?,?\\s*([A-Z][A-Za-z0-9&.'’ -]{0,60}?,?\\s${LEGAL_FORM})(?=[\\s.,;|]|$)`, 'g');
+export function legalNameFromFooter(html, company) {
+  const text = htmlToText(String(html || '').slice(-200000)); // the footer is at the end
+  const key = (companyKeys(company)[0] || '').replace(/\s+/g, '');
+  if (!key) return '';
+  for (const m of text.matchAll(FOOTER_NAME)) {
+    const name = m[1].replace(/\s+/g, ' ').trim();
+    const own = (companyKeys(name)[0] || name.toLowerCase()).replace(/\s+/g, '');
+    if (own.startsWith(key)) return name.replace(/\s+(?:All rights.*)$/i, '');
+  }
+  return '';
 }
 
 /** A site's about, team and leadership pages: those that exist, robots permitting, kept when they name the person. */
@@ -514,6 +634,11 @@ async function readSite(task, ctx) {
   const notes = [];
   let requests = 0;
   let kept = 0;
+  // The company's own site (its first label is the company's name, as web.js hands it on): its footer gives the
+  // legal name, which registers, filings and trademarks are searched by (an ordinary word alone finds namesakes).
+  const company = ownCompanyOf(subject, site);
+  let legal = '';
+  let legalAt = '';
   for (const path of SITE_PATHS) {
     if (requests >= SITE_MAX_REQUESTS || kept >= SITE_MAX_KEPT) break;
     if (ctx.deadline && Date.now() > ctx.deadline - 3000) break;
@@ -527,13 +652,45 @@ async function readSite(task, ctx) {
     if (page.status === 'robots') continue;
     if (page.status === 'unknown') { notes.push(NOTE.unknown(site)); break; }
     if (page.status !== 'ok') continue;
+    if (!legal && company) {
+      legal = legalNameFromFooter(page.html, company);
+      if (legal) legalAt = url;
+    }
     const out = readPage(subject, { url, html: page.html });
     if (!out.findings.length) continue;
     kept += 1;
     findings.push(...out.findings);
     threads.push(...out.threads);
   }
+  if (legal) {
+    const record = makeFinding(subject, {
+      source: ID, sourceLabel: LABEL, category: 'corporate',
+      title: `Legal name on ${site}: ${legal}`,
+      quote: `The site's own footer names the company ${legal}.`,
+      url: legalAt, severity: 'info', match: 'company', matchReasons: [`the website of ${company}`],
+      data: { kind: 'legal-name', company, legalName: legal, domain: site },
+    });
+    if (record) {
+      findings.push(record);
+      // A known name of the company from now on: the loop asks registers, filings and trademarks again under it.
+      addCompanyAlias(subject, { company, alias: legal, origin: record.id });
+      addCompanyAlias(subject, { company, alias: site, origin: record.id });
+      const t = makeThread('company', legal, `legal name of ${company}, from its website`, { trusted: true });
+      if (t) threads.push(t);
+    }
+  }
   return { findings, threads, notes };
+}
+
+/** The subject's company whose own site this is (its first label is the company's name), or ''. */
+function ownCompanyOf(subject, site) {
+  const label = site.split('.')[0].replace(/[^a-z0-9]/g, '');
+  const names = [subject.company, ...[...(subject.anchors?.companies?.values?.() || [])].filter((a) => a.origin === 'given').map((a) => a.value)].filter(Boolean);
+  for (const n of names) {
+    const k = (companyKeys(n)[0] || '').replace(/[^a-z0-9]/g, '');
+    if (k.length >= 3 && [k, `${k}hq`, `get${k}`, `${k}app`, `try${k}`].includes(label)) return n;
+  }
+  return '';
 }
 
 export const pageReaderConnector = {

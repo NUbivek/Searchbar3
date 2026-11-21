@@ -29,7 +29,10 @@
  * Theranos; "NEUROTHERANOSTICS INC" and "Nikola Motor Works" are not), and it
  * is marked 'company': it is about the company, not the person. Every company
  * quote carries the agency, the year and, where the record has one, the state,
- * so a reader can rule out a same-name company elsewhere. A record about the
+ * so a reader can rule out a same-name company elsewhere. A company is
+ * searched and matched under every known name (the name typed and the legal
+ * names the check learned, see knownNames); a record that matches only a
+ * one-word name stays 'possible'. A record about the
  * person needs their full name as a structured party (a lobbyist, a principal
  * investigator) or in the document's text, and is graded by makeFinding: a
  * name alone stays 'possible'.
@@ -59,6 +62,8 @@ import { person, sameName, namesPerson, findMentions, sameCompany } from './cour
 // Shared with the agency-orders source, which reads the same Federal Register (courtsMore.js imports neither this
 // file nor anything that does, so there is no import cycle).
 import { withoutAddress, PRIVATE_MATTER, FR_EXCLUDED_AGENCIES } from './courtsMore';
+// Every known name of a company (the name as typed and the legal names learned during the check)
+import { companyNames } from './sanctions';
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -95,6 +100,22 @@ const isTied = (f) => f && (f.match === 'confirmed' || f.match === 'likely');
  * them to the subject's company: such a record stays 'possible', as in the debarment lists. A name of two or more
  * distinctive words is the company.
  */
+/**
+ * The names a company is searched and matched under: as typed, then the fuller legal names the check learned for
+ * it (identity.addCompanyAlias, for example "Ramp Business Corporation" for Ramp, from a Form D naming the person
+ * as an officer). A one-word name searched alone finds every firm that shares the word; the legal name finds the
+ * company. `max` keeps the number of requests per lookup small.
+ */
+export function knownNames(ctx, company, max = 3) {
+  return companyNames(ctx?.subject, company, max);
+}
+
+/** The known name a registered name is (longest first, so a legal name wins over the bare word), or ''. */
+export function whichName(registered, names) {
+  return [...names].sort((a, b) => companyKeyStrict(b).split(' ').length - companyKeyStrict(a).split(' ').length)
+    .find((n) => sameCompany(registered, n)) || '';
+}
+
 export function companyGrade(company, reason) {
   if (companyKeyStrict(company).split(' ').filter(Boolean).length < 2) {
     return { match: 'possible', matchReasons: [`${reason}; but ${clean(company)} is a one-word name many unrelated companies share, so verify it is the same company`] };
@@ -176,10 +197,26 @@ const AW_GROUPS = [
   { group: 'direct_payments', what: 'federal direct payments', one: 'federal direct payment', codes: ['06', '10'], amount: 'Award Amount', date: 'Start Date', place: 'Place of Performance State Code' },
 ];
 
-async function awardRecipients(company, ctx) {
-  const body = await fetchJson(`${AW_BASE}/autocomplete/recipient/`, ctx, { method: 'POST', body: { search_text: company, limit: 50 } });
-  if (!body || !Array.isArray(body.results)) throw new HttpError('USAspending returned an unexpected answer to a recipient search', { url: `${AW_BASE}/autocomplete/recipient/` });
-  return uniq(body.results.map((r) => clean(r.recipient_name)).filter((n) => sameCompany(n, company)));
+async function awardRecipients(names, ctx) {
+  const out = [];
+  for (const name of names) {
+    const body = await fetchJson(`${AW_BASE}/autocomplete/recipient/`, ctx, { method: 'POST', body: { search_text: name, limit: 50 } });
+    if (!body || !Array.isArray(body.results)) throw new HttpError('USAspending returned an unexpected answer to a recipient search', { url: `${AW_BASE}/autocomplete/recipient/` });
+    out.push(...body.results.map((r) => clean(r.recipient_name)).filter((n) => whichName(n, names)));
+  }
+  return uniq(out);
+}
+
+/** Rows grouped by the known name their registered name is: one finding each, graded by that name. */
+function byKnownName(rows, nameOf, names) {
+  const groups = new Map();
+  for (const r of rows) {
+    const known = whichName(nameOf(r), names);
+    if (!known) continue;
+    if (!groups.has(known)) groups.set(known, []);
+    groups.get(known).push(r);
+  }
+  return [...groups.entries()].map(([known, list]) => ({ known, rows: list }));
 }
 
 export const usFederalAwardsConnector = {
@@ -190,8 +227,9 @@ export const usFederalAwardsConnector = {
   timeoutMs: 30000,
   async run(task, ctx) {
     const company = clean(task.value);
+    const known = knownNames(ctx, company);
     const notes = ['USAspending searches cover awards from October 2007 on.'];
-    const names = await awardRecipients(company, ctx);
+    const names = await awardRecipients(known, ctx);
     if (!names.length) return { findings: [], threads: [], notes: [...notes, `No federal award recipient is registered under the exact name ${company}.`] };
     const counts = await fetchJson(`${AW_BASE}/search/spending_by_award_count/`, ctx, { method: 'POST', body: { filters: { recipient_search_text: names } } });
     if (!counts || typeof counts.results !== 'object') throw new HttpError('USAspending returned an unexpected answer to an award count', { url: `${AW_BASE}/search/spending_by_award_count/` });
@@ -215,26 +253,27 @@ export const usFederalAwardsConnector = {
         partial.push(g.what);
         continue;
       }
-      // The search matches any recipient whose name contains the text: keep the company's own name only.
-      const own = rows.filter((r) => sameCompany(clean(r['Recipient Name']), company));
-      if (!own.length) continue;
-      const total = own.reduce((sum, r) => sum + (Number(r[g.amount]) || 0), 0);
-      const agencies = uniq(own.map((r) => clean(r['Awarding Agency'])));
-      const states = uniq(own.map((r) => clean(r[g.place])));
-      const years = own.map((r) => yearOf(r[g.date]));
-      const latest = own.map((r) => r[g.date]).filter(Boolean).sort().pop() || null;
-      const recipient = clean(own[0]['Recipient Name']);
-      const lines = own.slice(0, 3).map((r) => `${yearOf(r[g.date]) || 'undated'}, ${clean(r['Awarding Agency'])}${r[g.place] ? ` (${clean(r[g.place])})` : ''}, ${money(r[g.amount])}: ${clean(r.Description).slice(0, 140)}`);
-      const url = own[0].recipient_id ? `${AW_SITE}/recipient/${encodeURIComponent(own[0].recipient_id)}/latest` : `${AW_SITE}/award/${encodeURIComponent(own[0].generated_internal_id)}`;
-      const f = makeFinding(ctx.subject, {
-        source: AW_ID, sourceLabel: AW_LABEL, category: 'corporate',
-        title: `${plural(own.length, g.one, g.many || g.what)} to ${recipient}, ${span(years)}`,
-        quote: `${recipient}${states.length ? `, ${states.join(', ')}` : ''}: ${money(total)} in all from ${agencies.slice(0, 3).join(', ')}. ${lines.join('; ')}`,
-        url, date: latest, severity: 'info',
-        ...companyGrade(company, `registered recipient name ${recipient} is ${company}`),
-        data: { group: g.group, awards: own.length, total, agencies, states, recipients: names },
-      });
-      if (f) findings.push(f);
+      // The search matches any recipient whose name contains the text: keep the company's own names only, one
+      // finding per known name, so a legal-name record is the company's and a bare-word one stays possible.
+      for (const { known: as, rows: own } of byKnownName(rows, (r) => clean(r['Recipient Name']), known)) {
+        const total = own.reduce((sum, r) => sum + (Number(r[g.amount]) || 0), 0);
+        const agencies = uniq(own.map((r) => clean(r['Awarding Agency'])));
+        const states = uniq(own.map((r) => clean(r[g.place])));
+        const years = own.map((r) => yearOf(r[g.date]));
+        const latest = own.map((r) => r[g.date]).filter(Boolean).sort().pop() || null;
+        const recipient = clean(own[0]['Recipient Name']);
+        const lines = own.slice(0, 3).map((r) => `${yearOf(r[g.date]) || 'undated'}, ${clean(r['Awarding Agency'])}${r[g.place] ? ` (${clean(r[g.place])})` : ''}, ${money(r[g.amount])}: ${clean(r.Description).slice(0, 140)}`);
+        const url = own[0].recipient_id ? `${AW_SITE}/recipient/${encodeURIComponent(own[0].recipient_id)}/latest` : `${AW_SITE}/award/${encodeURIComponent(own[0].generated_internal_id)}`;
+        const f = makeFinding(ctx.subject, {
+          source: AW_ID, sourceLabel: AW_LABEL, category: 'corporate',
+          title: `${plural(own.length, g.one, g.many || g.what)} to ${recipient}, ${span(years)}`,
+          quote: `${recipient}${states.length ? `, ${states.join(', ')}` : ''}: ${money(total)} in all from ${agencies.slice(0, 3).join(', ')}. ${lines.join('; ')}`,
+          url, date: latest, severity: 'info',
+          ...companyGrade(as, `registered recipient name ${recipient} is ${as}`),
+          data: { group: g.group, awards: own.length, total, agencies, states, recipients: names },
+        });
+        if (f) findings.push(f);
+      }
     }
     if (partial.length && !findings.length && partial.length === AW_GROUPS.filter((g) => Number(counts.results[g.group]) > 0).length) {
       throw new HttpError(`USAspending did not answer for ${partial.join(', ')}`, { url: `${AW_BASE}/search/spending_by_award/`, retryable: true });
@@ -287,8 +326,21 @@ export const usLobbyingConnector = {
     const base = { source: LD_ID, sourceLabel: LD_LABEL, category: 'corporate', severity: 'info' };
     if (task.kind === 'company') {
       const company = clean(task.value);
-      const { filings, total } = await ldaFilings({ client_name: company }, ctx);
-      const own = filings.filter((f) => sameCompany(clean(f.client?.name), company));
+      // LDA.gov is slow to ask (one request every four seconds): the name and one learned legal name at most
+      const known = knownNames(ctx, company, 2);
+      const filings = [];
+      const seenFilings = new Set();
+      let total = 0;
+      for (const name of known) {
+        const answer = await ldaFilings({ client_name: name }, ctx);
+        total += Math.max(0, answer.total - answer.filings.length);
+        for (const f of answer.filings) {
+          const id = f.filing_uuid || f.url || JSON.stringify([f.registrant?.name, f.client?.name, f.filing_year, f.filing_period]);
+          if (!seenFilings.has(id)) { seenFilings.add(id); filings.push(f); }
+        }
+      }
+      total += filings.length;
+      const own = filings.filter((f) => whichName(clean(f.client?.name), known));
       for (const group of byEngagement(own).slice(0, 6)) {
         const latest = group[0];
         const client = clean(latest.client?.name);
@@ -311,7 +363,7 @@ export const usLobbyingConnector = {
           quote, url: latest.filing_document_url || latest.url, date: latest.dt_posted,
           data: { registrant, client, filings: group.length, years: span(years), issues, retrieved: new Date().toISOString().slice(0, 10), disclaimer: LD_DISCLAIMER },
           // The person is one of the lobbyists named: graded on the record's text, so the name alone stays 'possible'.
-          ...(subjectAs ? { matchText: gradeOn(person(ctx.subject), subjectAs, quote) } : companyGrade(company, `registered client name ${client} is ${company}`)),
+          ...(subjectAs ? { matchText: gradeOn(person(ctx.subject), subjectAs, quote) } : companyGrade(whichName(client, known) || company, `registered client name ${client} is ${whichName(client, known) || company}`)),
         });
         if (f) findings.push(f);
       }
@@ -393,12 +445,17 @@ export const cfpbComplaintsConnector = {
   timeoutMs: 45000,
   async run(task, ctx) {
     const company = clean(task.value);
-    // First: which companies in the database carry this name.
-    const lookUrl = `${CC_BASE}?${new URLSearchParams({ search_term: company, field: 'company', size: '0' })}`;
-    // The database is large and a name search can take a while to answer.
-    const look = await fetchJson(lookUrl, ctx, { timeoutMs: 25000 });
-    if (!look || !look.aggregations) throw new HttpError('The CFPB complaint database returned an unexpected answer', { url: lookUrl });
-    const names = buckets(look.aggregations, 'company').map((b) => clean(b.key)).filter((n) => sameCompany(n, company)).slice(0, 2);
+    const known = knownNames(ctx, company, 2);
+    // First: which companies in the database carry one of the company's names.
+    const found = [];
+    for (const name of known) {
+      const lookUrl = `${CC_BASE}?${new URLSearchParams({ search_term: name, field: 'company', size: '0' })}`;
+      // The database is large and a name search can take a while to answer.
+      const look = await fetchJson(lookUrl, ctx, { timeoutMs: 25000 });
+      if (!look || !look.aggregations) throw new HttpError('The CFPB complaint database returned an unexpected answer', { url: lookUrl });
+      found.push(...buckets(look.aggregations, 'company').map((b) => clean(b.key)).filter((n) => whichName(n, known)));
+    }
+    const names = uniq(found).slice(0, 2);
     const findings = [];
     const partial = [];
     for (const name of names) {
@@ -431,7 +488,7 @@ export const cfpbComplaintsConnector = {
         quote, url: `${CC_SITE}?${new URLSearchParams({ company: name })}`, date: latest,
         // Complaints are consumers' accounts, not findings by the regulator: context, rarely a red flag.
         severity: total >= 10 ? 'low' : 'info',
-        ...companyGrade(company, `company name in the database, ${name}, is ${company}`),
+        ...companyGrade(whichName(name, known) || company, `company name in the database, ${name}, is ${whichName(name, known) || company}`),
         data: { company: name, complaints: total },
       });
       if (f) findings.push(f);
@@ -498,10 +555,21 @@ export const federalRegisterConnector = {
     if (task.kind === 'company') {
       const company = clean(task.value);
       const who = person(ctx.subject);
-      const search = await frSearch(company, ctx);
-      for (const d of search.docs) {
-          const text = `${d.title} ${d.text}`;
-        if (!namesCompanyInText(text, company)) continue;
+      const known = knownNames(ctx, company, 2);
+      const searches = [];
+      const docs = [];
+      const seen = new Set();
+      for (const name of known) {
+        const search = await frSearch(name, ctx);
+        searches.push(search);
+        for (const d of search.docs) if (!seen.has(d.url)) { seen.add(d.url); docs.push(d); }
+      }
+      // A legal name of more words is looked for first: a document naming it is the company's
+      const byLength = [...known].sort((a, b) => companyKeyStrict(b).split(' ').length - companyKeyStrict(a).split(' ').length);
+      for (const d of docs) {
+        const text = `${d.title} ${d.text}`;
+        const as = byLength.find((n) => namesCompanyInText(text, n));
+        if (!as) continue;
         const named = namesPerson(text, who);
         // A record about a person's family, estate, immigration or health is never read.
         if (named && PRIVATE_MATTER.test(text)) continue;
@@ -510,11 +578,11 @@ export const federalRegisterConnector = {
           ...base, title: d.title, quote, url: d.url, date: d.date,
           severity: frSeverity(d, text, ctx.subject),
           data: { type: d.type, agencies: d.agencies, documentNumber: d.number },
-          ...(named ? { matchText: gradeOn(who, mentionOf(text, who), `${d.title}\n${quote}`) } : companyGrade(company, `names ${company}`)),
+          ...(named ? { matchText: gradeOn(who, mentionOf(text, who), `${d.title}\n${quote}`) } : companyGrade(as, `names ${as}`)),
         });
         if (f) findings.push(f);
       }
-      return { findings: rank(findings).slice(0, 10), threads: [], notes: [], ...frPartial([search]) };
+      return { findings: rank(findings).slice(0, 10), threads: [], notes: [], ...frPartial(searches) };
     }
     const who = person(ctx.subject);
     const docs = [];
@@ -580,41 +648,57 @@ export const fdaRecallsConnector = {
   timeoutMs: 25000,
   async run(task, ctx) {
     const company = clean(task.value);
+    const known = knownNames(ctx, company, 2);
     const findings = [];
     const partial = [];
     for (const kind of FD_KINDS) {
-      let answer;
-      try {
-        answer = await fdaRecalls(kind, company, ctx);
-      } catch (error) {
-        partial.push(`${kind.what} recalls`);
-        continue;
+      const answers = [];
+      let failed = 0;
+      for (const name of known) {
+        try {
+          answers.push(await fdaRecalls(kind, name, ctx));
+        } catch (error) {
+          failed += 1;
+        }
       }
-      // The search matches any firm whose name contains the words: keep the company's own name only.
-      const own = answer.rows.filter((r) => sameCompany(clean(r.recalling_firm), company));
-      if (!own.length) continue;
-      own.sort((a, b) => String(b.report_date || '').localeCompare(String(a.report_date || '')));
-      const firm = clean(own[0].recalling_firm);
-      const states = uniq(own.map((r) => clean(r.state)));
-      const classes = uniq(own.map((r) => clean(r.classification))).sort();
-      const years = own.map((r) => yearOf(r.report_date));
-      const seriousCount = own.filter((r) => /class i$/i.test(clean(r.classification))).length;
-      const lines = own.slice(0, 3).map((r) => {
-        const reason = safe(clean(r.reason_for_recall).slice(0, 160));
-        return `${yearOf(r.report_date)}, ${clean(r.classification)}, ${clean(r.status).toLowerCase()}${reason ? `: ${reason}` : ''}`;
+      if (failed) partial.push(`${kind.what} recalls`);
+      if (!answers.length) continue;
+      const seenRecalls = new Set();
+      // Only a second search (a learned legal name) can return the same recall twice
+      const rows = answers.length === 1 ? answers[0].rows : answers.flatMap((a) => a.rows).filter((r) => {
+        // One event can hold several recalls (products): only the same recall found under two names is folded
+        const id = r.recall_number || JSON.stringify(r);
+        if (seenRecalls.has(id)) return false;
+        seenRecalls.add(id);
+        return true;
       });
-      const f = makeFinding(ctx.subject, {
-        source: FD_ID, sourceLabel: FD_LABEL, category: 'regulatory',
-        title: `${plural(own.length, `${kind.what} recall`)} by ${firm}, ${span(years)}`,
-        quote: `${firm}${states.length ? ` (${states.join(', ')})` : ''}, FDA ${kind.what} enforcement reports ${span(years)}, ${classes.join(', ')}${seriousCount ? `, ${count(seriousCount)} Class I (the most serious)` : ''}. ${lines.join('; ')}`,
-        url: answer.url, date: own[0].report_date || null,
-        severity: seriousCount ? 'medium' : 'low',
-        ...companyGrade(company, `recalling firm ${firm} is ${company}`),
-        data: { products: kind.what, recalls: own.length, classes, states },
-      });
-      if (f) findings.push(f);
+      const answer = { url: answers[0].url };
+      // The search matches any firm whose name contains the words: keep the company's own names only, one
+      // finding per known name.
+      for (const { known: as, rows: own } of byKnownName(rows, (r) => clean(r.recalling_firm), known)) {
+        own.sort((a, b) => String(b.report_date || '').localeCompare(String(a.report_date || '')));
+        const firm = clean(own[0].recalling_firm);
+        const states = uniq(own.map((r) => clean(r.state)));
+        const classes = uniq(own.map((r) => clean(r.classification))).sort();
+        const years = own.map((r) => yearOf(r.report_date));
+        const seriousCount = own.filter((r) => /class i$/i.test(clean(r.classification))).length;
+        const lines = own.slice(0, 3).map((r) => {
+          const reason = safe(clean(r.reason_for_recall).slice(0, 160));
+          return `${yearOf(r.report_date)}, ${clean(r.classification)}, ${clean(r.status).toLowerCase()}${reason ? `: ${reason}` : ''}`;
+        });
+        const f = makeFinding(ctx.subject, {
+          source: FD_ID, sourceLabel: FD_LABEL, category: 'regulatory',
+          title: `${plural(own.length, `${kind.what} recall`)} by ${firm}, ${span(years)}`,
+          quote: `${firm}${states.length ? ` (${states.join(', ')})` : ''}, FDA ${kind.what} enforcement reports ${span(years)}, ${classes.join(', ')}${seriousCount ? `, ${count(seriousCount)} Class I (the most serious)` : ''}. ${lines.join('; ')}`,
+          url: answer.url, date: own[0].report_date || null,
+          severity: seriousCount ? 'medium' : 'low',
+          ...companyGrade(as, `recalling firm ${firm} is ${as}`),
+          data: { products: kind.what, recalls: own.length, classes, states },
+        });
+        if (f) findings.push(f);
+      }
     }
-    if (partial.length === FD_KINDS.length) throw new HttpError('openFDA did not answer', { url: FD_BASE, retryable: true });
+    if (partial.length === FD_KINDS.length && !findings.length) throw new HttpError('openFDA did not answer', { url: FD_BASE, retryable: true });
     return partial.length ? { findings, threads: [], notes: [], partial } : { findings, threads: [], notes: [] };
   },
 };
@@ -658,30 +742,32 @@ export const nihGrantsConnector = {
     const threads = [];
     if (task.kind === 'company') {
       const company = clean(task.value);
-      const { rows, total: listed } = await nihProjects({ org_names: [company] }, ctx);
+      // One request asks for every known name of the company
+      const known = knownNames(ctx, company);
+      const { rows, total: listed } = await nihProjects({ org_names: known }, ctx);
       const cut = listed > rows.length ? { partial: [`NIH grants (latest ${rows.length} of ${count(listed)} read)`] } : {};
-      const own = rows.filter((r) => sameCompany(clean(r.organization?.org_name), company));
-      if (!own.length) return { findings, threads, notes: [], ...cut };
-      const grants = byGrant(own);
-      const org = clean(own[0].organization?.org_name);
-      const states = uniq(own.map((r) => clean(r.organization?.org_state)));
-      const total = own.reduce((sum, r) => sum + (Number(r.award_amount) || 0), 0);
-      const pis = uniq(own.flatMap((r) => (r.principal_investigators || []).map((p) => properCase(p.full_name))));
-      const lines = grants.slice(0, 3).map((g) => {
-        const topic = safe(clean(g[0].project_title));
-        return `${g[0].fiscal_year}, NIH ${clean(g[0].agency_ic_admin?.abbreviation)} ${clean(g[0].core_project_num || g[0].project_num)}${topic ? `: ${topic}` : ''}`;
-      });
-      const quote = `${org}${states.length ? ` (${states.join(', ')})` : ''}: ${plural(grants.length, 'NIH grant')}, ${money(total)} awarded ${span(own.map((r) => r.fiscal_year))}`
-        + `${pis.length ? `. Principal investigators: ${pis.slice(0, 5).join(', ')}` : ''}. ${lines.join('; ')}`;
-      const subjectAs = pis.find((n) => sameName(n, who));
-      const f = makeFinding(ctx.subject, {
-        source: NI_ID, sourceLabel: NI_LABEL, category: 'corporate',
-        title: `${plural(grants.length, 'NIH research grant')} to ${org}, ${span(own.map((r) => r.fiscal_year))}`,
-        quote, url: nihUrl(grants[0][0]), date: grants[0][0].project_start_date || String(grants[0][0].fiscal_year || ''), severity: 'info',
-        data: { grants: grants.length, total, states },
-        ...(subjectAs ? { matchText: gradeOn(who, subjectAs, quote) } : companyGrade(company, `grantee organisation ${org} is ${company}`)),
-      });
-      if (f) findings.push(f);
+      for (const { known: as, rows: own } of byKnownName(rows, (r) => clean(r.organization?.org_name), known)) {
+        const grants = byGrant(own);
+        const org = clean(own[0].organization?.org_name);
+        const states = uniq(own.map((r) => clean(r.organization?.org_state)));
+        const total = own.reduce((sum, r) => sum + (Number(r.award_amount) || 0), 0);
+        const pis = uniq(own.flatMap((r) => (r.principal_investigators || []).map((p) => properCase(p.full_name))));
+        const lines = grants.slice(0, 3).map((g) => {
+          const topic = safe(clean(g[0].project_title));
+          return `${g[0].fiscal_year}, NIH ${clean(g[0].agency_ic_admin?.abbreviation)} ${clean(g[0].core_project_num || g[0].project_num)}${topic ? `: ${topic}` : ''}`;
+        });
+        const quote = `${org}${states.length ? ` (${states.join(', ')})` : ''}: ${plural(grants.length, 'NIH grant')}, ${money(total)} awarded ${span(own.map((r) => r.fiscal_year))}`
+          + `${pis.length ? `. Principal investigators: ${pis.slice(0, 5).join(', ')}` : ''}. ${lines.join('; ')}`;
+        const subjectAs = pis.find((n) => sameName(n, who));
+        const f = makeFinding(ctx.subject, {
+          source: NI_ID, sourceLabel: NI_LABEL, category: 'corporate',
+          title: `${plural(grants.length, 'NIH research grant')} to ${org}, ${span(own.map((r) => r.fiscal_year))}`,
+          quote, url: nihUrl(grants[0][0]), date: grants[0][0].project_start_date || String(grants[0][0].fiscal_year || ''), severity: 'info',
+          data: { grants: grants.length, total, states },
+          ...(subjectAs ? { matchText: gradeOn(who, subjectAs, quote) } : companyGrade(as, `grantee organisation ${org} is ${as}`)),
+        });
+        if (f) findings.push(f);
+      }
       return { findings, threads, notes: [], ...cut };
     }
 

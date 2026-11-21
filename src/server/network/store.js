@@ -8,8 +8,9 @@
 import crypto from 'crypto';
 import { query, persistenceMode } from '../db';
 import {
-  normalizeContact, dedupeContacts, dedupeKey, normalizeCompanyKey, companyMatch, MAX_CONTACTS, SOURCES,
+  normalizeContact, dedupeContacts, dedupeKey, normalizeCompanyKey, companyMatch, companyFormMatch, companyFormBase, MAX_CONTACTS, SOURCES,
 } from '../../utils/network/parseContacts';
+import { isOrdinaryWordCompany, isBroadOrganisation } from '../founder/names';
 
 export const MAX_CONTACTS_PER_USER = MAX_CONTACTS;
 const BATCH_SIZE = 500;
@@ -268,8 +269,19 @@ export async function deleteAllContacts(userId) {
  * or whole-word containment either way when the shorter name has two or more
  * words. matchedCompany is the input name that matched. Never throws: returns
  * [] when signed out, when persistence is unavailable, or with no data.
+ *
+ * Founder Check passes options and gets the careful form instead:
+ *   { strict }      throw on failure, so a failed lookup is never read as "nobody works there";
+ *   { similar }     also match a one-word name written longer with only company-form words
+ *                   ("Nikola" / "Nikola Motor Company"; each row says match: 'similar');
+ *   { investor }    with similar, a fund's form words count too ("Sequoia" / "Sequoia Capital");
+ *   { perCompany }  at most this many rows per saved company (senior titles and direct contacts
+ *                   first), so one big former employer cannot crowd out the current company;
+ *   { detail }      (implies strict) -> { rows, truncated: [{ company, shown, total }], incomplete }.
+ * Without options the Network Map's behaviour is unchanged.
  */
-export async function findContactsAtCompanies(userId, companyNames) {
+export async function findContactsAtCompanies(userId, companyNames, opts = null) {
+  if (opts && typeof opts === 'object') return findContactsAtCompaniesCareful(userId, companyNames, opts);
   try {
     if (!userId || persistenceMode() === 'none') return [];
     const targets = [];
@@ -317,6 +329,147 @@ export async function findContactsAtCompanies(userId, companyNames) {
   } catch (error) {
     console.warn('findContactsAtCompanies failed:', error.message);
     return [];
+  }
+}
+
+const SENIOR_TITLE_SQL = "(CASE WHEN position ~* '(founder|chief|\\mceo\\M|\\mcto\\M|\\mcfo\\M|\\mcoo\\M|president|\\mvp\\M|vice president|director|partner|head of)' THEN 0 ELSE 1 END)";
+const DEFAULT_PER_COMPANY = 200;
+
+/** The careful company lookup behind findContactsAtCompanies(userId, names, opts). */
+async function findContactsAtCompaniesCareful(userId, companyNames, { strict = false, similar = false, investor = false, perCompany = null, detail = false } = {}) {
+  const empty = detail ? { rows: [], truncated: [], incomplete: false } : [];
+  try {
+    if (!userId || persistenceMode() === 'none') return empty;
+    const targets = [];
+    for (const name of Array.isArray(companyNames) ? companyNames : [companyNames]) {
+      const key = normalizeCompanyKey(name);
+      if (key && !targets.some((t) => t.key === key)) targets.push({ name: String(name).trim(), key });
+      if (targets.length >= 50) break;
+    }
+    if (!targets.length) return empty;
+    await ensureTable();
+    const keys = targets.map((t) => t.key);
+    const exact = new Set(keys);
+    const likes = keys.filter((k) => k.includes(' ')).map((k) => `%${k}%`);
+    if (similar) {
+      for (const k of keys) {
+        if (!k.includes(' ')) likes.push(`${k} %`); // "nikola" -> "nikola motor company"
+        const base = companyFormBase(k, { investor });
+        if (base) exact.add(base); // "nikola motor company" -> "nikola"
+      }
+    }
+    const cap = Math.max(1, Math.min(2000, Number(perCompany) || DEFAULT_PER_COMPANY));
+    const limit = Math.min(20000, cap * Math.max(targets.length, 1) * 2);
+    // Ranked within each saved company: senior titles, then direct contacts, then the
+    // longest-standing connection. key_total says how many there were before the cut.
+    const rows = await query(
+      `SELECT name, company, company_key, position, profile_url, connected_on, source, relationship, via, key_total
+         FROM (
+           SELECT name, company, company_key, position, profile_url, connected_on, source, relationship, via,
+                  ROW_NUMBER() OVER (PARTITION BY company_key ORDER BY ${SENIOR_TITLE_SQL}, (relationship = 'firm'), connected_on NULLS LAST, lower(name)) AS rn,
+                  COUNT(*) OVER (PARTITION BY company_key) AS key_total
+             FROM network_contacts
+            WHERE user_id = $1 AND company_key IS NOT NULL AND company_key <> '' AND ${ACTIVE_WHERE}
+              AND (company_key = ANY($2::text[])
+                   OR company_key LIKE ANY($3::text[])
+                   OR (strpos(company_key, ' ') > 0
+                       AND EXISTS (SELECT 1 FROM unnest($2::text[]) AS t(k) WHERE t.k LIKE '%' || company_key || '%')))
+         ) c
+        WHERE rn <= $4
+        ORDER BY lower(name)
+        LIMIT ${limit}`,
+      [userId, [...exact], likes, cap]
+    );
+    const out = [];
+    const perKey = new Map(); // contact company_key -> { target, total, shown }
+    for (const r of rows || []) {
+      let match = null;
+      let hit = null;
+      for (const t of targets) {
+        match = companyMatch(r.company_key, t.key);
+        if (match) { hit = t; break; }
+      }
+      if (!hit && similar) {
+        for (const t of targets) {
+          match = companyFormMatch(r.company_key, t.key, { investor });
+          if (match) { hit = t; break; }
+        }
+      }
+      if (!hit) continue;
+      const c = rowFromDb(r);
+      out.push({
+        name: c.name, company: c.company, position: c.position, profileUrl: c.profileUrl, connectedOn: c.connectedOn,
+        source: c.source, relationship: c.relationship, via: c.via, matchedCompany: hit.name, match,
+      });
+      const k = perKey.get(r.company_key) || { target: hit.name, total: Number(r.key_total) || 0, shown: 0 };
+      k.shown += 1;
+      perKey.set(r.company_key, k);
+    }
+    if (!detail) return out;
+    const byTarget = new Map();
+    for (const k of perKey.values()) {
+      const t = byTarget.get(k.target) || { company: k.target, shown: 0, total: 0 };
+      t.shown += k.shown;
+      t.total += Math.max(k.total, k.shown);
+      byTarget.set(k.target, t);
+    }
+    return { rows: out, truncated: [...byTarget.values()].filter((t) => t.total > t.shown), incomplete: (rows || []).length >= limit };
+  } catch (error) {
+    console.warn('findContactsAtCompanies failed:', error.message);
+    if (strict || detail) throw error;
+    return empty;
+  }
+}
+
+/**
+ * For Founder Check: contacts whose title names one of these companies as a
+ * whole word ("Partner · ex-Theranos"), though their company field is
+ * elsewhere: possibly a former colleague. Only distinctive names are looked
+ * for: an ordinary word ("Ramp"), a very large organisation, or a short name
+ * would match too many titles that have nothing to do with the company.
+ * Email and location are never selected. Throws on failure.
+ *   -> [{ name, company, position, profileUrl, connectedOn, source, relationship, via, matchedCompany }]
+ */
+export async function findContactsByTitleMention(userId, companyNames, { limit = 300 } = {}) {
+  if (!userId || persistenceMode() === 'none') return [];
+  const targets = [];
+  for (const name of Array.isArray(companyNames) ? companyNames : [companyNames]) {
+    const key = normalizeCompanyKey(name);
+    if (!key || targets.some((t) => t.key === key)) continue;
+    const words = key.split(' ');
+    if (!words.every((w) => /^[a-z0-9]+$/.test(w))) continue; // plain letters only, so the pattern needs no escaping
+    if (words.length === 1 && (key.length < 5 || isOrdinaryWordCompany(name))) continue;
+    if (isBroadOrganisation(name)) continue;
+    targets.push({ name: String(name).trim(), key, words });
+    if (targets.length >= 40) break;
+  }
+  if (!targets.length) return [];
+  try {
+    await ensureTable();
+    const patterns = targets.map((t) => `(^|[^[:alnum:]])${t.words.join('[^[:alnum:]]+')}($|[^[:alnum:]])`);
+    const rows = await query(
+      `SELECT name, company, company_key, position, profile_url, connected_on, source, relationship, via
+         FROM network_contacts
+        WHERE user_id = $1 AND ${ACTIVE_WHERE} AND position IS NOT NULL AND position ~* ANY($2::text[])
+        ORDER BY lower(name)
+        LIMIT ${Math.max(1, Math.min(1000, Number(limit) || 300))}`,
+      [userId, patterns]
+    );
+    const out = [];
+    for (const r of rows || []) {
+      const pos = String(r.position || '');
+      const hit = targets.find((t) => new RegExp(`(^|[^\\p{L}\\p{N}])${t.words.join('[^\\p{L}\\p{N}]+')}($|[^\\p{L}\\p{N}])`, 'iu').test(pos));
+      if (!hit) continue;
+      const c = rowFromDb(r);
+      out.push({
+        name: c.name, company: c.company, position: c.position, profileUrl: c.profileUrl, connectedOn: c.connectedOn,
+        source: c.source, relationship: c.relationship, via: c.via, matchedCompany: hit.name,
+      });
+    }
+    return out;
+  } catch (error) {
+    console.warn('findContactsByTitleMention failed:', error.message);
+    throw error;
   }
 }
 
@@ -435,7 +588,8 @@ export async function findContactsByNames(userId, names) {
       [userId, firsts, FOLD_FROM, FOLD_TO, lasts]
     );
     if ((rows || []).length > NAME_MATCH_LIMIT) {
-      throw new Error(`more than ${NAME_MATCH_LIMIT} contacts share these names`);
+      // Marked, so a caller can retry the names one by one and drop only the over-common ones.
+      throw Object.assign(new Error(`more than ${NAME_MATCH_LIMIT} contacts share these names`), { code: 'too_many' });
     }
     return (rows || []).map((r) => {
       const c = rowFromDb(r);

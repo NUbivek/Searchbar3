@@ -13,8 +13,10 @@
  * How to read it: a domain is often older than the company (bought from an
  * earlier owner) and the first archive capture is when the crawler found the
  * site, not the founding date. The dates are shown side by side; they are
- * flagged against a founding year only when the caller supplies one
- * (task.params.foundedYear).
+ * flagged against a founding year only when one is known for this domain's
+ * company (task.params.foundedYear, or a tied record naming the domain). A
+ * domain registered years before the founding is labelled as registered by
+ * an earlier holder and kept off the timeline.
  *
  * Privacy: registration records can hold the registrant's name, address,
  * phone and email. Only the event dates, status flags and name-server hosts
@@ -135,6 +137,27 @@ async function registrationRecord(domain, deadline) {
   };
 }
 
+/**
+ * The founding year of the company behind this domain, when known: given with the task or the subject, or read
+ * from a tied record that names this very domain (the Y Combinator directory lists each company's website). A
+ * founding year of another company of the person (an earlier start-up) must never be compared, so records that do
+ * not name the domain are not used. Null when unknown.
+ */
+export function foundingYearFor(domain, task, ctx) {
+  const given = Number(task?.params?.foundedYear ?? ctx?.subject?.foundedYear);
+  if (Number.isInteger(given) && given > 1800) return { year: given, from: 'given' };
+  let findings = [];
+  try { findings = typeof ctx?.findings === 'function' ? ctx.findings() || [] : []; } catch { findings = []; }
+  const years = [];
+  for (const f of findings) {
+    if (!f || f.match === 'possible' || !f.data) continue;
+    const site = companyDomainFromUrl(f.data.website || f.data.domain || '');
+    const year = Number(f.data.yearFounded ?? f.data.foundedYear);
+    if (site === domain && Number.isInteger(year) && year > 1800) years.push({ year, from: f.id || f.source });
+  }
+  return years.sort((a, b) => a.year - b.year)[0] || null;
+}
+
 export const domainHistoryConnector = {
   id: 'domain-history',
   label: 'Domain history (registration record and web archive)',
@@ -165,12 +188,20 @@ export const domainHistoryConnector = {
       return { findings: [], threads: [], notes };
     }
 
-    // What stands out, if anything. A founding year is compared only when the caller gave one.
+    // What stands out, if anything. A founding year is compared only when one is known for this domain's company:
+    // given by the caller, or read from a tied record that names this domain.
     const flags = [];
-    const foundedYear = Number(task?.params?.foundedYear ?? ctx?.subject?.foundedYear);
+    const founding = foundingYearFor(domain, task, ctx);
+    const foundedYear = founding?.year;
+    let earlierHolder = false;
     if (reg?.registered && Number.isInteger(foundedYear) && foundedYear > 1980) {
       const gap = foundedYear - Number(reg.registered.slice(0, 4));
-      if (gap >= 2) flags.push({ text: `registered ${gap} years before the stated ${foundedYear} founding`, severity: 'info' });
+      // A domain much older than the company was registered by someone else and bought later ("ramp.com",
+      // registered 1994, for a company founded in 2019): its date says nothing about the company's history.
+      if (gap >= 2) {
+        earlierHolder = true;
+        flags.push({ text: `registered ${gap} years before the stated ${foundedYear} founding: registered by an earlier holder and acquired later`, severity: 'info' });
+      }
       if (gap <= -2) flags.push({ text: `registered ${-gap} years after the stated ${foundedYear} founding`, severity: 'low' });
     }
     const today = new Date().toISOString().slice(0, 10);
@@ -209,6 +240,9 @@ export const domainHistoryConnector = {
         firstCapture: web?.first || null, lastCapture: web?.last || null, captures: web?.total ?? null, capturesByYear: web?.byYear || {}, capturesLastTwelveMonths: web?.lastTwelveMonths ?? null,
         flags: flags.map((f) => f.text),
         registrationLookup: `https://lookup.icann.org/en/lookup?name=${encodeURIComponent(domain)}`,
+        ...(Number.isInteger(foundedYear) ? { foundedYear, foundedFrom: founding.from } : {}),
+        // an earlier holder's registration date is not an event in the company's history
+        ...(earlierHolder ? { earlierHolder: true, excludeFromTimeline: true } : {}),
       },
     });
     return { findings: [finding].filter(Boolean), threads: [], notes };

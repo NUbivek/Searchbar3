@@ -114,3 +114,71 @@ someone else. It never counts for a common name. `docket` is exported and restor
 
 **`subject.common`** is `true` for a very common name. Such a name needs the company, or a nearby school,
 associate, handle or domain, to go above possible.
+
+## Round 3, second pass (identity2): other names, large employers, other scripts, outcomes
+
+### Other names of the person (`identity.js`)
+
+**`createSubject({ name, company, otherNames })`**: `otherNames` is a list (or one string split on `;` or new
+lines) of names the user typed for the same person: a former or maiden name, an anglicised name, the name in
+another script. They are graded exactly like the main name (`subject.hasName` matches them). New fields:
+- `subject.otherNames`: the typed names, cleaned (`['Jane Smith']`).
+- `subject.searchNames`: every search form, main name first (`['Jane Doe', 'Jane Smith']`). `subject.variants` is
+  unchanged (main name only), so sources that want the old names must loop over `searchNames`.
+- `subject.mononym`: `true` for a one-word name in a spaced script ("Budi"). Such a subject is tied only with the
+  company beside the name, and then `'likely'` unless a second fact (school, associate, handle, domain, another
+  company, the role they held) is there. The name alone gives `'none'` (`weak: 'mononym-without-company'`); the
+  name followed or preceded by another capitalised name word ("Budi Santoso") gives `'none'` with
+  `weak: 'longer-name'`.
+
+**`addNameAlias(subject, { alias, origin })`** returns `true` when new. Use it for a name found in a record already
+tied to the person (Wikidata "also known as" or birth name, "formerly known as", "née"). Refused: one-word names,
+the person's own name, a known name. A record naming the person only under such an alias is graded `'likely'` at
+most, with `'alias'` in `basis` and a reason "names the person as X, another name found in a linked record".
+
+**`findNameAliases(subject, text)`** returns `[{ name, how }]` for "née Smith" (given name kept), "formerly known
+as", "also known as" / "a.k.a.", "born X Y", read only right after the person's full name. Turn each into a
+thread with `makeThread('alias', name, why)` and only from a record graded confirmed or likely.
+
+**Saving and restoring.** `exportAnchors(subject).otherNames` is `[{ value, origin, typed }]`: typed names have
+`origin: 'given', typed: true`; found ones `typed: false`. `restoreSubject({ name, company, otherNames?, anchors })`
+takes the typed names from `otherNames` when given, else from the saved entries with `typed: true`, and re-adds the
+found ones through `addNameAlias`. `addAnchor(..., 'otherNames', ...)` is refused: use the two calls above.
+
+### Large employers
+
+**`isLargeEmployer(name)`** (`names.js`, new): every `isBroadOrganisation` case plus more very large employers
+(Nvidia, Infosys, HSBC, Capital One, ...). `isBroadOrganisation` keeps its old list and meaning.
+A company anchor that is a large employer is stored with `broad: true`. In `matchSubject`, the full name beside
+only such a company ("John Smith, a Google engineer") is `'likely'`, with a reason saying a second fact is needed;
+with a school, associate, handle, domain, a second company anchor or a matching role anchor it is `'confirmed'`.
+`describedAsSomeoneElse` now also reads "John Smith, a Google engineer in Ohio," as someone ordinary and local.
+
+### Legal forms and scripts (`names.js`)
+
+`companyKeyStrict`, `companyKeys` and `companyMatchForms` strip legal forms written at the end of a name in many
+countries (Pvt Ltd, Private Limited, Pte Ltd, Ltda, Sdn Bhd, JSC, PJSC, OOO, AB, AS, ApS, Oy, Kft, sp. z o.o.,
+S.A. de C.V., S.r.l., S.p.A., KK, GK, GmbH, SAS, dotted or not) and "PT" before a name. Only at the end, after
+another word, so "As Seen On Screen" keeps "as". Example: `companyKeys('Zepto Technologies Private Limited')` is
+`['zepto']`. Letters of every script are kept: `companyKeys('Яндекс')` is `['яндекс']`. A name in a script
+written without spaces (Han, kana, Hangul, Thai) is found inside a run of letters, both for companies
+(`companyMention('字节跳动', '张一鸣是字节跳动的创始人。')`) and people (`personNameMatcher('张一鸣')` is a full
+name, not a one-word name). `nameTokens` keeps letters of every script; `slugCandidates` returns `[]` for a name
+not written in plain Latin letters. `personNameMatcher(name).mononym` is new.
+
+### Outcome of a legal matter
+
+**`matterOutcome(text, { person })`** (`names.js`) returns `{ outcome, role, phrase, rest }`:
+- `outcome`: `'acquitted' | 'overturned' | 'vacated' | 'dismissed' | 'dropped' | 'won' | 'pardoned' | null`.
+  A denied motion to dismiss is not a dismissal; 'won' needs `person` (who won).
+- `role`: `'defendant' | 'plaintiff' | 'witness' | 'victim' | 'juror' | null` (needs `person`, a name matcher such
+  as `subject.hasName`); defendant wins when both are read.
+- `phrase` / `rest`: the words that state the outcome, and the text without them.
+
+`severityFromText(text, subject)` uses it: an exculpatory outcome is `'low'` (or `'medium'` if a non-criminal
+adverse matter remains), unless the text still reports another criminal matter ("acquitted on two counts but
+convicted of wire fraud" stays high); a pardon is `'medium'`; the person as plaintiff, witness, victim or juror and
+not accused is `'low'`. Store the outcome on the finding (`data.outcome`) so the report can show it beside the
+matter: `makeFinding` should call `matterOutcome(text, { person: subject.hasName })`.
+
+`THREAD_KINDS` (finding.js) now includes `'alias'`.

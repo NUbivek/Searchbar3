@@ -434,8 +434,9 @@ describe('nih-grants (NIH RePORTER)', () => {
     }
     expect(r.findings[0].quote).toMatch(/^Ryan Christopher Hall, principal investigator at MOLECULAR THERANOSTICS, LLC \(OH\), NIH NCI, fiscal years 2026/);
     const sensitive = r.findings.find((f) => /R43CA281488/.test(f.title));
-    expect(sensitive.title).toBe('NIH grant R43CA281488 to MOLECULAR THERANOSTICS, LLC');
-    expect(JSON.stringify(r.findings)).not.toMatch(/cancer|441221765|Peters/i);
+    // A grant's research subject is not a person's health: since round 3 the guardrails keep it (needs-phase1)
+    expect(sensitive.title).toBe('NIH grant R43CA281488: Development of peptide drug conjugates for cancer therapy');
+    expect(JSON.stringify(r.findings)).not.toMatch(/441221765|Peters/i);
     expect(r.threads).toEqual([expect.objectContaining({ kind: 'company', value: 'MOLECULAR THERANOSTICS, LLC', trusted: true })]);
   });
 

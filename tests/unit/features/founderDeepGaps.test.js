@@ -23,8 +23,11 @@ function stateWith(records) {
 
 const RECORDS = [
   { title: 'Trevor Milton, founder of Nikola, profile', quote: 'Before Nikola, Trevor Milton ran dHybrid Systems and an alarm company called St. George Security. He studied at Utah Valley University before dropping out.' },
-  { title: 'Trevor Milton and Nikola sued by investors', quote: 'The complaint names Trevor Milton and former Nikola chief executive Mark Russell. His brother, Travis Milton, the director of hydrogen production at Nikola, was not charged.' },
-  { title: 'Nikola founder Trevor Milton at home', quote: 'Trevor Milton lives with his wife, Chelsey Bergmann, on a ranch in Utah. His cousin Wendell Jones also attended.' },
+  // "His brother" right after a sentence naming Mark Russell could be Russell's brother, so the record names Trevor Milton again
+  { title: 'Trevor Milton and Nikola sued by investors', quote: 'The complaint names Trevor Milton and former Nikola chief executive Mark Russell. Trevor Milton\'s brother, Travis Milton, the director of hydrogen production at Nikola, was not charged.' },
+  // A sentence about family with no public role never reaches the reader (guardrails.js removes it from the record),
+  // so the third tied record is an ordinary one that names a relative beside the person.
+  { title: 'Nikola founder Trevor Milton at a trade show', quote: 'Trevor Milton of Nikola spoke at a hydrogen trade show in Phoenix. His cousin Wendell Jones also attended.' },
   { title: 'A different Trevor Milton opens a bakery', quote: 'Trevor Milton, a baker in Leeds, opened Milton Bakery with partner Sam Carter.' },
 ];
 
@@ -65,8 +68,8 @@ describe('verifyGaps', () => {
       ],
       schools: [{ name: 'Harvard University', record: n('Trevor Milton, founder') }],
       people: [
-        { name: 'Chelsey Bergmann', record: n('Nikola founder Trevor Milton at home'), tie: 'family', detail: 'his wife' }, // family with no public role
-        { name: 'Wendell Jones', record: n('Nikola founder Trevor Milton at home'), tie: 'family', detail: 'his cousin' }, // same
+        { name: 'Chelsey Bergmann', record: n('Nikola founder Trevor Milton at a trade show'), tie: 'family', detail: 'his wife' }, // not in the record
+        { name: 'Wendell Jones', record: n('Nikola founder Trevor Milton at a trade show'), tie: 'family', detail: 'his cousin' }, // family with no public role
         { name: 'Elon Musk', record: n('Trevor Milton and Nikola sued'), tie: 'business', detail: 'rival' }, // not in the record
         { name: 'Nikola Corporation', record: n('Trevor Milton and Nikola sued'), tie: 'business', detail: 'company, not a person' },
       ],
@@ -93,7 +96,7 @@ describe('findGaps', () => {
   test('sends only records tied to the person, marks the text as personal, and verifies the reply', async () => {
     const state = stateWith(RECORDS);
     const complete = jest.fn(async (messages) => {
-      const record = Number(messages[1].content.match(/\[(\d+)\] \(Fake News\) Trevor Milton, founder/)[1]);
+      const record = Number(messages[1].content.match(/<record n="(\d+)" source="Fake News">\nTrevor Milton, founder/)[1]);
       return { model: 'm1', data: { companies: [{ name: 'dHybrid Systems', record, role: 'ran it' }, { name: 'Made Up Inc', record, role: 'x' }], schools: [], people: [], searches: [] } };
     });
     const out = await findGaps(state, { complete, deadline: Date.now() + 5000 });

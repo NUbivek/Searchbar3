@@ -184,7 +184,7 @@ describe('academic record: ORCID', () => {
   test('declares itself and plans one lookup per registry family', () => {
     expect(academicRecordConnector.id).toBe('academic-record');
     expect(academicRecordConnector.label).toBe('Academic record (ORCID, Crossref, theses.fr)');
-    expect(academicRecordConnector.kinds).toEqual(['subject', 'school']);
+    expect(academicRecordConnector.kinds).toEqual(['subject', 'school', 'url']);
     expect(academicRecordConnector.plan({ kind: 'subject', value: 'Arthur Mensch' }).map((p) => p.template)).toEqual(['orcid', 'theses']);
     expect(academicRecordConnector.plan({ kind: 'school', value: 'Stanford University' }).map((p) => p.template)).toEqual(['school']);
   });
@@ -194,7 +194,9 @@ describe('academic record: ORCID', () => {
     const subject = createSubject({ name: 'Arthur Mensch', company: 'Mistral AI' });
     const { findings, threads, notes } = await academicRecordConnector.run(subjectTask(subject, 'orcid'), ctxFor(subject));
 
-    expect(calls).toHaveLength(3);
+    // R3: the record's qualifications, distinctions, invited positions and websites are read too (never /person)
+    expect(calls).toHaveLength(7);
+    expect(calls.some((u) => /\/(person|email|address)(?:$|[/?])/.test(u))).toBe(false);
     expect(decodeURIComponent(calls[0])).toContain('given-names:"Arthur" AND family-name:"Mensch"');
     expect(findings).toHaveLength(2);
     const education = findings.find((f) => f.category === 'education');
@@ -325,7 +327,8 @@ describe('academic record: ORCID', () => {
     expect(dump).not.toMatch(/2018-09-28|2015-01-09/);
   });
 
-  test('a health-related department is left out instead of losing the record', async () => {
+  // R3: guardrails now drop health words only when they describe a person; a department's field is kept.
+  test('a department named after a medical field is a field, not a health detail about the person', async () => {
     network([
       ['expanded-search', orcidSearch],
       ['/educations', { 'affiliation-group': [affiliation('education-summary', { role: 'PhD', department: 'Cancer biology', organisation: 'Université Paris-Sud', start: '2015', end: '2018' })] }],
@@ -334,7 +337,7 @@ describe('academic record: ORCID', () => {
     const subject = createSubject({ name: 'Arthur Mensch' });
     const { findings } = await academicRecordConnector.run(subjectTask(subject, 'orcid'), ctxFor(subject));
     expect(findings).toHaveLength(1);
-    expect(findings[0].quote).toBe('Arthur Mensch: PhD, Université Paris-Sud, 2015-2018');
+    expect(findings[0].quote).toBe('Arthur Mensch: PhD, Cancer biology, Université Paris-Sud, 2015-2018');
   });
 
   test('the registry failing is an error, not an empty answer', async () => {
@@ -419,7 +422,8 @@ describe('academic record: thesis registries', () => {
     expect(findings[0].data.defended).toBe(false);
   });
 
-  test('a thesis on a medical subject keeps its record but not its topic', async () => {
+  // R3: guardrails keep a study's subject ("a thesis on chemotherapy"); only health facts about a person are dropped.
+  test('a thesis on a medical subject keeps its record and its topic', async () => {
     network([
       ['api.crossref.org/works', { message: { items: [{ DOI: '10.1/x', title: ['Chemotherapy response in breast cancer'], publisher: 'University of Virginia', degree: ['PhD'], approved: { 'date-parts': [[2012]] }, author: [{ given: 'Sarah', family: 'Johnson', sequence: 'first' }] }] } }],
       ['theses.fr/api', { theses: [] }],
@@ -427,8 +431,7 @@ describe('academic record: thesis registries', () => {
     const subject = createSubject({ name: 'Sarah Johnson' });
     const { findings } = await academicRecordConnector.run(subjectTask(subject, 'theses'), ctxFor(subject));
     expect(findings).toHaveLength(1);
-    expect(findings[0].title).toBe('Doctoral thesis (University of Virginia, 2012)');
-    expect(JSON.stringify(findings[0])).not.toMatch(/cancer|chemotherapy/i);
+    expect(findings[0].title).toBe('Doctoral thesis: Chemotherapy response in breast cancer (University of Virginia, 2012)');
   });
 
   test('one registry down is noted; both down is a failure', async () => {
@@ -502,7 +505,7 @@ describe('academic record: one school', () => {
     const subject = createSubject({ name: 'Arthur Mensch', company: 'Mistral AI' });
     addAnchor(subject, 'schools', 'École Polytechnique');
     const listed = await academicRecordConnector.run(schoolTask('École Polytechnique'), ctxFor(subject));
-    expect(calls).toHaveLength(5); // a French school: theses.fr is asked too
+    expect(calls).toHaveLength(9); // a French school: theses.fr is asked too; ORCID record in six sections
     expect(listed.findings.map((f) => [f.category, f.match])).toEqual([['education', 'likely'], ['career', 'likely']]);
 
     const other = await academicRecordConnector.run(schoolTask('Harvard University'), ctxFor(subject));
@@ -530,7 +533,7 @@ describe('academic record: one school', () => {
     const subject = createSubject({ name: 'Elizabeth Holmes', company: 'Theranos' });
     addAnchor(subject, 'schools', 'Stanford University');
     const { findings, threads } = await academicRecordConnector.run(schoolTask('Stanford University'), ctxFor(subject));
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(8);
     expect(findings).toHaveLength(2);
     expect(findings[0].title).toBe('ORCID (self-reported): PhD, University of Washington, until 1995; B.S., Stanford University, until 1988');
     expect(findings.every((f) => f.match === 'possible' && f.matchFixed === true)).toBe(true);
@@ -592,7 +595,8 @@ describe('scholarly publications (OpenAlex)', () => {
 
     expect(publicationsConnector.id).toBe('publications');
     expect(publicationsConnector.kinds).toEqual(['subject']);
-    expect(calls).toHaveLength(1);
+    // R3: the dissertation search is a second request
+    expect(calls.filter((u) => u.includes('/authors'))).toHaveLength(1);
     expect(new URL(calls[0]).searchParams.get('search')).toBe('Arthur Mensch');
     expect(findings).toHaveLength(2); // "Arthur Menschel" is someone else
     const [own, namesake] = findings;
@@ -651,7 +655,7 @@ describe('scholarly publications (OpenAlex)', () => {
     const subject = createSubject({ name: 'Arthur Mensch', company: 'Mistral AI' });
     const first = await publicationsConnector.run(subjectTask(subject), ctxFor(subject));
     const second = await publicationsConnector.run(subjectTask(subject), ctxFor(subject));
-    expect(calls).toHaveLength(1);
+    expect(calls.filter((u) => u.includes('/authors'))).toHaveLength(1);
     expect(second.findings.map((f) => f.id)).toEqual(first.findings.map((f) => f.id));
   });
 

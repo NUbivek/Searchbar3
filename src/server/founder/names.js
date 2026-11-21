@@ -233,8 +233,40 @@ not also still now then today yesterday this that these those its their his her 
 team teams board office offices deal investor investors chief executives employees workers staff users customers
 ipo valuation round funding unit units division arm subsidiary spokesperson spokesman spokeswoman`);
 
-const COMPANY_GENERIC = /\b(inc|llc|ltd|limited|corp|corporation|co|company|ai|labs|lab|technologies|technology|tech|group|holdings|plc|sa|sas|gmbh|the|io|com|financial|software|systems|solutions|networks|capital|partners|ventures|health|robotics|energy|security|data|cloud|digital|media|bank)\b/g;
-const LEGAL_RE = /\b(inc|incorporated|llc|ltd|limited|corp|corporation|co|company|plc|sa|sas|sarl|gmbh|ag|bv|nv|pty|lp|llp|the)\b/g;
+// Word edges by letters of any script, so a Latin word glued to Cyrillic or Han text is not cut out of it.
+const COMPANY_GENERIC = /(?<![\p{L}\p{N}])(inc|llc|ltd|limited|corp|corporation|co|company|ai|labs|lab|technologies|technology|tech|group|holdings|plc|sa|sas|gmbh|the|io|com|financial|software|systems|solutions|networks|capital|partners|ventures|health|robotics|energy|security|data|cloud|digital|media|bank)(?![\p{L}\p{N}])/gu;
+const LEGAL_RE = /(?<![\p{L}\p{N}])(inc|incorporated|llc|ltd|limited|corp|corporation|co|company|plc|sa|sas|sarl|gmbh|ag|bv|nv|pty|lp|llp|the)(?![\p{L}\p{N}])/gu;
+// Legal forms used outside the US, written as they are once dots and commas are spaces ("S.A. de C.V." ->
+// "s a de c v"). They are removed only at the end of a name, after at least one other word, because several are
+// also ordinary words or letters ("As Seen On Screen", "Studio A"). A typed registered name ("Zepto Technologies
+// Private Limited") then keeps its brand ("zepto") as the key the press uses.
+const LEGAL_TAIL_FORMS = [
+  'private limited', 'pvt ltd', 'pvt', 'pte ltd', 'pte', 'ltda', 'eireli', 'sdn bhd', 'bhd', 'tbk',
+  'pjsc', 'ojsc', 'cjsc', 'jsc', 'ooo', 'oao', 'zao', 'pao', 'ao',
+  'ab publ', 'publ', 'ab', 'asa', 'as', 'a s', 'aps', 'a p s', 'oyj', 'oy', 'kft', 'zrt', 'nyrt', 'bt',
+  'sp z o o', 'sp zoo', 'spolka z o o', 'sp j', 'sp k', 's a de c v', 'sa de cv', 's de r l de c v', 's de rl de cv',
+  's a p i de c v', 'sapi de cv', 'de c v', 'de cv', 's a s', 's a r l', 's a', 's r l', 'srl', 's p a', 'spa', 's l u', 'slu', 's l', 'sl',
+  's r o', 'sro', 'a s', 'd o o', 'doo', 'd d', 'k k', 'kk', 'g k', 'gk', 'kabushiki kaisha', 'godo kaisha', 'yugen kaisha',
+  'co ltd', 'ltd', 'limited', 'gmbh', 'gmbh co kg', 'gmbh co', 'kg', 'kgaa', 'ag', 'ug', 'e v', 'ev', 'bv', 'b v', 'nv', 'n v',
+  'se', 'sarl', 'sas', 'sasu', 'sa', 'plc', 'llc', 'inc', 'corp', 'pty ltd', 'pty', 'oü', 'ou', 'uab', 'sia', 'ehf', 'hf',
+];
+const LEGAL_TAIL_RE = new RegExp(`(?<=\\S)\\s+(?:${[...LEGAL_TAIL_FORMS].sort((a, b) => b.length - a.length).map((f) => f.split(' ').join('\\s+')).join('|')})$`, 'u');
+// "PT Gojek Indonesia", "CV Maju": an Indonesian legal form written before the name.
+const LEGAL_HEAD_RE = /^(?:pt|cv)\s+(?=\S+)/u;
+/** Remove legal forms written at the end (and the Indonesian ones at the start) of a name, as often as they repeat. */
+function stripLegalEnds(norm) {
+  let s = norm.replace(/\s+/g, ' ').trim();
+  for (let i = 0; i < 4; i += 1) {
+    const next = s.replace(LEGAL_TAIL_RE, '').replace(LEGAL_HEAD_RE, '').trim();
+    if (next === s || !next) break;
+    s = next;
+  }
+  return s;
+}
+// Letters of scripts written without spaces between words (Han, kana, Thai, Hangul run together with particles):
+// a name in one of them is found inside a longer run of letters.
+const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Hangul}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+const caseless = (w) => /\p{L}/u.test(w) && w.toLowerCase() === w.toUpperCase();
 
 // ---------------------------------------------------------------------------
 // Person names.
@@ -332,9 +364,15 @@ export function personNameMatcher(name) {
   none.parts = p;
   if (!p.given) return none;
   const single = !p.surname;
+  // A name in a script written without spaces ("张一鸣", "이재용") is a full name in one run of letters, and sits
+  // inside a run of letters in a sentence; only a Latin letter or digit beside it marks another word.
+  const unspaced = single && UNSPACED_SCRIPT.test(p.given);
+  // One word in a spaced script ("Budi"): a person known by one name. Callers grade it more strictly.
+  const mononym = single && !unspaced;
   const G = givenRe(p.given);
   const S = single ? '' : surnameRe(p.surname);
-  const forward = single ? new RegExp(`${B}${G}(?![\\p{L}\\p{N}])`, 'giu') : new RegExp(`${B}${G}${MIDDLE}\\s+${S}(?![\\p{L}\\p{N}])`, 'giu');
+  const forward = unspaced ? new RegExp(`(?<![A-Za-z0-9])${G}(?![A-Za-z0-9])`, 'giu')
+    : single ? new RegExp(`${B}${G}(?![\\p{L}\\p{N}])`, 'giu') : new RegExp(`${B}${G}${MIDDLE}\\s+${S}(?![\\p{L}\\p{N}])`, 'giu');
   const reversedComma = single ? null : new RegExp(`${B}${S}\\s*,\\s*${G}${MIDDLE}(?![\\p{L}\\p{N}])`, 'giu');
   const reversedBare = single ? null : new RegExp(`${B}${S}\\s+${G}(?![\\p{L}\\p{N}])`, 'giu');
   const initials = single ? null : new RegExp(`${B}((?:\\p{L}\\.\\s*){1,3})${S}(?![\\p{L}\\p{N}])`, 'giu');
@@ -344,7 +382,8 @@ export function personNameMatcher(name) {
   const subjectMiddles = p.middles.map((m) => lowerFold(m).replace(/\.$/, '')).filter(Boolean);
   const subjectSuffix = p.suffix;
 
-  const capitalised = (w) => /^\p{Lu}/u.test(w);
+  // A word in a script without capitals (Han, Arabic, Hebrew...) is written as a name however it is written.
+  const capitalised = (w) => /^\p{Lu}/u.test(w) || caseless(w);
   const wordsOf = (s) => s.split(/[\s,]+/).flatMap((w) => w.split('-')).filter((w) => w && w !== '.');
   const middleState = (mid) => {
     const ms = wordsOf(mid).map((w) => w.replace(/\.$/, ''));
@@ -381,6 +420,16 @@ export function personNameMatcher(name) {
       const after = text.slice(e);
       if (/^'(?!s(?![\p{L}]))\p{L}/u.test(after)) continue; // "Smith'son": inside another word
       if (/^-\p{L}/u.test(after)) { push(weak, s, e, 'longer-surname'); continue; } // "John Smith-Jones"
+      if (mononym) {
+        // A one-word name followed or preceded by another capitalised name word is part of someone's longer
+        // name ("Budi Santoso", "Rina Budi"), not the person known only as Budi.
+        const nextW = after.match(/^\s+(\p{Lu}[\p{L}'-]*)/u);
+        const prevW = text.slice(0, s).match(/(\p{Lu}[\p{L}'-]*)\s+$/u);
+        const nameLike = (w) => w && !ROLE_WORDS.has(lowerFold(w)) && !FUNCTION_WORDS.has(lowerFold(w)) && !TITLES.has(lowerFold(w).replace(/\.$/, ''))
+          && !DETERMINERS.has(lowerFold(w)) && !LEGAL_FORMS.has(lowerFold(w)) && !BUSINESS_VERBS.has(lowerFold(w));
+        const prevAtStart = prevW && atSentenceStart(text, prevW.index);
+        if ((nextW && nameLike(nextW[1])) || (prevW && nameLike(prevW[1]) && !prevAtStart)) { push(weak, s, e, 'longer-name'); continue; }
+      }
       const ms = single ? 'ok' : middleState(mid);
       if (ms === 'reject') {
         // the gap is not a middle name ("John And Smith"): try again without it is not possible here
@@ -446,6 +495,7 @@ export function personNameMatcher(name) {
     return w.length ? w[0].kind : 'none';
   };
   test.parts = p;
+  test.mononym = mononym;
   return test;
 }
 
@@ -468,7 +518,8 @@ export function personNameVariants(name) {
 
 /** "Mistral AI, Inc." -> ["mistral"]: legal forms and describing words removed (a key for grouping, not for matching). */
 export function companyKeys(company) {
-  const norm = (s) => lowerFold(s).replace(/[^a-z0-9À-ɏ ]+/g, ' ')
+  // Letters of every script are kept ("Яндекс", "字节跳动"): a key of nothing could never match.
+  const norm = (s) => stripLegalEnds(lowerFold(s).replace(/[^\p{L}\p{N} ]+/gu, ' '))
     .replace(COMPANY_GENERIC, ' ')
     .replace(/\s+/g, ' ').trim();
   const full = norm(company);
@@ -477,8 +528,7 @@ export function companyKeys(company) {
 
 /** "Mistral AI, Inc." -> "mistral ai": only the legal form removed. */
 export function companyKeyStrict(name) {
-  return lowerFold(name)
-    .replace(/[^a-z0-9À-ɏ ]+/g, ' ')
+  return stripLegalEnds(lowerFold(name).replace(/[^\p{L}\p{N} ]+/gu, ' '))
     .replace(LEGAL_RE, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -574,10 +624,19 @@ export function companyMentionMatcher(company, opts = {}) {
   const forms = companyMatchForms(raw);
   const ownWords = new Set(raw.split(/\s+/).map(wordKey).filter(Boolean));
   const personWords = new Set((opts.personWords || []).map((w) => lowerFold(w)));
-  const formRes = forms.map((f) => ({
-    ...f,
-    re: new RegExp(`(?<![\\p{L}\\p{N}])(?<!\\p{L}-)${f.form.split(' ').map(escapeRe).join('[\\s-]+')}(?![\\p{L}\\p{N}])(?!-\\p{L})`, 'giu'),
-  }));
+  const formRes = forms.map((f) => {
+    const body = f.form.split(' ').map(escapeRe).join('[\\s-]+');
+    // A name in a script written without spaces ("字节跳动的创始人") sits inside a run of letters: only a Latin
+    // letter or digit beside it marks another word.
+    const unspaced = UNSPACED_SCRIPT.test(f.form);
+    return {
+      ...f,
+      unspaced,
+      re: unspaced
+        ? new RegExp(`(?<![A-Za-z0-9])${body}(?![A-Za-z0-9])`, 'giu')
+        : new RegExp(`(?<![\\p{L}\\p{N}])(?<!\\p{L}-)${body}(?![\\p{L}\\p{N}])(?!-\\p{L})`, 'giu'),
+    };
+  });
   // Handles and domains often glue a word to the name ("@acmemotor", "acmemotor.com"). The key counts as the
   // start of an @handle or a domain label when it has 5 or more characters and is not the person's own name.
   const prefixes = [...new Set(forms.map((f) => f.form.replace(/\s+/g, '')))]
@@ -721,13 +780,19 @@ export function companyMentionMatcher(company, opts = {}) {
         // An address or handle: "stripe.com", "/company/stripe", "@stripe"
         if (before && '/@.'.includes(before)) { add(s, e, 'strong', 'address'); continue; }
         if (/^\.[a-z]{2,6}(?![a-z])/.test(text.slice(e, e + 8))) { add(s, e, 'strong', 'domain'); continue; }
+        // A name in a script without capitals (Han, kana, Thai...) is a name as written.
+        if (f.unspaced || caseless(m[0])) { add(s, e, f.ordinary ? 'marker' : 'plain', 'name'); continue; }
         // A name is written with a capital somewhere ("Stripe", "dHybrid", "STRIPE"); "a blue stripe" is a word.
         if (!hasCapital(m[0])) continue;
         if (f.multi) {
           // Every main word of a longer name is capitalised ("Bank of America", not "bank of America")
           if (m[0].split(/[\s-]+/).some((w) => w.length >= 3 && !NAME_JOINERS.has(w.toLowerCase()) && !startsCapital(w))) continue;
         }
-        const legal = text.slice(e).match(/^,?\s+(inc|incorporated|llc|llp|ltd|limited|corp|corporation|plc|gmbh|ag|sa|sas|nv|bv|pty)\b\.?/i);
+        const tail = text.slice(e);
+        // A legal form right after the name. The short ones are also ordinary words ("Zepto as a company"), so they
+        // count only in capitals as registers write them.
+        const legal = tail.match(/^,?\s+(?:inc|incorporated|llc|llp|ltd|limited|corp|corporation|plc|gmbh|pty|pvt|private\s+limited|pte|ltda|sdn\.?\s+bhd|bhd|p?jsc|ooo|oyj|aps|kft|zrt|sp\.?\s*z\s*o\.?\s*o|s\.\s?r\.\s?l|s\.\s?p\.\s?a|s\.\s?a\.\s?s|s\.\s?a\.?\s+de\s+c\.?\s?v|kabushiki\s+kaisha|sarl|sasu)\b\.?/i)
+          || tail.match(/^,?\s+(?:AG|SA|S\.A\.|SAS|NV|BV|AB|AS|A\/S|ASA|Oy|OY|SE|KK|K\.K\.|GK|SpA|SPA|SRL|Srl|SL|S\.L\.|PJSC|JSC|OOO|Ltda|LTDA)(?![\p{L}\p{N}])\.?/u);
         if (legal) { add(s, e, 'strong', 'legal-form'); continue; }
         if (insideLongerName(text, s, e, f)) continue;
         if (!f.ordinary) { add(s, e, 'plain', 'name'); continue; }
@@ -840,6 +905,7 @@ const BROAD_ORG_NAMES = words(`harvard stanford mit yale princeton oxford cambri
 google alphabet microsoft apple amazon meta facebook ibm oracle intel cisco walmart mckinsey deloitte pwc kpmg ey
 accenture bain bcg goldman jpmorgan citigroup citi wells fargo general electric ge exxon chevron toyota samsung
 nasa fbi cia`);
+const BROAD_ORG_PHRASES = ['bank of america', 'morgan stanley', 'goldman sachs', 'wells fargo', 'general electric', 'jp morgan'];
 
 /**
  * True for an organisation with thousands of members (a university, a party, a
@@ -851,7 +917,33 @@ export function isBroadOrganisation(name) {
   if (BROAD_ORG_WORDS.test(s)) return true;
   const strict = companyKeyStrict(s);
   const loose = companyKeys(s)[0] || '';
-  return BROAD_ORG_NAMES.has(strict) || BROAD_ORG_NAMES.has(loose) || ['bank of america', 'morgan stanley', 'goldman sachs', 'wells fargo', 'general electric', 'jp morgan'].includes(strict);
+  return BROAD_ORG_NAMES.has(strict) || BROAD_ORG_NAMES.has(loose) || BROAD_ORG_PHRASES.includes(strict);
+}
+
+// More employers with tens of thousands of staff. Kept apart from isBroadOrganisation, whose meaning other files
+// rely on (which encyclopedia links and earlier employers count): this list only stops a typed company from
+// confirming a record on its own.
+const LARGE_EMPLOYER_NAMES = words(`nvidia tesla salesforce adobe sap siemens huawei alibaba tencent baidu bytedance netflix linkedin twitter uber dell
+qualcomm broadcom sony panasonic hitachi honda ford volkswagen bmw bosch boeing lockheed raytheon pfizer merck novartis
+roche unilever nestle pepsico costco kroger starbucks mcdonalds disney comcast verizon vodafone
+infosys tcs wipro cognizant capgemini hcl
+chase hsbc barclays ubs santander lloyds natwest rbc scotiabank blackrock vanguard fidelity schwab citibank`);
+// Very large employers written in more than one word.
+const LARGE_EMPLOYER_PHRASES = ['deutsche bank', 'credit suisse', 'bnp paribas', 'societe generale', 'charles schwab', 'ernst young', 'ernst & young',
+  'tata consultancy services', 'johnson johnson', 'johnson & johnson', 'procter gamble', 'procter & gamble', 'home depot',
+  'bank of new york mellon', 'state street', 'capital one', 'us bank', 'royal bank of canada', 'td bank', 'hewlett packard',
+  'lockheed martin', 'mercedes benz', 'coca cola', 't mobile', 'at t', 'united health', 'unitedhealth group', 'kaiser permanente', 'boston consulting group', 'bain company'];
+
+/**
+ * True for an organisation so large that naming it beside a person's name does not single them out: every
+ * isBroadOrganisation case, and other very large employers (Nvidia, Infosys, HSBC, Capital One...). A record that
+ * names the person and only such a company is 'likely' at most until it gives a second fact.
+ */
+export function isLargeEmployer(name) {
+  if (isBroadOrganisation(name)) return true;
+  const strict = companyKeyStrict(name);
+  const loose = companyKeys(name)[0] || '';
+  return LARGE_EMPLOYER_NAMES.has(strict) || LARGE_EMPLOYER_NAMES.has(loose) || LARGE_EMPLOYER_PHRASES.includes(strict);
 }
 
 // ---------------------------------------------------------------------------
@@ -860,7 +952,88 @@ export function isBroadOrganisation(name) {
 
 const CONFLICT_AFTER_NAME = /^\s*,\s*(?:(?:an?\s+)?\d{2}(?:-year-old)?\s*,|an?\s+(?:\d{2}-year-old\s+)?\p{Lu}[\p{L}-]+\s+(?:man|woman|resident|native|teen|teenager|father|mother|dentist|doctor|nurse|teacher|pastor|farmer|driver|plumber|contractor|student|retiree)\b)/u;
 
+// "John Smith, a Google engineer in Ohio,": an employee placed in a town or state, the way local news describes a
+// staff member of a large employer, not a founder.
+const LOCAL_EMPLOYEE_AFTER_NAME = /^\s*,\s*an?\s+(?:\d{2}-year-old\s+)?(?:former\s+)?(?:\p{Lu}[\p{L}&.'’-]*\s+){1,3}(?:[\p{Ll}-]+\s+)?(?:engineer|employee|worker|manager|analyst|developer|programmer|salesman|saleswoman|salesperson|accountant|clerk|technician|contractor|driver|associate|staffer|intern|cashier|supervisor|specialist|consultant|banker|teller|nurse|researcher|lecturer|professor)s?\s+(?:in|from|of|based\s+in)\s+\p{Lu}/u;
+
 /** Does the text describe the person at `nm` in a way that marks someone ordinary and local ("a Utah man", "45,")? */
 export function describedAsSomeoneElse(text, nm) {
-  return CONFLICT_AFTER_NAME.test(String(text || '').slice(nm.end, nm.end + 80));
+  const after = String(text || '').slice(nm.end, nm.end + 120);
+  return CONFLICT_AFTER_NAME.test(after) || LOCAL_EMPLOYEE_AFTER_NAME.test(after);
+}
+
+// ---------------------------------------------------------------------------
+// How a legal matter ended, and the person's part in it.
+// ---------------------------------------------------------------------------
+
+// A span may not run past a turn in the sentence ("acquitted on two counts but convicted on four").
+const SPAN = String.raw`(?:(?!\b(?:but|while|although|though|yet|however|whereas|convict\w*|guilty|sentenc\w*|indict\w*)\b)[^.;]){0,60}?`;
+// The same, running to the end of the clause: what someone is acquitted of is part of the outcome.
+const SPAN_TO_END = SPAN.replace(/\?$/, '');
+const MATTER = String.raw`(?:lawsuits?|suits?|cases?|charges?|complaints?|claims?|indictments?|counts?|prosecutions?|proceedings?)`;
+const RULING = String.raw`(?:convictions?|verdicts?|judgments?|sentences?|rulings?|findings?)`;
+// Exculpatory outcomes, most telling first. A pardon is kept apart: it follows a conviction.
+const OUTCOMES = [
+  ['acquitted', new RegExp(String.raw`\b(?:acquit(?:s|ted|tal|ting)?\b${SPAN_TO_END}|found not guilty\b${SPAN_TO_END}|not[- ]guilty verdicts?\b|cleared of (?:all )?(?:criminal )?(?:charges|wrongdoing|fraud|allegations)\b)`, 'i')],
+  ['overturned', new RegExp(String.raw`\b(?:${RULING}\b${SPAN}\b(?:overturned|reversed|thrown out|tossed)\b|(?:overturn(?:s|ed|ing)?|revers(?:es|ed|ing)|throws? out|threw out|toss(?:es|ed))\b${SPAN}\b${RULING})`, 'i')],
+  ['vacated', new RegExp(String.raw`\b(?:${RULING}\b${SPAN}\bvacated\b|vacat(?:es|ed|ing)\b${SPAN}\b${RULING})`, 'i')],
+  ['dismissed', new RegExp(String.raw`\b(?:${MATTER}\b${SPAN}\b(?:was|were|is|are|been|being|got|gets)?\s*dismissed\b|dismiss(?:es|ed|al of)\b${SPAN}\b${MATTER}|grant(?:s|ed)?\b${SPAN}\bmotions? to dismiss\b${SPAN})`, 'i')],
+  ['dropped', new RegExp(String.raw`\b(?:${MATTER}\b${SPAN}\b(?:dropped|withdrawn|abandoned)\b|(?:drop(?:s|ped)?|withdr(?:aws?|ew))\b${SPAN}\b${MATTER})`, 'i')],
+];
+const PARDON = /\bpardon(?:s|ed|ing)?\b/i;
+// "denies a motion to dismiss": a request to end the matter, not its end.
+const DISMISS_REQUEST = /\b(?:den(?:y|ies|ied)|reject(?:s|ed)?|refus(?:es|ed))\b[^.;]{0,60}?\bmotions? (?:to|for) dismiss(?:al)?\b|\bmotions? (?:to|for) dismiss(?:al)?\b(?![^.;]{0,20}\bgranted\b)/gi;
+const WON = new RegExp(String.raw`^[^.;]{0,30}?\b(?:wins?|won|prevail(?:s|ed)?\s+in)\b${SPAN}\b(?:${MATTER}|appeals?|trials?|arbitration|verdicts?|judgments?)\b`, 'i');
+
+const DEFENDANT_BEFORE = /\b(?:against|sues?|sued|suing|charg(?:es|ed)|indict(?:s|ed)|convict(?:s|ed)|accus(?:es|ed)|arrest(?:s|ed)|fin(?:es|ed)|prosecut\w+|defendants?|investigat\w+|probes?)\s+(?:\S+\s+){0,2}$/i;
+const DEFENDANT_AFTER = /^[^.;]{0,60}?\b(?:charged|indicted|convicted|arrested|sentenced|pleaded guilty|pled guilty|found guilty|accused|sued (?:by|over|for|in)\b|named (?:as )?(?:a )?defendant)/i;
+const PLAINTIFF_AFTER = /^\s*(?:,[^,]{0,60},\s*)?(?:sues|is suing|has sued|filed (?:a |an )?(?:\w+ )?(?:lawsuit|suit|complaint|claim) against|brought (?:a |an )?(?:\w+ )?(?:lawsuit|suit|claim) against|sued (?=(?:his|her|their|the|a|an|former|ex-|\p{Lu})))/u;
+const PLAINTIFF_NEAR = /^\s*,\s*(?:the|a)\s+plaintiff\b/i;
+const WITNESS_AFTER = /^\s*(?:,\s*(?:a|the|another)\s+(?:\w+\s+)?witness\b|(?:testif(?:ied|ies|y)|appeared|was called|took the stand)\s+(?:as\s+(?:a\s+)?(?:\w+\s+)?witness|against|for the (?:prosecution|defen[cs]e)|in the (?:\S+\s+){0,3}trial of))/i;
+const VICTIM_AFTER = /^\s*(?:,\s*(?:a|one|the|another)\s+(?:of the\s+)?(?:\w+\s+)?victims?\b|(?:was|is|were|became)\s+(?:a|one|among the|the|another)\s+(?:of the\s+)?(?:\w+\s+){0,2}?victims?\b)/i;
+const JUROR_AFTER = /^\s*(?:,\s*(?:a|the)\s+juror\b|(?:was|served as)\s+(?:a\s+)?juror\b)/i;
+const NON_PARTY_BEFORE = { plaintiff: /\bplaintiffs?\s+$/i, witness: /\bwitness(?:es)?\s+(?:\S+\s+)?$/i, victim: /\b(?:defrauded|scammed|victims?(?:\s+including)?)\s+$/i, juror: /\bjurors?\s+$/i };
+
+/**
+ * How a legal matter in the text ended, and the person's part in it, so a red flag can show its outcome and an
+ * acquittal is never graded like a conviction.
+ * @param {string} text
+ * @param {{ person?: Function }} opts  person: a name matcher (personNameMatcher / nameMatcher); without it the
+ *   part is not read, and 'won' (which needs to know who won) is not either.
+ * @returns {{ outcome: 'acquitted'|'overturned'|'vacated'|'dismissed'|'dropped'|'won'|'pardoned'|null,
+ *   role: 'defendant'|'plaintiff'|'witness'|'victim'|'juror'|null, phrase: string, rest: string }}
+ *   phrase: the words that state the outcome; rest: the text without them (to see what else it reports).
+ */
+export function matterOutcome(text, { person = null } = {}) {
+  const str = String(text || '');
+  const t = str.replace(DISMISS_REQUEST, (m) => (/\bgranted\b/i.test(m) ? m : ' '));
+  let outcome = null;
+  let phrase = '';
+  if (PARDON.test(t)) { outcome = 'pardoned'; phrase = t.match(PARDON)[0]; }
+  for (const [name, re] of OUTCOMES) {
+    if (outcome) break;
+    const m = t.match(re);
+    if (m) { outcome = name; phrase = m[0]; }
+  }
+  let role = null;
+  const positions = person && typeof person.positions === 'function' ? person.positions(str) : [];
+  if (positions.length) {
+    const found = new Set();
+    for (const p of positions) {
+      const before = str.slice(Math.max(0, p.start - 60), p.start);
+      const after = str.slice(p.end, p.end + 160);
+      if (DEFENDANT_BEFORE.test(before) || DEFENDANT_AFTER.test(after)) found.add('defendant');
+      if (PLAINTIFF_AFTER.test(after) || PLAINTIFF_NEAR.test(after) || NON_PARTY_BEFORE.plaintiff.test(before)) found.add('plaintiff');
+      if (WITNESS_AFTER.test(after) || NON_PARTY_BEFORE.witness.test(before)) found.add('witness');
+      if (VICTIM_AFTER.test(after) || NON_PARTY_BEFORE.victim.test(before)) found.add('victim');
+      if (JUROR_AFTER.test(after) || NON_PARTY_BEFORE.juror.test(before)) found.add('juror');
+      if (!outcome) {
+        const w = after.match(WON);
+        if (w) { outcome = 'won'; phrase = w[0]; }
+      }
+    }
+    role = ['defendant', 'plaintiff', 'witness', 'victim', 'juror'].find((r) => found.has(r)) || null;
+  }
+  const rest = phrase ? t.replace(phrase, ' ') : t;
+  return { outcome, role, phrase, rest };
 }

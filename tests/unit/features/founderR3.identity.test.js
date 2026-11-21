@@ -129,8 +129,11 @@ describe('identity-generic-residue-keys: what is left after generic words never 
   });
 
   test('the whole name still confirms', () => {
-    expect(grade('John Smith', 'Bank of America', 'John Smith, an executive at Bank of America, was charged')).toBe('confirmed');
-    expect(grade('John Smith', 'Capital One', 'John Smith of Capital One was charged')).toBe('confirmed');
+    // Bank of America and Capital One are very large employers: their whole name ties, but only to 'likely'
+    // (identity2 finding critic-big-employer-typed-company); a smaller multi-word name confirms.
+    expect(grade('John Smith', 'Bank of America', 'John Smith, an executive at Bank of America, was charged')).toBe('likely');
+    expect(grade('John Smith', 'Capital One', 'John Smith of Capital One was charged')).toBe('likely');
+    expect(grade('John Smith', 'Silicon Valley Bank', 'John Smith of Silicon Valley Bank was charged')).toBe('confirmed');
     expect(grade('John Smith', 'Scale AI', 'Scale AI co-founder John Smith said')).toBe('confirmed');
   });
 

@@ -98,6 +98,170 @@ export function llmConfigured() {
   return PROVIDERS.some(providerEnabled);
 }
 
+// ---------------------------------------------------------------------------
+// Line-by-line support check (used by the founder quick brief; generateAnswer does not call it)
+// ---------------------------------------------------------------------------
+
+const NUMBER_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, twenty: 20, hundred: 100 };
+// Capitalised words that say nothing checkable on their own: sentence starters, pronouns, months, role titles
+// (models paraphrase "chief executive" as "CEO"), section words.
+const NOT_A_NAME = new Set(`the a an he she they his her their it its this that these those in on at for with from by of to and or but not no yes as after before since during while when where who which what why how there here
+also however although though both each either neither most more some many several one two three four five six seven eight nine ten
+january february march april may june july august september october november december monday tuesday wednesday thursday friday saturday sunday
+ceo cto coo cfo cpo cro cmo cio vp svp evp chief executive officer president chair chairman chairwoman founder co-founder cofounder director partner head
+source sources summary note confirm verify ask check review consider question questions red flags open press career education litigation regulatory past companies roles timeline confidence
+mr mrs ms dr prof jr sr inc corp ltd llc co plc sa ag gmbh`.split(/\s+/));
+// A sentence that only says something was not found, or repeats the coverage caveat, needs no citation.
+const NEGATIVE = /\b(?:not found|no (?:\w+ ){0,3}(?:found|mentions?|results?|records?|sources?)|none found|not evidence of|absence of|could not be (?:found|confirmed)|nothing (?:was )?found)\b/i;
+const YEAR = /\b(?:19|20)\d{2}\b/g;
+const fold = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const escRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** The text a claim may be checked against: lower case, accents folded, "1,300" as "1300", "two" also as "2". */
+function prepareSource(text) {
+  const t = fold(text).replace(/(\d),(?=\d{3}\b)/g, '$1');
+  const words = t.replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|hundred)\b/g, (m) => `${m} ${NUMBER_WORDS[m]}`);
+  return { text: words, dotless: words.replace(/\./g, '') };
+}
+
+/** Numbers in a claim that its source must give: years, amounts, counts ("Source n" markers are removed first). */
+function claimNumbers(sentence) {
+  const s = sentence.replace(/(\d),(?=\d{3}\b)/g, '$1');
+  const years = s.match(YEAR) || [];
+  const numbers = (s.replace(YEAR, ' ').match(/\d+(?:\.\d+)?/g) || []).filter((n) => n !== '0');
+  return { years, numbers };
+}
+
+/** Runs of capitalised words: organisation, school and place names a claim gives. */
+function claimNames(sentence, ignore) {
+  const runs = [];
+  const re = /(?<![\p{L}\p{N}])[A-Z][\p{L}\p{N}&'’.-]*(?:\s+(?:(?:of|de|du|la|and|&|for)\s+)?[A-Z][\p{L}\p{N}&'’.-]*)*/gu;
+  for (const m of sentence.matchAll(re)) {
+    const tokens = m[0].split(/\s+/)
+      .map((w) => w.replace(/['’]s$/, '').replace(/[.,;:'’-]+$/, ''))
+      .filter((w) => /^[A-Z]/.test(w) && !NOT_A_NAME.has(w.toLowerCase()) && !ignore.has(fold(w)) && w.length >= 2);
+    if (!tokens.length) continue;
+    // the first word of a sentence is capitalised anyway: on its own it is not a name
+    if (m.index === 0 && m[0].split(/\s+/).length === 1) continue;
+    runs.push(tokens);
+  }
+  return runs;
+}
+
+/** Does `src` (from prepareSource) give every year and number, and at least one word of each name, of the claim? */
+function supports(src, sentence, ignore) {
+  const { years, numbers } = claimNumbers(sentence);
+  for (const y of years) if (!new RegExp(`(?<!\\d)${y}(?!\\d)`).test(src.text)) return `the year ${y} is not in the source`;
+  for (const n of numbers) if (!new RegExp(`(?<![\\d.])${escRe(n)}(?![\\d]|\\.\\d)`).test(src.text)) return `the number ${n} is not in the source`;
+  for (const run of claimNames(sentence, ignore)) {
+    const found = run.some((w) => {
+      const word = fold(w).replace(/\./g, '');
+      return word.length >= 2 && new RegExp(`(?<![\\p{L}\\p{N}])${escRe(word)}(?![\\p{L}\\p{N}])`, 'u').test(src.dotless);
+    });
+    if (!found) return `"${run.join(' ')}" is not in the source`;
+  }
+  return null;
+}
+
+/** Split a line into sentences, each keeping its own citations ("x. [Source 1] y" -> "x [Source 1].", "y"). */
+function lineSentences(body) {
+  const moved = body.replace(/([.!?])((?:\s*\[Source \d+\])+)/g, '$2$1');
+  const out = [];
+  let start = 0;
+  const re = /(?<=[.!?])\s+(?=["“(]?[A-Z0-9•])/g;
+  let m;
+  while ((m = re.exec(moved))) {
+    const piece = moved.slice(start, m.index);
+    // "Inc." "U.S." "Dr." or a lone initial do not end a sentence
+    if (/(?:^|[\s(])(?:[A-Z]|Inc|Corp|Co|Ltd|Jr|Sr|Mr|Mrs|Ms|Dr|St|No|vs|U\.S|e\.g|i\.e|Ph\.D|Prof)\.$/.test(piece)) continue;
+    out.push(piece);
+    start = m.index + m[0].length;
+  }
+  out.push(moved.slice(start));
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * Check an answer line by line against the text of the sources it cites. Every sentence or bullet must carry
+ * a [Source n] whose text gives its years, numbers and (at least one word of each of) its capitalised names;
+ * a sentence that does not is removed. "Not found" sentences need no citation, and in `advisorySections` an
+ * uncited line (a reference question, "confirm the role history") is allowed when the sources as a whole support
+ * what it names. In `failSections` (litigation) any uncited or unsupported line fails the whole answer, and when
+ * more than `maxDropShare` of the checked sentences go the answer fails too, so the caller can ask another model.
+ *
+ * @param {string} content an answer that passed validateAnswer (sections and [Source n] markers normalised)
+ * @param {Map<number, {text: string, weak?: boolean}>|Object} sources the text each source number stands for;
+ *   `weak`: tied to the subject by name only
+ * @param {{ failSections?: string[], advisorySections?: string[], weakDropSections?: string[], ignoreWords?: string[],
+ *   maxDropShare?: number, emptySection?: string|null }} [opts]
+ * @returns {{ ok: boolean, content: string, checked: number, dropped: number, reasons: string[], reason?: string }}
+ */
+export function checkClaims(content, sources, opts = {}) {
+  const {
+    failSections = [], advisorySections = [], weakDropSections = [], ignoreWords = [], maxDropShare = 0.2, emptySection = null,
+  } = opts;
+  const map = sources instanceof Map ? sources : new Map(Object.entries(sources || {}).map(([k, v]) => [Number(k), v]));
+  const prepared = new Map([...map].map(([n, v]) => [n, prepareSource(v?.text || '')]));
+  const everything = prepareSource([...map.values()].map((v) => v?.text || '').join(' \n '));
+  const ignore = new Set(ignoreWords.flatMap((w) => String(w || '').split(/\s+/)).filter(Boolean).map(fold));
+  const reasons = [];
+  let checked = 0;
+  let dropped = 0;
+  let failed = null;
+  let section = '';
+  const lines = [];
+  for (const line of String(content || '').split('\n')) {
+    if (/^\s*#{1,6}\s/.test(line)) {
+      // a "### sub-heading" stays inside its "## SECTION"
+      if (/^\s*#{1,2}\s/.test(line)) section = line.trim();
+      lines.push(line);
+      continue;
+    }
+    // blank lines and italic notes the caller wrote (the coverage caveat) stay as they are
+    if (!line.trim() || /^\s*\*[^*\n].*\*\s*$/.test(line) && !/\[Source \d+\]/.test(line)) { lines.push(line); continue; }
+    const [, marker, body] = line.match(/^(\s*(?:[-*+•]\s*|\d{1,3}[.)]\s+)?)([\s\S]*)$/);
+    const kept = [];
+    for (const sentence of lineSentences(body)) {
+      const cites = [...sentence.matchAll(/\[Source (\d+)\]/g)].map((x) => Number(x[1]));
+      const valid = [...new Set(cites.filter((n) => prepared.has(n)))];
+      const claim = sentence.replace(/\s*\[Source \d+\]/g, '').trim();
+      const { years, numbers } = claimNumbers(claim);
+      if (!claim || /^[.;,]$/.test(claim)) continue;
+      if (!valid.length && NEGATIVE.test(claim) && !years.length && !numbers.length) { kept.push(sentence); continue; }
+      checked += 1;
+      const inFail = failSections.includes(section);
+      let why = null;
+      if (!valid.length) {
+        why = advisorySections.includes(section) ? supports(everything, claim, ignore) : 'no citation';
+      } else if (weakDropSections.includes(section) && valid.every((n) => map.get(n)?.weak)) {
+        why = 'cites only sources that match the name alone';
+      } else {
+        why = supports(prepareSource(valid.map((n) => map.get(n)?.text || '').join(' \n ')), claim, ignore);
+      }
+      if (why) {
+        dropped += 1;
+        reasons.push(`${why}: ${claim.slice(0, 80)}`);
+        // a legal line that cites only name-only sources is dropped quietly; one that is unsupported fails the answer
+        if (inFail && why !== 'cites only sources that match the name alone' && !failed) failed = `an unsupported line under ${section.replace(/^#+\s*/, '')}`;
+        continue;
+      }
+      // citations to numbers that are not sources go; the valid ones stay
+      kept.push(sentence.replace(/\s*\[Source (\d+)\]/g, (m, n) => (prepared.has(Number(n)) ? m : '')));
+    }
+    if (kept.length) lines.push(`${marker}${kept.join(' ')}`);
+  }
+  let out = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (emptySection) {
+    // a section left with nothing under it says so
+    // (the next heading, or the end of the whole text: a blank line between a heading and its body is not empty)
+    out = out.replace(/^(##\s[^\n]+)(?=\s*(?:\n##\s|(?![\s\S])))/gm, `$1\n${emptySection}`);
+  }
+  if (failed) return { ok: false, content: out, checked, dropped, reasons, reason: failed };
+  if (checked > 0 && dropped / checked > maxDropShare) return { ok: false, content: out, checked, dropped, reasons, reason: `${dropped} of ${checked} lines were not supported by their sources` };
+  if (checked > 0 && dropped === checked) return { ok: false, content: out, checked, dropped, reasons, reason: 'no line was supported by its sources' };
+  return { ok: true, content: out, checked, dropped, reasons };
+}
+
 /**
  * @param {Object} plan query plan
  * @param {{ mode, name }} entity resolved entity

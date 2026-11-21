@@ -1,12 +1,17 @@
 /**
- * GET /api/founder/history -> { checks: [{ name, company, date, redFlags }] }
+ * GET /api/founder/history
+ *   -> { checks:  [{ id, name, company, seededCompany, status: 'done', date, redFlags }],
+ *        running: [{ id, name, company, seededCompany, status: 'running', date, redFlags: null }] }
  *
- * The signed-in user's own finished deep checks, newest first (checks are
- * kept for three days; see jobStore.js). Never another user's: every read
- * is scoped by the signed-in user's id. 401 when signed out.
+ * The signed-in user's own deep checks, newest first (checks are kept for
+ * three days; see jobStore.js). Each carries its id, so the page can reopen
+ * it (GET /api/founder/deep?jobId=) instead of starting a new check, and the
+ * company the check was anchored on, so a re-run keeps it. `checks` holds
+ * only finished ones, as before. Never another user's: every read is scoped
+ * by the signed-in user's id. 401 when signed out.
  */
 import { getUserId } from '../../../server/auth';
-import { listFinishedChecks } from '../../../server/founder/networkLink';
+import { listFinishedChecks, listRunningChecks } from '../../../server/founder/networkLink';
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -16,9 +21,12 @@ export default async function handler(req, res) {
   }
   const userId = await getUserId(req, res);
   if (!userId) return res.status(401).json({ error: 'Sign in to see the checks you have run.', signIn: true });
-  try {
-    return res.status(200).json({ checks: await listFinishedChecks(userId) });
-  } catch {
-    return res.status(503).json({ error: 'Your past checks could not be loaded just now.' });
-  }
+  const [done, running] = await Promise.allSettled([listFinishedChecks(userId), listRunningChecks(userId)]);
+  if (done.status === 'rejected') return res.status(503).json({ error: 'Your past checks could not be loaded just now.' });
+  // A failed read of the running checks is said, never shown as "none running".
+  return res.status(200).json({
+    checks: done.value,
+    running: running.status === 'fulfilled' ? running.value : [],
+    ...(running.status === 'rejected' ? { runningUnread: true } : {}),
+  });
 }

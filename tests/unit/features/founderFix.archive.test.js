@@ -100,7 +100,10 @@ describe('one page, copies of two different people', () => {
     expect(change).toBeTruthy();
     // tied by one anchor and sharing a line with an untied copy: may be a merged profile, so held at possible (fix2 item 1)
     expect(change.match).toBe('possible');
-    expect(out.findings.find((f) => / as of 2015-01-01/.test(f.title)).match).toBe('possible');
+    // R3: the 2015 version says nothing the 2020 one does not, and is graded the same: folded into the page's record
+    const page = out.findings.find((f) => f.data.kind === 'snapshot');
+    expect(page.match).toBe('possible');
+    expect(page.data.versions.map((v) => v.date)).toEqual(['2015-01-01']);
   });
 });
 

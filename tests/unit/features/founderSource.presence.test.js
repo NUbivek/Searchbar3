@@ -120,8 +120,10 @@ describe('stack-overflow', () => {
     expect(calls[0]).toContain('filter=');
     expect(out.findings).toHaveLength(2);
     const [tied, namesake] = out.findings;
-    expect(tied.match).toBe('confirmed');
-    expect(tied.matchFixed).toBeUndefined(); // graded from the text, never set by hand
+    // R3: a self-described account found by the name is 'likely' at most, and the cap is kept on a re-grade
+    expect(tied.match).toBe('likely');
+    expect(tied.matchFixed).toBe(true);
+    expect(tied.matchReasons.join(' ')).toMatch(/self-described/);
     expect(tied.quote).not.toMatch(/example\.com|Somewhere/);
     expect(tied.title).toMatch(/self-described/);
     expect(namesake.match).toBe('possible');
@@ -162,7 +164,7 @@ describe('semantic-scholar', () => {
     ] }]]);
     const out = await semanticScholarConnector.run(task('subject', 'Patrick Collison'), ctxFor(subject));
     expect(out.findings).toHaveLength(2);
-    expect(out.findings[0].match).toBe('confirmed'); // the record's own affiliation names the company
+    expect(out.findings[0].match).toBe('likely'); // R3: the record's own affiliation names the company; self-described, so 'likely' at most
     expect(out.findings[0].title).toMatch(/121 citations/);
     expect(out.findings[1].match).toBe('possible');
     expect(out.findings.some((f) => /24,259/.test(f.title))).toBe(false);

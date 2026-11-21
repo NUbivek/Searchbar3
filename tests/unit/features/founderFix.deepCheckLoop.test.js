@@ -71,7 +71,8 @@ test('a re-grade reads the text the record was graded on, and never touches a gr
           makeFinding(subject, { source: 'ip', category: 'corporate', title: 'UK company with the same name: ZETA ROBOTICS LTD (Jane Roe is not among its officers)', url: 'https://reg.test/z', match: 'possible' }),
         ] };
       }
-      const f = finding(subject, { title: 'Jane Roe founded Zeta Robotics', quote: 'Jane Roe founded Zeta Robotics.', category: 'career', url: 'https://profile.test/jr' });
+      // The thread comes from a record tied to the person (named with Other Co): only such a record's threads may confirm others.
+      const f = finding(subject, { title: 'Jane Roe of Other Co founded Zeta Robotics', quote: 'Jane Roe, CEO of Other Co, founded Zeta Robotics.', category: 'career', url: 'https://profile.test/jr' });
       return { findings: [f], threads: [makeThread('company', 'Zeta Robotics', 'founder (Wikidata)', { trusted: true })] };
     },
   };

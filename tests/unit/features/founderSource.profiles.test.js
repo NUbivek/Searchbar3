@@ -98,7 +98,9 @@ describe('GitHub public profiles', () => {
     expect(githubConnector.id).toBe('github');
     expect(githubConnector.label).toBe('GitHub public profiles');
     expect(githubConnector.kinds).toEqual(['subject', 'handle']);
-    expect(calls).toHaveLength(3);
+    // R3: the tied account's public organisations and repositories are read too
+    expect(calls).toHaveLength(5);
+    expect(calls.slice(3).map((u) => new URL(u).pathname)).toEqual(['/users/pc/orgs', '/users/pc/repos']);
     expect(decodeURIComponent(calls[0])).toContain('q=fullname:"Patrick Collison" type:user');
     expect(calls.headers.Accept).toBe('application/vnd.github+json');
 
@@ -107,12 +109,14 @@ describe('GitHub public profiles', () => {
     expect(own).toMatchObject({
       source: 'github', sourceLabel: 'GitHub public profiles', category: 'identity', severity: 'info',
       title: 'GitHub profile pc (self-described: name "Patrick Collison", company "Stripe"): account created 2008-04-12, 34 public repositories, 2,038 followers',
-      quote: 'Patrick Collison | Company: Stripe | Bio: I type things at Stripe. | Blog: http://patrickcollison.com',
-      url: 'https://github.com/pc', date: '2008-04-12', match: 'confirmed',
+      quote: 'Patrick Collison | Company: Stripe | Bio: I type things at Stripe. | Blog: http://patrickcollison.com | City: San Francisco',
+      // R3: found by the name, a self-described profile is 'likely' at most
+      url: 'https://github.com/pc', date: '2008-04-12', match: 'likely', matchFixed: true,
     });
-    expect(own.matchReasons).toEqual(['names Stripe']);
+    expect(own.matchReasons).toEqual(['names Stripe', 'self-described on the GitHub profile']);
     expect(own.data).toEqual({
       login: 'pc', name: 'Patrick Collison', company: 'Stripe', blog: 'http://patrickcollison.com', x: null,
+      bio: 'I type things at Stripe.', city: 'San Francisco',
       publicRepos: 34, followers: 2038, createdAt: '2008-04-12T18:36:59Z', updatedAt: '2026-10-10T13:17:49Z',
     });
 
@@ -126,17 +130,19 @@ describe('GitHub public profiles', () => {
     expect(notes).toEqual([]);
   });
 
-  test('privacy: the e-mail address and location on a profile are never output', async () => {
+  // R3: the profile may show the city (basedIn); nothing finer than the city, and never the e-mail address.
+  test('privacy: the e-mail address is never output, and of the location only the city', async () => {
     network([
       ['search/users', ghSearch('pc')],
-      ['users/pc', { ...ghPc, bio: 'I type things at Stripe. Write to patrick.other@example.com', blog: 'patrick.blog@example.com' }],
+      ['users/pc', { ...ghPc, location: 'San Francisco, 1 Market Street', bio: 'I type things at Stripe. Write to patrick.other@example.com', blog: 'patrick.blog@example.com' }],
     ]);
     const subject = createSubject({ name: 'Patrick Collison', company: 'Stripe' });
     const result = await githubConnector.run(subjectTask(subject), ctxFor(subject));
     const dump = JSON.stringify(result);
     expect(result.findings).toHaveLength(1);
     expect(dump).not.toMatch(/example\.com/);
-    expect(dump).not.toMatch(/San Francisco/);
+    expect(dump).not.toMatch(/Market Street/);
+    expect(result.findings[0].data.city).toBe('San Francisco');
     expect(result.findings[0].quote).toContain('[email removed]');
     expect(result.findings[0].data.blog).toBe('');
     expect(result.threads.map((t) => t.kind)).toEqual(['handle']);
@@ -237,7 +243,8 @@ describe('GitHub public profiles', () => {
     const calls = network([['users/pc', { ...ghPc, twitter_username: 'patrickc' }]]);
     const subject = createSubject({ name: 'Patrick Collison', company: 'Stripe' });
     const { findings, threads } = await githubConnector.run(handleTask('@pc'), ctxFor(subject));
-    expect([...calls]).toEqual(['https://api.github.com/users/pc']);
+    // R3: then its public organisations and repositories
+    expect([...calls]).toEqual(['https://api.github.com/users/pc', 'https://api.github.com/users/pc/orgs?per_page=30', 'https://api.github.com/users/pc/repos?sort=pushed&per_page=10&type=owner']);
     expect(findings).toHaveLength(1);
     expect(findings[0].match).toBe('confirmed');
     expect(findings[0].data.x).toBe('patrickc');
@@ -280,7 +287,7 @@ describe('GitHub public profiles', () => {
     const subject = createSubject({ name: 'Patrick Collison', company: 'Stripe' });
     await githubConnector.run(subjectTask(subject), ctxFor(subject));
     const again = await githubConnector.run(handleTask('PC'), ctxFor(subject));
-    expect(calls).toHaveLength(3);
+    expect(calls.filter((u) => /\/users\/pc$/i.test(new URL(u).pathname))).toHaveLength(1);
     expect(again.findings[0].url).toBe('https://github.com/pc');
   });
 });

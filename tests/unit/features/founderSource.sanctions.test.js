@@ -8,7 +8,7 @@ const S = require('../../../src/server/founder/sources/sanctions');
 
 const {
   normalizeName, nameTokens, companyTokens, matchTier, matchPersonName, matchCompanyName, personVariants,
-  screenIndex, reasonText, parseUsCsl, parseUn, parseUk, parseCanada, parseEu, parseOigResults, parseEuMostWanted,
+  screenIndex, reasonText, parseUsCsl, parseUn, parseUk, parseCanada, parseEu, parseOigResults, parseLeie, leieRows, parseEuMostWanted,
   sanctionsListsConnector, exclusionsConnector, offshoreLeaksConnector, wantedConnector, OFFSHORE_NOTE, LISTS,
 } = S;
 
@@ -90,6 +90,15 @@ const OIG_RESULT = `<html><span>Source data updated on 11/10/2026</span><table c
 <tr><td>HOLMES</td><td>ELIZABETH</td><td>A</td><td>BUSINESS</td><td>THERANOS</td><td>1128a1</td><td><a>Verify</a></td></tr>
 <tr><td>HOLMES</td><td>ELIZABETHA</td><td></td><td>NURSING</td><td>NURSE</td><td>1128b4</td><td><a>Verify</a></td></tr>
 </table></html>`;
+
+const LEIE_HEADER = 'LASTNAME,FIRSTNAME,MIDNAME,BUSNAME,GENERAL,SPECIALTY,UPIN,NPI,DOB,ADDRESS,CITY,STATE,ZIP,EXCLTYPE,EXCLDATE,REINDATE,WAIVERDATE,WVRSTATE';
+const LEIE = [
+  LEIE_HEADER,
+  'HOLMES,ELIZABETH,A,,BUSINESS,THERANOS,,1234567890,19840203,1 HOME LANE,PALO ALTO,CA,94301,1128a1,20240312,00000000,00000000,',
+  'HOLMES,ELIZABETHA,,,NURSING,NURSE,,0,19700101,2 ROAD,TOWN,OH,44101,1128b4,20200101,00000000,00000000,',
+  ',,,"#1 MARKETING SERVICE, INC",OTHER BUSINESS,SOBER HOME,,0,,239 AVENUE,BROOKLYN,NY,11235,1128a1,20200101,00000000,00000000,',
+  ...Array.from({ length: 1000 }, (_, i) => `FILLER${i},PERSON,,,NURSING,NURSE,,0,19700101,2 ROAD,TOWN,OH,44101,1128b4,20200101,00000000,00000000,`),
+].join('\r\n') + '\r\n';
 
 const ICIJ = {
   q0: { result: [
@@ -325,7 +334,8 @@ describe('sanctionsListsConnector', () => {
     serve(LIST_ROUTES);
     const out = await sanctionsListsConnector.run(subjectTask('Elizabeth Holmes', 'list.un'), ctxFor('Elizabeth Holmes', 'Theranos'));
     expect(out.findings).toEqual([]);
-    expect(out.notes).toContain('UN Security Council sanctions list: no match for Elizabeth Holmes');
+    // The note says which copy of the list was read
+    expect(out.notes).toEqual(expect.arrayContaining([expect.stringMatching(/^UN Security Council sanctions list: no match for Elizabeth Holmes \(list as of \d{4}-\d{2}-\d{2}\)$/)]));
   });
 
   test('the list is loaded once and then served from the cache', async () => {
@@ -342,7 +352,7 @@ describe('sanctionsListsConnector', () => {
     expect(hit.findings.map((f) => [f.data.listKey, f.match])).toEqual([['eu', 'company'], ['uk', 'company']]);
     const clean = await sanctionsListsConnector.run({ kind: 'company', value: 'Stripe', template: 'list.all' }, ctxFor('Patrick Collison', 'Stripe'));
     expect(clean.findings).toEqual([]); // "Stripe Logistics Trading FZE" is not Stripe
-    expect(clean.notes).toContain('Sanctions lists (US, UN, EU, UK, Canada): no match for Stripe');
+    expect(clean.notes).toEqual(expect.arrayContaining([expect.stringMatching(/^Sanctions lists \(US, UN, EU, UK, Canada\): no match for Stripe \(lists as of \d{4}-\d{2}-\d{2}\)$/)]));
   });
 
   test('an associate hit names who it is about and stays "possible"', async () => {
@@ -384,7 +394,8 @@ describe('sanctionsListsConnector', () => {
 
 describe('exclusionsConnector', () => {
   test('identity and plan', () => {
-    expect(exclusionsConnector).toMatchObject({ id: 'us-exclusions', label: 'US federal exclusion lists (SAM.gov, HHS OIG)', kinds: ['subject', 'company'] });
+    // Associates and relatives are screened too (round 3: watchlists-associates-not-on-exclusions)
+    expect(exclusionsConnector).toMatchObject({ id: 'us-exclusions', label: 'US federal exclusion lists (SAM.gov, HHS OIG)', kinds: ['subject', 'company', 'associate', 'relative'] });
     expect(exclusionsConnector.plan({ kind: 'subject' }).map((p) => p.template)).toEqual(['excl.sam', 'excl.leie']);
     expect(exclusionsConnector.plan({ kind: 'company' }).map((p) => p.template)).toEqual(['excl.sam']);
   });
@@ -415,7 +426,8 @@ describe('exclusionsConnector', () => {
       samResult({ id: 'y', title: 'THERANOS LABS HOLDINGS', cls: 'Firm' }),
     ] } }) });
     const out = await exclusionsConnector.run({ kind: 'company', value: 'Theranos, Inc.', template: 'excl.sam' }, ctxFor('Elizabeth Holmes', 'Theranos'));
-    expect(out.findings.map((f) => [f.url, f.match])).toEqual([['https://sam.gov/exclusion/x/view', 'company']]);
+    // "Theranos" is one word once the legal form is removed: held as possible, like the other lists (round 3)
+    expect(out.findings.map((f) => [f.url, f.match])).toEqual([['https://sam.gov/exclusion/x/view', 'possible']]);
   });
 
   test('SAM.gov: nothing found is a note; a broken answer throws', async () => {
@@ -426,28 +438,33 @@ describe('exclusionsConnector', () => {
     await expect(exclusionsConnector.run(subjectTask('Patrick Collison', 'excl.sam'), ctxFor('Patrick Collison'))).rejects.toThrow();
   });
 
-  test('HHS OIG: posts the search form and reads the result table', async () => {
-    expect(parseOigResults(OIG_RESULT)).toHaveLength(2);
-    serve({ 'exclusions.oig.hhs.gov': (url, init) => (init.method === 'POST'
-      ? OIG_RESULT
-      : { headers: { 'set-cookie': 'ASP.NET_SessionId=xyz; path=/' }, body: OIG_FORM }) });
+  test('HHS OIG: the official LEIE file is read once a day; birth dates and addresses are never kept', async () => {
+    expect(parseOigResults(OIG_RESULT)).toHaveLength(2); // the old page reader is still exported
+    const index = parseLeie(LEIE);
+    expect(leieRows(index).rows.find((r) => /HOLMES/.test(r.n))).toEqual({ n: 'HOLMES, ELIZABETH A', t: 'person', g: 'BUSINESS', s: 'THERANOS', x: '1128a1', d: '2024-03-12' });
+    expect(JSON.stringify(index)).not.toMatch(/19840203|1 HOME LANE|PALO ALTO|94301|1234567890/);
+    expect(() => parseLeie(LEIE.slice(0, -30))).toThrow();
+    expect(() => parseLeie('A,B\n1,2\n')).toThrow(/expected format/);
+    serve({ 'oig.hhs.gov/exclusions/downloadables/UPDATED.csv': () => LEIE });
     const out = await exclusionsConnector.run(subjectTask('Elizabeth Holmes', 'excl.leie'), ctxFor('Elizabeth Holmes', 'Theranos'));
-    const post = calls.find((c) => c.init.method === 'POST');
-    expect(post.init.body).toMatch(/txtSPLastName=HOLMES/);
-    expect(post.init.body).toMatch(/__VIEWSTATE=abc/);
-    expect(post.init.headers.Cookie).toMatch(/ASP\.NET_SessionId=xyz/);
     expect(out.findings).toHaveLength(1);
     const f = out.findings[0];
     expect(f.title).toBe('Name match on the HHS OIG exclusion list: HOLMES, ELIZABETH A (1128a1): verify identity');
-    expect(f.match).toBe('confirmed'); // the listed specialty names the company the subject is known for
+    // The listed specialty names the company the check was started with, but the list adds a middle initial:
+    // likely at most (round 3)
+    expect(f.match).toBe('likely');
     expect(f.quote).not.toMatch(/ELIZABETHA/);
+    await exclusionsConnector.run(subjectTask('Arthur Mensch', 'excl.leie'), ctxFor('Arthur Mensch'));
+    expect(calls).toHaveLength(1);
   });
 
-  test('HHS OIG: "No Results" is a clean screen; a strange page throws', async () => {
-    serve({ 'exclusions.oig.hhs.gov': (url, init) => (init.method === 'POST' ? '<p>No Results were found</p>' : OIG_FORM) });
+  test('HHS OIG: no match is a clean screen with the list date; an unreadable file throws', async () => {
+    serve({ 'oig.hhs.gov': () => LEIE });
     const out = await exclusionsConnector.run(subjectTask('Arthur Mensch', 'excl.leie'), ctxFor('Arthur Mensch'));
-    expect(out).toEqual({ findings: [], threads: [], notes: ['HHS OIG exclusion list: no match for Arthur Mensch'] });
-    serve({ 'exclusions.oig.hhs.gov': () => '<html>maintenance</html>' });
+    expect(out.findings).toEqual([]);
+    expect(out.notes).toEqual([expect.stringMatching(/^HHS OIG exclusion list: no match for Arthur Mensch \(list as of \d{4}-\d{2}-\d{2}\)$/)]);
+    __resetCacheForTests();
+    serve({ 'oig.hhs.gov': () => '<html>maintenance</html>' });
     await expect(exclusionsConnector.run(subjectTask('Arthur Mensch', 'excl.leie'), ctxFor('Arthur Mensch'))).rejects.toThrow();
   });
 });
@@ -542,7 +559,8 @@ describe('review fixes: name order and Offshore Leaks scope', () => {
     // Middle names added by the list, in either written order, still match at tier 2
     expect(matchPersonName(['Elizabeth Holmes'], 'HOLMES, Elizabeth Anne')).toBe(2);
     expect(matchPersonName(['Elizabeth Holmes'], 'Elizabeth Anne Holmes')).toBe(2);
-    expect(matchPersonName(['Sam Bankman-Fried'], 'BANKMAN-FRIED, Samuel Sam')).toBe(0);
+    // Not tier 2 (Sam is no first name here); since round 3 it is a tier-3 variant (Samuel for Sam), always possible
+    expect(matchPersonName(['Sam Bankman-Fried'], 'BANKMAN-FRIED, Samuel Sam')).toBe(3);
     expect(matchPersonName(['Sam Bankman-Fried'], 'BANKMAN-FRIED, Sam Benjamin')).toBe(2);
     // Tier 1 (the same words) is unchanged
     expect(matchPersonName(['Elizabeth Holmes'], 'HOLMES Elizabeth')).toBe(1);

@@ -38,17 +38,14 @@ import { getJson, getText, htmlToText, HttpError } from '../http';
 import { makeFinding, makeThread, severityFromText } from '../finding';
 import { profileFromUrl } from '../extract';
 import { nameTokens, matchSubject } from '../identity';
-import { isSensitive, mentionsMinor, redactPII } from '../guardrails';
-import { personNameFits } from './scholar';
+import { cleanSentences } from '../guardrails';
+import { personNameFits, namesakeOrgs, maskOrgs } from './scholar';
 import { parseRobots, robotsAllow } from './pages';
 
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const count = (n) => Number(n || 0).toLocaleString('en-US');
-/** Text the privacy rules would reject is left out; contact details in what is kept are removed. */
-const safe = (s) => {
-  const t = clean(s);
-  return isSensitive(t) || mentionsMinor(t) ? '' : clean(redactPII(t));
-};
+/** Only the sentences the privacy rules reject are left out; contact details in what is kept are removed. */
+const safe = (s) => clean(cleanSentences(clean(s)).text);
 const EMPTY = () => ({ findings: [], threads: [], notes: [] });
 const day = (value) => {
   if (value === null || value === undefined || value === '') return null;
@@ -108,9 +105,13 @@ function gradeReached(subject, { name, text, handle, exact }) {
  * fits). A school alone does not tell one namesake from another when several
  * accounts carry the name, so the record is then held at 'possible'.
  */
-function gradeNamed(subject, matchText, namesakes) {
+function gradeNamed(subject, matchText, namesakes, selfDescribed = '') {
   const graded = matchSubject(subject, matchText);
   const telling = ['people', 'handles', 'domains'].some((kind) => [...(subject.anchors[kind] || new Map()).values()].some((a) => a.test(matchText)));
+  // What an account says about itself is its owner's claim: found by the name, it is 'likely' at most.
+  if (graded.level === 'confirmed' && selfDescribed) {
+    return { fields: { match: 'likely', matchReasons: [...graded.reasons.slice(0, 3), `self-described on ${selfDescribed}`] }, held: true };
+  }
   if (graded.level !== 'likely' || telling || namesakes < 2) return { fields: { matchText }, held: false };
   return { fields: { match: 'possible', matchReasons: [`${graded.reasons[0]}, but ${namesakes} accounts carry this name and that alone does not tell them apart`] }, held: true };
 }
@@ -244,8 +245,11 @@ async function semanticScholar(subject, ctx) {
     .filter((x) => x.name && x.author?.authorId);
   const pairs = [];
   for (const { author, name } of named) {
-    const text = [...(author.affiliations || []), author.homepage, ...(author.papers || []).map((p) => `${p?.title || ''} ${p?.venue || ''}`)].map(clean).filter(Boolean).join('. ');
-    const grade = gradeNamed(subject, `${subject.name}. ${name}. ${text}`, named.length);
+    // Graded on what the record says of the author (affiliations, homepage) only: a paper's title or venue
+    // ("Mercury levels in salmon", "Ramp metering") is a topic, not an employer. Titles stay in the quote.
+    const affiliations = (author.affiliations || []).map(clean).filter(Boolean);
+    const text = maskOrgs([...affiliations, clean(author.homepage)].filter(Boolean).join('. '), namesakeOrgs(subject, affiliations));
+    const grade = gradeNamed(subject, `${subject.name}. ${name}. ${text}`, named.length, 'the author record');
     const finding = s2Finding(subject, author, name, grade.fields);
     if (!finding) continue;
     if (grade.held) finding.matchFixed = true;
@@ -318,7 +322,7 @@ async function stackOverflowByName(subject, ctx) {
   const named = body.items.filter((u) => u && u.user_type !== 'does_not_exist' && statedName(subject, seName(u)) === 'same');
   const pairs = [];
   for (const user of named) {
-    const grade = gradeNamed(subject, `${subject.name}. ${seName(user)}. ${seText(user)}`, named.length);
+    const grade = gradeNamed(subject, `${subject.name}. ${seName(user)}. ${seText(user)}`, named.length, 'the profile');
     const finding = seFinding(subject, user, grade.fields);
     if (!finding) continue;
     if (grade.held) finding.matchFixed = true;
@@ -449,6 +453,23 @@ function bskyProfileFinding(subject, p, grade) {
   });
 }
 
+// Case matters: "US" (the country) is not "us".
+const FIRST_PERSON = /\b(?:I|I'm|I've|[Ww]e|[Ww]e're|[Ww]e've|[Mm]y|[Oo]ur|me|us)\b/;
+/**
+ * The severity of the person's own post. A post about someone else's dispute
+ * ("the lawsuit against our customer was dismissed") is not a matter of
+ * theirs: above 'low' only when a sentence that reports the matter also names
+ * their company or speaks in the first person.
+ */
+export function ownPostSeverity(subject, text) {
+  const severity = severityFromText(text, subject);
+  if (severity !== 'high' && severity !== 'medium') return severity;
+  const sentences = String(text || '').split(/(?<=[.!?])\s+/);
+  const theirs = sentences.some((x) => severityFromText(x, subject) !== 'info'
+    && (knownIn(subject, x, ['companies']).length > 0 || FIRST_PERSON.test(x.replace(/\b(?:our|my) (?:customers?|clients?|partners?|friends?|competitors?|investors?)\b/gi, ' '))));
+  return theirs ? severity : 'low';
+}
+
 /** The person's recent posts that name a known company of theirs or report a dispute, from an account tied to them. */
 async function bskyPosts(subject, profile, profileFinding, ctx) {
   const body = await getJson(`${BSKY}/app.bsky.feed.getAuthorFeed?actor=${encodeURIComponent(profile.did)}&limit=50&filter=posts_no_replies`, { deadline: ctx.deadline, retries: 0 });
@@ -458,8 +479,8 @@ async function bskyPosts(subject, profile, profileFinding, ctx) {
     if (item?.reason || item?.post?.author?.did !== profile.did) continue; // a repost is someone else's words
     const text = safe(item.post?.record?.text);
     if (!text) continue;
-    const severity = severityFromText(text, subject);
     const companies = knownIn(subject, text, ['companies']);
+    const severity = ownPostSeverity(subject, text);
     if (severity === 'info' && !companies.length) continue;
     const rkey = String(item.post.uri || '').split('/').pop();
     if (!/^[a-z0-9]{6,20}$/i.test(rkey)) continue;
@@ -473,7 +494,8 @@ async function bskyPosts(subject, profile, profileFinding, ctx) {
       severity,
       match: 'likely',
       matchReasons: [`posted from the Bluesky account @${clean(profile.handle)}, graded ${profileFinding.match}`, ...companies.slice(0, 2).map((c) => `names ${c}`)],
-      data: { likes: Number(item.post.likeCount) || 0, reposts: Number(item.post.repostCount) || 0 },
+      // The person's own statement: the report keeps it out of red flags
+      data: { likes: Number(item.post.likeCount) || 0, reposts: Number(item.post.repostCount) || 0, ownStatement: true },
     });
     if (finding) out.push(finding);
     if (out.length >= 5) break;

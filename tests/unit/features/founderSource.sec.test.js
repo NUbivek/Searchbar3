@@ -4,6 +4,8 @@
  * releases and company-level cyber-incident reports. No network: the
  * transport is faked with small fixtures cut from real EDGAR answers.
  */
+// The SEC's website answers only a declared contact; these tests read filing documents, so one is declared.
+process.env.SEC_USER_AGENT = 'Test Runner test@example.com';
 jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
 
 const { setTransport } = require('../../../src/server/founder/http');
@@ -85,7 +87,7 @@ const company = (template, value = 'Nikola') => ({ kind: 'company', value, templ
 const searchUrl = (url) => url.startsWith('https://efts.sec.gov/LATEST/search-index');
 const param = (url, name) => new URL(url).searchParams.get(name);
 
-beforeEach(() => { __resetSecForTests(); delete process.env.SEC_USER_AGENT; });
+beforeEach(() => { __resetSecForTests(); process.env.SEC_USER_AGENT = 'Test Runner test@example.com'; });
 afterEach(() => setTransport());
 
 /* ------------------------------------------------------------------ shape */
@@ -104,7 +106,7 @@ describe('connector shape and wording', () => {
       }
     }
     expect(secPersonConnector.plan(person('all'), subject).map((p) => p.template).sort()).toEqual(['all', 'enforcement', 'family', 'formd', 'insider', 'press', 'related']);
-    expect(secCompanyConnector.plan(company('formd'), subject).map((p) => p.template).sort()).toEqual(['cyber', 'formd', 'joint']);
+    expect(secCompanyConnector.plan(company('formd'), subject).map((p) => p.template).sort()).toEqual(['cyber', 'events', 'formd', 'joint']);
   });
 
   test('parseFormD never reads addresses or phone numbers', () => {
@@ -184,7 +186,9 @@ describe('secPersonConnector all', () => {
       ['other10k.htm', page('<p>This annual report does not name anyone you are looking for.</p>')],
     ]);
     const r = await secPersonConnector.run(person('all'), ctx());
-    expect(calls.length).toBeLessThanOrEqual(4);
+    // Two searches (the second limited to the weightier forms, as 155 > one page) and three documents.
+    expect(calls.length).toBeLessThanOrEqual(5);
+    expect(calls.filter((c) => searchUrl(c.url)).map((c) => param(c.url, 'forms'))).toEqual([null, expect.stringContaining('DEF 14A')]);
     expect(r.findings).toHaveLength(2);
     const nikola = r.findings.find((f) => /Nikola/.test(f.title));
     expect(nikola.title).toMatch(/^8-K \(exhibit 99\.1\) filed by Nikola Corp mentions Trevor Milton/);
@@ -415,9 +419,11 @@ describe('review fixes', () => {
     const byIssuer = (name) => r.findings.find((f) => f.data.issuer === name);
     const fund = byIssuer('Nikola Property Fund LP');
     expect(fund.match).toBe('possible');
-    expect(fund.matchReasons).toEqual(['name found by full-text search; issuer not verified']);
+    expect(fund.matchReasons.join(' ')).toMatch(/name found by .*full-text search.*not read/);
     expect(byIssuer('Nikola Growth Partners LLC').match).toBe('possible');
-    expect(byIssuer('Nikola Corp').match).toBe('confirmed');
+    // Round 3: a notice that was not read is never confirmed; an exact known issuer makes it likely.
+    expect(byIssuer('Nikola Corp').match).toBe('likely');
+    expect(byIssuer('Nikola Corp').data.unread).toBe(true);
     const thread = (value) => r.threads.find((t) => t.kind === 'company' && t.value === value);
     expect(thread('Nikola Property Fund LP').trusted).toBe(false);
     expect(thread('Nikola Growth Partners LLC').trusted).toBe(false);

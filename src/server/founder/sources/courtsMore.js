@@ -25,7 +25,14 @@
 import * as cheerio from 'cheerio';
 import { getJson, getText, htmlToText, HttpError } from '../http';
 import { makeFinding, severityFromText } from '../finding';
-import { person, sameName, caseParties, partyIsCompany, sameCompany, namesPerson, findMentions, personTokens } from './courts';
+import { mentionsMinor } from '../guardrails';
+import {
+  person, sameName, caseParties, sameCompany, namesPerson, findMentions, personTokens,
+  PRIVATE_MATTER, textNamesCompany, formCore, companyNames, matchNames, partyIsKnownCompany,
+} from './courts';
+
+// One list of private matters and one company-in-text rule for every court source: both live in courts.js.
+export { PRIVATE_MATTER, textNamesCompany };
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -52,32 +59,16 @@ const isoDay = (value) => {
   return usDay(s);
 };
 
-const LEGAL_FORM_WORDS = 'inc|incorporated|llc|l\\.l\\.c|ltd|limited|corp|corporation|co|company|plc|sa|s\\.a|sas|sarl|gmbh|ag|bv|b\\.v|nv|n\\.v|pty|lp|l\\.p|llp|sl|s\\.l|spa|s\\.p\\.a|ab|as|oy|kk';
-const TRAILING_FORM = new RegExp(`(?:[\\s,]+(?:${LEGAL_FORM_WORDS})\\.?)+$`, 'i');
 /** The words that identify a company: "Nikola Corporation" -> "Nikola", "The Boring Company" -> "Boring". */
-export function companyCore(company) {
-  const core = clean(String(company || '').replace(/["“”]/g, '')).replace(TRAILING_FORM, '').replace(/^the\s+/i, '').replace(/[,.]+$/, '');
-  return clean(core) || clean(company);
-}
-/**
- * Does free text name the company? Several words must appear together; a
- * one-word name must be followed by a legal form or "of <place>" ("Apple
- * Inc.", "Apple. Inc", "Intel Corporation of Santa Clara"), so "apple juice"
- * or "Block grants" are not the company.
- */
-export function textNamesCompany(text, company) {
-  const core = companyCore(company);
-  if (!core || core.length < 2) return false;
-  const body = escapeRe(core).replace(/\\?\s+/g, '\\s+');
-  const multi = core.split(' ').length >= 2;
-  if (multi) return new RegExp(`(?<![A-Za-z0-9])${body}(?![A-Za-z0-9])`, 'i').test(String(text || ''));
-  // A one-word name: written with a capital, and followed by a legal form or "of <Place>".
-  const re = new RegExp(`(?<![A-Za-z0-9])${body}[.,]?\\s*(?:(?:${LEGAL_FORM_WORDS})\\b\\.?|of\\s+[A-Z])`, 'gi');
-  return [...String(text || '').matchAll(re)].some((m) => /^[A-Z0-9]/.test(m[0]) && !/of\s+[a-z]$/.test(m[0]));
-}
+export const companyCore = formCore;
 
-/** Matters this check never reads: family and children, guardianship, estates, immigration and asylum, health. */
-export const PRIVATE_MATTER = /\b(?:family court|custody|guardianship|guardian ad litem|adult protective|disabled person|incapacitat\w*|minor child|juvenile|adoption|divorce|name change|estate of|in re (?:the )?(?:estate|trust|will|guardianship)|immigration|citizenship|refugee|asylum|international protection|residence permit|third-country national|family reunification|deport\w*|removal order|expulsion|visa|permanent resident|public safety and emergency preparedness|mental health|psychiatric|sickness|invalidity|disability benefit)\b/i;
+/** A company's known names (the name typed, then legal names learned from records tied to the person), at most `n`. */
+const searchCompanyNames = (subject, company, n = 2) => {
+  const seen = new Set();
+  return companyNames(subject, company).names.map(companyCore).filter((c) => c.length >= 2 && !seen.has(c.toLowerCase()) && seen.add(c.toLowerCase())).slice(0, n);
+};
+/** Does text name the company under any name it may be matched by (the bare ordinary word not, once a legal name is known)? */
+const textNamesKnownCompany = (text, company, subject) => matchNames(subject, company).some((n) => textNamesCompany(text, n));
 
 /** Remove a street address, city and postcode written after a name ("Jane Doe, 12 Elm Drive, Tempe, AZ 85284;"). */
 export function withoutAddress(text) {
@@ -184,8 +175,10 @@ function delawareFinding(rows, ctx, who, company) {
   if (!DE_COURTS.has(court.toLowerCase()) || PRIVATE_MATTER.test(`${caption} ${latest.description}`)) return null;
   const parties = caseParties(caption);
   const partyHit = parties.people.find((p) => sameName(p, who)) || '';
-  const companyParty = company ? [...parties.sides, ...parties.people, ...parties.asides].find((p) => partyIsCompany(p, company)) || '' : '';
+  const companyParty = company ? [...parties.sides, ...parties.people, ...parties.asides].find((p) => partyIsKnownCompany(p, company, ctx.subject)) || '' : '';
   if (!partyHit && !companyParty) return null;
+  // A minor's initials in the caption: never reported.
+  if (mentionsMinor(caption)) return null;
   const criminal = /^state(?: of delaware)?\s+v\.?\s/i.test(caption) || /criminal/i.test(latest.type);
   const descriptions = uniq(rows.map((r) => r.description)).slice(0, 4);
   const first = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)))[0];
@@ -212,21 +205,42 @@ function delawareFinding(rows, ctx, who, company) {
   return finding;
 }
 
-async function delawareYears(words, years, ctx, notes) {
+/** A phrase for the court's search: quoted, so "Mistral AI" is not read as "Mistral" OR "ai" (which matches "Claim"). */
+const dePhrase = (words) => `"${clean(words).replace(/"/g, '')}"`;
+
+/**
+ * Search each year (the court refuses ranges over a year) for each phrase.
+ * A year that fills the page is searched again with the narrower `retries`
+ * phrases (a common surname capped by namesakes), and stays partial.
+ */
+async function delawareYears(phrases, years, ctx, notes, { retries = [] } = {}) {
   const rows = [];
   const searched = [];
   const failed = [];
   let firstError = null;
   const capped = [];
+  const fetchYear = async (phrase, year) => {
+    await pace(DE_HOST, ctx.deadline);
+    const html = await getText(delawareUrl(phrase, year), { deadline: ctx.deadline, timeoutMs: 20000, accept: 'text/html' });
+    return parseDelaware(html);
+  };
   for (const year of years) {
     if (ctx.deadline && Date.now() + 4000 > ctx.deadline) break;
     try {
-      await pace(DE_HOST, ctx.deadline);
-      const html = await getText(delawareUrl(words, year), { deadline: ctx.deadline, timeoutMs: 20000, accept: 'text/html' });
-      const found = parseDelaware(html);
-      if (found.length >= DE_PER_PAGE) capped.push(year);
-      rows.push(...found);
+      let full = false;
+      for (const phrase of phrases) {
+        const found = await fetchYear(phrase, year);
+        if (found.length >= DE_PER_PAGE) full = true;
+        rows.push(...found);
+      }
       searched.push(year);
+      if (full) {
+        capped.push(year);
+        for (const phrase of retries) {
+          if (ctx.deadline && Date.now() + 4000 > ctx.deadline) break;
+          rows.push(...await fetchYear(phrase, year).catch(() => []));
+        }
+      }
     } catch (error) {
       firstError = firstError || error;
       failed.push(year);
@@ -244,10 +258,41 @@ async function delawareYears(words, years, ctx, notes) {
     partial.push(`Delaware decisions ${skipped.join(', ')} (not reached in time)`);
   }
   if (capped.length) {
-    notes.push(`In ${plural(capped.length, 'year')} the Delaware search listed its maximum of ${DE_PER_PAGE} decisions for "${words}"; older ones in that year were not read.`);
+    notes.push(`In ${plural(capped.length, 'year')} the Delaware search listed its maximum of ${DE_PER_PAGE} decisions for ${phrases.join(' and ')}${retries.length ? ' (searched again under the full name)' : ''}; some decisions in that year may not have been read.`);
     partial.push(`Delaware decisions ${capped.join(', ')} (first ${DE_PER_PAGE} read)`);
   }
-  return { rows, searched, partial };
+  // One decision can come back from two phrases: keep it once.
+  const seen = new Set();
+  return { rows: rows.filter((r) => !seen.has(r.id) && seen.add(r.id)), searched, partial };
+}
+
+// The court's online archive of opinions and orders starts in 2000.
+const DE_FIRST_YEAR = 2000;
+/**
+ * The earliest year the person (or, for a company, their role there) is known
+ * to have been active, from dated role and event anchors; null when none.
+ */
+function earliestActivity(subject, company = '') {
+  const years = [];
+  for (const r of subject?.anchors?.roles?.values() || []) {
+    if (company && !sameCompany(r.org || r.value || '', company)) continue;
+    const y = Number(String(r.from || '').slice(0, 4));
+    if (y >= 1950) years.push(y);
+  }
+  if (!company) {
+    for (const e of subject?.anchors?.events?.values() || []) {
+      const y = Number(String(e.date || '').slice(0, 4));
+      if (y >= 1950) years.push(y);
+    }
+  }
+  return years.length ? Math.min(...years) : null;
+}
+/** The years before the regular span worth searching: from the first known activity (never before 2000) to the span's start. */
+function archiveYears(subject, company, lastYear) {
+  const first = earliestActivity(subject, company);
+  if (!first || first > lastYear) return [];
+  const from = Math.max(DE_FIRST_YEAR, first - 1);
+  return Array.from({ length: lastYear - from + 1 }, (_, i) => lastYear - i);
 }
 
 export const delawareCourtsConnector = {
@@ -258,12 +303,21 @@ export const delawareCourtsConnector = {
   maxParallel: 1,
   timeoutMs: 45000,
   plan(thread, subject) {
+    const thisYear = new Date().getUTCFullYear();
     if (thread.kind === 'company') {
-      return nearCompany(thread, subject) ? [{ template: 'captions.company', prior: 0.5, why: 'Delaware cases the company is a party to (most US startups are Delaware companies)' }] : [];
+      if (!nearCompany(thread, subject)) return [];
+      const older = archiveYears(subject, thread.value, thisYear - DE_RECENT_YEARS).length > 0;
+      return [
+        { template: 'captions.company', prior: 0.5, why: 'Delaware cases the company is a party to (most US startups are Delaware companies)' },
+        ...(older ? [{ template: 'captions.archive', prior: 0.2, why: 'Delaware cases of the company from the years before (the person was there then)' }] : []),
+      ];
     }
+    // Years before the regular twelve are asked only when dated records show the person active then.
+    const older = archiveYears(subject, '', thisYear - DE_RECENT_YEARS - DE_OLDER_YEARS).length > 0;
     return [
       { template: 'captions.recent', prior: 0.5, why: 'Delaware cases from the last five years that name the person as a party' },
       { template: 'captions.older', prior: 0.3, why: 'older Delaware cases that name the person as a party' },
+      ...(older ? [{ template: 'captions.archive', prior: 0.15, why: 'Delaware cases from the years records show the person active, before the last twelve' }] : []),
     ];
   },
   async run(task, ctx) {
@@ -272,19 +326,29 @@ export const delawareCourtsConnector = {
     const template = task.template || (task.kind === 'company' ? 'captions.company' : 'captions.recent');
     const company = task.kind === 'company' ? clean(task.value) : '';
     const thisYear = new Date().getUTCFullYear();
-    const span = template === 'captions.older'
-      ? Array.from({ length: DE_OLDER_YEARS }, (_, i) => thisYear - DE_RECENT_YEARS - i)
-      : Array.from({ length: DE_RECENT_YEARS }, (_, i) => thisYear - i);
+    const regularStart = thisYear - (company ? DE_RECENT_YEARS : DE_RECENT_YEARS + DE_OLDER_YEARS);
+    let span;
+    if (template === 'captions.archive') span = archiveYears(ctx.subject, company, regularStart);
+    else if (template === 'captions.older') span = Array.from({ length: DE_OLDER_YEARS }, (_, i) => thisYear - DE_RECENT_YEARS - i);
+    else span = Array.from({ length: DE_RECENT_YEARS }, (_, i) => thisYear - i);
     if (!company && !(who.given && who.surname)) return notScreened('A first name and surname are needed to search Delaware cases.', 'Delaware cases (no full name to search)');
     if (company && companyCore(company).length < 2) return notScreened(`"${company}" is too short a name to search Delaware cases.`, 'Delaware cases (name too short to search)');
-    // The search matches every word, so the given name and surname find "Elon R. Musk" as well as "Elon Musk".
-    const words = company ? companyCore(company) : `${who.given} ${who.surname}`;
-    const { rows, searched, partial } = await delawareYears(words, span, ctx, notes);
+    if (!span.length) return { findings: [], threads: [], notes: ['No dated record shows activity before the years already searched, so earlier Delaware decisions were not searched.'] };
+    // Quoted phrases: the court's search joins loose words with OR and matches inside words. A person is searched by
+    // the quoted surname (captions write "Tornetta", "Richard J. Tornetta" or "Rich Tornetta"); sameName then keeps
+    // only their own name. A year capped by namesakes is searched again under the quoted full name forms.
+    const phrases = company ? searchCompanyNames(ctx.subject, company).map(dePhrase) : [dePhrase(who.surname)];
+    const retries = company ? [] : uniq([`${who.given} ${who.surname}`, ...who.queryNames]).map(dePhrase);
+    const { rows, searched, partial } = await delawareYears(phrases, span, ctx, notes, { retries });
     const byCase = new Map();
     for (const row of rows) byCase.set(caseKey(row), [...(byCase.get(caseKey(row)) || []), row]);
     const findings = [...byCase.values()].map((group) => delawareFinding(group, ctx, who, company)).filter(Boolean)
       .sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).slice(0, 10);
-    notes.push(`Delaware decisions searched for ${searched.length > 1 ? `${Math.min(...searched)}–${Math.max(...searched)}` : searched[0]}; only cases whose title names ${company || who.name} are reported.`);
+    const first = Math.min(...searched);
+    notes.push(`Delaware decisions searched for ${searched.length > 1 ? `${first}–${Math.max(...searched)}` : searched[0]}; only cases whose title names ${company || who.name} are reported.`);
+    notes.push(first > DE_FIRST_YEAR
+      ? `Delaware decisions from ${DE_FIRST_YEAR} to ${first - 1} were not searched by this lookup.`
+      : `The Delaware courts' online archive starts in ${DE_FIRST_YEAR}; earlier decisions were not searched.`);
     return partial.length ? { findings, threads: [], notes, partial } : { findings, threads: [], notes };
   },
 };
@@ -383,7 +447,7 @@ function itcFindings(docs, ctx, company) {
   for (const doc of docs) {
     if (!isItc(doc) || excluded(doc)) continue;
     const text = `${doc.title}\n${doc.abstract}\n${doc.excerpt}`;
-    if (!/section 337|337-TA-|^Certain\s/i.test(text) || !textNamesCompany(text, company)) continue;
+    if (!/section 337|337-TA-|^Certain\s/i.test(text) || !textNamesKnownCompany(text, company, ctx.subject)) continue;
     const key = itcNumber(text) || itcProducts(doc).toLowerCase() || doc.number;
     byCase.set(key, [...(byCase.get(key) || []), doc]);
   }
@@ -393,9 +457,9 @@ function itcFindings(docs, ctx, company) {
     const latest = sorted[0];
     const all = sorted.map((d) => `${d.title} ${d.abstract} ${d.excerpt}`).join(' ');
     const number = itcNumber(all);
-    const core = escapeRe(companyCore(company));
-    const respondent = new RegExp(`respondents?:?[^.]{0,400}?${core}`, 'i').test(all);
-    const complainant = new RegExp(`(?:on behalf of|filed by|complainants?:?)[^.]{0,200}?${core}`, 'i').test(all);
+    const core = matchNames(ctx.subject, company).map((n) => escapeRe(companyCore(n))).join('|') || escapeRe(companyCore(company));
+    const respondent = new RegExp(`respondents?:?[^.]{0,400}?(?:${core})`, 'i').test(all);
+    const complainant = new RegExp(`(?:on behalf of|filed by|complainants?:?)[^.]{0,200}?(?:${core})`, 'i').test(all);
     const role = respondent && !complainant ? 'respondent (the side accused)' : complainant && !respondent ? 'complainant (the side bringing the case)' : '';
     const products = sorted.map(itcProducts).find(Boolean) || '';
     const finding = makeFinding(ctx.subject, {
@@ -418,7 +482,7 @@ function itcFindings(docs, ctx, company) {
 
 /** Agency orders (not ITC) that name the company in their title or summary. */
 function frCompanyOrders(docs, ctx, company) {
-  return docs.filter((doc) => !isItc(doc) && !excluded(doc) && FR_ACTION.test(doc.title) && textNamesCompany(`${doc.title}\n${doc.abstract}`, company))
+  return docs.filter((doc) => !isItc(doc) && !excluded(doc) && FR_ACTION.test(doc.title) && textNamesKnownCompany(`${doc.title}\n${doc.abstract}`, company, ctx.subject))
     .map((doc) => makeFinding(ctx.subject, {
       source: FR_ID,
       sourceLabel: FR_LABEL,
@@ -455,7 +519,10 @@ export const federalRegisterActionsConnector = {
     const template = task.template || (task.kind === 'company' ? 'trade-cases.company' : 'orders.name');
     if (template === 'orders.name') {
       if (!who.given || !who.surname) return notScreened('A first name and surname are needed to search agency orders.', 'US agency orders (no full name to search)');
-      const term = who.queryNames.map((n) => `"${n.replace(/"/g, '')}"`).join(' | ');
+      // Each name as a phrase with up to three words between ("Arthur Gau" finds "Arthur Ching-Fu Gau"): orders carry
+      // the legal middle name. The order's own party must still be the person's name part for part.
+      const forms = uniq([...who.queryNames, `${who.given} ${who.surname}`].map((n) => n.replace(/"/g, '')));
+      const term = forms.map((n) => `"${n}"~3`).join(' | ');
       const { count, docs } = await frSearch({ term, perPage: 40 }, ctx);
       const findings = docs.map(readDoc).map((d) => frPersonFinding(d, ctx, who)).filter(Boolean).slice(0, 8);
       if (count > docs.length) {
@@ -467,8 +534,10 @@ export const federalRegisterActionsConnector = {
     const company = clean(task.value);
     const core = companyCore(company);
     if (core.length < 2) return notScreened(`"${company}" is too short a name to search agency orders.`, 'US agency orders (name too short to search)');
+    // Every known name of the company, in one search: "Ramp" | "Ramp Business".
+    const coTerm = searchCompanyNames(ctx.subject, company, 3).map((n) => `"${n.replace(/"/g, '')}"`).join(' | ') || `"${core.replace(/"/g, '')}"`;
     if (template === 'trade-cases.company') {
-      const { count, docs } = await frSearch({ term: `"${core.replace(/"/g, '')}"`, agencies: [ITC], order: 'newest', perPage: 60 }, ctx);
+      const { count, docs } = await frSearch({ term: coTerm, agencies: [ITC], order: 'newest', perPage: 60 }, ctx);
       const findings = itcFindings(docs.map(readDoc), ctx, company).slice(0, 8);
       if (count > docs.length) {
         notes.push(`The Trade Commission has ${count} Federal Register notices mentioning ${core}; the ${docs.length} newest were read.`);
@@ -476,7 +545,7 @@ export const federalRegisterActionsConnector = {
       }
       return { findings, threads: [], notes };
     }
-    const { count, docs } = await frSearch({ term: `"${core.replace(/"/g, '')}"`, perPage: 40 }, ctx);
+    const { count, docs } = await frSearch({ term: coTerm, perPage: 40 }, ctx);
     const findings = frCompanyOrders(docs.map(readDoc), ctx, company).slice(0, 8);
     if (count > docs.length) {
       notes.push(`The Federal Register holds ${count} documents mentioning ${core}; the ${docs.length} most relevant were read.`);
@@ -572,8 +641,8 @@ function euFindings(rows, ctx, who, company) {
     const personHit = who ? names.find((n) => sameName(n, who)) || '' : '';
     // A competition decision names its party without a legal form ("Case COMP/38.784 - Orange"). A one-word
     // name there may be any company of that name, so it is kept as a possible match, never as the company's own.
-    const formalHit = company ? names.find((n) => partyIsCompany(n, company)) || '' : '';
-    const decisionHit = company && !formalHit && rep.decision ? names.find((n) => sameCompany(n, company)) || '' : '';
+    const formalHit = company ? names.find((n) => partyIsKnownCompany(n, company, ctx.subject)) || '' : '';
+    const decisionHit = company && !formalHit && rep.decision ? names.find((n) => matchNames(ctx.subject, company).some((m) => sameCompany(n, m))) || '' : '';
     const companyHit = formalHit || decisionHit;
     if (!personHit && !companyHit) continue;
     const allText = docs.map((d) => d.title).join(' ');
@@ -619,9 +688,16 @@ export const euCourtsConnector = {
       const company = clean(task.value);
       const core = companyCore(company);
       if (core.length < 2) return notScreened(`"${company}" is too short a name to search EU cases.`, 'EU cases (name too short to search)');
-      const rows = await euSearch([core], ctx);
+      // Every known name of the company: the name typed and the legal names learned from records tied to the person.
+      let rows = [];
+      let full = false;
+      for (const name of searchCompanyNames(ctx.subject, company)) {
+        const found = await euSearch([name], ctx);
+        if (found.length >= EU_LIMIT) full = true;
+        rows = [...rows, ...found.filter((r) => !rows.some((x) => x.celex === r.celex))];
+      }
       const findings = euFindings(rows, ctx, null, company).slice(0, 8);
-      if (rows.length >= EU_LIMIT) return { findings, threads: [], notes: [`The EU case-law index holds more than ${EU_LIMIT} documents with ${core} in the title; the newest ${EU_LIMIT} were read.`], partial: [`EU cases (newest ${EU_LIMIT} documents read)`] };
+      if (full) return { findings, threads: [], notes: [`The EU case-law index holds more than ${EU_LIMIT} documents with ${core} in the title; the newest ${EU_LIMIT} were read.`], partial: [`EU cases (newest ${EU_LIMIT} documents read)`] };
       return { findings, threads: [], notes: [] };
     }
     if (!who.given || !who.surname) return notScreened('A first name and surname are needed to search EU cases.', 'EU cases (no full name to search)');
@@ -689,8 +765,9 @@ function canadaFinding(item, ctx, who, company) {
       if (mention) personHit = mention.text;
     }
   }
-  const companyHit = company ? [...parties.sides, ...parties.people, ...parties.asides].find((p) => partyIsCompany(p, company)) || '' : '';
+  const companyHit = company ? [...parties.sides, ...parties.people, ...parties.asides].find((p) => partyIsKnownCompany(p, company, ctx.subject)) || '' : '';
   if (!personHit && !companyHit) return null;
+  if (personHit && mentionsMinor(`${item.title} ${item.snippet}`)) return null;
   return makeFinding(ctx.subject, {
     source: CA_ID,
     sourceLabel: CA_LABEL,
@@ -724,10 +801,17 @@ export const canadaFederalCourtsConnector = {
     const company = task.kind === 'company' ? clean(task.value) : '';
     if (!company && (!who.given || !who.surname)) return notScreened('A first name and surname are needed to search Canadian federal cases.', 'Canadian federal cases (no full name to search)');
     if (company && companyCore(company).length < 2) return notScreened(`"${company}" is too short a name to search Canadian federal cases.`, 'Canadian federal cases (name too short to search)');
-    const url = company ? canadaUrl({ parties: companyCore(company) }) : canadaUrl({ text: who.name, parties: who.surname });
-    await pace(CA_HOST, ctx.deadline);
-    const html = await getText(url, { deadline: ctx.deadline, timeoutMs: 18000, accept: 'text/html' });
-    const { total, items } = parseCanada(html);
+    // A company under each known name; a person by the surname as party, with the full name in the text.
+    const urls = company ? searchCompanyNames(ctx.subject, company).map((n) => canadaUrl({ parties: n })) : [canadaUrl({ text: who.name, parties: who.surname })];
+    let total = 0;
+    let items = [];
+    for (const url of urls) {
+      await pace(CA_HOST, ctx.deadline);
+      const html = await getText(url, { deadline: ctx.deadline, timeoutMs: 18000, accept: 'text/html' });
+      const page = parseCanada(html);
+      total += page.total;
+      items = [...items, ...page.items.filter((it) => !items.some((x) => x.url === it.url))];
+    }
     const findings = items.map((item) => canadaFinding(item, ctx, company ? null : who, company)).filter(Boolean).slice(0, 8);
     if (total > items.length) {
       notes.push(`The Canadian federal courts list ${total} decisions for ${company || who.name}; the ${items.length} newest were read.`);

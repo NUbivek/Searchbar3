@@ -108,11 +108,12 @@ const DE_ROWS = [
 describe('delaware-courts', () => {
   const route = (url) => (url.includes('courts.delaware.gov') ? (url.includes(`from=01/01/${thisYear - 1}&`) ? dePage(DE_ROWS) : deEmpty) : undefined);
 
-  test('searches each of the last five years with the given name and surname, one request per year', async () => {
+  test('searches each of the last five years with the quoted surname, one request per year', async () => {
     const calls = fakeNet(route);
     await delawareCourtsConnector.run({ kind: 'subject', value: 'Elon Musk', template: 'captions.recent' }, ctxFor(createSubject({ name: 'Elon Musk' })));
     expect(calls).toHaveLength(5);
-    expect(calls[0]).toContain('ss=Elon%20Musk');
+    // R3: the court's search joins loose words with OR, so the surname is sent as a quoted phrase (sameName filters).
+    expect(calls[0]).toContain('ss=%22Musk%22');
     expect(calls[0]).toContain(`from=01/01/${thisYear}&to=12/31/${thisYear}`);
     expect(calls[4]).toContain(`from=01/01/${thisYear - 4}&`);
   });
@@ -147,7 +148,7 @@ describe('delaware-courts', () => {
   test('a company search reports cases the company is a party to as company records', async () => {
     const calls = fakeNet(route);
     const { findings } = await delawareCourtsConnector.run({ kind: 'company', value: 'Twitter, Inc.', template: 'captions.company' }, ctxFor(createSubject({ name: 'Jack Dorsey', company: 'Twitter' })));
-    expect(calls[0]).toMatch(/ss=Twitter$/);
+    expect(calls[0]).toMatch(/ss=%22Twitter%22$/);
     const solak = findings.find((f) => /Solak/.test(f.title));
     expect(solak.match).toBe('company');
     expect(solak.matchReasons[0]).toMatch(/Twitter, Inc\. is a party/);

@@ -99,7 +99,8 @@ test('start, step until done, then read the report; another user cannot read it'
 
 test('checks per hour are limited per account', async () => {
   for (let i = 0; i < MAX_JOBS_PER_HOUR; i += 1) expect((await call('POST', { body: { action: 'start', name: `Jane Roe${'e'.repeat(i)}`, company: 'Acme' } })).status).toBe(200);
-  const blocked = await call('POST', { body: { action: 'start', name: 'Jane Roe', company: 'Acme' } });
+  // (a new person: the same person still running is handed back, and uses no slot)
+  const blocked = await call('POST', { body: { action: 'start', name: 'Jane Doe', company: 'Acme' } });
   expect(blocked.status).toBe(429);
 });
 

@@ -21,14 +21,100 @@
 import { getJson } from '../http';
 import { makeFinding, makeThread } from '../finding';
 import { nameTokens, matchSubject } from '../identity';
-import { isSensitive, mentionsMinor } from '../guardrails';
+import { companyKeyStrict, companyKeys, companyMatchForms, isOrdinaryWordCompany } from '../names';
+import { cleanSentences } from '../guardrails';
+import { profileFromUrl } from '../extract';
 
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
-const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const unique = (list) => [...new Set(list.filter(Boolean))];
 const RANK = { confirmed: 3, likely: 2, company: 2, possible: 1 };
-/** Text that the privacy rules would reject is left out, so the rest of the record survives. */
-const safe = (s) => (isSensitive(s) || mentionsMinor(s) ? '' : clean(s));
+/**
+ * Only the sentences the privacy rules reject are left out, so the rest of a
+ * label or record survives. These are short labels (a school, a department, a
+ * thesis title): the relatives rule, meant for prose, is not applied to them.
+ */
+const safe = (s) => clean(cleanSentences(clean(s), { kin: false }).text);
+
+/* ------------------------------------------- organisation names in lists */
+
+// Describing words a register may add after a distinctive company name ("Nikola Motor Company" for Nikola).
+const ORG_TAIL = new Set(['motor', 'motors', 'ai', 'labs', 'lab', 'technologies', 'technology', 'tech', 'group', 'holdings', 'holding']);
+const stripTail = (key) => {
+  const words = String(key || '').split(' ').filter(Boolean);
+  while (words.length > 1 && ORG_TAIL.has(words[words.length - 1])) words.pop();
+  return words.join(' ');
+};
+const isDomainName = (v) => /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(String(v || ''));
+
+/**
+ * Every name a known company of the subject goes by: the name as known, and
+ * the fuller legal names learned for it (identity.addCompanyAlias). Domains
+ * are left out: they are not organisation names.
+ */
+export function companyNamesOf(subject, anchor) {
+  const of = companyKeys(anchor.value)[0] || String(anchor.value).toLowerCase();
+  const aliases = [...(subject?.anchors?.aliases || new Map()).values()].filter((x) => x.of === of && !isDomainName(x.value)).map((x) => x.value);
+  return unique([anchor.value, ...aliases]);
+}
+
+/**
+ * The known company of the subject that an organisation label from a
+ * structured field (a Wikidata employer, an ORCID or OpenAlex institution, a
+ * LittleSis relationship) IS, or null. Labels are compared as names, not
+ * searched as text: the label's name without its legal form must equal one
+ * of the company's names. A distinctive name may carry a describing tail
+ * ("Nikola Motor Company" is Nikola); an ordinary word never does: "Mercury
+ * Records" is not Mercury, and "Merge Labs" is not Merge. A bare prefix
+ * never ties a namesake's employer to the subject.
+ */
+export function knownCompanyOf(subject, label) {
+  const key = companyKeyStrict(label);
+  if (!key) return null;
+  for (const a of (subject?.anchors?.companies || new Map()).values()) {
+    for (const name of companyNamesOf(subject, a)) {
+      const n = companyKeyStrict(name);
+      if (!n) continue;
+      if (n === key) return a;
+      if (isOrdinaryWordCompany(name)) continue;
+      const short = stripTail(n);
+      if (short.length >= 3 && short === stripTail(key) && !isOrdinaryWordCompany(short)) return a;
+      // A unit of a distinctive organisation, written as one ("Inria Saclay - Île-de-France Research Centre",
+      // "Theranos, Palo Alto"); "Nikola Tesla Institute" is not a unit of Nikola.
+      if (key.startsWith(`${n} `) && (SEPARATED(label, name) || UNIT_WORDS.test(key.slice(n.length)))) return a;
+    }
+  }
+  return null;
+}
+const escapeRe = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const SEPARATED = (label, name) => new RegExp(`^\\s*${escapeRe(clean(name))}\\s*[-–—,(/:|]`, 'i').test(clean(label));
+const UNIT_WORDS = /\b(?:research (?:centre|center|unit|lab|laboratory)|campus|laboratory|division|department|branch office|subsidiary)\b/;
+
+/**
+ * Labels of a structured list that only begin with (or contain) a known
+ * company's word without being that company ("Mercury Records", "Mercury
+ * Insurance Group" for Mercury): organisations of namesakes.
+ */
+export function namesakeOrgs(subject, labels) {
+  const anchors = [...(subject?.anchors?.companies || new Map()).values()];
+  return unique((labels || []).map(clean)).filter((label) => {
+    if (!label || knownCompanyOf(subject, label)) return false;
+    const key = ` ${companyKeyStrict(label)} `;
+    return anchors.some((a) => a.test(label) || companyNamesOf(subject, a).flatMap((n) => companyMatchForms(n)).some((f) => key.includes(` ${f.form} `)));
+  });
+}
+
+/** The text with each namesake organisation replaced, so the grader cannot read the company's word inside it. */
+export function maskOrgs(text, labels) {
+  let out = String(text || '');
+  for (const label of [...(labels || [])].filter(Boolean).sort((a, b) => b.length - a.length)) out = out.split(label).join('another organisation');
+  return out;
+}
+
+/** A year as a number, or null: "2019-05" -> 2019. */
+export const yearNumber = (v) => {
+  const m = String(v ?? '').match(/\b(1[89]\d{2}|20\d{2})\b/);
+  return m ? Number(m[1]) : null;
+};
 
 /** "Mensch, Arthur" -> "Arthur Mensch". */
 const unreverse = (s) => {
@@ -140,12 +226,22 @@ export function sameSchool(a, b) {
   return SUB_UNIT.has(long.slice(short.length + 1).split(' ')[0]);
 }
 
-/** The known company or school of the subject that a piece of text names, if any. */
-function knownOrganisation(subject, text) {
-  for (const kind of ['companies', 'schools']) {
-    for (const a of subject.anchors[kind].values()) if (a.test(text)) return a.value;
-  }
+/**
+ * The known company or school of the subject among a record's organisations,
+ * if any. Each organisation is compared on its own: a company must be named
+ * as itself (knownCompanyOf), never as the first word of a longer name.
+ */
+function knownOrganisation(subject, organisations) {
+  const list = (Array.isArray(organisations) ? organisations : [organisations]).map(clean).filter(Boolean);
+  for (const o of list) { const a = knownCompanyOf(subject, o); if (a) return a.value; }
+  for (const a of subject.anchors.schools.values()) if (list.some((o) => a.test(o))) return a.value;
   return null;
+}
+
+/** The text a record is graded on: the name, then its organisations, with namesakes' organisations masked. */
+function orgText(subject, head, organisations, tail = '') {
+  const list = unique((organisations || []).map(clean));
+  return maskOrgs(`${head}. ${list.join('; ')}. ${tail}`, namesakeOrgs(subject, list));
 }
 
 /**
@@ -245,23 +341,71 @@ function orcidEntries(body, key, id) {
   return out.sort((a, b) => Number(b.end || b.start || 0) - Number(a.end || a.start || 0));
 }
 
-/** The education and employment a person lists on ORCID. Nothing else of the record is requested. */
+/** The websites a record lists ("researcher-urls"): http(s) links only. */
+function orcidUrls(body) {
+  return (Array.isArray(body?.['researcher-url']) ? body['researcher-url'] : [])
+    .map((u) => ({ name: safe(u?.['url-name']), url: clean(u?.url?.value) }))
+    .filter((u) => /^https?:\/\//i.test(u.url)).slice(0, 8);
+}
+
+/**
+ * What a person lists on ORCID: education, employment, qualifications
+ * (licences, certifications), distinctions (awards), invited positions and
+ * their own websites. Never /person, /email or /address: those sections hold
+ * contact details. Education or employment must answer; the other sections
+ * are a supplement and their failure is no failure of the lookup.
+ */
 async function orcidRecord(id, ctx) {
-  const [education, employment] = await Promise.allSettled([
-    getJson(`${ORCID_API}/${id}/educations`, { deadline: ctx.deadline }),
-    getJson(`${ORCID_API}/${id}/employments`, { deadline: ctx.deadline }),
+  const section = (name) => getJson(`${ORCID_API}/${id}/${name}`, { deadline: ctx.deadline });
+  const [education, employment, qualifications, distinctions, invited, urls] = await Promise.allSettled([
+    section('educations'), section('employments'), section('qualifications'), section('distinctions'), section('invited-positions'), section('researcher-urls'),
   ]);
   if (education.status === 'rejected' && employment.status === 'rejected') throw education.reason;
+  const read = (r, key) => (r.status === 'fulfilled' ? orcidEntries(r.value, key, id) : []);
   return {
-    education: education.status === 'fulfilled' ? orcidEntries(education.value, 'education-summary', id) : [],
-    employment: employment.status === 'fulfilled' ? orcidEntries(employment.value, 'employment-summary', id) : [],
+    education: read(education, 'education-summary'),
+    employment: read(employment, 'employment-summary'),
+    qualifications: read(qualifications, 'qualification-summary'),
+    distinctions: read(distinctions, 'distinction-summary'),
+    invited: read(invited, 'invited-position-summary'),
+    urls: urls.status === 'fulfilled' ? orcidUrls(urls.value) : [],
   };
 }
 
-/** One finding for the degrees a record lists and one for the jobs, plus the schools as threads. */
-function orcidFindings(subject, candidate, record, { alsoKnownAs = '', namesakes = 1 } = {}) {
-  const organisations = unique([...candidate.institutions, ...record.education.map((e) => e.organisation), ...record.employment.map((e) => e.organisation)]);
-  const grade = gradeRecord(subject, `${subject.name}. ${candidate.name}. ${organisations.join('; ')}. ${alsoKnownAs}`, namesakes, 'ORCID');
+// Hosts where a link is a page on someone else's site, not the person's own website.
+const SHARED_HOSTS = /(?:^|\.)(?:github\.com|github\.io|gitlab\.com|linkedin\.com|twitter\.com|x\.com|facebook\.com|instagram\.com|youtube\.com|medium\.com|substack\.com|google\.com|scholar\.google\.[a-z.]+|researchgate\.net|academia\.edu|orcid\.org|wikipedia\.org|wordpress\.com|blogspot\.com|sites\.google\.com|bit\.ly|linktr\.ee)$/i;
+const TWO_LEVEL_SUFFIX = /\.(?:co|com|org|ac|net|gov|edu)\.[a-z]{2}$/;
+
+/** Threads from a website a record tied to the person lists: a known profile page, or their own domain. */
+function websiteThreads(link, why) {
+  let url;
+  try { url = new URL(clean(link)); } catch { return []; }
+  if (!/^https?:$/.test(url.protocol)) return [];
+  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+  if (!/^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(host)) return [];
+  const profile = profileFromUrl(url.href);
+  if (profile) return [makeThread('url', profile.url, `${profile.platform} profile ${why}`, { trusted: true, platform: profile.platform })].filter(Boolean);
+  // A university page is a department's site, not the person's own domain.
+  if (SHARED_HOSTS.test(host) || /\.edu$|\.ac\.[a-z]{2}$/.test(host)) return [];
+  const labels = host.split('.');
+  return [makeThread('domain', labels.slice(TWO_LEVEL_SUFFIX.test(host) ? -3 : -2).join('.'), `website ${why}`, { trusted: true })].filter(Boolean);
+}
+
+/**
+ * One finding for the degrees and qualifications a record lists and one for
+ * the jobs, invited positions and distinctions, plus the schools (and, on a
+ * record tied to the person, their own websites) as threads.
+ * `exact`: the reason this very record is the person's (an ORCID iD listed on
+ * an entry already tied to them); it is then 'likely', never more.
+ */
+function orcidFindings(subject, candidate, record, { alsoKnownAs = '', namesakes = 1, exact = '' } = {}) {
+  const qualifications = record.qualifications || [];
+  const distinctions = record.distinctions || [];
+  const invited = (record.invited || []).map((e) => ({ ...e, role: e.role ? `${e.role} (invited)` : 'invited position' }));
+  const organisations = unique([...candidate.institutions, ...record.education.map((e) => e.organisation), ...record.employment.map((e) => e.organisation), ...qualifications.map((e) => e.organisation), ...invited.map((e) => e.organisation)]);
+  const grade = exact
+    ? { fields: { match: 'likely', matchReasons: [exact] }, held: false }
+    : gradeRecord(subject, orgText(subject, `${subject.name}. ${candidate.name}`, organisations, alsoKnownAs), namesakes, 'ORCID');
   const short = (e) => [e.role, e.organisation, span(e.start, e.end)].filter(Boolean).join(', ');
   /** As many entries (up to three) as fit in one line, without repeats ("B.S., Stanford" twice for two majors). */
   const headline = (list) => {
@@ -274,24 +418,46 @@ function orcidFindings(subject, candidate, record, { alsoKnownAs = '', namesakes
     return `${shown.join('; ')}${all.length > shown.length ? `; and ${all.length - shown.length} more` : ''}`;
   };
   const long = (e) => `${[e.role, e.department, e.organisation, span(e.start, e.end)].filter(Boolean).join(', ')}${e.selfReported ? '' : ` [entered by ${e.enteredBy || 'the institution'}]`}`;
+  const year = (v) => yearNumber(v);
   const findings = [];
-  for (const [list, category] of [[record.education, 'education'], [record.employment, 'career']]) {
-    if (!list.length) continue;
-    const allSelf = list.every((e) => e.selfReported);
-    const noneSelf = list.every((e) => !e.selfReported);
+  const groups = [
+    { list: [...record.education, ...qualifications], category: 'education' },
+    { list: [...record.employment, ...invited], category: 'career', extra: distinctions },
+  ];
+  for (const { list, category, extra = [] } of groups) {
+    const all = [...list, ...extra];
+    if (!all.length) continue;
+    const allSelf = all.every((e) => e.selfReported);
+    const noneSelf = all.every((e) => !e.selfReported);
     const prefix = allSelf ? 'ORCID (self-reported)' : noneSelf ? 'ORCID (entered by the institution)' : 'ORCID (partly self-reported)';
+    const head = list.length ? headline(list) : `distinctions: ${headline(extra)}`;
+    const quote = [
+      list.length ? `${candidate.name}: ${list.slice(0, 8).map(long).join(' | ')}` : '',
+      extra.length ? `Distinctions: ${extra.slice(0, 6).map(long).join(' | ')}` : '',
+    ].filter(Boolean).join('. ');
+    const data = {
+      registry: 'ORCID', orcid: candidate.id, selfReported: allSelf,
+      entries: list.slice(0, 12).map(({ role, department, organisation, start, end, selfReported }) => ({ role, department, organisation, start, end, selfReported })),
+    };
+    // Structured fields the profile reads (years as numbers): see apiChanges for the shape.
+    if (category === 'education') {
+      data.education = record.education.slice(0, 12).map((e) => ({ school: e.organisation, degree: e.role || null, field: e.department || null, from: year(e.start), to: year(e.end) }));
+      if (qualifications.length) data.qualifications = qualifications.slice(0, 12).map((e) => ({ org: e.organisation, title: e.role || null, from: year(e.start), to: year(e.end) }));
+    } else {
+      data.employers = record.employment.slice(0, 12).map((e) => ({ org: e.organisation, title: e.role || null, from: year(e.start), to: year(e.end) }));
+      if (invited.length) data.positions = invited.slice(0, 12).map((e) => ({ title: e.role || null, of: e.organisation, from: year(e.start), to: year(e.end) }));
+      if (extra.length) data.awards = extra.slice(0, 12).map((e) => ({ text: [e.role, e.organisation].filter(Boolean).join(', '), year: year(e.end || e.start) }));
+    }
+    const first = list[0] || extra[0];
     findings.push(hold(makeFinding(subject, {
       source: 'academic-record', sourceLabel: ORCID_LABEL, category,
-      title: `${prefix}: ${headline(list)}`,
-      quote: `${candidate.name}: ${list.slice(0, 8).map(long).join(' | ')}`,
+      title: `${prefix}: ${head}`,
+      quote,
       url: `https://orcid.org/${candidate.id}`,
-      date: list[0].end || list[0].start || null,
+      date: first.end || first.start || null,
       severity: 'info',
       ...grade.fields,
-      data: {
-        registry: 'ORCID', orcid: candidate.id, selfReported: allSelf,
-        entries: list.slice(0, 12).map(({ role, department, organisation, start, end, selfReported }) => ({ role, department, organisation, start, end, selfReported })),
-      },
+      data,
     }), grade.held));
   }
   const kept = findings.filter(Boolean);
@@ -299,6 +465,10 @@ function orcidFindings(subject, candidate, record, { alsoKnownAs = '', namesakes
   const threads = education
     ? schoolThreads(record.education.map((e) => e.organisation), 'listed as a place of study on their ORCID record (self-reported)', education.match !== 'possible')
     : [];
+  // The person's own websites, from a record tied to them by more than the name.
+  if (kept.some((f) => f.match !== 'possible')) {
+    for (const u of record.urls || []) threads.push(...websiteThreads(u.url, 'listed on their ORCID record (self-reported)'));
+  }
   return { findings: kept, threads };
 }
 
@@ -306,7 +476,7 @@ function orcidFindings(subject, candidate, record, { alsoKnownAs = '', namesakes
 function orcidSummary(subject, candidate, namesakes = 1) {
   if (!candidate.institutions.length) return null;
   const shown = candidate.institutions.slice(0, 3).join(', ');
-  const grade = gradeRecord(subject, `${subject.name}. ${candidate.name}. ${candidate.institutions.join('; ')}`, namesakes, 'ORCID');
+  const grade = gradeRecord(subject, orgText(subject, `${subject.name}. ${candidate.name}`, candidate.institutions), namesakes, 'ORCID');
   return hold(makeFinding(subject, {
     source: 'academic-record', sourceLabel: ORCID_LABEL, category: 'identity',
     title: `ORCID (self-reported): a researcher profile under this name lists ${shown}${candidate.institutions.length > 3 ? ` and ${candidate.institutions.length - 3} more` : ''}`,
@@ -321,7 +491,7 @@ function orcidSummary(subject, candidate, namesakes = 1) {
 async function runOrcid(subject, ctx) {
   const { candidates, total, namesakes } = await orcidCandidates(subject, ctx);
   if (!candidates.length) return { findings: [], threads: [], notes: [] };
-  const tied = candidates.filter((c) => knownOrganisation(subject, c.institutions.join('; ')));
+  const tied = candidates.filter((c) => knownOrganisation(subject, c.institutions));
   // Read a record only when it is tied to the subject, or when it is the only one under the name.
   const toRead = tied.length ? tied.slice(0, 2) : candidates.length === 1 ? candidates : [];
   const findings = [];
@@ -541,12 +711,16 @@ function thesisFinding(subject, t, { alsoKnownAs = '', namesakes = 1, earlier = 
   const confirmation = thesisConfirmation(t, earlier);
   const grade = confirmation
     ? { fields: { match: 'likely', matchReasons: [confirmation] }, held: false }
-    : gradeRecord(subject, `${subject.name}. ${t.author}. ${t.institutions.join('; ')}. ${alsoKnownAs}`, namesakes, 'the thesis registries');
+    : gradeRecord(subject, orgText(subject, `${subject.name}. ${t.author}`, t.institutions, alsoKnownAs), namesakes, 'the thesis registries');
   return hold(makeFinding(subject, {
     source: 'academic-record', sourceLabel: ORCID_LABEL, category: 'education',
     title, quote, url: t.url, date: t.date || null, severity: 'info',
     ...grade.fields,
-    data: { registry: t.registry, degree: t.degree, defended: t.defended, institution: t.institution, institutions: t.institutions.slice(0, 6), ...(t.doi ? { doi: t.doi } : {}) },
+    data: {
+      registry: t.registry, degree: t.degree, defended: t.defended, institution: t.institution, institutions: t.institutions.slice(0, 6), ...(t.doi ? { doi: t.doi } : {}),
+      // the degree as the profile reads it; a thesis in preparation is no degree yet
+      ...(t.defended && t.institution ? { education: [{ school: t.institution, degree: t.degree || t.kind, field: discipline || null, from: null, to: yearNumber(year) }] } : {}),
+    },
   }), grade.held);
 }
 
@@ -646,13 +820,35 @@ async function runSchool(subject, school, ctx) {
   return { findings, threads: [], notes };
 }
 
+/** "https://orcid.org/0000-0002-1825-0097" -> "0000-0002-1825-0097", or '' for any other link. */
+export function orcidIdFromUrl(url) {
+  const m = clean(url).match(/^https?:\/\/(?:www\.)?orcid\.org\/(\d{4}-\d{4}-\d{4}-\d{3}[\dX])\/?$/i);
+  return m && ORCID_ID.test(m[1].toUpperCase()) ? m[1].toUpperCase() : '';
+}
+
+/**
+ * The exact ORCID record a source tied to the person links to (a Wikidata
+ * entry resolved by more than the name lists the iD). It is read without a
+ * name search, so namesakes do not hide it, and graded 'likely': the link,
+ * not the record's own words, ties it to the person.
+ */
+async function runOrcidId(subject, task, ctx) {
+  const id = orcidIdFromUrl(task.value);
+  if (!id || !(task.trusted || task.params?.trusted)) return { findings: [], threads: [], notes: [] };
+  const record = await orcidRecord(id, ctx);
+  const built = orcidFindings(subject, { id, name: subject.name, institutions: [] }, record, { exact: 'the exact ORCID record that a source tied to the person links to' });
+  return { findings: built.findings, threads: built.threads, notes: built.findings.length ? [] : [`The ORCID record ${id} lists no public degrees or jobs.`] };
+}
+
 export const academicRecordConnector = {
   id: 'academic-record',
   label: ORCID_LABEL,
-  kinds: ['subject', 'school'],
+  kinds: ['subject', 'school', 'url'],
   prior: 0.4,
   timeoutMs: 18000,
   plan(thread) {
+    // The loop's task does not carry the thread's trust, so the plan passes it on in params.
+    if (thread.kind === 'url') return orcidIdFromUrl(thread.value) && thread.trusted ? [{ template: 'orcid-id', prior: 0.5, why: 'the ORCID record a tied entry links to', params: { trusted: true } }] : [];
     if (thread.kind === 'school') return [{ template: 'school', prior: 0.35, why: `thesis or ORCID entry at ${thread.value}` }];
     return [
       { template: 'orcid', prior: 0.4, why: 'degrees and jobs the person lists on ORCID' },
@@ -662,6 +858,7 @@ export const academicRecordConnector = {
   async run(task, ctx) {
     const { subject } = ctx;
     if (task.kind === 'school') return runSchool(subject, clean(task.value), ctx);
+    if (task.kind === 'url') return runOrcidId(subject, task, ctx);
     if (task.kind !== 'subject') return { findings: [], threads: [], notes: [] };
     if (task.template === 'orcid') return runOrcid(subject, ctx);
     if (task.template === 'theses') return runTheses(subject, ctx);
@@ -727,7 +924,13 @@ function mergeAuthorRecords(records) {
   };
 }
 
-function authorFinding(subject, author) {
+/**
+ * One author record as a finding. Graded like ORCID: when several author
+ * records carry the name and only a shared school ties this one to the
+ * subject, it is held at 'possible' (a namesake at the same school is a real
+ * possibility). Institutions that only begin with a company's word are masked.
+ */
+function authorFinding(subject, author, namesakes = 1) {
   const lines = author.affiliations.map((a) => `${a.institution}: ${yearRanges(a.years)}`);
   const head = `Scholarly author record: ${author.name}, ${count(author.works)} works, ${count(author.citations)} citations`;
   // The most recent affiliations, as many (up to three) as fit in one line.
@@ -738,20 +941,95 @@ function authorFinding(subject, author) {
     recent = next;
   }
   const split = author.ids.length > 1 ? ` (${author.ids.length} author records sharing one ORCID iD)` : '';
-  return makeFinding(subject, {
+  const grade = gradeRecord(subject, orgText(subject, `${subject.name}. ${author.name}`, author.affiliations.map((a) => a.institution)), namesakes, 'OpenAlex');
+  return hold(makeFinding(subject, {
     source: 'publications', sourceLabel: PUBLICATIONS_LABEL, category: 'ip',
     title: `${head}${recent ? `; papers place them at ${recent}` : ''}`,
     quote: `${author.name}${split}. ${lines.slice(0, 12).join('; ') || 'No affiliation recorded.'}`,
     url: author.ids[0],
     date: author.affiliations[0]?.years[0] ? String(author.affiliations[0].years[0]) : null,
     severity: 'info',
-    matchText: `${subject.name}. ${author.name}. ${author.affiliations.map((a) => a.institution).join('; ')}`,
+    ...grade.fields,
     data: {
       openalex: author.ids, ...(author.orcid ? { orcid: author.orcid } : {}),
       works: author.works, citations: author.citations, hIndex: author.hIndex,
       affiliations: author.affiliations.slice(0, 15),
     },
-  });
+  }), grade.held);
+}
+
+/* ---------------------------------------------------- OpenAlex dissertations */
+
+const OPENALEX_WORKS = 'https://api.openalex.org/works';
+const DISSERTATION_FIELDS = 'id,display_name,publication_year,authorships,type';
+const dissertationSearches = new Map(); // name -> { at, results }
+
+async function openAlexDissertations(name, ctx) {
+  const key = nameTokens(name).join(' ');
+  const hit = dissertationSearches.get(key);
+  if (hit && Date.now() - hit.at < AUTHOR_TTL_MS) return hit.results;
+  const params = new URLSearchParams({ filter: `type:dissertation,raw_author_name.search:${name.replace(/[,|:]/g, ' ')}`, 'per-page': '10', select: DISSERTATION_FIELDS });
+  if (process.env.OPENALEX_API_KEY) params.set('api_key', process.env.OPENALEX_API_KEY);
+  const body = await getJson(`${OPENALEX_WORKS}?${params}`, { deadline: ctx.deadline, retries: 0 });
+  if (!Array.isArray(body?.results)) throw new Error('OpenAlex answered without a list of works');
+  if (dissertationSearches.size >= 100) dissertationSearches.delete(dissertationSearches.keys().next().value);
+  dissertationSearches.set(key, { at: Date.now(), results: body.results });
+  return body.results;
+}
+
+const bareOrcid = (v) => clean(v).replace(/^https?:\/\/orcid\.org\//i, '').toUpperCase();
+
+/**
+ * Dissertations OpenAlex indexes under the person's name (ProQuest, HAL and
+ * repository theses), with the awarding institution and year. Only the title,
+ * year, institution and the author's ORCID iD are kept: affiliation strings
+ * (which can hold street addresses) are never read. A dissertation is 'likely'
+ * the person's when its author's ORCID iD is that of a record already tied to
+ * them, or (graded like a thesis) its institution is a known school; else it
+ * stays 'possible'. 'Dissertation' sometimes covers a master's thesis, so no
+ * degree is claimed.
+ */
+export function dissertationFindings(subject, works, { tiedOrcids = [] } = {}) {
+  const tied = new Set(tiedOrcids.map(bareOrcid).filter(Boolean));
+  const items = [];
+  for (const w of Array.isArray(works) ? works : []) {
+    if (!w?.id || !/^https:\/\/openalex\.org\/W\d+$/i.test(clean(w.id))) continue;
+    const authorship = (w.authorships || []).find((a) => [a?.raw_author_name, a?.author?.display_name].some((n) => n && personNameFits(subject, n)));
+    if (!authorship) continue;
+    const institutions = unique((authorship.institutions || []).map((i) => safe(i?.display_name)));
+    const title = safe(w.display_name);
+    const year = Number(w.publication_year) || null;
+    items.push({ w, authorship, institutions, title, year, orcid: bareOrcid(authorship.author?.orcid) });
+  }
+  // Dissertations at different institutions are different people (nobody writes two).
+  const schools = [];
+  for (const it of items) if (it.institutions[0] && !schools.some((x) => sameSchool(x, it.institutions[0]))) schools.push(it.institutions[0]);
+  const namesakes = Math.max(1, schools.length);
+  const findings = [];
+  for (const it of items) {
+    const institution = it.institutions[0] || '';
+    const byOrcid = it.orcid && tied.has(it.orcid);
+    const grade = byOrcid
+      ? { fields: { match: 'likely', matchReasons: [`the author's ORCID iD (${it.orcid}) is that of a record already tied to the person`] }, held: false }
+      : gradeRecord(subject, orgText(subject, `${subject.name}. ${clean(it.authorship.raw_author_name || it.authorship.author?.display_name)}`, it.institutions), namesakes, 'OpenAlex');
+    const where = [institution, it.year].filter(Boolean).join(', ');
+    const made = hold(makeFinding(subject, {
+      source: 'publications', sourceLabel: PUBLICATIONS_LABEL, category: 'education',
+      title: `Dissertation${it.title ? `: ${it.title}` : ''}${where ? ` (${where})` : ''}`,
+      quote: [clean(it.authorship.raw_author_name || it.authorship.author?.display_name), it.title, institution, it.year].filter(Boolean).join('. '),
+      url: clean(it.w.id),
+      date: it.year ? String(it.year) : null,
+      severity: 'info',
+      ...grade.fields,
+      data: {
+        registry: 'OpenAlex', kind: 'dissertation', institution: institution || null, institutions: it.institutions.slice(0, 4), year: it.year,
+        ...(it.orcid ? { orcid: it.orcid } : {}),
+        ...(institution ? { education: [{ school: institution, degree: null, field: null, from: null, to: it.year }] } : {}),
+      },
+    }), grade.held);
+    if (made) findings.push(made);
+  }
+  return keepBest(findings, 2).slice(0, 4);
 }
 
 const ALLOWANCE_NOTE = 'Scholarly publications (OpenAlex) could not be searched: the daily allowance shared by this deployment\'s network address is used up. It resets each day.';
@@ -781,6 +1059,7 @@ async function openAlexAuthors(name, ctx) {
 /** For tests: forget remembered answers and the Crossref queue. */
 export function __resetScholarForTests({ crossrefGapMs: gap = CROSSREF_GAP_MS } = {}) {
   authorSearches.clear();
+  dissertationSearches.clear();
   crossrefQueue = Promise.resolve();
   crossrefNextAt = 0;
   crossrefGapMs = gap;
@@ -809,7 +1088,7 @@ export const publicationsConnector = {
       const key = r.orcid || r.id;
       groups.set(key, [...(groups.get(key) || []), r]);
     }
-    const all = [...groups.values()].map((g) => authorFinding(subject, mergeAuthorRecords(g))).filter(Boolean);
+    const all = [...groups.values()].map((g) => authorFinding(subject, mergeAuthorRecords(g), groups.size)).filter(Boolean);
     // A record matched by name only that places its author nowhere says nothing about anyone.
     const useful = all.filter((f) => f.match !== 'possible' || f.data.affiliations.length > 0);
     const findings = keepBest(useful, 3).slice(0, 3);
@@ -817,6 +1096,18 @@ export const publicationsConnector = {
     const notes = left > 0
       ? [`OpenAlex holds ${left} more author record${left === 1 ? '' : 's'} under the name ${subject.name} that could not be tied to this person; ${left === 1 ? 'it was' : 'they were'} left out.`]
       : [];
+    // Dissertations: a supplement; its failure is said, never shown as "no dissertation".
+    try {
+      const works = await openAlexDissertations(subject.name, ctx);
+      const tiedOrcids = [
+        ...findings.filter((f) => f.match !== 'possible').map((f) => f.data?.orcid),
+        ...earlierFindings(ctx).filter((f) => f.match !== 'possible' && f.match !== 'company').map((f) => f.data?.orcid),
+      ].filter(Boolean);
+      findings.push(...dissertationFindings(subject, works, { tiedOrcids }));
+    } catch (error) {
+      if ([429, 402, 403].includes(error?.status)) notes.push('Dissertations on OpenAlex could not be searched: the daily allowance shared by this deployment\'s network address is used up.');
+      else if (error?.status !== 404) notes.push(`Dissertations on OpenAlex could not be searched (${clean(error?.message) || 'no answer'}).`);
+    }
     // Affiliations come from paper bylines (a visiting line is not a job), so they are reported, not followed.
     return { findings, threads: [], notes };
   },

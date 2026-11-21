@@ -59,7 +59,7 @@ describe('source registry', () => {
   });
 
   test('only watchlists and joint lookups accept a relative or associate', () => {
-    const allowed = new Set(['sanctions-lists', 'offshore-leaks', 'web-search', 'doj-press-releases', 'wanted-lists', 'us-exclusions', 'us-bank-regulators', 'fincen-actions', 'mdb-debarment']);
+    const allowed = new Set(['sanctions-lists', 'offshore-leaks', 'web-search', 'doj-press-releases', 'wanted-lists', 'us-exclusions', 'us-bank-regulators', 'fincen-actions', 'mdb-debarment', 'opensanctions-lists', 'asic-banned']);
     const takers = CONNECTORS.filter((c) => c.kinds.includes('relative') || c.kinds.includes('associate')).map((c) => c.id);
     for (const id of takers) expect(allowed.has(id)).toBe(true);
   });

@@ -490,6 +490,7 @@ const OFFICIAL_SOURCES = new Set([
   'delaware-courts', 'us-agency-orders', 'eu-courts', 'canada-federal-courts', 'federal-register', 'fda-recalls', 'cfpb-complaints', 'us-bank-regulators', 'fincen-actions', 'mdb-debarment',
   'court-dockets', 'court-records-open', 'doj-press-releases', 'finra-brokercheck', 'uk-gazette', 'uk-case-law', 'fr-bodacc',
   'us-enforcement-actions', 'sec-filings', 'sec-company', 'sanctions-lists', 'us-exclusions', 'wanted-lists',
+  'fda-debarment', 'opensanctions-lists', 'asic-banned', 'fara-registrations', 'ftc-cases', 'esma-sanctions-register', 'sfc-hk-enforcement', 'us-tax-court',
 ]);
 // Official company registers: their entries carry the company's registered office, which is not personal data.
 const COMPANY_REGISTERS = new Set(['uk-companies-house', 'fr-companies', 'us-state-registries', 'lei-register', 'sec-company']);

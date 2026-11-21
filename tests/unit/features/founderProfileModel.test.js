@@ -199,7 +199,10 @@ describe('report.profile', () => {
   test('without a model: the pattern-read shape, every list present', async () => {
     const s = state();
     const report = buildReport(s);
-    expect(report.profile).toMatchObject({ headline: 'Co-Founder and CEO, Acme', boards: [], founded: [], investments: [], recognition: [] });
+    // round 3: the patterns now read boards and companies founded too (no longer hard-coded empty)
+    expect(report.profile).toMatchObject({ headline: 'Co-Founder and CEO, Acme', investments: [], recognition: [] });
+    expect(report.profile.boards.map((b) => b.org)).toEqual(['Habitat Labs']);
+    expect(report.profile.founded.map((b) => b.org)).toEqual(['Acme']);
     expect(report.profile.roles[0]).toMatchObject({ org: 'Acme', current: true });
     expect(report.profile.roles[1]).toMatchObject({ org: 'Credit Suisse', from: 2012, to: 2015, current: false });
     expect(report.profile.earlier.map((e) => e.org)).toEqual(['Credit Suisse']);
@@ -216,7 +219,8 @@ describe('report.profile', () => {
     const complete = jest.fn(async (messages) => {
       const user = messages[1].content;
       expect(user).not.toMatch(/Initech/); // a name-only record is never shown
-      const n = Number(user.match(/\[(\d+)\] \(Open-web search; a page about the person\)/)[1]);
+      // round 3: each record sits inside its own <record> element (a data boundary)
+      const n = Number(user.match(/<record n="(\d+)" source="Open-web search; a page about the person"/)[1]);
       return {
         model: 'm',
         data: answer({

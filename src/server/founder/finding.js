@@ -27,6 +27,7 @@
  * A connector's run() resolves to { findings: Finding[], threads: Thread[], notes: string[] }.
  */
 import { matchSubject } from './identity';
+import { matterOutcome } from './names';
 import { sanitizeFinding, cleanSentences, isSafeUrl } from './guardrails';
 
 export const CATEGORIES = {
@@ -52,8 +53,11 @@ export const SEVERITIES = ['high', 'medium', 'low', 'info'];
  * member the source places in a public business, political or
  * philanthropic role. Neither gets a background check of their own: they are
  * screened against watchlists and searched only together with the subject.
+ * 'alias' is another name of the subject themselves (a former or maiden name, a birth name, "also known as"),
+ * read from a record tied to them: records filed under it are searched and graded 'likely' at most
+ * (identity.addNameAlias).
  */
-export const THREAD_KINDS = ['company', 'school', 'associate', 'relative', 'handle', 'domain', 'url'];
+export const THREAD_KINDS = ['company', 'school', 'associate', 'relative', 'handle', 'domain', 'url', 'alias'];
 
 function hash(str) {
   let h = 5381;
@@ -248,16 +252,49 @@ function withoutOtherPeoplesMatters(t, subject) {
   });
 }
 
+// Outcomes that end a matter in the person's favour.
+const EXCULPATORY = new Set(['acquitted', 'overturned', 'vacated', 'dismissed', 'dropped', 'won']);
+// The person was not the one accused.
+const NOT_ACCUSED = new Set(['plaintiff', 'witness', 'victim', 'juror']);
+// Words of a conviction and its sentence: a pardon follows one, so they are part of the pardoned matter.
+const CONVICTION_WORDS = /\b(?:convict(?:s|ed|ions?)?|found guilty|guilty verdict|plead(?:ed|s)? guilty|pled guilty|sentenced|imprison\w*|jailed)\b/gi;
+
 /**
  * How much a record would matter if it is about the subject, judged from
  * its own words. Sources that know better (a sanctions list, a court
  * docket) set the severity themselves. With the subject, a criminal matter
  * told about another named person in an aside ("Jane Roe, who was convicted
  * of fraud") does not count against the subject.
+ * The outcome and the person's part are read too (names.matterOutcome): an acquittal, a dismissal, dropped charges,
+ * a vacated or overturned conviction or a case the person won is 'low' unless the text still reports another
+ * criminal matter; a pardon is 'medium'; the person as plaintiff, witness, victim or juror (and not accused) is
+ * 'low'. The outcome itself is for the finding's data (matterOutcome), so the report can show it beside the matter.
  */
 export function severityFromText(text, subject = null) {
   const t = withoutOtherPeoplesMatters(String(text || ''), subject);
-  const sev = rawSeverity(withoutClearedProbes(t));
+  const graded = gradeByOutcome(t, subject, rawSeverity(withoutClearedProbes(t)));
+  return graded;
+}
+
+function gradeByOutcome(t, subject, base) {
+  const person = subject && typeof subject.hasName === 'function' ? subject.hasName : null;
+  const { outcome, role, rest } = matterOutcome(t, { person });
+  if (outcome === 'pardoned') {
+    // What is left once the pardon and the conviction it ends are taken out: a new criminal matter keeps 'high'.
+    const left = rawSeverity(withoutClearedProbes(rest.replace(CONVICTION_WORDS, ' ')));
+    if (left === 'high') return disputedSeverity(t, base);
+    return 'medium';
+  }
+  if (outcome && EXCULPATORY.has(outcome)) {
+    const left = rawSeverity(withoutClearedProbes(rest));
+    if (left === 'high') return disputedSeverity(t, base);
+    return left === 'medium' && !NOT_ACCUSED.has(role) && outcome !== 'won' ? 'medium' : 'low';
+  }
+  if (role && NOT_ACCUSED.has(role) && (base === 'high' || base === 'medium')) return 'low';
+  return disputedSeverity(t, base);
+}
+
+function disputedSeverity(t, sev) {
   if (sev === 'low' || sev === 'info') return sev;
   const disputed = t.match(DISPUTED_PUBLICATION);
   if (!disputed || DISPUTED_BLOCK.test(t)) return sev;
