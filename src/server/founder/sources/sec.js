@@ -28,7 +28,9 @@
  * www.sec.gov (filing documents, enforcement lists, press releases) turns
  * away automated clients that do not declare a contact. The owner declares
  * one in SEC_USER_AGENT ("Company name contact@company.com"), or an email in
- * FOUNDER_HTTP_CONTACT. With neither, no request is sent to www.sec.gov (a
+ * FOUNDER_HTTP_CONTACT; with neither, the signed-in person's name and email
+ * from sign-in are declared for the check they run, to www.sec.gov only (see
+ * ../contact.js). With no contact at all, no request is sent to www.sec.gov (a
  * refusal is certain and would only waste the host's patience): the index
  * results are still reported, capped below "confirmed" and marked unread,
  * and the enforcement and press lookups are reported as not answered, never
@@ -66,6 +68,7 @@ import { mentionsMinor, isSensitive, cleanSentences } from '../guardrails';
 import { addRoleAnchor, addCompanyAlias } from '../identity';
 import { companyKeys, isOrdinaryWordCompany, nameCommonness, givenNamesAgree } from '../names';
 import { withAliasHold } from './alias';
+import { contactFor, requestOptionsFor, CONTACT_HOSTS } from '../contact';
 
 const SEARCH_URL = 'https://efts.sec.gov/LATEST/search-index';
 const ARCHIVES_URL = 'https://www.sec.gov/Archives/edgar/data';
@@ -302,23 +305,27 @@ const tiedByCik = (subject, g) => g.entities.some((e) => hasCik(subject, e.cik))
 
 /* ------------------------------------------------------------------ requests */
 
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 /**
- * The contact the owner declared for the SEC, as the User-Agent the SEC asks for ("Name email"), or ''.
+ * The contact declared to the SEC, as the User-Agent the SEC asks for ("Name email"), or ''.
  * SEC_USER_AGENT is used as written; otherwise an email in FOUNDER_HTTP_CONTACT (the contact the other sources
- * already send) is declared under the code's own generic client name.
+ * already send) under the code's own generic client name; otherwise the signed-in person's name and email for
+ * the check they run (see ../contact.js: nobody has to configure anything for the SEC to answer).
  */
 export function declaredSecAgent() {
-  const own = clean(process.env.SEC_USER_AGENT).replace(/[\u0000-\u001f\u007f]/g, '');
-  if (own) return own.slice(0, 200);
-  const email = (String(process.env.FOUNDER_HTTP_CONTACT || '').match(EMAIL) || [])[0];
-  return email ? `diligence-research ${email}` : '';
+  return contactFor('sec')?.agent || '';
 }
 
-/** Request options for every SEC call: the job's deadline and, when the owner declared one, their contact user agent. */
-function secOptions(ctx, extra = {}) {
-  const declared = declaredSecAgent();
-  return { deadline: ctx.deadline, ...(declared ? { headers: { 'User-Agent': declared } } : {}), ...extra };
+/**
+ * Request options for every SEC call: the job's deadline and the declared contact. The operator's own setting is
+ * sent to every SEC host, as it always was. A signed-in person's contact goes to www.sec.gov only (the one SEC
+ * host that asks for it), and that request may not be redirected to any other host.
+ */
+function secOptions(ctx, extra = {}, url = '') {
+  const declared = contactFor('sec');
+  const contact = !declared ? {}
+    : declared.from === 'operator' ? { headers: { 'User-Agent': declared.agent } }
+      : requestOptionsFor('sec', CONTACT_HOSTS.sec, url);
+  return { deadline: ctx.deadline, ...contact, ...extra };
 }
 
 let documentsBlockedUntil = 0;
@@ -378,7 +385,7 @@ async function openDocument(url, ctx) {
   if (!siteReady()) return null;
   if (ctx.deadline && ctx.deadline - Date.now() < 3500) return null;
   try {
-    return await getText(url, secOptions(ctx, { timeoutMs: 9000, maxBytes: DOCUMENT_MAX_BYTES }));
+    return await getText(url, secOptions(ctx, { timeoutMs: 9000, maxBytes: DOCUMENT_MAX_BYTES }, url));
   } catch (error) {
     noteRefusal(error);
     return null;
@@ -392,7 +399,8 @@ async function registrantNames(cik, ctx) {
   if (cached && Date.now() - cached.at < REGISTRANT_TTL_MS) return cached.names;
   if (ctx.deadline && ctx.deadline - Date.now() < 3500) return null;
   try {
-    const json = await getJson(`${SUBMISSIONS_URL}/CIK${cik}.json`, secOptions(ctx, { timeoutMs: 6000 }));
+    const submissions = `${SUBMISSIONS_URL}/CIK${cik}.json`;
+    const json = await getJson(submissions, secOptions(ctx, { timeoutMs: 6000 }, submissions));
     const names = uniq([clean(json?.name), ...(Array.isArray(json?.formerNames) ? json.formerNames.map((f) => clean(f?.name)) : [])]);
     registrantCache.set(cik, { names, at: Date.now() });
     return names;
@@ -1794,7 +1802,8 @@ async function releaseList(kind, populate, ctx) {
   // The lists live on www.sec.gov: without a declared contact (or after a refusal) nothing is asked.
   if (!siteReady()) throw siteNotAnswered();
   try {
-    return parseReleaseList(await getText(`${SEC_SITE}/enforcement-litigation/${kind}?${new URLSearchParams({ populate })}`, secOptions(ctx)));
+    const listUrl = `${SEC_SITE}/enforcement-litigation/${kind}?${new URLSearchParams({ populate })}`;
+    return parseReleaseList(await getText(listUrl, secOptions(ctx, {}, listUrl)));
   } catch (error) {
     noteRefusal(error);
     throw error;
@@ -1995,7 +2004,8 @@ export function parsePressList(html) {
 async function pressList(query, ctx) {
   if (!siteReady()) throw siteNotAnswered();
   try {
-    return parsePressList(await getText(`${SEC_SITE}/newsroom/press-releases?${new URLSearchParams({ combine: query })}`, secOptions(ctx)));
+    const pressUrl = `${SEC_SITE}/newsroom/press-releases?${new URLSearchParams({ combine: query })}`;
+    return parsePressList(await getText(pressUrl, secOptions(ctx, {}, pressUrl)));
   } catch (error) {
     noteRefusal(error);
     throw error;

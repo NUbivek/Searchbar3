@@ -22,13 +22,19 @@
  *                                               (running or finished), or 404
  *   GET  ?list=1                             -> { jobs: [{ id, name, company, state, when, redFlags }] }
  *
+ * Every answer that carries progress or a report also says `contact`: 'account' when the signed-in person's
+ * name and email are named to all of the few official sites that ask automated readers for a contact (the SEC,
+ * the FTC, crates.io), 'account-sec' when only to the SEC, 'account-site' when only to the FTC and crates.io,
+ * 'operator' when only the deployment's own contact is, 'none' otherwise. Never the address itself.
+ *
  * The browser calls 'step' until it gets `done`. State lives in the job
  * store between calls. Sign-in is required unless FOUNDER_DEEP_PUBLIC=true:
  * a check gathers a lot about one person and uses shared free quotas, so it
  * is tied to an account and limited per hour.
  */
 import crypto from 'crypto';
-import { getUserId, requireFounderUser } from '../../../server/auth';
+import { getUserId, getUserContact, requireFounderUser } from '../../../server/auth';
+import { withSignedInContact, contactSource } from '../../../server/founder/contact';
 import { startState, stepDeepCheck, progressOf, stopCollecting, validateCheckInput, validateOrgName, validatePersonName } from '../../../server/founder/deepCheck';
 import { createSubject } from '../../../server/founder/identity';
 import { buildReport, writeDeepBrief, quotedDeepBrief } from '../../../server/founder/report';
@@ -283,11 +289,17 @@ function jobLine(j) {
   return { id: j.id, name: j.name, company: j.company || '', state, when: new Date(j.updatedAt || j.createdAt || Date.now()).toISOString(), redFlags: j.redFlags ?? null, ifRightPerson: j.ifRightPerson ?? null };
 }
 
+/**
+ * An answer with progress or a report, plus where this request's declared contact comes from (see the top of
+ * this file). Read here, inside the request's scope; the contact itself is never added to anything.
+ */
+const told = (body) => ({ ...body, contact: contactSource() });
+
 /** What the page is told about a check: progress, and the report once there is one. */
 async function answerFor(job, { signedIn, owner, startedAt }) {
   const { state } = job;
-  if (state.phase === 'failed') return { jobId: job.id, progress: progressOf(state), failed: true, error: state.failure || REPORT_FAILED };
-  return { jobId: job.id, progress: progressOf(state), ...(state.report ? { done: true, report: await withNetwork(signedIn, owner, state, startedAt + REPORT_BUDGET.NETWORK_UNTIL_MS) } : {}) };
+  if (state.phase === 'failed') return told({ jobId: job.id, progress: progressOf(state), failed: true, error: state.failure || REPORT_FAILED });
+  return told({ jobId: job.id, progress: progressOf(state), ...(state.report ? { done: true, report: await withNetwork(signedIn, owner, state, startedAt + REPORT_BUDGET.NETWORK_UNTIL_MS) } : {}) });
 }
 
 /**
@@ -327,7 +339,29 @@ function readableName(value) {
   return { ok: false, error: 'Records cannot yet be matched to a name written in this script. Enter the name in Latin letters, and add this form under other names.' };
 }
 
+/**
+ * The signed-in person's name and email, for the contact the check declares to the SEC, the FTC and crates.io.
+ * A session that cannot be read gives none (the check then runs as it would without a contact, and sign-in is
+ * still decided by ownerOf below).
+ */
+async function signedInContact(req, res) {
+  try {
+    return (await getUserContact(req, res)) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Every request runs with its signed-in person's contact in scope (server/founder/contact.js), so the lookups
+ * it plans and runs, on a start or on any later step of the same check, declare that person and no one else.
+ */
 export default async function handler(req, res) {
+  const contact = await signedInContact(req, res);
+  return withSignedInContact(contact, () => handle(req, res));
+}
+
+async function handle(req, res) {
   const startedAt = Date.now();
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST' && req.method !== 'GET') {
@@ -374,7 +408,7 @@ export default async function handler(req, res) {
       if (running && (running.state?.phase === 'collect' || running.state?.phase === 'report')) {
         // A check saved before the details were keyed matches only a start that adds nothing beyond name and company.
         const runningKey = running.state.inputKey || inputKey({ name: running.state.name || input.name, company: running.state.company ?? input.company }, {});
-        if (runningKey === key) return res.status(200).json({ jobId: running.id, progress: progressOf(running.state), resumed: true });
+        if (runningKey === key) return res.status(200).json(told({ jobId: running.id, progress: progressOf(running.state), resumed: true }));
         // Started again with other details (a profile address, other names, a website): those details are what tell
         // the person apart from namesakes, so a new check runs with them and the earlier one is stopped.
         replaced = running.id;
@@ -415,19 +449,19 @@ export default async function handler(req, res) {
       // answer, a reload that picks the check up) is told the check is busy rather than running every lookup twice.
       // If it fails or cannot be saved, the check still exists and its id goes back with what was saved.
       const leased = await leaseJob(id, { owner });
-      if (!leased || leased.busy) return res.status(200).json({ jobId: id, progress: progressOf(state), ...extra });
+      if (!leased || leased.busy) return res.status(200).json(told({ jobId: id, progress: progressOf(state), ...extra }));
       let saved = false;
       try {
         const { progress } = await stepDeepCheck(state, { connectors: CONNECTORS, deadline: startedAt + STEP_MS, review: reviewer() });
         saved = await saveNext(id, state, 'running');
-        if (saved) return res.status(200).json({ jobId: id, progress, ...extra });
+        if (saved) return res.status(200).json(told({ jobId: id, progress, ...extra }));
         // Another request saved it first: what the page is told is what was saved, never progress that was not.
         const current = await getJob(id, { owner }).catch(() => null);
-        return res.status(200).json({ jobId: id, progress: current ? progressOf(current.state) : null, ...extra });
+        return res.status(200).json(told({ jobId: id, progress: current ? progressOf(current.state) : null, ...extra }));
       } catch (error) {
         console.error('Deep founder check: first step not completed:', error.message);
         const current = await getJob(id, { owner }).catch(() => null);
-        return res.status(200).json({ jobId: id, progress: current ? progressOf(current.state) : null, ...extra });
+        return res.status(200).json(told({ jobId: id, progress: current ? progressOf(current.state) : null, ...extra }));
       } finally {
         if (!saved) await releaseLease(id, leased.leaseId);
       }
@@ -458,12 +492,12 @@ export default async function handler(req, res) {
           return res.status(200).json(await answerFor(job, { signedIn, owner, startedAt }));
         }
         if (state.phase === 'failed') return res.status(500).json({ error: state.failure || REPORT_FAILED, failed: true });
-        if (state.report) return res.status(200).json({ jobId: job.id, done: true, progress: progressOf(state), report: await withNetwork(signedIn, owner, state, startedAt + REPORT_BUDGET.NETWORK_UNTIL_MS) });
+        if (state.report) return res.status(200).json(told({ jobId: job.id, done: true, progress: progressOf(state), report: await withNetwork(signedIn, owner, state, startedAt + REPORT_BUDGET.NETWORK_UNTIL_MS) }));
         if (state.phase === 'collect') {
           const { progress } = await stepDeepCheck(state, { connectors: CONNECTORS, deadline: startedAt + STEP_MS, review: reviewer() });
           if (state.failedSteps) state.failedSteps = 0;
           if (!(await save('running'))) return res.status(409).json(BUSY);
-          return res.status(200).json({ jobId: job.id, progress });
+          return res.status(200).json(told({ jobId: job.id, progress }));
         }
         // Collecting is over: build the report and write the brief.
         stage = 'report';
@@ -483,7 +517,7 @@ export default async function handler(req, res) {
         state.networkInvestors = investors;
         if (missed) state.networkInvestorsMissed = true; else delete state.networkInvestorsMissed;
         if (!(await save('done'))) return res.status(409).json(BUSY);
-        return res.status(200).json({ jobId: job.id, done: true, progress: progressOf(state), report: await withNetwork(signedIn, owner, state, startedAt + REPORT_BUDGET.NETWORK_UNTIL_MS) });
+        return res.status(200).json(told({ jobId: job.id, done: true, progress: progressOf(state), report: await withNetwork(signedIn, owner, state, startedAt + REPORT_BUDGET.NETWORK_UNTIL_MS) }));
       } catch (error) {
         // A store that could not answer is not the check's fault: nothing is counted against it.
         if (!saved && error?.code !== 'JOB_STORE_UNAVAILABLE' && body.action === 'step') {

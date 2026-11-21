@@ -72,13 +72,16 @@ describe('/api/debug/llm-check', () => {
 
   // Changed in round 3 (security-debug-routes): a caller who may not use it gets a 404, not a 401 sign-in prompt.
   // Changed in round 4 (network-security-debug-prod-open): production also needs the allow-list set, with the account on it.
-  test('production needs a signed-in session (404 otherwise); a preview deployment does not', async () => {
+  // Changed in round 6 (owner's decision): production follows the site's own model, so signed out gets 401 with a
+  // sign-in prompt; the allow-list, when set, still applies.
+  test('production needs a signed-in session (401 otherwise); a preview deployment does not', async () => {
     process.env.NODE_ENV = 'production';
     delete process.env.VERCEL_ENV;
     process.env.FOUNDER_ALLOWED_EMAILS = 'owner@example.com';
     const res = createMockRes();
     await handler(createMockReq({ method: 'GET', query: {} }), res);
-    expect(res.statusCode).toBe(404);
+    expect(res.statusCode).toBe(401);
+    expect(res.body.signIn).toBe(true);
     getServerSession.mockResolvedValueOnce({ user: { id: 'user-1', email: 'owner@example.com' } });
     const signedIn = createMockRes();
     await handler(createMockReq({ method: 'GET', query: {} }), signedIn);

@@ -18,8 +18,9 @@ import { readProfile } from '../../../server/founder/profileModel';
  *
  * Who may call it is decided by debugAccess (src/server/auth.js): open in
  * development; on a preview deployment open behind the host's own sign-in but
- * limited per caller and per deployment each hour; in production only an
- * allowed signed-in account (a 404 for everyone else), limited per hour.
+ * limited per caller and per deployment each hour; in production any signed-in
+ * account (the allow-list applies when set; signed out gets 401 and is asked to
+ * sign in), limited per account each hour and, for model runs, all accounts together.
  * Every run is bounded in time, never returns keys, and a run that fails
  * answers with a plain message, never the inner error.
  */

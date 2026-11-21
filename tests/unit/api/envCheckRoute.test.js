@@ -85,6 +85,7 @@ describe('/api/debug/env-check', () => {
 
   // Changed in round 3 (security-debug-routes): signed out gets a 404, as if the route did not exist.
   // Changed in round 4 (network-security-debug-prod-open): production answers only an account on a set allow-list.
+  // Changed in round 6 (owner's decision): signed out gets 401 with a sign-in prompt, as on the rest of the site.
   test('requires a signed-in session in production', async () => {
     process.env.NODE_ENV = 'production';
     process.env.FOUNDER_ALLOWED_EMAILS = 'owner@example.com';
@@ -96,7 +97,8 @@ describe('/api/debug/env-check', () => {
     await handler(req, res);
 
     expect(getServerSession).toHaveBeenCalled();
-    expect(res.statusCode).toBe(404);
+    expect(res.statusCode).toBe(401);
+    expect(res.body.signIn).toBe(true);
     expect(res.body.diagnostics).toBeUndefined();
   });
 

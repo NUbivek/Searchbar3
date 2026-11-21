@@ -16,9 +16,10 @@
  *                      never used.
  *   crates-io          the Rust packages a crates.io account publishes, for a
  *                      GitHub login already tied to the person (crates.io
- *                      accounts are GitHub logins). On only when the owner
- *                      declares a contact (FOUNDER_HTTP_CONTACT): crates.io asks
- *                      every automated client to name one.
+ *                      accounts are GitHub logins). On only with a contact to
+ *                      declare: the owner's FOUNDER_HTTP_CONTACT, or else the
+ *                      signed-in person's name and email (sent to crates.io
+ *                      only). crates.io asks every automated client to name one.
  *
  * Whose account is it? A record is tied to the person only when it states
  * their full name (personNameFits). A name alone is 'possible' and every such
@@ -43,6 +44,7 @@ import { nameTokens } from '../identity';
 import { isSensitive, mentionsMinor, redactPII } from '../guardrails';
 import { personNameFits } from './scholar';
 import { statedName } from './presence';
+import { contactFor, requestOptionsFor, CONTACT_HOSTS } from '../contact';
 
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 const count = (n) => Number(n || 0).toLocaleString('en-US');
@@ -414,6 +416,11 @@ const CRATES = 'https://crates.io/api/v1';
 const CRATES_LABEL = 'crates.io Rust packages';
 const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const CRATES_PAGE = 20;
+/**
+ * A signed-in person's contact is named to crates.io only, in the User-Agent of these requests. With the
+ * operator's FOUNDER_HTTP_CONTACT set this adds nothing: http.js already sends that one to every host.
+ */
+const cratesOptions = (url) => requestOptionsFor('site', CONTACT_HOSTS.crates, url);
 
 async function cratesOf(subject, task, ctx) {
   const login = clean(task.value).replace(/^@/, '');
@@ -423,7 +430,8 @@ async function cratesOf(subject, task, ctx) {
   if (platform !== 'github' && platform !== 'crates') return EMPTY();
   let body;
   try {
-    body = await paced(`${CRATES}/users/${encodeURIComponent(login)}`, ctx);
+    const userUrl = `${CRATES}/users/${encodeURIComponent(login)}`;
+    body = await paced(userUrl, ctx, cratesOptions(userUrl));
   } catch (error) {
     if (error?.status === 404) return { findings: [], threads: [], notes: [`crates.io: no account for the GitHub login ${login}.`] };
     throw error;
@@ -434,7 +442,8 @@ async function cratesOf(subject, task, ctx) {
   if (!personNameFits(subject, name)) {
     return { findings: [], threads: [], notes: [`The crates.io account ${clean(user.login)} ${name ? `states the name "${name}", not the person's full name,` : "states no name"} and was left out.`] };
   }
-  const list = await paced(`${CRATES}/crates?user_id=${Number(user.id)}&sort=downloads&per_page=${CRATES_PAGE}`, ctx);
+  const listUrl = `${CRATES}/crates?user_id=${Number(user.id)}&sort=downloads&per_page=${CRATES_PAGE}`;
+  const list = await paced(listUrl, ctx, cratesOptions(listUrl));
   if (!list || !Array.isArray(list.crates)) throw new Error('crates.io answered without a list of crates');
   const crates = list.crates.filter((c) => clean(c?.name)).map((c) => ({
     name: clean(c.name), description: safe(c.description).slice(0, 140), downloads: Number(c.downloads) || 0, updated: day(c.updated_at), created: day(c.created_at),
@@ -465,8 +474,9 @@ export const cratesIoConnector = {
   prior: 0.1,
   maxParallel: 1,
   timeoutMs: 12000,
-  // crates.io asks every automated client to name a contact; without one it is not asked.
-  enabled: () => Boolean(clean(process.env.FOUNDER_HTTP_CONTACT)),
+  // crates.io asks every automated client to name a contact; without one (the operator's, or else the signed-in
+  // person's for the check they run) it is not asked.
+  enabled: () => Boolean(contactFor('site')),
   unavailableReason: 'crates.io asks automated readers to name a contact, and this deployment does not declare one',
   async run(task, ctx) {
     return task.kind === 'handle' ? cratesOf(ctx.subject, task, ctx) : EMPTY();

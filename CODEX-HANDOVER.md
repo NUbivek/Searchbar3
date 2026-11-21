@@ -140,7 +140,7 @@ Goal: keep the site healthy and keep improving the deep check's accuracy, withou
 
 ## 4. Known open items (start here)
 
-1. **A declared contact for the SEC (owner step).** The SEC's website refuses automated readers that declare no contact, so filing texts, enforcement lists and SEC press releases are reported as not answered until `SEC_USER_AGENT` (a name and contact email), or an email in `FOUNDER_HTTP_CONTACT`, is set in Vercel. The FTC case search and crates.io are asked only when `FOUNDER_HTTP_CONTACT` is set. Codex never handles these values.
+1. **The contact declared to the SEC, the FTC and crates.io (no owner step since 2026-11-21).** These sites refuse automated readers that name no contact. The signed-in person's name and email from Google sign-in are now declared to those three hosts only, for the check they run (`src/server/founder/contact.js`); `SEC_USER_AGENT` or `FOUNDER_HTTP_CONTACT`, when the owner sets them, win and then no person's address is sent. The contact must never be saved in a job, a report, a log, an error, a cache key, or sent to any other host. Codex never handles these values.
 2. **Owner decisions** (documented in FOUNDER-CHECK.md "Choices the owner should know about"):
    - the six sources that are built and off (`FOUNDER_SOURCES_ON`): OpenSanctions lists, Australia's banned-persons register, Hong Kong enforcement news, US Tax Court search, podcast episodes, infostealer exposure of a company's domain;
    - patents and US trademarks: off; a permitted route needs a free USPTO Open Data Portal account;

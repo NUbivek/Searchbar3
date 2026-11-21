@@ -69,8 +69,25 @@ export function signInHref() {
   return `/signin?callbackUrl=${encodeURIComponent(here.startsWith('/') && !here.startsWith('//') ? here : '/founder')}`;
 }
 
+// ------------------------------------------------------------ declared contact
+// The SEC's and the FTC's websites, and crates.io, refuse automated readers that do not name a contact. Where the
+// deployment has no contact of its own for a site, the server names the signed-in person, and says which sites
+// that is ('account' all three, 'account-sec' the SEC only, 'account-site' the FTC and crates.io only), so the
+// note names exactly the sites given the person's address. 'operator' and 'none' get no note.
+export const CONTACT_NOTES = {
+  account: 'The SEC and FTC websites and the crates.io package registry ask automated readers to name a contact. Your name and email from sign-in are given to them, and to no other site, with this check\'s requests.',
+  'account-sec': 'The SEC website asks automated readers to name a contact. Your name and email from sign-in are given to it, and to no other site, with this check\'s requests.',
+  'account-site': 'The FTC website and the crates.io package registry ask automated readers to name a contact. Your name and email from sign-in are given to them, and to no other site, with this check\'s requests.',
+};
+export const CONTACT_NOTE = CONTACT_NOTES.account;
+export function ContactNote({ contact, className = 'mt-3' }) {
+  const note = Object.prototype.hasOwnProperty.call(CONTACT_NOTES, contact) ? CONTACT_NOTES[contact] : '';
+  if (!note) return null;
+  return <p className={`muted text-xs ${className}`} data-testid="contact-note">{note}</p>;
+}
+
 // ------------------------------------------------------------ progress
-function Progress({ progress, name, note = '', compact = false }) {
+function Progress({ progress, name, note = '', compact = false, contact = '' }) {
   // New threads queue more lookups, which would pull the bar back: it keeps the highest point it reached.
   const best = useRef(0);
   const total = (progress?.tasksRun || 0) + (progress?.queued || 0);
@@ -120,6 +137,7 @@ function Progress({ progress, name, note = '', compact = false }) {
           {log.map((l, i) => <li key={`${l.step}-${i}`}>{l.text}</li>)}
         </ul>
       )}
+      <ContactNote contact={contact} />
       <p className="muted mt-3 text-xs">
         {compact ? 'The report below stays until the new one is ready; records the new run finds are then marked new.' : 'A full check takes a few minutes. It keeps running if you close this tab; open this page again to see it.'}
       </p>
@@ -288,7 +306,7 @@ function Timeline({ items, omitted = 0 }) {
 }
 
 // ------------------------------------------------------------ coverage
-function Coverage({ report }) {
+function Coverage({ report, contact = '' }) {
   const { coverage } = report;
   const omitted = report.omitted || {};
   const left = [
@@ -325,6 +343,7 @@ function Coverage({ report }) {
         </div>
       )}
       {coverage.searchNote && <p className="mt-4 text-sm text-muted" data-testid="search-note">{coverage.searchNote}</p>}
+      <ContactNote contact={contact} className="mt-4" />
       {coverage.notSearched.filter((s) => s.off).length > 0 && (
         <div className="mt-4">
           <p className="eyebrow mb-1">Not enabled on this deployment</p>
@@ -410,7 +429,7 @@ function legalNamesOnly(report) {
   return [...new Set((report.legalNames || []).map((x) => String(x?.name || '').trim()).filter((n) => n && !shown.has(n.toLowerCase())))];
 }
 
-function Report({ report, fresh = null, children = null }) {
+function Report({ report, fresh = null, children = null, contact = '' }) {
   const [reveal, setReveal] = useState(null);
   const [cite, setCite] = useState(null); // { n, at }
   const [back, setBack] = useState(null); // { y, at }
@@ -598,7 +617,7 @@ function Report({ report, fresh = null, children = null }) {
       )}
       <NameOnly items={nameOnly} wordOnly={report.wordOnly} company={report.company} reveal={revealN} />
 
-      {coverage ? <Coverage report={report} /> : (
+      {coverage ? <Coverage report={report} contact={contact} /> : (
         <Block title="What was searched" id="coverage">
           <p className="muted text-sm">This saved report does not list which sources answered. Run the check again for a full account of what was searched.</p>
           {report.notice && <p className="mt-4 rounded-xl bg-slate-50 px-3.5 py-2.5 text-xs text-muted">{report.notice}</p>}
@@ -619,7 +638,8 @@ function Report({ report, fresh = null, children = null }) {
 }
 
 // ------------------------------------------------------------ the check
-const IDLE = { phase: 'idle', progress: null, report: null, error: '', errorKind: '', needSignIn: false, note: '', assumed: null, confirm: null, changes: null, detailsUnused: '', replaced: false };
+// contact: where the contact named to the SEC and FTC comes from, as the server says ('account', 'operator', 'none')
+const IDLE = { phase: 'idle', progress: null, report: null, error: '', errorKind: '', needSignIn: false, note: '', assumed: null, confirm: null, changes: null, detailsUnused: '', replaced: false, contact: '' };
 
 function copyText(text) {
   if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
@@ -728,7 +748,7 @@ export default function DeepCheck({ name, company = '', runKey = 0, jobId = null
       let lastRun = -1;
       while (Date.now() < until && alive() && !data.done && !data.failed) {
         if (id) rememberJob(name || data.report?.name, company, id);
-        setState((s) => ({ ...s, progress: data.progress || s.progress, note: '' }));
+        setState((s) => ({ ...s, progress: data.progress || s.progress, note: '', contact: data.contact || s.contact }));
         const ran = data.progress?.tasksRun ?? -1;
         if (ran === lastRun) await wait(5000); // nothing ran in that step: lookups are waiting for a resting source
         lastRun = ran;
@@ -749,7 +769,7 @@ export default function DeepCheck({ name, company = '', runKey = 0, jobId = null
       }
       if (data.done) {
         const changes = before ? { ...compareReports(before, data.report), since: before.generatedAt } : null;
-        setState((s) => ({ ...IDLE, phase: 'done', progress: data.progress, report: data.report, assumed: s.assumed, changes, detailsUnused, replaced: s.replaced }));
+        setState((s) => ({ ...IDLE, phase: 'done', progress: data.progress, report: data.report, assumed: s.assumed, changes, detailsUnused, replaced: s.replaced, contact: data.contact || '' }));
         onReportRef.current?.(data.report);
       } else {
         setState((s) => ({ ...s, phase: 'error', errorKind: 'resume', error: 'The check is still running on the server. Open this page again later to see it, or pick it up now.' }));
@@ -877,7 +897,7 @@ export default function DeepCheck({ name, company = '', runKey = 0, jobId = null
     }
     const report = savedReport(state.report); // a report saved before a field was added renders too
     if (!report) {
-      if (state.phase === 'running') return <div className="space-y-4">{replacedNote()}<Progress progress={state.progress} name={name} note={state.note} /></div>;
+      if (state.phase === 'running') return <div className="space-y-4">{replacedNote()}<Progress progress={state.progress} name={name} note={state.note} contact={state.contact} /></div>;
       if (state.phase === 'error') return errorCard();
       return null;
     }
@@ -885,7 +905,7 @@ export default function DeepCheck({ name, company = '', runKey = 0, jobId = null
     return (
       <div className="space-y-4">
         {replacedNote()}
-        {running && <Progress progress={state.progress} name={name} note={state.note} compact />}
+        {running && <Progress progress={state.progress} name={name} note={state.note} contact={state.contact} compact />}
         {state.error && errorCard()}
         {state.detailsUnused && !running && (
           <section className="founder-no-print card card-pad" data-testid="details-unused">
@@ -899,7 +919,7 @@ export default function DeepCheck({ name, company = '', runKey = 0, jobId = null
             </button>
           </section>
         )}
-        <Report report={report} fresh={state.changes?.fresh || null}>
+        <Report report={report} fresh={state.changes?.fresh || null} contact={state.contact}>
           <Summary
             report={report}
             onPrint={print}

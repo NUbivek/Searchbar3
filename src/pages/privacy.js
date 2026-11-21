@@ -42,6 +42,12 @@ export default function PrivacyPage() {
             requests contain the text of your query and public search results, never your contacts or account
             details. Google handles sign-in; we never see your Google password.
           </p>
+          <p className="mt-2">
+            A few official sites, the SEC and FTC websites and the crates.io package registry, ask automated
+            readers to name a contact. When you run a deep background check, your name and email from sign-in
+            are given to them with that check&apos;s requests, and to no other site. They are not saved with the
+            check or put in its report.
+          </p>
         </section>
         <section>
           <h2 className="text-base font-semibold text-ink">Retention and deletion</h2>

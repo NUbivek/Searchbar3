@@ -5,7 +5,8 @@
  *                            competition). One search of the FTC's legal library per name
  *                            (www.ftc.gov/legal-library/browse/cases-proceedings?search=...), first page of
  *                            results (20). The site turns away automated readers that declare no contact, so
- *                            the source is on only when FOUNDER_HTTP_CONTACT is set. robots.txt asks for five
+ *                            the source is on only with one: FOUNDER_HTTP_CONTACT, or else the signed-in
+ *                            person's name and email, sent to www.ftc.gov only. robots.txt asks for five
  *                            seconds between requests; this file waits 5.1 s and runs one lookup at a time.
  *   esma-sanctions-register  The EU securities regulator's (ESMA) register of administrative sanctions imposed
  *                            by national regulators (BaFin, AMF, CNMV, CONSOB, the Central Bank of Ireland and
@@ -57,6 +58,7 @@ import { normalizeName, nameTokens, companyTokens, matchPersonName, matchCompany
 import { personNameMatcher, companyMentionMatcher } from '../names';
 import { cleanSentences } from '../guardrails';
 import { isSelfTask, withAliasHold } from './alias';
+import { contactFor, requestOptionsFor, CONTACT_HOSTS } from '../contact';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_FINDINGS = 6;
@@ -84,7 +86,8 @@ const listed = (name, id) => String(process.env[name] || '').split(',').map((s) 
 const switchedOff = (id) => listed('FOUNDER_SOURCES_OFF', id);
 /** On only when the owner names it in FOUNDER_SOURCES_ON (and has not also switched it off). */
 const switchedOn = (id) => listed('FOUNDER_SOURCES_ON', id) && !switchedOff(id);
-const contactDeclared = () => Boolean(oneLine(process.env.FOUNDER_HTTP_CONTACT));
+// The operator's FOUNDER_HTTP_CONTACT, else the signed-in person's own contact for the check they run (../contact.js)
+const contactDeclared = () => Boolean(contactFor('site'));
 
 /* ------------------------------------------------------------------ pacing */
 
@@ -409,7 +412,9 @@ const ftcSeverity = (item) => (item.kind === 'case' ? atLeastMedium(severityFrom
 
 async function searchFtc(query, deadline) {
   const url = `${FTC_SEARCH}?search=${encodeURIComponent(query)}`;
-  const html = await fetchText(url, deadline, { timeoutMs: 18000, maxBytes: 3 * 1024 * 1024, accept: 'text/html' });
+  // A signed-in person's contact is named to www.ftc.gov only, in this request's User-Agent (nothing when the
+  // operator's own contact is set: http.js sends that one already).
+  const html = await fetchText(url, deadline, { timeoutMs: 18000, maxBytes: 3 * 1024 * 1024, accept: 'text/html', ...requestOptionsFor('site', CONTACT_HOSTS.ftc, url) });
   return { url, ...parseFtcResults(html) };
 }
 

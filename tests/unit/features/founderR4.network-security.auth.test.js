@@ -4,8 +4,8 @@
  * Round 4, network-security (src/server/auth.js, src/pages/api/debug/*).
  *  - network-security-allowlist-fail-open: a set but malformed FOUNDER_ALLOWED_EMAILS never opens the site to
  *    every account. Quotes and "mailto:" are read through; a value with nothing valid in it refuses everyone.
- *  - network-security-debug-prod-open: in production the debug routes answer only an account on a set
- *    allow-list, and model runs share one hourly cap across accounts.
+ *  - network-security-debug-prod-open: model runs share one hourly cap across accounts. (Round 6, the owner's
+ *    decision: in production any signed-in account may use the debug routes, as on the rest of the site.)
  */
 jest.mock('next-auth/next', () => ({ getServerSession: jest.fn(async () => null) }));
 jest.mock('../../../src/server/db', () => ({ query: jest.fn(async () => []), queryOne: jest.fn(async () => null), persistenceMode: jest.fn(() => 'none') }));
@@ -76,13 +76,14 @@ describe('debug routes in production', () => {
   const env = { ...process.env };
   afterEach(() => { process.env = { ...env }; jest.clearAllMocks(); getServerSession.mockResolvedValue(null); });
 
-  test('with no allow-list, a signed-in account gets a 404', async () => {
+  // Changed in round 6 (owner's decision): the debug routes follow the site's model, whoever is signed in.
+  test('with no allow-list, a signed-in account gets the answer', async () => {
     process.env.NODE_ENV = 'production';
     delete process.env.VERCEL_ENV;
     delete process.env.FOUNDER_ALLOWED_EMAILS;
-    getServerSession.mockResolvedValue({ user: { id: 'google:stranger', email: 'stranger@gmail.com' } });
-    expect((await call(llmCheck)).statusCode).toBe(404);
-    expect((await call(envCheck)).statusCode).toBe(404);
+    getServerSession.mockResolvedValue({ user: { id: 'google:someone', email: 'jane.roe@example.org' } });
+    expect((await call(llmCheck)).statusCode).toBe(200);
+    expect((await call(envCheck)).statusCode).toBe(200);
   });
 
   test('model runs share one hourly cap across accounts', async () => {

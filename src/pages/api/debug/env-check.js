@@ -6,8 +6,8 @@ import { debugAccess, parseAllowList, allowListActive } from '../../../server/au
  *
  * Who may call it is decided by debugAccess (src/server/auth.js): open in
  * development; on a preview deployment open behind the host's own sign-in but
- * limited per hour; in production only an allowed signed-in account, and a 404
- * for everyone else.
+ * limited per hour; in production any signed-in account (the allow-list applies
+ * when set), and 401 with a sign-in prompt for a signed-out caller.
  *
  * In development the answer lists the names of the settings present and missing,
  * which helps set up a machine, and how many entries of the sign-in allow-list

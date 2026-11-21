@@ -301,8 +301,8 @@ checked in full.
 | `FOUNDER_DEEP_PUBLIC=true` | lets a check run without sign-in (local testing only) |
 | `FOUNDER_SOURCES_OFF` | comma-separated source ids to switch off |
 | `FOUNDER_SOURCES_ON` | comma-separated ids of sources that are off until the owner agrees to their terms: `opensanctions-lists`, `asic-banned`, `sfc-hk-enforcement`, `us-tax-court`, `podcast-episodes`, `infostealer-exposure` |
-| `SEC_USER_AGENT` | **needed for SEC filing texts, enforcement releases and SEC press releases**: a name and contact email, for example "Example Research ops@example.com". The SEC's website refuses automated readers that declare no contact. An email in `FOUNDER_HTTP_CONTACT` also works. Without either, those lookups are reported as not answered |
-| `FOUNDER_HTTP_CONTACT` | a URL or address the owner chooses to declare to the sites it asks (nothing is declared by default). The FTC case search and crates.io are asked only when it is set |
+| `SEC_USER_AGENT` | optional: a name and contact email declared to the SEC instead of the signed-in person's, for example "Example Research ops@example.com". An email in `FOUNDER_HTTP_CONTACT` also works. Without either, the signed-in person's name and email are declared to www.sec.gov for the check they run (see "Choices the owner should know about") |
+| `FOUNDER_HTTP_CONTACT` | optional: a URL or address the owner chooses to declare to every site the check asks (nothing is declared by default). When set, it is declared to the FTC case search and crates.io instead of the signed-in person's contact |
 | `FOUNDER_ALLOWED_EMAILS` | comma-separated addresses or `@domains` allowed to sign in; empty means any Google account, as before. Quotes and `mailto:` around an entry are tolerated. A value that is set but holds no valid address or domain refuses every account (it fails closed, and the server log says why) |
 | `FOUNDER_GOOGLE_PATENTS=on` | turns the patent search back on (see "Choices the owner should know about") |
 | `GITHUB_TOKEN` | optional, a token with no scopes: a larger hourly allowance for GitHub lookups |
@@ -321,12 +321,18 @@ checked in full.
   list to be on. If the site is ever used commercially, switch it off with
   `FOUNDER_SOURCES_OFF=mdb-debarment`.
 
-- **A declared contact for the SEC (owner step).** The SEC's website refuses
-  automated readers that do not declare a contact, so until `SEC_USER_AGENT`
-  (or an email in `FOUNDER_HTTP_CONTACT`) is set, filing texts, enforcement
-  lists and SEC press releases are reported as not answered. Search of
-  filings by name still works. The contact is sent to the SEC with each
-  request; use an address you are comfortable sharing with them.
+- **The contact declared to the SEC, the FTC and crates.io (since 2026-11-21).**
+  These three sites refuse automated readers that do not name a contact.
+  Nobody has to configure anything: the signed-in person's name and email
+  from Google sign-in are named to www.sec.gov, www.ftc.gov and crates.io,
+  in the User-Agent of that check's requests to those hosts only (a redirect
+  elsewhere is not followed), and to no other site (`src/server/founder/contact.js`).
+  The contact is never saved in the check, its report, a log or an error; the
+  page is told only where it came from and shows one line when it is the
+  person's. When the owner sets `SEC_USER_AGENT` (or `FOUNDER_HTTP_CONTACT`),
+  that contact wins and no person's address is sent. The local test account
+  (…@localhost) is not a contact: without a setting, those lookups are
+  reported as not answered in local testing.
 - **Sources built and switched off (`FOUNDER_SOURCES_ON`).** Each needs the
   owner's yes because of its terms:
   - `opensanctions-lists`: about 30 lists (Interpol red notices, the World
@@ -359,10 +365,12 @@ checked in full.
   account, which is the owner's to create.
 - **Who can sign in.** Any Google account can sign in and run checks unless
   `FOUNDER_ALLOWED_EMAILS` is set.
-- **Debug routes.** In production the debug routes (`/api/debug/...`) answer
-  only when `FOUNDER_ALLOWED_EMAILS` is set and the signed-in account is on it
-  (everyone else gets "not found"). Model runs through them share one hourly
-  cap of 40 across all accounts, on top of each account's own limit.
+- **Debug routes.** In production the debug routes (`/api/debug/...`) follow
+  the same model as the rest of the site: any signed-in account may call them
+  (when `FOUNDER_ALLOWED_EMAILS` is set, only accounts on it); a signed-out
+  caller gets 401 and is asked to sign in. Each account has its own hourly
+  limit, and model runs through them share one hourly cap of 40 across all
+  accounts.
 - **Quick brief limits.** Signed-out visitors: 15 quick briefs per ten
   minutes and 40 per hour per address. Signed-in: 30 and 120 per account
   (`QUICK_LIMITS` in `src/pages/api/founder/index.js`).

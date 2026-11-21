@@ -2,8 +2,8 @@
  * Round 3, security-debug-routes and quickbrief-debug-profile-run (src/pages/api/debug/*, src/server/auth.js,
  * src/server/founder/sample.js).
  *
- * Production: only a signed-in account on the allow-list may use the debug routes; everyone else gets a 404,
- * as if they did not exist. Preview deployments stay usable without the site's own sign-in (the host's
+ * Production (changed in round 6, the owner's decision): any signed-in account may use the debug routes, as on
+ * the rest of the site; an allow-list, when set, still applies (403 outside it); signed out gets 401. Preview deployments stay usable without the site's own sign-in (the host's
  * sign-in sits in front), but every caller is limited per hour and so is the deployment as a whole.
  * env-check on a deployment says only which groups are set up, never the names of the settings.
  * Two fictional runs check the quick brief and the profile reader without a word about a real person.
@@ -48,23 +48,24 @@ describe('security-debug-routes', () => {
   beforeEach(() => { ip += 1; });
   afterEach(() => { process.env = { ...env }; jest.clearAllMocks(); getServerSession.mockResolvedValue(null); });
 
-  test('production: signed out gets a 404, not a sign-in prompt', async () => {
+  test('production: signed out gets 401 and a sign-in prompt, and no diagnostics', async () => {
     process.env.NODE_ENV = 'production';
     delete process.env.VERCEL_ENV;
     for (const h of [llmCheck, envCheck]) {
       const res = await call(h);
-      expect(res.statusCode).toBe(404);
-      expect(JSON.stringify(res.body)).not.toMatch(/sign in|diagnostic/i);
+      expect(res.statusCode).toBe(401);
+      expect(res.body.signIn).toBe(true);
+      expect(JSON.stringify(res.body)).not.toMatch(/diagnostic/i);
     }
   });
 
-  test('production with an allow-list: a signed-in account outside it gets a 404; one on it gets the answer', async () => {
+  test('production with an allow-list: a signed-in account outside it is refused; one on it gets the answer', async () => {
     process.env.NODE_ENV = 'production';
     delete process.env.VERCEL_ENV;
     process.env.FOUNDER_ALLOWED_EMAILS = 'owner@example.com';
-    getServerSession.mockResolvedValue({ user: { id: 'google:9', email: 'stranger@gmail.com' } });
-    expect((await call(llmCheck)).statusCode).toBe(404);
-    expect((await call(envCheck)).statusCode).toBe(404);
+    getServerSession.mockResolvedValue({ user: { id: 'google:9', email: 'stranger@example.net' } });
+    expect((await call(llmCheck)).statusCode).toBe(403);
+    expect((await call(envCheck)).statusCode).toBe(403);
     getServerSession.mockResolvedValue({ user: { id: 'google:1', email: 'owner@example.com' } });
     expect((await call(llmCheck)).statusCode).toBe(200);
     expect((await call(envCheck)).statusCode).toBe(200);

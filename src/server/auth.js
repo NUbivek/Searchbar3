@@ -224,6 +224,17 @@ export async function getUserEmail(req, res) {
 }
 
 /**
+ * The signed-in person's { name, email } as Google gave them at sign-in, or null when signed out (or refused by
+ * the allow-list, like everything else here). The deep check names this contact to the few official sites that
+ * ask automated readers for one (server/founder/contact.js, which also cleans it); it is used for nothing else.
+ */
+export async function getUserContact(req, res) {
+  const { user } = await sessionUser(req, res);
+  if (!user?.id || !user.email) return null;
+  return { name: String(user.name || ''), email: String(user.email) };
+}
+
+/**
  * For API routes that need a signed-in user: returns the user id, or sends
  * 401 and returns null.
  */
@@ -329,10 +340,11 @@ export function callerAddress(req) {
  * - A preview deployment (VERCEL_ENV=preview): open without the site's own sign-in,
  *   since the host's sign-in sits in front of previews, but limited per caller
  *   and per deployment each hour.
- * - Production: only a signed-in account on FOUNDER_ALLOWED_EMAILS, which must be
- *   set; everyone else (everyone, when it is not set) gets a 404, as if the route
- *   did not exist. Still limited per account each hour, and model runs share one
- *   hourly allowance across accounts.
+ * - Production: the same model as the rest of the site: whoever is signed in may use
+ *   them. When the owner has set FOUNDER_ALLOWED_EMAILS, an account outside it is
+ *   refused (403) by the same sign-in check every other route uses; signed out gets
+ *   401 with { signIn: true }, so the page can offer sign-in. Still limited per
+ *   account each hour, and model runs share one hourly allowance across accounts.
  * `costly` marks a request that calls a model (a tighter limit).
  * Sends the refusal itself and returns false, or returns true.
  */
@@ -344,13 +356,11 @@ export async function debugAccess(req, res, { route = 'debug', costly = false } 
     const userId = await getUserId(req, res);
     who = userId ? `user:${userId}` : `ip:${callerAddress(req)}`;
   } else {
-    // Production: the owner sets the allow-list to use these routes. With none set, every Google account could
-    // sign in, so the routes stay hidden; with one, getUserId already refuses an account outside it.
-    const userId = allowListActive() ? await getUserId(req, res) : null;
-    if (!userId) {
-      res.status(404).json({ error: 'Not found' });
-      return false;
-    }
+    // Production: any signed-in account, as everywhere else on the site. requireFounderUser applies the allow-list
+    // when one is set (403) and asks a signed-out caller to sign in (401, signIn: true). The hourly limits below
+    // are what keep one account, or several together, from running up the models' allowance.
+    const userId = await requireFounderUser(req, res);
+    if (!userId) return false;
     who = `user:${userId}`;
   }
   const hour = 3600000;
