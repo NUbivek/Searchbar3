@@ -1,0 +1,244 @@
+{
+ "key": "identity",
+ "notes": "All findings except the SEC bypass and name-commonness were reproduced with a temporary jest file (tests/unit/features/zzAudit.identity.test.js), which has been deleted. No repo edits remain. The first four findings (one-word name test, generic-word key leftovers, quick-brief filter, likely-to-confirmed cascade) likely explain the owner's 'random people' complaint. The quick brief (founderCheck.js) does not use identity.js grading at all.",
+ "omitted": 3,
+ "findings": [
+  {
+   "id": "identity-oneword-written-as-name",
+   "title": "One-word company counts as a name at sentence start, after a lowercase word, or in a Title Case headline",
+   "severity": "critical",
+   "kind": "wrong-person",
+   "file": "src/server/founder/identity.js",
+   "line": 153,
+   "scenario": "Company Ramp, Plaid, Merge Labs, Figure AI, Harvey AI or Notion Labs, name John Smith. These texts all graded confirmed: 'Ramp up: John Smith was charged with fraud.', 'Wearing a Plaid shirt, John Smith…', 'Banks to Merge After John Smith Charged With Fraud', 'Figure 3: John Smith…', 'Harvey Weinstein accuser John Smith…', 'The Notion that John Smith…'. Each becomes a confirmed red flag.",
+   "evidence": "A temporary jest test called matchSubject(createSubject({name:'John Smith',company:X}), text). All of these returned 'confirmed'. In insideLongerName, a sentence-start word or a lowercase previous word means the word is treated as a name, and a headline turns off the longer-name test.",
+   "fix": "When the company key is a dictionary word, a capital letter alone is not enough to read it as the company. Require a business cue within about 6 words (CEO, founder, startup, raises, Inc, 's CEO), an address or handle, or the exact legal name. Treat a word at sentence start or in a Title Case headline as an ordinary word unless such a cue is present. Add a dictionary-word list, or a check against common English words.",
+   "filesToChange": [
+    "src/server/founder/identity.js"
+   ],
+   "dim": "identity",
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced: all six texts returned confirmed, and so did 'Ramp up the pressure, said John Smith'. insideLongerName (identity.js:153-154) treats a sentence start or a headline as a name. It never checks the word after the key, so 'Harvey Weinstein' passes.",
+   "betterFix": "For a one-word key, capitals at sentence start or in a headline should not count. Treat a following capitalised word that is not a legal form, descriptor or role ('Harvey Weinstein') as a longer name. Use a bundled common-English word list, so dictionary-word keys need a business cue near the word, an address or handle, or the full registered name."
+  },
+  {
+   "id": "identity-generic-residue-keys",
+   "title": "Removing generic words leaves keys like 'silicon valley', 'of america' and 'one', which confirm with no name check",
+   "severity": "critical",
+   "kind": "wrong-person",
+   "file": "src/server/founderCheck.js",
+   "line": 201,
+   "scenario": "Anchor Silicon Valley Bank: 'John Smith, a Silicon Valley investor, was charged' grades confirmed. Bank of America becomes key 'of america', so 'president of America First' confirms. Capital One becomes key 'one', so 'One of the defendants, John Smith' confirms. Scale AI becomes 'scale', so 'Scale of the scheme' confirms.",
+   "evidence": "The temporary test returned 'confirmed' for all four. companyKeys removes bank, capital, ai and similar words. A multi-word leftover key skips writtenAsName entirely (single is null), and keys are matched on lowercased text.",
+   "fix": "In orgMatcher, never let a reduced key stand alone. Use it only when what was removed was a legal form, or when the leftover has 2+ characters, is not a stopword or place name, and passes the written-as-name check. Otherwise require the full registered name (companyKeyStrict). Drop keys that start with a joining word ('of …').",
+   "filesToChange": [
+    "src/server/founderCheck.js",
+    "src/server/founder/identity.js"
+   ],
+   "dim": "identity",
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced: Silicon Valley Bank, Bank of America, Capital One and Scale AI all returned confirmed. companyKeys removes bank, capital and ai. A multi-word leftover sets single to null, so writtenAsName returns true at once, and keys are matched on lowercased text.",
+   "betterFix": "When companyKeys removed any non-legal-form word, require the full registered name (companyKeyStrict, case-insensitive). Allow the reduced key only if it is one distinctive word that is not a stopword, number word or place, and it passes writtenAsName. Run writtenAsName on every word of a multi-word key, never skip it."
+  },
+  {
+   "id": "identity-quickbrief-company-filter",
+   "title": "The quick brief keeps namesake pages that only use the company name as an ordinary word",
+   "severity": "critical",
+   "kind": "wrong-person",
+   "file": "src/server/founderCheck.js",
+   "line": 761,
+   "scenario": "runFounderCheck({name:'John Smith', company:'Ramp'}) with a page 'Body of John Smith found near boat ramp' keeps that page as a source. With company 'Merge Labs', the page 'Two banks will merge; John Smith, a dentist, sued' is kept. This matches the owner's complaint about random people even with the company typed.",
+   "evidence": "In the temporary test with injected searchers, ramp sources were [news.example/a] and merge sources were [news.example/b]. companyMatcher matches lowercased key words with no check that the word is used as a name.",
+   "fix": "Have the quick brief filter use identity.js orgMatcher (after the fixes above), not companyMatcher, and grade each kept page with matchSubject, keeping only confirmed or likely pages. List name-only pages separately, as the deep check does.",
+   "filesToChange": [
+    "src/server/founderCheck.js"
+   ],
+   "dim": "identity",
+   "verdict": "confirmed",
+   "verifyNote": "founderCheck.js:747 uses companyMatcher, which applies an 'i' exact match plus lowercased key matching with no written-as-name test. 'boat ramp' and 'will merge' both pass hasCo, so namesake pages are kept and given +3 in scoreOf.",
+   "betterFix": "Run the quick brief through identity.js createSubject/matchSubject after the matcher fixes. Keep confirmed and likely pages, and list name-only pages separately. companyMatcher should then be removed, or made to call orgMatcher, so the two paths cannot drift apart."
+  },
+  {
+   "id": "identity-likely-cascade",
+   "title": "A 'likely' record's company thread becomes a full anchor, which then confirms records, including the record it came from",
+   "severity": "critical",
+   "kind": "wrong-person",
+   "file": "src/server/founder/deepCheck.js",
+   "line": 394,
+   "scenario": "School anchor Stanford. A namesake record says 'John Smith, a Stanford University graduate, founded Zeta Bank' and grades likely. Its trusted thread makes Zeta Bank a 'found' anchor. The same record is then re-graded to confirmed, and 'Zeta Bank founder John Smith sentenced for fraud' becomes a confirmed red flag.",
+   "evidence": "A temporary stepDeepCheck run with a stub connector produced all three records as confirmed, a red flag 'Zeta Bank founder… sentenced', and anchors including Zeta Bank with origin 'found'.",
+   "fix": "Give each anchor a strength. Anchors from confirmed records, or given by the user, can confirm. Anchors taken from likely records (or inferred, encyclopedia or event anchors) can only make a record likely, as gradeOf already does for 'inferred'. Never re-grade a record using an anchor it produced itself (store the origin finding id and skip it).",
+   "filesToChange": [
+    "src/server/founder/deepCheck.js",
+    "src/server/founder/identity.js"
+   ],
+   "dim": "identity",
+   "verdict": "confirmed",
+   "verifyNote": "Sources pass trusted: finding.match !== 'possible', so likely counts as trusted. noteThread (deepCheck.js:385/394) then adds the company as a 'found' anchor, which confirms in matchSubject. gradeOf only caps 'inferred', and regrade raises the original likely record using its own thread.",
+   "betterFix": "Store the anchor's strength and its origin finding id. Only 'given' anchors, and anchors from confirmed records that do not rest on another weak anchor, may confirm. Anchors from likely records can give likely at most (extend gradeOf beyond 'inferred'). Skip an anchor when re-grading the record it came from."
+  },
+  {
+   "id": "identity-byemployer-loose",
+   "title": "byEmployer raises namesake fraud records to 'likely' red flags on employer names that are big companies or ordinary words",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/report.js",
+   "line": 427,
+   "scenario": "The profile reads earlier employers Square and Google from two tied records. A namesake record 'John Smith charged with fraud in Times Square shooting case' and another 'Former Google engineer John Smith indicted' are both raised to likely and both appear under red flags.",
+   "evidence": "The temporary buildReport test gave grades likely and likely, and redFlags contained both titles. The employer regex has the 'i' flag and no check that the word is used as a name. Big employers are not excluded.",
+   "fix": "Make the employer regex case-sensitive and run it through orgMatcher. Exclude employers with a very large headcount (reuse the NOT_PERSON big-company list) or require a second independent anchor. Never raise high or medium severity records by employer alone: list them as namesakes with 'names a former employer' as a hint.",
+   "filesToChange": [
+    "src/server/founder/report.js"
+   ],
+   "dim": "identity",
+   "verdict": "confirmed",
+   "verifyNote": "report.js:427 builds the employer regex with the 'i' flag, and the only boundary is alphanumeric. It has no written-as-name or longer-name test, so 'Times Square' matches 'Square'. The only check on serious records is n>=2 tied records, and big employers are not excluded.",
+   "betterFix": "Use orgMatcher(e.org, subject) in place of the raw regex. Require the employer within the same sentence as the name, and no other affiliation after the name. For high or medium severity, never raise on employer alone: keep the record possible with a hint."
+  },
+  {
+   "id": "identity-cooccurrence-no-proximity",
+   "title": "Name and company anywhere in up to 1,500 characters confirms the record, even when the name belongs to someone at another firm",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/identity.js",
+   "line": 372,
+   "scenario": "Company Stripe. The text 'Stripe raised $1B. Separately, analyst John Smith of Morgan Stanley was charged with fraud.' grades confirmed, and that becomes a red flag for the Stripe founder John Smith. Page-reader and SEC passages with many people hit this often.",
+   "evidence": "In the temporary test, matchSubject returned 'confirmed' for this text. matchSubject checks each anchor against the whole string and never against where the name appears.",
+   "fix": "Require a company anchor within the same sentence as a name occurrence, or within about 200 characters of it. Lower the grade to possible when the name is directly followed by another affiliation (', of <Org>', ', <role> at <Org>') that is not an anchor. Reuse otherPersonBefore and the NAME, role-of-ORG patterns from founderCheck.",
+   "filesToChange": [
+    "src/server/founder/identity.js"
+   ],
+   "dim": "identity",
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced: the Stripe and Morgan Stanley text returned confirmed. matchSubject tests every company anchor against the whole string (up to 1,500 characters of gradeText), with no tie to where the name appears."
+  },
+  {
+   "id": "identity-hyphen-boundary",
+   "title": "Name boundary accepts a hyphen, so 'John Smith' matches 'John Smith-Jones'",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founderCheck.js",
+   "line": 131,
+   "scenario": "Subject John Smith with company Ramp. The text 'John Smith-Jones, founder of Ramp' grades confirmed. Double-barrelled surnames, common in UK and Spanish names, are other people.",
+   "evidence": "In the temporary test, matchSubject returned 'confirmed'. nameRegex uses a (?![A-Za-z0-9]) lookahead, which treats '-' and accented letters as boundaries.",
+   "fix": "Use (?![\\p{L}\\p{N}]|[-‐'’]\\p{L}) as the lookahead and (?<![\\p{L}\\p{N}]|\\p{L}[-‐]) as the lookbehind, with the 'u' flag, in nameRegex. Use the same boundary in orgMatcher, the employer regex and the report's statedRole.",
+   "filesToChange": [
+    "src/server/founderCheck.js"
+   ],
+   "dim": "identity",
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced: 'John Smith-Jones, founder of Ramp' returned confirmed. nameRegex uses (?![A-Za-z0-9]), which treats a hyphen, an apostrophe or an accented letter as a boundary.",
+   "betterFix": "Use lookarounds that allow Unicode letters: (?<![\\p{L}\\p{N}][-‐'’]?) style, with a 'u' flag. Do the same in nameMatcher, orgMatcher and the report regexes. Keep hyphenated given names ('Jean-Pierre') working by including the hyphen in the variant itself."
+  },
+  {
+   "id": "identity-event-anchor-namesake",
+   "title": "Event anchors make any later namesake conviction 'likely', which puts it in red flags",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/identity.js",
+   "line": 385,
+   "scenario": "Wikidata gives a conviction on 2022-10-14. A 2024 record 'John Smith, a Utah man, was convicted of drunk driving' grades likely and becomes a high-severity red flag. With a common name, every later conviction of anyone sharing the name is attached.",
+   "evidence": "In the temporary test, matchSubject with addEventAnchor(convicted, 2022-10-14) and date 2024-03-01 returned 'likely'. The test only checks the event word family and that the record date is after the event.",
+   "fix": "Count an event anchor only when the record's described event date (eventDated) falls within about 60 days of the anchor date, or when it shares a docket or case number. Lower the grade to possible when the record gives a conflicting attribute next to the name (age, hometown, 'a Utah man'). Never let an event anchor alone produce a red flag.",
+   "filesToChange": [
+    "src/server/founder/identity.js",
+    "src/server/founder/report.js"
+   ],
+   "dim": "identity",
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced: an event anchor plus any later date with the same event word gave likely. The test is only withinTenure(date, a.date, '') plus a family regex, with no upper window and no shared matter.",
+   "betterFix": "A fixed 60-day window misses sentencing and appeals that come months later. Require the same matter: a shared docket number, a co-defendant, a known company or agency in the same sentence, or a date within the event's window. Cap event-only matches at possible for severity."
+  },
+  {
+   "id": "identity-sec-confirmed-by-hand",
+   "title": "SEC gradeByTie sets 'confirmed' by hand, and matchFixed skips the inferred-company cap",
+   "severity": "high",
+   "kind": "rule-breach",
+   "file": "src/server/founder/sources/sec.js",
+   "line": 305,
+   "scenario": "No company is given, and resolveIdentity infers 'Acme' from namesake-heavy evidence (origin 'inferred'). sameAsKnown matches registrant 'Acme Holdings Inc' against that anchor. gradeByTie marks the filing confirmed and matchFixed, so the cap at deepCheck.js:716 and regrade both skip it. A namesake's filing stays confirmed.",
+   "evidence": "Handover rule 2 says 'A source never sets confirmed by hand'. sec.js:308 passes match:'confirmed'. sameAsKnown reads every company anchor regardless of origin. deepCheck.js:716 has 'if (f.match !== 'confirmed' || f.matchFixed) continue'.",
+   "fix": "In gradeByTie, set 'likely' when the tie anchor's origin is not 'given' or confirmed-found. Better, pass the registrant name in matchText and let makeFinding grade it. Also apply the inferred cap in deepCheck to records with matchFixed set.",
+   "filesToChange": [
+    "src/server/founder/sources/sec.js",
+    "src/server/founder/deepCheck.js"
+   ],
+   "dim": "identity",
+   "verdict": "confirmed",
+   "verifyNote": "sec.js gradeByTie passes match:'confirmed' to makeFinding, which sets matchFixed (finding.js:123), against handover rule 2. sameAsKnown reads every company anchor, inferred and likely-derived ones included. The cap at deepCheck.js:715 skips records with matchFixed set.",
+   "betterFix": "Set 'likely' in gradeByTie. Or, when the tie anchor is 'given' or comes from a confirmed record, pass the registrant name in matchText and let makeFinding grade it. Apply the inferred and weak-anchor cap to matchFixed records too."
+  },
+  {
+   "id": "identity-name-variants-false-negatives",
+   "title": "True records are dropped when the name is written another way: middle name, suffix, title, accents, hyphen, order",
+   "severity": "high",
+   "kind": "missed-information",
+   "file": "src/server/founderCheck.js",
+   "line": 119,
+   "scenario": "Typed 'Elizabeth Anne Holmes', 'John Smith Jr.', 'Dr. John Smith', 'Jose Garcia' (record 'José García'), 'Jean-Pierre Martin' (record 'Jean Pierre'), 'Wang Xiaoming' (record 'Xiaoming Wang') or 'Eric Glyman' (record 'GLYMAN, ERIC M'). Each record grades 'none' and is dropped, even with the company named beside it.",
+   "evidence": "In the temporary test, all twelve variant pairs except the hyphen case returned 'none'. nameVariants only removes single-letter middle initials. normalizePersonName keeps titles and suffixes. nameRegex is not accent-folded.",
+   "fix": "Strip titles and suffixes in normalizePersonName. Add a first+last variant that drops every middle token. Fold accents on both sides. Allow [\\s-]+ between given-name parts. Match 'Last, First' and reversed order, and nickname pairs (Bill/William), only together with a company anchor, never as a name-only possible.",
+   "filesToChange": [
+    "src/server/founderCheck.js",
+    "src/server/founder/identity.js"
+   ],
+   "dim": "identity",
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced: 'José García' vs Jose Garcia, 'Elizabeth Holmes' vs typed Elizabeth Anne Holmes, and John Smith Jr. vs 'John Smith' all returned none. normalizePersonName keeps titles and suffixes, nameVariants drops only single-letter initials, and nameRegex is not accent-folded. The proposed limits (reordered names and nicknames only with a company anchor) respect rule 2."
+  },
+  {
+   "id": "identity-encyclopedia-related-broad",
+   "title": "Encyclopedia and LittleSis 'related' anchors include very large organisations, which make namesakes 'likely'",
+   "severity": "medium",
+   "kind": "wrong-person",
+   "file": "src/server/founder/identity.js",
+   "line": 227,
+   "scenario": "LittleSis lists membership of Harvard University (knowledge.js:1367). 'John Smith, a Harvard University dentist, was sued' then grades likely, and its threads are trusted, which feeds the cascade above.",
+   "evidence": "In the temporary test, addAnchor('companies','Harvard University','encyclopedia:x') followed by matchSubject on that text returned 'likely'.",
+   "fix": "Do not accept related anchors for organisations with thousands of members (universities, parties, large companies, associations). Use a size or type check from Wikidata instance-of, or a static list. Never let a likely grade that rests only on a related anchor mark threads as trusted.",
+   "filesToChange": [
+    "src/server/founder/identity.js",
+    "src/server/founder/sources/knowledge.js"
+   ],
+   "dim": "identity",
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced: a related anchor for Harvard University gave likely. addAnchor accepts any encyclopedia organisation, and a likely record's threads are trusted, which feeds the cascade above."
+  },
+  {
+   "id": "identity-ordinaryword-inverted",
+   "title": "ordinaryWordOnly demotes true company records and keeps 'boat ramp' records",
+   "severity": "medium",
+   "kind": "accuracy",
+   "file": "src/server/founder/report.js",
+   "line": 453,
+   "scenario": "Company typed 'ramp' in lowercase: 'Ramp raises $500M from investors' is demoted to possible, while 'Company fined after crash at boat ramp' stays a company record. Company 'Merge Labs': 'Merge raises $250M in funding' is demoted, because coWord is the literal 'Merge Labs'.",
+   "evidence": "The temporary buildReport test gave ['Merge Labs','possible'], ['ramp','possible'] and ['ramp boat','company']. STANDS_ALONE is case-sensitive on the typed string and uses the full typed name, not the key.",
+   "fix": "Build coWord from the key in its proper-cased form ('Ramp', 'Merge') and match it case-sensitively, whatever the user typed. Also accept the full typed name. Run the same written-as-name test as orgMatcher, so the two agree.",
+   "filesToChange": [
+    "src/server/founder/report.js"
+   ],
+   "dim": "identity",
+   "verdict": "confirmed",
+   "verifyNote": "coWord comes from the typed state.company and STANDS_ALONE has no 'i' flag. So typed 'ramp' matches 'boat ramp' (which stays company), while 'Ramp raises' gets demoted. 'Merge Labs' as coWord never matches 'Merge raises'."
+  },
+  {
+   "id": "identity-name-commonness",
+   "title": "Grading ignores how common the name is: 'John Smith' needs the same evidence as 'Trevor Milton'",
+   "severity": "medium",
+   "kind": "improvement",
+   "file": "src/server/founder/identity.js",
+   "line": 366,
+   "scenario": "For a common name, one ordinary-word or broad anchor (school, big employer, event) is enough for confirmed or likely, while dozens of name-only records show many distinct people. The report never warns that the name is crowded or asks for more anchors.",
+   "fix": "Estimate how common the name is from the number of distinct organisations among possible records (and Wikidata or registry hit counts). Above a threshold, require two independent anchors for confirmed and one non-broad anchor for likely. Show a 'common name: N different people found' banner in the report.",
+   "filesToChange": [
+    "src/server/founder/identity.js",
+    "src/server/founder/report.js",
+    "src/server/founder/deepCheck.js"
+   ],
+   "dim": "identity",
+   "verdict": "confirmed",
+   "verifyNote": "The code has no estimate of how common a name is and no common-name warning anywhere. Grading needs the same evidence whatever the name. Counting distinct organisations among possible records is free and feasible.",
+   "betterFix": "Count distinct organisations among possible records, and Wikidata hits for the name. Above a threshold, require two independent strong anchors for confirmed. Show a banner without listing the namesakes' details (privacy)."
+  }
+ ]
+}

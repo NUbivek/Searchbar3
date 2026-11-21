@@ -1,0 +1,237 @@
+{
+ "key": "courts",
+ "notes": "All endpoints answered as the code expects on 2026-11-20: DOJ, archive, BrokerCheck (search and detail), Gazette, Find Case Law, GLEIF, BODACC, CFTC, CFPB, Delaware, Federal Register, EUR-Lex SPARQL and the Canadian courts. CourtListener needs its token (401 without one). Delaware is OR-substring matching and allows one year per query. The temporary test file was deleted. Omitted: EU one-word EUIPO parties; CFTC capped at 10 rows; the Gazette person search uses a quoted full name.",
+ "omitted": 3,
+ "findings": [
+  {
+   "id": "courts-inre-captions",
+   "title": "\"In re X, Inc. Securities/Derivative/Stockholder Litigation\" captions never match the company",
+   "severity": "high",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/courts.js",
+   "line": 186,
+   "scenario": "A company check on Nikola or Theranos. Archive title \"In re Nikola Corporation Securities Litigation\" or Delaware caption \"In Re Tesla Motors, Inc. Stockholder Litigation\". caseParties leaves the side as \"Nikola Corporation Securities Litigation\", partyIsCompany returns false, and the case is dropped. The main shareholder class actions and derivative suits never reach the report. The same happens in Delaware, CourtListener, the archive copy and UK case law.",
+   "fix": "In caseParties.tidy, strip a trailing litigation descriptor after \"In re\": /,?\\s+(?:Consolidated\\s+)?(?:Stockholders?'?|Shareholders?'?|Securities|Derivative|ERISA|Merger|Appraisal|Section\\s+\\d+|Antitrust|Data Breach|Consumer|Class Action)?\\s*(?:Litigation|Litig\\.|Actions?|Cases?)$/i. Keep the company part (\"Nikola Corporation\") as the side. Add a test for each of these caption forms.",
+   "evidence": "Audit jest run: caseParties('In re Nikola Corporation Derivative Litigation').sides gives ['Nikola Corporation Derivative Litigation'] and isCompany false. delawareCourtsConnector found 0 for that caption. The archive company run kept 'Borteanu v. Nikola Corporation' and dropped the In re title.",
+   "filesToChange": [
+    "src/server/founder/sources/courts.js",
+    "tests/unit/features/founderSource.courts.test.js"
+   ],
+   "dim": "courts",
+   "verdict": "confirmed",
+   "verifyNote": "caseParties.tidy strips only the leading 'In re'. The side stays 'Nikola Corporation Securities Litigation', sameCompany fails, and partyIsCompany returns false. The class and derivative captions are dropped from every caller, including headlineNamesCompany, Delaware, the archive and UK case law.",
+   "betterFix": "Strip the descriptor only on a side that began with 'In re' or 'In the matter of', so that a real party named '... Litigation Trust' stays intact. Also handle 'Stockholders Litigation' and 'Securities Litigation' after 'Inc.'. Grade the match 'company' (party-level), never a personal tie."
+  },
+  {
+   "id": "courts-doj-oneword-company",
+   "title": "DOJ and CFTC company lookups drop every headline for one-word companies (Theranos, FTX, Nikola)",
+   "severity": "high",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/courts.js",
+   "line": 826,
+   "scenario": "A check on Elizabeth Holmes / Theranos. The DOJ company search returns the 2018 release \"Theranos Founder and Former Chief Operating Officer Charged In Alleged Wire Fraud Schemes\". Its body names Holmes, but headlineNamesCompany needs a legal form and drops it. The title-name search never sees it because her name is not in the title, so her indictment release is missed. The CFTC release \"Judgment Against FTX and Alameda\" is lost the same way.",
+   "fix": "In the title.company and CFTC/CFPB company paths, also keep a release when its headline has the core word capitalised AND either releaseNaming(rel, who) finds the subject in the body (grade it through aboutSubject, as now) or textNamesCompany(body, company) finds the company with its legal form (grade it 'company'). Keep the strict headline rule only when neither holds.",
+   "evidence": "Live DOJ API, title=Theranos: 6 releases, including the 2018 charge release; its body names Elizabeth Holmes. Audit test: DOJ title.company returned 0 findings for it, and enforcementActionsConnector('FTX') returned 0 for both CFTC titles.",
+   "filesToChange": [
+    "src/server/founder/sources/courts.js",
+    "tests/unit/features/founderSource.courts.test.js"
+   ],
+   "dim": "courts",
+   "verdict": "confirmed",
+   "verifyNote": "For 'Theranos', full equals the core, so the second test returns false, and a title like 'Theranos Founder ... Charged' is not a case side. The release is dropped before releaseNaming runs. title.name and title.surname-company also need the name in the headline, so the indictment release is lost. The CFTC company path uses the same gate."
+  },
+  {
+   "id": "courts-delaware-or-substring",
+   "title": "Delaware search matches substrings joined by OR, so multi-word queries fill the 100-row cap with noise",
+   "severity": "medium",
+   "kind": "accuracy",
+   "file": "src/server/founder/sources/courtsMore.js",
+   "line": 281,
+   "scenario": "Company \"Mistral AI\": the code sends ss=Mistral AI, and every year returns the maximum of 100 rows (\"ai\" matches Claim, Bailey and others). A real Mistral AI case beyond row 100 is never read, and every year is marked partial. For a person, ss=\"Rich Tornetta\" returns Aldrich, Zurich and Richardson captions. A common first name (Sam, John) caps out the same way.",
+   "fix": "Quote the search: send ss=\"<company core>\" as a phrase for companies, and the quoted surname alone for people (sameName still filters on the full name). Fix the comment that says the search \"matches every word\". Add a parse test using a captured page.",
+   "evidence": "Live courts.delaware.gov, 2024: ss=Tornetta gives 7 rows; unquoted 'Rich Tornetta' gives 21 (Aldrich, Zurich, Urich); quoted 'Richard J. Tornetta' gives 7; unquoted 'Mistral AI' gives 100, the cap.",
+   "filesToChange": [
+    "src/server/founder/sources/courtsMore.js",
+    "tests/unit/features/founderSource.courtsMore.test.js"
+   ],
+   "dim": "courts",
+   "verdict": "confirmed",
+   "verifyNote": "delawareUrl sends the words unquoted, and the code comment assumes AND semantics. The cap is already reported as partial (the capped years go into partial), so coverage stays honest. The real harm is noise and cases missed beyond row 100. Severity is lowered for that reason.",
+   "betterFix": "Quote the company core. For people, send the quoted surname and keep the sameName filter. When a common surname still caps a year, retry that year with the quoted 'Given Surname' and the quoted queryNames, and keep the partial note. Fix the comment."
+  },
+  {
+   "id": "courts-quoted-fullname-misses-middle",
+   "title": "Quoted full-name searches miss records filed with a middle name or initial",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/courtsMore.js",
+   "line": 458,
+   "scenario": "The user types \"Arthur Gau\". The Federal Register query \"Arthur Gau\" (quoted) returns 0, but his export-denial order is filed as \"Arthur Ching-Fu Gau\". The archive search title:(\"Elizabeth Holmes\") finds 23 titles, while Elizabeth AND Holmes finds 33, including \"Elizabeth A Holmes\". Agency orders and dockets usually carry the legal middle name, so real orders and cases are missed.",
+   "fix": "Search with the words joined by AND instead of a quoted phrase: Federal Register term `(Given Surname)` or the quoted forms; archive title:(Given AND Surname); Canada and Gazette the same where supported. Also query who.queryNames (the formal given name). sameName and namesPerson already allow up to two middle parts, so precision is unchanged. Raise rows or perPage modestly.",
+   "evidence": "Live federalregister.gov: term '\"Arthur Gau\"' gives count 0; 'Arthur Gau' gives 5, including the Gau denial order. archive.org: phrase 23 against AND 33 for Elizabeth Holmes.",
+   "filesToChange": [
+    "src/server/founder/sources/courtsMore.js",
+    "src/server/founder/sources/courts.js"
+   ],
+   "dim": "courts",
+   "verdict": "confirmed",
+   "verifyNote": "The Federal Register person term is built from quoted queryNames, and iaTitles quotes who.name, so 'Arthur Ching-Fu Gau' and 'Elizabeth A Holmes' are missed. This is real, but unquoted AND searches over Federal Register full text raise noise and counts for common names. Severity is lowered.",
+   "betterFix": "For the archive, use title:(Given AND Surname), which is safe because titles are short and sameName filters the results. For the Federal Register, try a proximity phrase (\"Given Surname\"~3) if the API supports it, otherwise AND. Keep the quoted query first, cap the reads, and set partial when the count exceeds the reads."
+  },
+  {
+   "id": "courts-criminal-label",
+   "title": "isCriminalCase marks civil suits by State Farm, People's Bank or US CFTC as criminal (high severity)",
+   "severity": "medium",
+   "kind": "accuracy",
+   "file": "src/server/founder/sources/courts.js",
+   "line": 304,
+   "scenario": "The archive title \"State Farm Fire and Casualty Company v. Trevor Milton\" or \"People's United Bank v. Trevor Milton\" or \"United States Commodity Futures Trading Commission v. Trevor Milton\". With no docket number, the regex matches state/people/united states as a prefix word. Each is graded severity 'high' as a criminal case. An insurance or loan suit becomes a serious namesake or, once tied, a red flag.",
+   "fix": "Require the government party to be the whole first side: caseParties(caseName).sides[0] must match ^(?:united states(?: of america)?|usa|u\\.s\\.a?\\.?|the people(?: of the state of \\w+)?|people of the state of .+|state of \\w+( \\w+)?|commonwealth(?: of \\w+)?)$, so it is no longer only a prefix. Treat 'United States <Agency> v.' as civil enforcement (medium).",
+   "evidence": "Audit test: courtRecordsOpenConnector graded all three titles severity 'high'.",
+   "filesToChange": [
+    "src/server/founder/sources/courts.js"
+   ],
+   "dim": "courts",
+   "verdict": "confirmed",
+   "verifyNote": "The regex ^(...|people|state|commonwealth)\\b[^,]*\\sv. matches 'State Farm ... v.' and 'People's United Bank v.'. Line 538 then grades severity high when there is a party hit.",
+   "betterFix": "Test caseParties(caseName).sides[0] as a whole against: united states( of america)?, usa, u.s.(a.)?, (the )?people( of the state of .+)?, state of .+, commonwealth( of .+)?. The bare 'People' and 'State' must stay. Treat 'United States <agency>' and 'SEC v.' as civil enforcement, medium."
+  },
+  {
+   "id": "courts-iapd-silent-fail",
+   "title": "BrokerCheck: a failed SEC adviser search is swallowed and reported as 'no registration'",
+   "severity": "medium",
+   "kind": "honesty",
+   "file": "src/server/founder/sources/courts.js",
+   "line": 958,
+   "scenario": "The SEC adviser search (api.adviserinfo.sec.gov) times out or returns 5xx. `.catch(() => [])` turns that into an empty list, and if FINRA has no hit the connector notes \"No broker or investment adviser registration under this name\". A pure investment adviser with a disclosure history is reported as clean.",
+   "fix": "Catch the adviser search failure and record it: return `partial: ['SEC adviser records (did not answer)']` with a note. Do not claim 'no registration' unless both searches answered.",
+   "evidence": "Line 958: bcHits(IAPD_SEARCH...).catch(() => []), then line 966 returns the clean note when hits is empty.",
+   "filesToChange": [
+    "src/server/founder/sources/courts.js"
+   ],
+   "dim": "courts",
+   "verdict": "confirmed",
+   "verifyNote": "Line 958 uses .catch(() => []) on the IAPD search. If FINRA has no hit, the connector says 'No broker or investment adviser registration', which overstates coverage and breaks the honest-coverage rule."
+  },
+  {
+   "id": "courts-truncation-not-partial",
+   "title": "Truncated result lists in courts.js are never reported as partial",
+   "severity": "medium",
+   "kind": "honesty",
+   "file": "src/server/founder/sources/courts.js",
+   "line": 719,
+   "scenario": "Several connectors read only the first page and never set `partial`, so the screen shows 'no match' or 'records' as if complete: DOJ (25 of `count`), CourtListener (count > results gives a note only), the archive person search (rows=50, numFound ignored), BrokerCheck (only 2 of N namesakes), Gazette (20 of f:total), UK case law (20 per page) and the charged-docket search failure. A common name (John Smith) loses older releases or dockets about the real person.",
+   "fix": "Return `partial: [...]` wherever count or total exceeds what was read, as courtsMore.js does. For DOJ, page through (page=1..3) while count exceeds what was read. For BrokerCheck, sort hits by firm overlap with known companies first, then set partial when more than 2 remain.",
+   "evidence": "In courts.js, no connector returns `partial`. The DOJ live metadata gives resultset.count, which is used only for the >3000 guard. The BrokerCheck audit test with 5 namesakes returned 2 findings and no partial.",
+   "filesToChange": [
+    "src/server/founder/sources/courts.js"
+   ],
+   "dim": "courts",
+   "verdict": "confirmed",
+   "verifyNote": "courts.js never returns partial. DOJ reads 25 results and ignores count, CourtListener writes a note only, the archive ignores numFound, BrokerCheck reads 2 of N, and a failed chargedDockets call only adds a note. courtsMore.js does set partial.",
+   "betterFix": "Add partial wherever more results exist than were read, and for the chargedDockets failure. For DOJ, page through only while the deadline allows. For BrokerCheck, rank the hits by firm overlap with the known companies before reading the top 2."
+  },
+  {
+   "id": "courts-delaware-12y",
+   "title": "Delaware covers only 2015 onward; the court's archive reaches 2000",
+   "severity": "low",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/courtsMore.js",
+   "line": 275,
+   "scenario": "A founder whose earlier company had a Chancery fight in 2008–2014 (appraisal, fiduciary or derivative suit). captions.recent and captions.older cover thisYear back to thisYear-11, so the case is never searched. The report does not say that years before 2015 were out of scope.",
+   "fix": "Add a 'captions.archive' template for 2000 to thisYear-12, one request per year (the court rejects ranges over a year). Give it a low prior and run it only when dated anchors or records show activity before 2015. Always add a note naming the years covered and listing the earlier years as not searched.",
+   "evidence": "Live: from=1995..2013 returns 'Difference between From and To dates cannot be more than an year'. Single years 2005 and 2000 (ss=Disney) return result tables.",
+   "filesToChange": [
+    "src/server/founder/sources/courtsMore.js"
+   ],
+   "dim": "courts",
+   "verdict": "confirmed",
+   "verifyNote": "The span is DE_RECENT_YEARS (5) plus DE_OLDER_YEARS (7), so 12 years. The note names the years covered, but nothing says earlier years were not searched. Adding years costs one request per year, so gate it as proposed. Severity is lowered because the note already states the range."
+  },
+  {
+   "id": "courts-bodacc-gleif",
+   "title": "BODACC finds a SIREN only through the LEI register, so most French startups are never screened",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/courts.js",
+   "line": 1178,
+   "scenario": "A French startup without an LEI (most small companies have none), or a company typed \"Mistral\" while its legal name is \"MISTRAL AI\" (the strict sameCompany fails). sirensFor returns [], and the note says the company \"was not found as a French company\". The insolvency, sale and dissolution notices are never searched.",
+   "fix": "Find the SIREN through the recherche-entreprises.api.gouv.fr lookup that sources/registries.js already uses (free, keyless, government). Better still, reuse the SIREN from a confirmed fr-companies finding. Keep GLEIF as a fallback. When nothing resolves for a company tied to France, return partial rather than a clean note.",
+   "evidence": "GLEIF legalName=Mistral AI with country FR gives one record, 952418325. BODACC with that SIREN works (18 notices). registries.js line 705 already calls recherche-entreprises.",
+   "filesToChange": [
+    "src/server/founder/sources/courts.js"
+   ],
+   "dim": "courts",
+   "verdict": "confirmed",
+   "verifyNote": "sirensFor queries only GLEIF with a strict sameCompany. Small French firms without an LEI, or a name typed without its full legal form, return none, and the note then says the company is 'not found as a French company'. registries.js already uses recherche-entreprises.api.gouv.fr (line 705), which is free and keyless."
+  },
+  {
+   "id": "courts-sec-cftc-dockets",
+   "title": "Charged-docket search ignores the parallel SEC and CFTC civil cases",
+   "severity": "low",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/courts.js",
+   "line": 630,
+   "scenario": "Trevor Milton: the archive has \"U.S. Securities and Exchange Commission v. Milton\" (nysd, copied 2021-07-30, the day after the charge). chargedDockets only asks for \"United States v.\" and \"USA v.\" titles, so the SEC fraud suit is never shown, even as possible.",
+   "fix": "Add the alternatives `Securities and Exchange Commission v. <surname>` and `Commodity Futures Trading Commission v. <surname>` to the anyOf list. Grade them 'possible' with the same district and one-year window, severity medium (civil enforcement).",
+   "evidence": "Live archive.org, court:nysd title:Milton: 'U.S. Securities and Exchange Commission v. Milton' gov.uscourts.nysd.564121, publicdate 2021-07-30.",
+   "filesToChange": [
+    "src/server/founder/sources/courts.js"
+   ],
+   "dim": "courts",
+   "verdict": "confirmed",
+   "verifyNote": "chargedDockets passes only 'United States v.' and 'USA v.' alternatives. sides[0] must also match united states or usa, and isCriminalCase must hold, so an SEC or CFTC caption is excluded even if added. The fix must loosen those checks for the civil branch."
+  },
+  {
+   "id": "courts-cl-fallback",
+   "title": "When the CourtListener allowance runs out, no docket search runs",
+   "severity": "low",
+   "kind": "robustness",
+   "file": "src/server/founder/sources/courts.js",
+   "line": 668,
+   "scenario": "With a token set, the archive fallback is switched off (enabled: !clToken()). After 118 CourtListener calls a day, or a few busy checks, every docket lookup throws 'used up their allowance'. Those checks get no federal docket coverage at all, though the free archive title search could answer.",
+   "fix": "In courtDocketsConnector.run, catch the allowance error and run the archive title search (iaTitles plus chargedDockets) instead. Mark the result partial ('case titles only'). The CourtListener counters live in process memory, so also treat a 429 as allowance exhausted.",
+   "evidence": "Line 668 `enabled: () => !clToken()`. clAllowance throws a retryable HttpError when the daily or hourly count is used up.",
+   "filesToChange": [
+    "src/server/founder/sources/courts.js"
+   ],
+   "dim": "courts",
+   "verdict": "confirmed",
+   "verifyNote": "With a token set, courtRecordsOpenConnector is disabled (enabled: !clToken()). clAllowance throws a retryable error once the day's allowance is used, and nothing falls back to the archive. The counters are in process memory only."
+  },
+  {
+   "id": "courts-gaps",
+   "title": "Coverage gaps: state courts, tax court, bankruptcy detail, other countries",
+   "severity": "low",
+   "kind": "improvement",
+   "file": "src/server/founder/sources/courts.js",
+   "line": 1,
+   "scenario": "A founder sued in California or New York state court, a Tax Court fraud-penalty case, or a case in Australia or Germany: nothing in scope can find it. The archive shows a docket title but no case number, filing date or parties, so the open item 'criminal docket stays possible' remains.",
+   "fix": "Best free step: set COURTLISTENER_API_TOKEN (free account). It adds state appellate opinions (type o), full parties and case numbers. State trial courts have no free keyless permitted source, so keep listing them as not covered. Check the US Tax Court DAWSON public opinion search's terms before adding it. Dutch and German judgments are pseudonymised (company-level only). CanLII and Judilibre need keys.",
+   "evidence": "CourtListener search without a token returns 401. Its HTML is blocked by CloudFront for this agent. The archive item metadata (nysd.564175) has no docket.xml, only PDFs, so no case number is available keylessly.",
+   "filesToChange": [
+    "FOUNDER-CHECK.md"
+   ],
+   "dim": "courts",
+   "verdict": "confirmed",
+   "verifyNote": "The CourtListener token is free and the site is non-commercial, so this is feasible. State trial courts have no free, keyless, permitted source, so they should stay listed as not covered. Tax Court needs its terms checked first. This is documentation and configuration more than a code defect."
+  },
+  {
+   "id": "courts-cfpb-weak-check",
+   "title": "CFPB page check accepts any page, so a layout change silently returns nothing",
+   "severity": "low",
+   "kind": "robustness",
+   "file": "src/server/founder/sources/courts.js",
+   "line": 1276,
+   "scenario": "consumerfinance.gov changes its markup (no o-post-preview) or serves a maintenance page. Every page from that site contains the word 'enforcement', so the guard passes and the action list is empty. The source shows 'no match' for every company.",
+   "fix": "Require o-post-preview articles, or the site's own empty marker ('no results based on your filter selections'). Throw an HttpError otherwise. Also add a CFPB title search to the person path, since CFPB names individuals in action titles.",
+   "evidence": "Live: the empty CFPB search page contains 'no results based on your filter selections.' and 0 o-post-preview. The code's guard is /o-post-preview|enforcement/i.",
+   "filesToChange": [
+    "src/server/founder/sources/courts.js"
+   ],
+   "dim": "courts",
+   "verdict": "confirmed",
+   "verifyNote": "The guard /o-post-preview|enforcement/i passes on any consumerfinance.gov page, because the URL path contains 'enforcement'. A markup change then yields an empty list that is read as no match. The CFPB search also runs only on the company path."
+  }
+ ]
+}

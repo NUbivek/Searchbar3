@@ -1,0 +1,270 @@
+{
+ "key": "report",
+ "notes": "The temporary test tests/unit/features/zzAudit.report.test.js was created, run and deleted, and no repo files were changed. Lesser findings left out: businessHistory turns 'resigns amid SEC probe' into career; Karim Atiyeh's Form D roles are not shown; screensOf caps cites at 6; dateWindows chaining; r9 #85 is mis-dated (title says 2026, dated 2024). Saved reports strip score, so I re-derived the ranking in tests.",
+ "omitted": 5,
+ "findings": [
+  {
+   "id": "report-relative-wrong-referent",
+   "title": "Relatives and co-founders of OTHER people are pinned on the founder",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/extract.js",
+   "line": 116,
+   "scenario": "Text 'Trevor Milton sued Ford CEO Jim Farley and his brother John Farley, chairman of Acme Holdings' gives relative John Farley, 'brother', role chairman. 'Ford founder Henry Ford and co-founder Jim Smith spoke' gives associate Jim Smith as Milton's co-founder. Both become trusted threads, are searched with the founder and are listed under Related parties.",
+   "fix": "Relatives: accept his/her/their only when the nearest preceding person name or pronoun antecedent in the sentence is the subject (no other full name between the subject and the kin word). Co-founder: run the ofAnother test on the nearest preceding proper noun, skipping 'and', so '<Org> founder X and co-founder Y' counts as another company's.",
+   "evidence": "Temporary jest run: relativesFromText returned John Farley as brother/chairman; associatesFromText returned Jim Smith 'named as a co-founder'.",
+   "filesToChange": [
+    "src/server/founder/extract.js",
+    "tests/unit/features/founderDeepExtract.test.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-gaps-company-role-unverified",
+   "title": "Second reader's made-up role makes any company it mentions a fully checked 'own' company",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/gaps.js",
+   "line": 128,
+   "scenario": "A confirmed record names Milton and also says 'Ford CEO Jim Farley announced a recall'. The model proposes {company:'Ford', role:'co-founder'}. verifyGaps keeps it as trusted thread 'co-founder; named in a record about the person (News)', and tieOf() returns 'primary'. Ford is then checked in full, and its lawsuits and recalls land as records about 'a company they founded or run'.",
+   "fix": "Check companies the way people are checked: the role words (PRIMARY_TIE) must be in a sentence that names both the subject and the company, otherwise keep the thread with role '' and the why 'named with the person'. That makes it an affiliate. Never copy x.role into why unless it appears in that sentence.",
+   "evidence": "Jest repro: verifyGaps kept Ford with why 'co-founder; named in a record...', and tieOf gave 'primary'.",
+   "filesToChange": [
+    "src/server/founder/gaps.js",
+    "tests/unit/features/founderDeepGaps.test.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-gaps-associate-other-sentence",
+   "title": "Associates from the second reader need no sentence that names the founder",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/gaps.js",
+   "line": 71,
+   "scenario": "For the same record, the model proposes Jim Farley with tie 'business'. tieIn finds 'CEO' in Farley's sentence, which never names Milton, and returns 'stated'. Farley becomes a trusted associate: screened, searched together with Milton and shown under Related parties. This contradicts the file header's rule that the tie must be in a sentence naming the person.",
+   "fix": "In tieIn, count TIE_WORDS only when the same sentence also matches subject.hasName, or opens with a pronoun that continues a sentence naming the subject (reuse sentencesAbout from extract.js). Add a regression test with two sentences.",
+   "evidence": "Jest repro: threads included {kind:'associate', value:'Jim Farley', trusted:true}.",
+   "filesToChange": [
+    "src/server/founder/gaps.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-claimchanges-noise-wrong-person",
+   "title": "'Claims that changed' lists other people's bios and marketing-copy edits",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/report.js",
+   "line": 632,
+   "scenario": "In r9 Glyman, #37 is the bio of 'Stefanie', a content marketer, on a ramp.com blog page. It is graded confirmed and shown as his claim change. #19, #21, #30 and #33 are product-copy and podcast blurb rewrites, as are #4 and #8 in r8 (Shensi Ding). Only #1, #8, #105 and #109 are real claim changes.",
+   "fix": "Keep a change only when the before or after text names the subject (or opens with a pronoun on the subject's own profile page) and the difference touches a claim token: a title, employer, school, degree or year. Put the other changes in the archive section only, never in claimChanges or the brief.",
+   "evidence": "r9 claimChanges: n=37 with quote 'Prior to Ramp, Stefanie worked as a finance reporter...', and n=21 with 'Easy-to-use cards, funds, approval flows...'.",
+   "filesToChange": [
+    "src/server/founder/report.js",
+    "src/server/founder/sources/archiveClaims.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-clean-screens-false",
+   "title": "'Screens with no match' claims clean for screens that waited out, partly answered, or never ran fully",
+   "severity": "high",
+   "kind": "honesty",
+   "file": "src/server/founder/report.js",
+   "line": 132,
+   "scenario": "Sanctions ran 1 lookup and waited out 4; UK Gazette returned partial=['notices']. screensOf marks both 'partial', but cleanScreens lists both under 'Screens with no match' in the brief and in the model's prompt. SCREENS also lacks the delaware-courts, eu-courts, canada-federal-courts, us-bank-regulators, fincen-actions, leak-sites and breach-catalogue ids, so real clean screens go unstated (as in the r9 brief).",
+   "fix": "Build cleanScreens from screensOf output: status === 'clear' only, with labels from SCREEN_GROUPS and source labels. Delete the separate SCREENS map and the stale 'bodacc' and 'icij' ids. Add waitedOut and partial to coverage.searched rows.",
+   "evidence": "Jest repro: screens sanctions-lists:partial and uk-gazette:partial, yet cleanScreens returned ['sanctions (US, UN, EU, UK, Canada)','UK Gazette notices'].",
+   "filesToChange": [
+    "src/server/founder/report.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-screened-from-failed",
+   "title": "Related party shown as 'screened' when its watchlist lookup failed or waited out",
+   "severity": "high",
+   "kind": "honesty",
+   "file": "src/server/founder/report.js",
+   "line": 636,
+   "scenario": "The sanctions lookup for associate Karim Atiyeh fails with HTTP 503. deepCheck still pushes the task key into state.done (failed and waited-out tasks stay in `ran`), and buildReport marks him screened:true. Screens by mdb-debarment, us-bank-regulators and fincen-actions never count, because WATCHLISTS omits them.",
+   "fix": "In deepCheck, record failed and waited-out task keys (state.failed) and remove them from done, or record succeeded screens explicitly. The report sets screened only from succeeded watchlist tasks and lists the screens that failed for each party. Add mdb-debarment, us-bank-regulators and fincen-actions to WATCHLISTS.",
+   "evidence": "Jest repro: sources errors=1 of runs=1 and done=['sanctions-lists|associate|Karim Atiyeh|screen'] gave relatedParties[0].screened === true.",
+   "filesToChange": [
+    "src/server/founder/report.js",
+    "src/server/founder/deepCheck.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-flag-order-sanctions-last",
+   "title": "Sanctions, debarment and wanted-list red flags sort below a resignation",
+   "severity": "high",
+   "kind": "accuracy",
+   "file": "src/server/founder/report.js",
+   "line": 177,
+   "scenario": "A confirmed high-severity World Bank debarment (category sanctions, source mdb-debarment) and a medium 'Trevor Milton resigns as chairman' press item are both red flags. flagWeight gives the debarment 0, because FLAG_WEIGHTS has no sanction, debar or wanted terms and only 'regulatory' has a fallback. The resignation (1) leads, and severity is never compared.",
+   "fix": "Give category sanctions weight 5 and regulatory 4 before the title is read. Add bar and sanction events to FLAG_WEIGHTS, and break ties on SEVERITY_WEIGHT before sourceAuthority. Add mdb-debarment, us-bank-regulators, fincen-actions, delaware-courts, eu-courts, canada-federal-courts and us-agency-orders to PRIMARY_SOURCES so the authority's record leads its matter.",
+   "evidence": "Jest repro: redFlags order was [web-search medium resignation, mdb-debarment high].",
+   "filesToChange": [
+    "src/server/founder/report.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-coverage-contradictions",
+   "title": "Coverage text contradicts the screens: Delaware 'not covered' after it ran; partial sources unmentioned",
+   "severity": "medium",
+   "kind": "honesty",
+   "file": "src/server/founder/report.js",
+   "line": 204,
+   "scenario": "In r9, delaware-courts answered 3 lookups (clear), yet notCovered says 'Court dockets (CourtListener is not enabled...), including US state courts and the Delaware Court of Chancery'. us-agency-orders, federal-register and us-lobbying show 'partial' in screens, but partlyAnswered ignores s.partial, so the brief's gaps section is silent about them. Web archive's 3 failed lookups out of 25 are not mentioned either.",
+   "fix": "Drop the Delaware clause when delaware-courts answered. Include sources with s.partial in partlyAnswered (reason: 'parts did not answer: ...'). List every failed lookup count under 20% as a one-line note, not nothing.",
+   "evidence": "Jest repro and r9 brief: the notCovered[0] string, and screens us-agency-orders 'partial' absent from GAPS.",
+   "filesToChange": [
+    "src/server/founder/report.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-rank-noise-first",
+   "title": "Name-only noise is numbered ahead of every record about the person",
+   "severity": "medium",
+   "kind": "ux",
+   "file": "src/server/founder/report.js",
+   "line": 233,
+   "scenario": "score() weighs severity x3 over match x2, so a possible medium item (9) outranks a confirmed info one (7). In r9, #2-#7 are the RAMP & CO LTD liquidation, 'Body found near ... Boat Ramp', and 'The Ramp church ... abused two minors', all ahead of #9 onward. Hacker News 'Ramp-Up' (#134-#136), placeholder text (r8 #37/#38) and a people-search-style bio site (#137) are kept too.",
+   "fix": "Rank tied records first: sort by match tier (confirmed/likely, company, possible), then score. Drop records with data.companyNamesake that name neither the person nor the company as a name. Drop pages whose snippet advertises age, net worth or marital status (people-search style), and template placeholder text.",
+   "evidence": "Jest repro: four possible records numbered 1-5 before the confirmed one. r9 sources #5 and #7.",
+   "filesToChange": [
+    "src/server/founder/report.js",
+    "src/server/founder/guardrails.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-duplicate-pages",
+   "title": "One page is counted 3-11 times, which inflates totals; archived copies and own posts lose their tie",
+   "severity": "medium",
+   "kind": "accuracy",
+   "file": "src/server/founder/report.js",
+   "line": 481,
+   "scenario": "r8: merge.dev is #3/#13/#20, forbes #5/#6/#16/#21, accel #10/#15/#22, plus #37/#38 graded possible. The substack page is #14/#26. The bottom line says '26 tied' but there are about 10 pages. r9 has 11 copies of the Fortune pieces, and 'Gil Feig' lists 13 records. Her own post x.com/shensi/status/... (#44) is 'possible'.",
+   "fix": "Canonicalise URLs: strip the web.archive.org prefix and www, resolve page-reader and search duplicates. Group them as one record with alsoIn, and give the group its strongest tie. A URL under a trusted profile URL (x.com/shensi/...) is at least likely. Count totals per page.",
+   "evidence": "r8 sections archive, career, press and identity listings; r8 #44 url https://x.com/shensi/status/2123466322440818768 has match possible.",
+   "filesToChange": [
+    "src/server/founder/report.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-timeline-capture-dates",
+   "title": "Timeline is archive capture dates and a 1994 domain; real career events are missing",
+   "severity": "medium",
+   "kind": "accuracy",
+   "file": "src/server/founder/report.js",
+   "line": 625,
+   "scenario": "In r9, 39 of 47 timeline rows are 'page as of' or 'archived N times' captures, and the first event is 'ramp.com: registered 1994-03-14' (a domain bought later). Paribus founded 2014, acquired by Capital One 2016, Ramp founded March 2019 and Harvard 2012 are absent. In r8, 8 of 9 rows are captures.",
+   "fix": "Exclude archive snapshot and summary records (data.kind !== 'change') from the timeline. Put a domain registered before the company's founding year as 'domain first registered (earlier owner)', off the timeline and out of WHAT CHECKS OUT. Add dated events read from tied quotes (founded/joined/graduated/acquired + year) with their cites.",
+   "evidence": "r9 timeline dump: 1994-03-14 n=103 first, followed mostly by archive rows.",
+   "filesToChange": [
+    "src/server/founder/report.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-gazette-not-merged",
+   "title": "One liquidation is shown as three 'possible namesake' matters",
+   "severity": "medium",
+   "kind": "accuracy",
+   "file": "src/server/founder/report.js",
+   "line": 533,
+   "scenario": "In r9, the UK Gazette notices #2, #3 and #4 (Appointment of Liquidators, Notices to Creditors, Resolutions for Winding-up) for RAMP & CO LTD on 2024-07-23 are three entries under 'Possible namesakes' and three 'Rule out' bullets in the brief. Name-only grouping needs 2 shared headline words and Jaccard 0.4, and these headlines share none.",
+   "fix": "In matterKey, group register and gazette records by the legal company name in the record plus the date (or within 14 days), before headline matching. Use the notice company from the title or quote, normalised.",
+   "evidence": "r9 possibleNamesake list: n=2, 3, 4, each with more=[].",
+   "filesToChange": [
+    "src/server/founder/report.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-ordinary-word-demotion",
+   "title": "Real company news demoted to 'not clearly this company'",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/report.js",
+   "line": 456,
+   "scenario": "In r9, #6 'After a failed partnership, Ramp's backers lobbied Washington to probe rival Airwallex's China ties' (Dealroom, The Information) is about Ramp. BUSINESS lacks backers, rival, partnership, lobbied and fintech-peer words, so ordinaryWordOnly marks it possible and it lands with the possible namesakes.",
+   "fix": "Widen BUSINESS (backers, rival, partnership, lobby*, competitor, deal, acquisition, payments, card, expense, Series, round). Treat the possessive or capitalised company word followed by a business noun as a name. Also accept a known peer company name (from tied records) in the same text.",
+   "evidence": "r9 #6 matchReasons: 'the word \"Ramp\" appears, but not clearly as this company'. Jest repro reproduced match=possible.",
+   "filesToChange": [
+    "src/server/founder/report.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-profile-no-model-thin",
+   "title": "Without a model, profile and 'What checks out' drop the LinkedIn and Crunchbase facts the records hold",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/report.js",
+   "line": 738,
+   "scenario": "In r9, archived Crunchbase and LinkedIn records state 'Co-Founder, CEO, Paribus (2014 - Feb 2019)', 'Harvard University (2008 - 2012)' and 'BA, Economics'. The profile shows Harvard only, with degree null (hard-coded), and earlier: []. WHAT CHECKS OUT lists ABS-15G and domain records instead. byEmployer cannot then raise the BrokerCheck Credit Suisse record (r8 #29), the Capital One patent (#124) or RAMP BUSINESS UK LTD (#115).",
+   "fix": "Parse the 'Experience:' and 'Education:' fields of tied profile snippets and archives into roles (with years), education (with degree and field) and founded. Pass degree and field through reportProfile. Build WHAT CHECKS OUT from profile lines backed by an independent record. Let byEmployer also use the legal names in confirmed filings (Form D issuer).",
+   "evidence": "r9 profile: earlier [], education degree null. Quotes in r9 #106 and #34.",
+   "filesToChange": [
+    "src/server/founder/report.js",
+    "src/server/founder/profile.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-substack-profile-link",
+   "title": "An interviewer's Substack is listed as the founder's profile link",
+   "severity": "medium",
+   "kind": "wrong-person",
+   "file": "src/server/founder/extract.js",
+   "line": 300,
+   "scenario": "In r8, a trusted thread 'https://notanotherceo.substack.com' ('substack profile') appears, and the Profile card lists it as Shensi Ding's link. It is David Politis's newsletter. profileFromUrl maps any article URL on a substack.com subdomain to a profile of that subdomain.",
+   "fix": "For Substack (and medium.com/@), return a profile only for the root URL, never for /p/ article paths. In profile.js links, include a profile only when handleFitsSubject(subject, handle) or when the link came from the person's own Person node sameAs.",
+   "evidence": "profileFromUrl('https://notanotherceo.substack.com/p/shensi-ding-merge-74') returned {platform:'substack', handle:'notanotherceo'}. r8 profile.links includes it.",
+   "filesToChange": [
+    "src/server/founder/extract.js",
+    "src/server/founder/profile.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  },
+  {
+   "id": "report-silent-caps",
+   "title": "Caps cut records without telling the reader",
+   "severity": "low",
+   "kind": "honesty",
+   "file": "src/server/founder/report.js",
+   "line": 627,
+   "scenario": "The timeline slices at 60, capWikiOther drops articles from the report and its totals, and the quoted brief keeps 14 red flags, 8 company matters, 10 checks, 10 claim changes, 10 related parties, 8 namesakes and 5 possible changes. writeDeepBrief sends 12 company matters. None of these says how many were left out, so a 15th red flag disappears from the brief.",
+   "fix": "Return omitted counts (timelineOmitted, wikiOtherDropped) in the report. In quotedDeepBrief, append '… and N more [see report]' after every slice. Tell the model 'N more company matters not shown'.",
+   "evidence": "report.js lines 159, 627, 794 and 803-808 use slice() with no remainder text.",
+   "filesToChange": [
+    "src/server/founder/report.js"
+   ],
+   "dim": "report",
+   "verdict": "unverified"
+  }
+ ]
+}

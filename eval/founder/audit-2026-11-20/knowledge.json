@@ -1,0 +1,291 @@
+{
+ "key": "knowledge",
+ "notes": "Defects confirmed with a temporary jest file (now deleted): the LittleSis company path, the prefix match, Semantic Scholar paper titles, the GitHub impostor and the OpenAlex hold. Live checks, about 6 requests: Wikidata search (John Smith has 1330 hits, only 8 read), Milton entity has P1593 (pardon) and P140 (correctly not read), LittleSis summary content. The root cause of the prefix finding is orgMatcher allowing trailing words (identity.js), which belongs to another auditor's scope. Omitted: 990 surname-officer notes, the Wikidata LIMIT 400 truncating silently, and the Semantic Scholar 429 being counted as a failure.",
+ "omitted": 3,
+ "findings": [
+  {
+   "id": "knowledge-ls-company-injects-company",
+   "title": "LittleSis (and 990) company lookup confirms a namesake at a different organisation",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/sources/knowledge.js",
+   "line": 1415,
+   "filesToChange": [
+    "src/server/founder/sources/knowledge.js"
+   ],
+   "evidence": "Temp jest: subject John Smith/Mercury, LittleSis search returns only 'Mercury Public Affairs'; result 'John Smith: Partner at Mercury Public Affairs' graded confirmed ('names Mercury'). matchText appends `(${company})`; org falls back to orgs[0].",
+   "scenario": "Investor types 'John Smith', 'Mercury'. LittleSis has no exact 'Mercury' org, so orgs[0] (a lobbying firm) is used; a partner there named John Smith gets a confirmed career record because the typed company is pasted into the grading text. The 990 company path (any '<company>... Foundation') does the same.",
+   "fix": "Use an org only when companyKeyStrict of its name or an alias equals the company's; drop the orgs[0] fallback. Grade on `${r.other.name} ${what} at ${org.name}` without the typed company. For the 990 path, require the foundation name to be the company name plus a foundation word. Cap both at 'likely'.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "lsCompany keeps orgs that merely mention the company, falls back to orgs[0], and appends (company) to matchText. A probe showed 'John Smith Partner at Mercury Public Affairs' grades confirmed even without the injected string, because orgMatcher accepts trailing words. The 990 company path has the same flaw.",
+   "betterFix": "Removing `(${company})` alone is not enough. Pick an org only when companyKeyStrict(name or alias) equals the company's key, optionally after a generic tail. Drop the orgs[0] fallback. For the 990 path, require the strict company key plus only a foundation word. Set match 'likely' by hand on these structural ties."
+  },
+  {
+   "id": "knowledge-prefix-company-in-lists",
+   "title": "A one-word company at the start of a longer org name ties namesakes (Wikidata, ORCID, OpenAlex, LittleSis)",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/sources/knowledge.js",
+   "line": 191,
+   "filesToChange": [
+    "src/server/founder/sources/knowledge.js",
+    "src/server/founder/sources/scholar.js"
+   ],
+   "evidence": "Temp jest: chooseCandidate for John Smith/Mercury picks the candidate employed by 'Mercury Records' (resolved). The entity context grades 'confirmed'. 'University of Leeds; Mercury Insurance Group' and 'Nikola Tesla Institute' grade confirmed against Mercury and Nikola.",
+   "scenario": "With 'Mercury' typed, Wikidata resolves to a record executive at Mercury Records. Every profile record is then confirmed, his family is read and shown, and his employers and schools become trusted anchors. The same happens for ORCID or OpenAlex namesakes whose affiliation starts with the company word.",
+   "fix": "In structured org fields (Wikidata employers and orgs, ORCID and OpenAlex institutions, LittleSis relationship names), compare org keys. The label matches only when its companyKeyStrict equals the company's, possibly after a legal form or a generic tail (Motor Company, Corporation, Technologies, Labs). A bare prefix scores 0, and those findings are graded with an explicit 'possible'.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "orgMatcher deliberately accepts words after a one-word company ('Nikola Motor Company'), and that is applied to structured org lists. A probe showed chooseCandidate resolves 'Mercury Records' for company Mercury, and entityContext then confirms every record. A school/employer list after ';' also matches."
+  },
+  {
+   "id": "presence-s2-paper-titles",
+   "title": "Semantic Scholar grades on paper titles: a topic word confirms a namesake",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/sources/presence.js",
+   "line": 247,
+   "filesToChange": [
+    "src/server/founder/sources/presence.js"
+   ],
+   "evidence": "Temp jest: matchSubject('John Smith. ... Mercury Levels in Atlantic Salmon ...') against company Mercury gives confirmed. 'Ramp Metering Strategies ...' against Ramp also gives confirmed. The grading text includes papers' titles and venues, and homepage threads from non-possible records are trusted.",
+   "scenario": "For 'Jane Doe' at 'Ramp', a transport researcher named Jane Doe with a paper on ramp metering is graded confirmed. Her homepage becomes a trusted domain anchor, which then ties more namesake records.",
+   "fix": "Grade only on the stated affiliations and the homepage. Paper titles and venues go in the quote, never in matchText. Also apply gradeNamed's hold when the tie is a school alone.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "semanticScholar puts paper titles and venues into gradeNamed's text. A probe showed 'Total Mercury Levels in Atlantic Salmon' grades confirmed (the headline rule stops it being read as a longer name). Homepage threads from such records are trusted.",
+   "betterFix": "Grade only on affiliations and the homepage domain. Keep titles in the quote. Also, when the only tie is a company word, cap at 'likely' with matchFixed."
+  },
+  {
+   "id": "profiles-github-selfclaim-confirmed",
+   "title": "A self-declared GitHub profile (name and company) is 'confirmed' and its links become anchors",
+   "severity": "medium",
+   "kind": "wrong-person",
+   "file": "src/server/founder/sources/profiles.js",
+   "line": 312,
+   "filesToChange": [
+    "src/server/founder/sources/profiles.js",
+    "src/server/founder/sources/presence.js"
+   ],
+   "evidence": "Temp jest: an account created 2026-11-01 with 0 repos, name 'Trevor Milton' and company 'Nikola' is graded confirmed. Its threads (handle, X handle, blog domain) are returned trusted, and deepCheck.noteThread turns trusted threads into anchors.",
+   "scenario": "An impostor or fan account typing someone's name and company is graded confirmed. Its blog domain and X handle become identity anchors, and any record naming them plus the full name is then tied to the founder. Stack Overflow name search can confirm the same way.",
+   "fix": "Cap self-described accounts found by name at 'likely' (matchFixed). Follow their links only when the account is established (over a year old with public repos or followers), or when a public org membership (/users/{login}/orgs) or blog domain matches the company. Say 'self-described' in matchReasons.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "githubByName grades the self-stated name plus company through matchSubject, so a lone new or impostor account is 'confirmed'. Its login, X handle and blog become trusted threads and anchors. The existing 'most followed' guard only helps when several accounts claim the name. Real but less common than the namesake cases above."
+  },
+  {
+   "id": "knowledge-wikidata-search-top8",
+   "title": "Wikidata looks only at the first 8 people with the name, then says none mention the company",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/knowledge.js",
+   "line": 237,
+   "filesToChange": [
+    "src/server/founder/sources/knowledge.js"
+   ],
+   "evidence": "Live search 'John Smith haswbstatement:P31=Q5' reports totalhits 1330. The code reads srlimit=8 and the note says 'nothing in those records mentions <company>'.",
+   "scenario": "For a founder with a common name, the right Wikidata entry is ranked below 8. It is never considered, so the profile, education, offices and family from Wikidata are all missing, and the note implies the graph has no such person.",
+   "fix": "When a company is known, resolve its QID (wbsearchentities) and search people tied to it: Cirrus `name haswbstatement:P108=Qc` or SPARQL `?org wdt:P112|wdt:P169|wdt:P3320 ?c`, merged with the name search. Raise srlimit to 20. The note should say 'of the first N of M people'.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "srlimit=MAX_CANDIDATES (8). The 'nothing in those records mentions X' note covers only those 8 of possibly hundreds. A company-QID search (haswbstatement:P108, or SPARQL on founded-by/CEO) is free and feasible.",
+   "betterFix": "Also fix the note wording to 'the first N of M people listed'."
+  },
+  {
+   "id": "knowledge-wikidata-pardon",
+   "title": "Wikidata conviction shown without the pardon recorded beside it",
+   "severity": "low",
+   "kind": "accuracy",
+   "file": "src/server/founder/sources/knowledge.js",
+   "line": 172,
+   "filesToChange": [
+    "src/server/founder/sources/knowledge.js"
+   ],
+   "evidence": "Live entity Q67146947 (Trevor Milton) has P1399 convicted of (two, with P585) and P1593 'pardoned by'. profileQuery requests P1399 but not P1593 or P1595 (charge).",
+   "scenario": "For Trevor Milton, the check emits high-severity 'convicted of securities fraud / wire fraud' records from Wikidata with no mention of the pardon the same entry states. That misstates the current position.",
+   "fix": "Add (p:P1593 'pardoned by') and (p:P1595 'charge') to profileQuery. Append 'pardoned by X (date)' to the conviction finding's title and quote, and addEventAnchor({event:'pardoned'}) on a confirmed entry.",
+   "dim": "knowledge",
+   "verdict": "refuted",
+   "verifyNote": "The premise is wrong. Live entity Q67146947 has P1593 = 'legal counsel' (Bradley Bondi), not 'pardoned by'. Its two P1399 statements carry only P585, and no pardon statement exists on the entity. Reading P1593 would mislabel his lawyer as a pardon.",
+   "betterFix": "If pardons matter, take them from sources that state them (Wikipedia article text, DOJ pardon lists) and link them to the conviction through the existing event anchors. Do not use P1593."
+  },
+  {
+   "id": "knowledge-wikidata-dropped-props",
+   "title": "Wikidata awards, memberships, ORCID iD and SEC CIK are never read",
+   "severity": "low",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/knowledge.js",
+   "line": 172,
+   "filesToChange": [
+    "src/server/founder/sources/knowledge.js",
+    "src/server/founder/sources/scholar.js"
+   ],
+   "evidence": "profileQuery reads P108, P69, P39, P106, P1830, P1399, P856, P2002, P2037, P6634 and P2087 only. The profile spec lists 'recognition', and academic-record accepts only subject and school threads.",
+   "scenario": "A founder's awards (P166), memberships (P463) and exact ORCID iD (P496) are dropped. ORCID is then name-searched among dozens of namesakes and often not read at all ('none names a known company'). An SEC Central Index Key, where present, is never handed to the filings sources.",
+   "fix": "Add P166, P463, P496, P5531 (verify the id), P1960 and P4012 to profileQuery. Emit awards as recognition findings, and the ORCID iD as a url thread that academic-record accepts as an exact record ('likely'). Pass the CIK to the SEC connectors.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "profileQuery reads none of P166, P463, P496, P5531 (CIK), P1960 or P4012. Adding them is free and fits the 'recognition' profile field. The impact is missed information, not wrong-person.",
+   "betterFix": "Treat an ORCID iD from a context-resolved entity as an exact ORCID url thread. Treat the CIK as a company/filer thread only when the entity is resolved by context, never by name."
+  },
+  {
+   "id": "knowledge-ls-summary-dropped",
+   "title": "LittleSis curated summary is read for scoring, never reported",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/knowledge.js",
+   "line": 1277,
+   "filesToChange": [
+    "src/server/founder/sources/knowledge.js"
+   ],
+   "evidence": "Live LittleSis entry for Elizabeth Holmes has a summary stating the SEC charged her with 'massive fraud'. lsCandidate keeps summary, lsScore reads it, and lsResult quotes only blurb and types.",
+   "scenario": "For a resolved person, LittleSis's curated paragraph on legal matters and career never reaches the report. The identity record shows only 'Founder and former CEO, Theranos'.",
+   "fix": "Split the summary with sentencesIn, keep sentences passing quotable(). Add the first few to the identity quote and emit litigation or press findings by severityFromText, as the Wikipedia matters do, with the entity URL and the resolved entity's context as matchText.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "lsCandidate keeps summary and lsScore reads it, but lsResult quotes only blurb and types, so the curated summary never reaches the report.",
+   "betterFix": "Run the summary sentences through safe/guardrails (they may hold birth or family details), and emit them only for entity.by==='context'."
+  },
+  {
+   "id": "knowledge-ls-timeout",
+   "title": "LittleSis subject lookup cannot reliably finish within its 36 s budget",
+   "severity": "low",
+   "kind": "robustness",
+   "file": "src/server/founder/sources/knowledge.js",
+   "line": 1441,
+   "filesToChange": [
+    "src/server/founder/sources/knowledge.js"
+   ],
+   "evidence": "littlesis.org has a 10 s gap (http.js). The subject task makes up to 4 requests (search, 2 relationship reads, connections), so the last starts at about 30 s. timeoutMs is 36000, the step is 40 s, and the company task shares the host slot. A retry restarts from scratch.",
+   "scenario": "With two named entries and family ties, or after the company lookup used the slot, the subject lookup passes 36 s. It is counted as a failed source, or retried and fails again, and LittleSis positions and family are missing.",
+   "fix": "Cache LittleSis responses per URL in memory for 10 minutes so a retried task resumes. Read the second entry's relationships only when the first does not decide. Run family as its own planned template, as Wikidata does, and set timeoutMs to about 45 s.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "Four requests 10 s apart can cross the 36 s budget after the company task books the host. waitForHost then returns 'late', which is re-queued as a host rest (up to 4 times), not counted as a failure, so the 'counted failed' claim is overstated. Each retry restarts and wastes requests.",
+   "betterFix": "Cache LittleSis JSON per URL for about 10 minutes so a re-queued task resumes. Raise timeoutMs to about 45 s."
+  },
+  {
+   "id": "knowledge-wikidata-single-candidate",
+   "title": "The only Wikidata person with the name is discarded when the entry omits the startup",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/knowledge.js",
+   "line": 224,
+   "filesToChange": [
+    "src/server/founder/sources/knowledge.js"
+   ],
+   "evidence": "chooseCandidate: when hints exist and the top score is below 2, it returns 'unclear' even for ranked.length===1. The candidate's English article is known (c.article) but never consulted.",
+   "scenario": "A founder whose Wikidata entry says only 'American entrepreneur' (no employer statement) but whose Wikipedia article names the typed company gets no Wikidata or Wikipedia records at all.",
+   "fix": "For a single candidate with an article, fetch the article extract and score the company in the lead or career sections. If found, resolve by 'context'. Otherwise resolve by 'name' (all records 'possible', no family, untrusted threads) instead of dropping it.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "With a company given, a single candidate scoring below 2 is dropped ('unclear') even though c.article is known and never consulted.",
+   "betterFix": "Only add the article check (company named in the lead or career sentences that name the person, resolving by context). Do not fall back to resolving by name when a company was given and nothing mentions it: the owner's main complaint is unrelated namesakes."
+  },
+  {
+   "id": "scholar-openalex-not-held",
+   "title": "OpenAlex ties namesakes sharing a school as 'likely' (no namesake hold)",
+   "severity": "low",
+   "kind": "wrong-person",
+   "file": "src/server/founder/sources/scholar.js",
+   "line": 748,
+   "filesToChange": [
+    "src/server/founder/sources/scholar.js"
+   ],
+   "evidence": "Temp jest: with school anchor Stanford, two different OpenAlex author records named John Smith at Stanford both came back 'likely', not held. authorFinding does not use gradeRecord, unlike ORCID and theses.",
+   "scenario": "Two different researchers with the subject's name and school are both shown as likely the person, with contradictory publication timelines in the profile.",
+   "fix": "In authorFinding, grade through gradeRecord(subject, matchText, groups.size, 'OpenAlex') and hold() the result, as orcidFindings does.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "authorFinding grades with plain makeFinding, without gradeRecord or hold, unlike ORCID. Several namesakes sharing a school both come out 'likely'. There are no threads from OpenAlex, so the damage is limited to display and profile."
+  },
+  {
+   "id": "profiles-github-missed",
+   "title": "GitHub org memberships, top repos and city never read; shared hourly limit often hit",
+   "severity": "low",
+   "kind": "improvement",
+   "file": "src/server/founder/sources/profiles.js",
+   "line": 203,
+   "filesToChange": [
+    "src/server/founder/sources/profiles.js"
+   ],
+   "evidence": "githubProfile keeps counts only. No /orgs or /repos request is made. Location is dropped, though the profile spec allows a city. githubGet sends no credentials (60 requests/hour per address), and GITHUB_LIMIT_NOTE fires on 403/429.",
+   "scenario": "A claimed engineering history at a company cannot be checked against public org membership or real repositories. On shared hosting the allowance is often used up and GitHub drops out of the check.",
+   "fix": "Fetch /users/{login}/orgs and /users/{login}/repos?sort=pushed&per_page=10 for tied accounts. Report org names, top repos and languages, and the city only. Honour an optional free GITHUB_TOKEN (no scopes), 5,000 requests/hour.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "githubProfile drops location and no /orgs or /repos request is made. Unauthenticated calls get 60 per hour. An optional free scopeless token and the org and repo reads are feasible. A city is allowed in the profile (basedIn). The limit note must keep the UI wording rule."
+  },
+  {
+   "id": "scholar-orcid-sections",
+   "title": "ORCID qualifications, distinctions, invited positions and websites not read",
+   "severity": "low",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/scholar.js",
+   "line": 249,
+   "filesToChange": [
+    "src/server/founder/sources/scholar.js"
+   ],
+   "evidence": "orcidRecord requests /educations and /employments only.",
+   "scenario": "Professional qualifications (licences, certifications), awards and the person's own listed websites on a tied ORCID record are missed. The websites would yield trusted domain threads.",
+   "fix": "Also request /{id}/qualifications, /distinctions, /invited-positions and /researcher-urls (never /person, /email or /address). Map them through orcidEntries, and website URLs through a linkThreads equivalent when the record is not 'possible'.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "orcidRecord requests only /educations and /employments. Qualifications, distinctions, invited positions and researcher-urls are free public sections. Never request /person, /email or /address."
+  },
+  {
+   "id": "presence-bsky-post-severity",
+   "title": "Person's own posts about others' disputes become 'likely' adverse records",
+   "severity": "low",
+   "kind": "accuracy",
+   "file": "src/server/founder/sources/presence.js",
+   "line": 461,
+   "filesToChange": [
+    "src/server/founder/sources/presence.js"
+   ],
+   "evidence": "bskyPosts keeps any post whose severityFromText is above info and sets match 'likely' with that severity. There is no check that the person or their company is the party.",
+   "scenario": "A founder posting 'the lawsuit against our customer was dismissed' yields a medium-severity likely record about them, which can surface among red flags.",
+   "fix": "Cap own-post severity at 'low' unless the post names the person's company (or uses first person) beside the matter word. Label these records 'own statement' in data so the report keeps them out of red flags.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "bskyPosts sets match 'likely' with severityFromText on any matter word, with no check that the person or their company is the party. A post about someone else's lawsuit becomes a medium record."
+  },
+  {
+   "id": "knowledge-ls-note-honesty",
+   "title": "LittleSis note claims none of N entries mention the company when only 2 were read",
+   "severity": "low",
+   "kind": "honesty",
+   "file": "src/server/founder/sources/knowledge.js",
+   "line": 1312,
+   "filesToChange": [
+    "src/server/founder/sources/knowledge.js"
+   ],
+   "evidence": "lsResolve reads relationships of named.slice(0,2) only. The note says 'LittleSis lists ${named.length} people ... nothing in those entries mentions X'.",
+   "scenario": "For a name with 5 LittleSis entries where the subject is the 4th, the report states that none of the 5 mention the company, which is false.",
+   "fix": "Say 'the first two of N entries were read; neither mentions X'. Better, score blurbs of all named entries first and read relationships of the two best-scoring ones.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "Only named.slice(0,2) is read, and `what` lists only those two, but the note says 'N people ... nothing in those entries mentions X'. That breaks honest coverage when N > 2."
+  },
+  {
+   "id": "knowledge-wp-company-trust",
+   "title": "Company-article threads always trusted: typed company injected into grading text",
+   "severity": "low",
+   "kind": "wrong-person",
+   "file": "src/server/founder/sources/knowledge.js",
+   "line": 986,
+   "filesToChange": [
+    "src/server/founder/sources/knowledge.js"
+   ],
+   "evidence": "wpCompany grades `${subject.name}. ${company}. ${title}. ${about}`. The company is always present, so trusted is true whenever any sentence names the person.",
+   "scenario": "A same-named company's article (title equal to the typed name) mentioning a namesake makes that article's associates and relatives trusted threads and people anchors.",
+   "fix": "Grade on the article title plus the sentences naming the person, without the typed company string. Require a sentence that names both the person and the company (or the pronoun run after one) for trusted.",
+   "dim": "knowledge",
+   "verdict": "confirmed",
+   "verifyNote": "The trusted check is tautological: the company is always in the graded text. The scenario is narrow, because companyArticle requires the title's strict key to equal the company's and disambiguation pages are dropped. It needs a different same-named company whose article names a same-named person.",
+   "betterFix": "Grade on title plus the sentences naming the person, without the typed company. Require a sentence pairing the person with the company (or the pronoun run that follows one) before marking threads trusted."
+  }
+ ]
+}

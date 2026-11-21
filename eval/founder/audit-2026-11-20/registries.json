@@ -1,0 +1,278 @@
+{
+ "key": "registries",
+ "notes": "Live probes (one per host, generic client name) confirmed these answer as coded: CH HTML, GLEIF, CO/CT/TX Socrata, RansomLook, HIBP, rdap.org, Wayback sparkline, CA/WA/OR AG, ICO, French register, YC. Google Patents returned 503 'automated queries'. The temporary test file was deleted. The zzAudit.courts and zzAudit.llm files in tests/ belong to other auditors. Severity for tmsearch depends on the owner reading rule 4 as covering trademarks.",
+ "omitted": 5,
+ "findings": [
+  {
+   "id": "registries-patent-lookalike-assignee",
+   "title": "Patents: look-alike assignee or 'listed under' text grades a namesake inventor confirmed and trusts its threads",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/sources/ip.js",
+   "line": 296,
+   "scenario": "John Smith / Flow. Google returns inventor 'John Smith', assignee 'Flow Hair Salon Inc', plus 'John A. Smith' at 'Flowserve Corp' from the assignee=Flow search. Reproduced: both families come out 'confirmed' ('names Flow'), and 'Flowserve Corp' becomes a trusted company thread. A stranger's employer gets pulled and anchored.",
+   "fix": "Grade assignees with the registries rule (knownCompanyFor: exact name or a country/holding branch). Do not inject 'listed under assignee X' into matchText: keep underCompany as a note only, and cap those families at 'likely'. Make co-inventor and assignee threads trusted only from families whose printed assignee is exactly a known company.",
+   "evidence": "zzAudit test: the summary, US1A and US2A all came back confirmed; threads included Flowserve Corp with trusted:true.",
+   "filesToChange": [
+    "src/server/founder/sources/ip.js",
+    "tests/unit/features/founderSource.ip.test.js"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "ip.js:296 injects 'listed under assignee <company>' into matchText for any underCompany family, and orgMatcher accepts trailing words ('Flow Hair Salon Inc' matches Flow). The family is then graded confirmed, and line 374 trusts its other assignees and co-inventors. Rated high, not critical: it needs a common name and a generic one-word company.",
+   "betterFix": "Apply the proposed fix, using knownCompanyFor-style exact or branch matching for assignees. Also: a family from the assignee search whose printed assignee is a different, non-reassigned company should be capped at possible, not likely. Trust threads only from families whose printed assignee is exactly a known company, and only when that company is the user's own company or a domain-anchored one."
+  },
+  {
+   "id": "registries-us-state-jurisdiction-blind",
+   "title": "US state registers tie by name count alone and ignore the jurisdiction of formation",
+   "severity": "high",
+   "kind": "accuracy",
+   "file": "src/server/founder/sources/registries.js",
+   "line": 1088,
+   "scenario": "Live run for Trevor Milton / Nikola: Colorado shows a domestic 'NIKOLA Corporation' (2019, Delinquent) beside the real Delaware company's foreign filings in CT and TX. All three are demoted to possible. If CT or TX were missing, the Colorado namesake would be tied as the company, with DELINQUENT status.",
+   "fix": "Use jurisdiction: when the home jurisdiction is known (LEI US-DE, SEC state of incorporation), tie only foreign registrations whose formation place matches it. Grade domestic entities of other states as namesakes. Count distinct jurisdictions of formation, not rows.",
+   "evidence": "Live connector run: 3 'possible' findings (CO domestic, CT, TX); the CO title reads 'DELINQUENT since 1 January 2024'.",
+   "filesToChange": [
+    "src/server/founder/sources/registries.js",
+    "tests/unit/features/founderSource.registries.test.js"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "tiedByName = sameNamed === 1 counts rows across states and never uses e.jurisdiction. A lone domestic namesake in Colorado (or NY/OR) is graded 'company' with its delinquent status whenever the real Delaware company has no same-name rows there.",
+   "betterFix": "Count distinct entities by jurisdiction of formation. When LEI or SEC gives a home state, tie only rows whose formation place equals it. When the home state is unknown, never tie a domestic entity of CO/NY/CT/OR on its name alone if the company is not known to be formed there. Texas rows have no jurisdiction, so keep them possible unless they are the only row and a domain or other anchor agrees."
+  },
+  {
+   "id": "registries-breach-oneword-namesake",
+   "title": "A breach catalogue or leak-site entry that shares a one-word name is shown as the company's breach",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/sources/exposure.js",
+   "line": 541,
+   "scenario": "Ryan Breslow / Bolt with bolt.com not yet an anchor (exposure can run before the domain is found). The HIBP entry 'Bolt' (bolt.cd, a file-sharing site) comes back as 'Bolt data breach, 1 March 2017: 995,274 accounts', match company, severity medium. 'Meta Financial Group' also matches Meta as 'padded' and is still 'company'.",
+   "fix": "When no own domain is known, grade name-only matches of a one-word or non-specific name, and every 'padded' match, as possible with matchFixed and kept off the timeline. Use 'company' only for a domain match or a multi-word exact name. Re-grade once a domain anchor appears.",
+   "evidence": "zzAudit test: the HIBP fixture gave ['Bolt data breach…','company','medium']. Live HIBP has 'Bolt' bolt.cd and 'Apollo' apollo.io.",
+   "filesToChange": [
+    "src/server/founder/sources/exposure.js",
+    "tests/unit/features/founderSource.exposure.test.js"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "breachCatalogueConnector filters by own domain only when ownDomains is non-empty. Otherwise a name 'exact' or 'padded' match is hard-set to match 'company', severity medium, with no check for one-word names. A 'Bolt' entry on bolt.cd would be shown as the company's breach."
+  },
+  {
+   "id": "registries-google-patents-blocked",
+   "title": "Patents depend only on Google Patents' internal endpoint, which turns away automated callers",
+   "severity": "high",
+   "kind": "robustness",
+   "file": "src/server/founder/sources/ip.js",
+   "line": 135,
+   "scenario": "From this machine even patents.google.com/robots.txt answered 503 ('your computer… may be sending automated queries'). Every check then reports patents as did not answer, so inventorship claims are never verified. Google's terms also bar automated querying, which strains rule 4.",
+   "fix": "Use USPTO PatentsView PatentSearch API (free key, built for programs: inventor name with assignee organisation) as the primary source. Add EPO OPS (free registration) for worldwide families. Without a key, say 'not enabled on this deployment'. Keep Google only behind an owner switch listed under 'Choices'.",
+   "evidence": "curl to patents.google.com returned HTTP 503 with Google's 'automated queries' page.",
+   "filesToChange": [
+    "src/server/founder/sources/ip.js",
+    "FOUNDER-CHECK.md",
+    "tests/unit/features/founderSource.ip.test.js"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "patentsConnector uses only patents.google.com/xhr/query. My own robots.txt request got HTTP 503 with Google's 'automated queries' page. The connector then throws, so patents are never verified. The PatentsView PatentSearch API (free key) and EPO OPS are sanctioned, free alternatives."
+  },
+  {
+   "id": "registries-uk-partial-silent",
+   "title": "Companies House pages that fail are dropped without a note, so a missing record reads as 'no match'",
+   "severity": "medium",
+   "kind": "honesty",
+   "file": "src/server/founder/sources/registries.js",
+   "line": 589,
+   "scenario": "The officer list for the exact 'Acme Ltd' times out while another candidate loads. mapLimit turns the failure into null, the candidate is filtered out, and the connector succeeds with nothing about Acme. The screen shows a clean UK result. The same happens in ukOfficersByName when some of the 5 appointment pages fail.",
+   "fix": "Count null pages. Add a note ('N Companies House pages could not be opened') and return partial: true, like the US state connector does. If the exact-name candidate's page failed, report the company as not read.",
+   "evidence": "mapLimit's documented contract is that failures become null; ukCompany filters on c.page, and ukOfficersByName only throws when every page failed.",
+   "filesToChange": [
+    "src/server/founder/sources/registries.js"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "In ukCompany, mapLimit failures become null and judged filters on c.page. It throws only when every page failed. ukOfficersByName likewise skips null pages and adds no note or partial flag. A failed exact-name candidate disappears silently."
+  },
+  {
+   "id": "registries-lei-first-page-uniqueness",
+   "title": "LEI 'only one entity carries the name' is judged on the first 15 of possibly hundreds of results",
+   "severity": "medium",
+   "kind": "accuracy",
+   "file": "src/server/founder/sources/registries.js",
+   "line": 1165,
+   "scenario": "A GLEIF query for Stripe reports total 58 and returns 15. The code ties when exactly one exact legal name is on page 1, so a foreign namesake gets graded 'company' and its parents recorded, even when other exact matches (or the real company) sit on later pages.",
+   "fix": "Request page[size]=100. If meta.pagination.total is larger than the rows read, either read up to 3 more pages or do not tie, and add a note that the register was read in part.",
+   "evidence": "Live: Stripe gives total 58, lastPage 4; Flow gives total 554. Neither total is checked in the code.",
+   "filesToChange": [
+    "src/server/founder/sources/registries.js"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "page[size]=15, and tied = matching.length === 1 with meta.pagination.total never read. A live GLEIF query for Stripe returns total 58, lastPage 4, with exact matches spread across pages, so first-page uniqueness is unreliable.",
+   "betterFix": "Use page[size]=100 (GLEIF allows up to 200). If total exceeds the rows read, do not tie and add a partial note. Optionally use the exact-name filter entity.legalName with fulltext disabled, or filter[entity.names], to get a smaller exact set."
+  },
+  {
+   "id": "registries-us-coverage-honesty",
+   "title": "Coverage never says Delaware, California and 43 other states' registers were not searched",
+   "severity": "low",
+   "kind": "honesty",
+   "file": "src/server/founder/report.js",
+   "line": 35,
+   "scenario": "A Delaware C-corp with no filings in CO/NY/CT/OR/TX shows 'US state business registers: no match'. A reader takes that as 'not registered'. NY and Oregon list active entities only, so dissolved companies there are invisible too.",
+   "fix": "Always add a note from us-state-registries naming the states searched, their limits (NY/OR active only, TX franchise taxpayers) and that Delaware and California are not searched. Add to NOT_COVERED: 'Company registers of US states other than CO, NY, CT, OR, TX (including Delaware and California) and of countries other than the UK and France'.",
+   "evidence": "No 'Delaware' or 'state register' wording in NOT_COVERED. The connector returns no notes when nothing matched.",
+   "filesToChange": [
+    "src/server/founder/sources/registries.js",
+    "src/server/founder/report.js"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "NOT_COVERED has no entry for other US states or countries, and the connector adds no notes on a no-match result. The source label names the five states searched, which softens it, but Delaware and California are never stated as unsearched, and the active-only limits appear only inside findings."
+  },
+  {
+   "id": "registries-tmsearch-internal",
+   "title": "Trademarks call the USPTO trademark web app's internal search backend",
+   "severity": "medium",
+   "kind": "rule-breach",
+   "file": "src/server/founder/sources/ip.js",
+   "line": 385,
+   "scenario": "Every company thread POSTs to tmsearch.uspto.gov/prod-stage-v1-0-0/tmsearch, the backend behind the web page. Rule 4 removed 'the USPTO web app's internal search' for terms reasons. This looks like the same category and is not listed as an owner choice.",
+   "fix": "Put it to the owner as a documented choice in FOUNDER-CHECK.md with a FOUNDER_SOURCES_OFF default, or move to a sanctioned route: the USPTO Open Data Portal / TSDR API (free key) or the bulk trademark case-file data cached daily.",
+   "evidence": "The live POST answered 200 with an Elasticsearch-shaped body ('tmsearch-index-v2'). There is no robots.txt (404) and no published API terms for this path.",
+   "filesToChange": [
+    "src/server/founder/sources/ip.js",
+    "FOUNDER-CHECK.md"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "TM_SEARCH POSTs to tmsearch.uspto.gov/prod-stage-v1-0-0/tmsearch, the web app's Elasticsearch backend. robots.txt returns 404 there, and no terms are published. Rule 4 bans 'the USPTO web app's internal search', and this is the same category; it is neither documented nor offered as an owner choice. Which USPTO search was removed is not recorded, so raise it with the owner.",
+   "betterFix": "Default it off (FOUNDER_SOURCES_OFF includes trademarks) until the owner decides. The sanctioned route is the USPTO bulk trademark daily XML (Open Data Portal) cached locally, since TSDR lookups need a serial number and cannot search by owner."
+  },
+  {
+   "id": "registries-uk-psc-charges",
+   "title": "Companies House: owners (PSC), charges, insolvency and overdue filings are never read",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/registries.js",
+   "line": 601,
+   "scenario": "For a UK company tied to the founder, the report shows officers and status only. It misses who controls it (a hidden 75% owner), secured lenders, insolvency proceedings, and 'accounts overdue' or proposed strike-off notices, all of which are free on the same register.",
+   "fix": "For tied companies only, open /persons-with-significant-control (names and nature of control only, never birth, nationality or address), /charges (count, holder, status) and /insolvency, and read the overdue-accounts and confirmation-statement flags on the overview. Add PSC names as associate threads.",
+   "evidence": "parseCompanyPage reads only status, type, dates and previous names. No request goes to the PSC, charges or insolvency paths.",
+   "filesToChange": [
+    "src/server/founder/sources/registries.js",
+    "tests/unit/features/founderSource.registries.test.js"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "No request goes to the persons-with-significant-control, charges or insolvency paths, and parseCompanyPage reads only status, type, dates and previous names. These public pages are free on the same host. Proposal is feasible if PSC birth month/year, nationality and address are never parsed."
+  },
+  {
+   "id": "registries-more-jurisdictions",
+   "title": "Only UK and French registers name officers; other free registers are not used",
+   "severity": "medium",
+   "kind": "improvement",
+   "file": "src/server/founder/sources/registries.js",
+   "line": 1411,
+   "scenario": "A founder of a Norwegian, Australian, Canadian or Delaware company gets no register record naming them. The officer-level tie that defeats namesakes exists only for UK and French companies.",
+   "fix": "Add free permitted registers, gated like FR by linkedCountries: Norway Brønnøysund (open, no key, includes roles), Finland PRH open data, ASIC company dataset (data.gov.au), Corporations Canada open data. Add OpenCorporates (free non-commercial key on application, ODbL attribution) for Delaware and other states, 'not enabled' without a key.",
+   "evidence": "registryConnectors lists only UK, FR, five US states, GLEIF and YC. COUNTRY_REGISTERS holds FR only.",
+   "filesToChange": [
+    "src/server/founder/sources/registries.js",
+    "src/server/founder/sources/index.js",
+    "FOUNDER-CHECK.md"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "registryConnectors holds only UK, FR, five US states, GLEIF and YC, and COUNTRY_REGISTERS has FR only. Brønnøysund (open, no key, with roles), PRH, ASIC and Corporations Canada open data are free and permitted. OpenCorporates offers free non-commercial access on application. Roles data must drop birth dates and addresses."
+  },
+  {
+   "id": "registries-darkweb-more",
+   "title": "Company-level breach and leak coverage could be broader, and leak claims cross-checked",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/exposure.js",
+   "line": 753,
+   "scenario": "A healthcare or Maine/Texas-regulated company's breach notice is never found: only CA, WA, OR and the ICO are searched, and HHS OCR is skipped. A RansomLook claim stands alone even when a regulator notice or an 8-K Item 1.05 confirms it.",
+   "fix": "Cache the HHS OCR breach list once a day via cached(). Add public AG lists (Maine, Texas, Vermont, Indiana, Massachusetts) after a terms check. In the report, link a leak-site claim to a same-company notice or 8-K 1.05 within about 120 days as 'claimed, later confirmed by notice'. Keep it company level, with no onion sources.",
+   "evidence": "REGISTERS lists four sources and REGISTERS_COVERAGE admits HHS is skipped. No code relates leak-sites findings to breach-registers or SEC cyber findings.",
+   "filesToChange": [
+    "src/server/founder/sources/exposure.js",
+    "src/server/founder/report.js"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "REGISTERS_COVERAGE says HHS is not searched, and only CA, WA, OR and ICO are queried. No code links leak-site claims to notices or 8-K Item 1.05 findings. Additions stay company-level, so they respect the privacy rules. Each new AG list needs a terms and robots check first."
+  },
+  {
+   "id": "registries-ico-crawl-delay",
+   "title": "ICO publishes Crawl-delay: 6, but requests to it are spaced 120 ms",
+   "severity": "low",
+   "kind": "rule-breach",
+   "file": "src/server/founder/http.js",
+   "line": 31,
+   "scenario": "A check with eight primary company threads runs breach-registers for each in parallel batches. ico.org.uk/api/search gets several requests within a second, against its robots.txt Crawl-delay of 6 seconds.",
+   "fix": "Add 'ico.org.uk': 6000 to HOST_GAP_MS. Optionally check the other register hosts' robots.txt in the maintenance run and record their delays.",
+   "evidence": "ico.org.uk/robots.txt: 'User-agent: * Crawl-delay: 6'. HOST_GAP_MS has no ico.org.uk entry (default 120 ms).",
+   "filesToChange": [
+    "src/server/founder/http.js"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "ico.org.uk/robots.txt returned 'User-agent: * Crawl-delay: 6' when I fetched it, and HOST_GAP_MS has no ico.org.uk entry, so the 120 ms default applies. Add 'ico.org.uk': 6000."
+  },
+  {
+   "id": "registries-domain-founded-dead",
+   "title": "Domain-versus-founding-year check never runs: nothing sets foundedYear",
+   "severity": "low",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/domains.js",
+   "line": 170,
+   "scenario": "A company claims it was founded in 2015, but its domain was registered in 2021 or has lapsed. The flag is never raised, because task.params.foundedYear and subject.foundedYear are not set anywhere in the codebase.",
+   "fix": "Set a founding year on the domain task from tied records: YC year_founded, Companies House or French incorporation date, Wikidata inception, or the earliest Form D. Show 'registered N years after the stated founding', citing both records.",
+   "evidence": "grep for foundedYear finds it only in domains.js.",
+   "filesToChange": [
+    "src/server/founder/sources/domains.js",
+    "src/server/founder/deepCheck.js"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "grep finds foundedYear only in domains.js (lines 17 and 170). Nothing sets task.params.foundedYear or subject.foundedYear, so the founding-gap flag can never fire."
+  },
+  {
+   "id": "registries-uk-first-page",
+   "title": "Companies House officer search reads page 1 only and says nothing when more pages exist",
+   "severity": "low",
+   "kind": "honesty",
+   "file": "src/server/founder/sources/registries.js",
+   "line": 467,
+   "scenario": "For a common name ('James Smith'), the fuzzy search returns many pages (page=2 links present). The subject's own officer record may be on page 2. The run reports their UK appointments as found or absent with no note, since the note appears only when page-1 namesakes exceed 5.",
+   "fix": "Detect the pager (page=2 link or result count). When more pages exist, read up to 2 more or add a note with partial: true saying only the first page of officer results was read.",
+   "evidence": "Live officer search for Elizabeth Holmes: 21 type-officer rows and page=2 links. parseOfficerSearch ignores pagination.",
+   "filesToChange": [
+    "src/server/founder/sources/registries.js"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "ukOfficersByName parses only /search/officers page 1. The note fires only when page-1 namesakes exceed MAX_OFFICER_PAGES, and no pager detection or partial flag exists."
+  },
+  {
+   "id": "registries-exposure-no-switch",
+   "title": "Breach and leak-site connectors cannot be switched off with FOUNDER_SOURCES_OFF",
+   "severity": "low",
+   "kind": "robustness",
+   "file": "src/server/founder/sources/exposure.js",
+   "line": 352,
+   "scenario": "If RansomLook or a register changes its terms, the owner sets FOUNDER_SOURCES_OFF=leak-sites. Nothing happens: the exposure connectors have no enabled(), unlike the registries, ip and domains connectors.",
+   "fix": "Add enabled: () => !switchedOff(id) and unavailableReason ('not enabled on this deployment') to leakSiteConnector, breachCatalogueConnector and breachRegistersConnector.",
+   "evidence": "exposure.js defines no enabled() or unavailableReason. deepCheck only skips a connector whose enabled() returns false.",
+   "filesToChange": [
+    "src/server/founder/sources/exposure.js"
+   ],
+   "dim": "registries",
+   "verdict": "confirmed",
+   "verifyNote": "leakSiteConnector, breachCatalogueConnector and breachRegistersConnector define no enabled() or unavailableReason. deepCheck skips only connectors whose enabled() returns false, so FOUNDER_SOURCES_OFF has no effect on them."
+  }
+ ]
+}

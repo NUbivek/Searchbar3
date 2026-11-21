@@ -1,0 +1,272 @@
+{
+ "candidates": [
+  {
+   "id": "no-brreg-roles",
+   "label": "Norway Register of Business Enterprises (Brreg): company officers",
+   "what": "For a Norwegian company tied to the person: the official CEO, board chair, board members and auditor, with when each role group last changed, plus the company's earlier names, founding date and bankruptcy flag. An independent check on a claimed title.",
+   "level": "company",
+   "endpoint": "GET https://data.brreg.no/enhetsregisteret/api/enheter?navn={company}&size=5 then GET https://data.brreg.no/enhetsregisteret/api/enheter/{organisasjonsnummer}/roller",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "Data under NLOD 2.0 (open government licence). The open /enheter and /roller endpoints need no sign-in; only the endpoints that carry national ID numbers sit behind Maskinporten. robots.txt disallows only /media-categories/. No stated rate limit, but results are capped at 10,000 per query.",
+   "termsUrl": "https://data.brreg.no/enhetsregisteret/api/dokumentasjon/en/index.html",
+   "value": 3,
+   "effort": 2,
+   "nonCommercialOnly": false,
+   "privacyNotes": "Drop person.fodselsdato (date of birth) and every forretningsadresse/postadresse. Keep only the name, role (type.beskrivelse), avregistrert and erDoed flags, and dates.",
+   "request": "curl -A 'research-reader/1.0' 'https://data.brreg.no/enhetsregisteret/api/enheter?navn=Kahoot&size=2' ; curl -A 'research-reader/1.0' 'https://data.brreg.no/enhetsregisteret/api/enheter/997770234/roller'",
+   "responseShape": "Search: _embedded.enheter[] {organisasjonsnummer, navn, historiskeNavn[{navn,fraDato,tilDato}], stiftelsesdato, hjemmeside, konkurs, underAvvikling}. Roles: rollegrupper[] {type.beskrivelse e.g. 'Daglig leder'/'Styre', sistEndret, roller[] {type.kode DAGL/LEDE/MEDL/NEST, person.navn{fornavn,mellomnavn,etternavn}, avregistrert}}. You cannot search by person name, only per company. Accept only an exact navn match to a known company. Match the person by fornavn plus etternavn (middle name optional) and grade at most 'likely'.",
+   "risks": "Covers Norwegian companies only. Gives current roles only, with no past officers. Common names need the company tie. The response carries dates of birth, so the code must drop them before anything is stored."
+  },
+  {
+   "id": "cz-ares-officers",
+   "label": "Czech business register (ARES, public register extract)",
+   "what": "For a Czech company tied to the person: statutory body members and supervisory board, each with the date their membership started and ended, plus shareholders, trade-name history and status. Gives an officer's career at the company with dates.",
+   "level": "company",
+   "endpoint": "POST https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/vyhledat {obchodniJmeno, pocet} then GET https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty-vr/{ico}",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "The Ministry of Finance runs ARES as a free public service with no sign-in. It may restrict users who send more than 500 queries a minute, repeat the same query, or scan the register with random data. robots.txt disallows only /cms/.",
+   "termsUrl": "https://mf.gov.cz/cs/ministerstvo/informacni-systemy/ares--administrativni-registr-ekonomicky",
+   "value": 3,
+   "effort": 3,
+   "nonCommercialOnly": false,
+   "privacyNotes": "Drop fyzickaOsoba.adresa, bydliste and datumNarozeni, and every address block (sidlo, adresy). Keep only the name (jmeno, prijmeni, titulPred), the function (funkce.nazev) and the dates.",
+   "request": "curl -A 'research-reader/1.0' -X POST -H 'Content-Type: application/json' -d '{\"obchodniJmeno\":\"Alza\",\"pocet\":2}' https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/vyhledat ; curl -A 'research-reader/1.0' https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty-vr/27082440",
+   "responseShape": "Search: ekonomickeSubjekty[] {ico, obchodniJmeno}. Extract: zaznamy[0] {obchodniJmeno[{hodnota,datumZapisu,datumVymazu}], stavSubjektu, statutarniOrgany[] {nazevOrganu, clenoveOrganu[] {fyzickaOsoba{jmeno,prijmeni,titulPred}, clenstvi{clenstvi{vznikClenstvi,zanikClenstvi}, funkce{nazev}}, datumZapisu, datumVymazu}}, ostatniOrgany (supervisory board), akcionari}. Match the company only on an exact obchodniJmeno, and match the person on first name plus surname with accents folded. A role tied to a known company is 'likely' at most.",
+   "risks": "Czech companies only. Names are in Czech, so diacritics must be folded. The extract is large, and a person search is not offered. Pace requests to well under the 500-a-minute ceiling."
+  },
+  {
+   "id": "datacite-theses",
+   "label": "DataCite dissertation records",
+   "what": "Independent proof of a claimed doctorate (and some master's theses) from university repositories that register DOIs with DataCite, such as ETH Zurich and many European and US institutional repositories. This complements Crossref and theses.fr, which academic-record already uses.",
+   "level": "person",
+   "endpoint": "GET https://api.datacite.org/dois?query=types.resourceTypeGeneral:Dissertation AND creators.familyName:{surname} AND creators.givenName:{given}&page[size]=10",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "The public REST API needs no authentication for reading. DataCite asks frequent callers to send a User-Agent with a mailto contact (FOUNDER_HTTP_CONTACT when set). DataCite publishes its metadata as CC0. api.datacite.org has no robots.txt.",
+   "termsUrl": "https://support.datacite.org/docs/api",
+   "value": 3,
+   "effort": 2,
+   "nonCommercialOnly": false,
+   "privacyNotes": "Keep only the title, creator name, publisher (the university), year, URL and supervisor (contributors with contributorType Supervisor). Drop descriptions that mention health or family.",
+   "request": "curl -A 'research-reader/1.0' 'https://api.datacite.org/dois?query=types.resourceTypeGeneral:Dissertation%20AND%20creators.familyName:M%C3%BCller%20AND%20publisher:ETH*&page%5Bsize%5D=1'",
+   "responseShape": "data[].attributes {titles[0].title, creators[] {name 'Surname, Given', givenName, familyName, affiliation[], nameIdentifiers[] (ORCID)}, contributors[] (Supervisor), publisher (the degree-granting school), publicationYear, types.resourceTypeGeneral='Dissertation', url, doi}. Match with personNameFits on givenName plus familyName. The grade rises above 'possible' only when the publisher is a school already known for the subject, or when an ORCID in nameIdentifiers equals a known ORCID. Plug this into academic-record next to Crossref.",
+   "risks": "Coverage is uneven, and absence proves nothing. 'Dissertation' sometimes covers master's theses, so read types.resourceType. Common surnames need the school tie."
+  },
+  {
+   "id": "openalex-dissertations",
+   "label": "OpenAlex dissertations (extension of the publications source)",
+   "what": "A doctoral thesis indexed by OpenAlex (it holds ProQuest, HAL and repository theses) with the awarding institution and the author's ORCID. Proof of a PhD and its school and year, wider than theses.fr.",
+   "level": "person",
+   "endpoint": "GET https://api.openalex.org/works?filter=type:dissertation,raw_author_name.search:{full name}&select=id,display_name,publication_year,authorships,primary_location&per_page=10",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "Data is CC0. Without a key, every caller on the same IP shares a small daily budget (a notice in the response says so). A free key with its own budget needs an e-mail confirmation click, which the code already supports as OPENALEX_API_KEY.",
+   "termsUrl": "https://help.openalex.org/",
+   "value": 3,
+   "effort": 1,
+   "nonCommercialOnly": false,
+   "privacyNotes": "Keep the title, year, institution and ORCID. Drop raw_affiliation_strings that contain street addresses.",
+   "request": "curl -A 'research-reader/1.0' 'https://api.openalex.org/works?filter=type:dissertation,raw_author_name.search:Arthur%20Mensch&per_page=2&select=id,display_name,publication_year,authorships,primary_location'",
+   "responseShape": "results[] {display_name (thesis title), publication_year, authorships[] {author{display_name, orcid}, institutions[] {display_name, country_code, type='education'}, raw_author_name}}. Verified: Arthur Mensch, 2018, Université Paris-Saclay, with ORCID. Match on personNameFits(raw_author_name). The grade is 'likely' when the ORCID equals the ORCID record already tied to the person, or the institution is a known school. Otherwise it stays 'possible'.",
+   "risks": "The shared keyless budget can run out on a busy IP, and that must be reported as a partial answer. This is an added filter to the existing publications connector, not a new host."
+  },
+  {
+   "id": "nsf-awards-pi",
+   "label": "US National Science Foundation awards (principal investigator)",
+   "what": "NSF grants on which the person is principal or co-principal investigator: the institution or startup (SBIR/STTR and I-Corps awards name the company), the program, the amount and the dates. A dated, government-confirmed role.",
+   "level": "both",
+   "endpoint": "GET https://api.nsf.gov/services/v1/awards.json?pdPIName={full name}&rpp=25 (or awardeeName={company})",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "A US federal public web service that needs no key or sign-in. api.nsf.gov has no robots.txt. US government data is public domain. No published rate limit, so pace it about one request a second.",
+   "termsUrl": "https://www.research.gov/common/webapi/awardapisearch-v1.htm",
+   "value": 3,
+   "effort": 2,
+   "nonCommercialOnly": false,
+   "privacyNotes": "printFields is ignored, so the response always contains piEmail, poEmail, poPhone, awardeePhone, awardeeAddress, perfAddress and e-mails inside coPDPI strings. Drop all of them and strip e-mails out of coPDPI.",
+   "request": "curl -A 'research-reader/1.0' 'https://api.nsf.gov/services/v1/awards.json?pdPIName=Jennifer%20Doudna&rpp=3'",
+   "responseShape": "response.metadata.totalCount. response.award[] {id, title, awardeeName (institution or company), piFirstName, piLastName, coPDPI[], startDate/expDate (MM/DD/YYYY), fundsObligatedAmt, fundProgramName (e.g. 'SBIR Phase I', 'I-Corps'), abstractText}. Match on piFirstName plus piLastName equal to the subject. The grade is 'likely' when awardeeName is a known company or school, otherwise 'possible'. An awardeeName search lists PIs at a known company. The link is https://www.nsf.gov/awardsearch/showAward?AWD_ID={id}.",
+   "risks": "Useful mainly for deep-tech and academic founders. Common names need the awardee tie. It partly overlaps USAspending, but only NSF names the PI."
+  },
+  {
+   "id": "apple-podcast-episodes",
+   "label": "Podcast appearances (Apple's podcast directory search)",
+   "what": "Podcast episodes whose title or description names the person (and company): interviews and talks in the person's own words, plus investigative episodes about them. It surfaces appearances that the news search misses.",
+   "level": "person",
+   "endpoint": "GET https://itunes.apple.com/search?term={full name} {company}&media=podcast&entity=podcastEpisode&limit=25",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "A documented, keyless search service limited to about 20 calls a minute. The promo-content rules cover previews and artwork, which must not be stored. However, itunes.apple.com robots.txt has 'Disallow: /search*'. The owner must accept this conflict explicitly, as was done for the Google News feed, or leave the source off.",
+   "termsUrl": "https://performance-partners.apple.com/search-api",
+   "value": 3,
+   "effort": 2,
+   "nonCommercialOnly": true,
+   "privacyNotes": "Keep the episode name, show name, date, description excerpt and trackViewUrl. Never store the audio or preview URLs or the artwork. Run the guardrails over description text, since it can mention family or health.",
+   "request": "curl -A 'research-reader/1.0' 'https://itunes.apple.com/search?term=Trevor%20Milton%20Nikola&media=podcast&entity=podcastEpisode&limit=3'",
+   "responseShape": "resultCount, results[] {trackName (episode title), collectionName (show), releaseDate ISO, description, shortDescription, trackViewUrl (podcasts.apple.com link), feedUrl}. Verified: 'Trevor Milton: The Elon Musk of Semi-Trucks' (Scamfluencers). Put trackName plus description in matchText and let makeFinding grade it. 'Confirmed or likely' needs the full name and a known company in the same text. A guest-interview phrase ('with', 'founder of') makes it a career or interview record, and fraud wording goes through severityFromText.",
+   "risks": "robots.txt disallows /search*, so it needs the owner's decision. It finds episodes about the person as well as episodes with them. Full-name-only hits stay 'possible'. There is no transcript."
+  },
+  {
+   "id": "huggingface-profile",
+   "label": "Hugging Face profiles",
+   "what": "The person's Hugging Face account: full name, organisations they belong to (often their employer or startup), and counts of models, datasets and claimed papers. A technical footprint for AI founders.",
+   "level": "person",
+   "endpoint": "GET https://huggingface.co/api/quicksearch?q={full name}&type=user&limit=5 then GET https://huggingface.co/api/users/{user}/overview ; models: GET https://huggingface.co/api/models?author={user or org}&sort=downloads&limit=10",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "robots.txt is 'User-agent: * Allow: /'. The terms of service have no clause against automated reading of public data, though proprietary materials may not be republished. The public Hub endpoints need no sign-in.",
+   "termsUrl": "https://huggingface.co/terms-of-service",
+   "value": 2,
+   "effort": 2,
+   "nonCommercialOnly": false,
+   "privacyNotes": "Keep the user, fullname, details (bio, through safe()), org names and counts. Drop the avatar URL and follower lists.",
+   "request": "curl -A 'research-reader/1.0' 'https://huggingface.co/api/quicksearch?q=Arthur%20Mensch&type=user&limit=3' ; curl -A 'research-reader/1.0' 'https://huggingface.co/api/users/julien-c/overview'",
+   "responseShape": "quicksearch: users[] {user, fullname}. overview: {user, fullname, details (bio), createdAt, numModels, numDatasets, numPapers, orgs[] {name, fullname}}. Keep a name-search hit only if fullname passes personNameFits. It stays 'possible' unless an org fullname or the bio names a known company (then 'likely'), or the account is reached through a handle or link already tied to the person.",
+   "risks": "Most founders have no account, and org memberships can be hidden (Arthur Mensch shows none). Same-name accounts are common."
+  },
+  {
+   "id": "open-library-books",
+   "label": "Open Library: books by the person",
+   "what": "Books the person wrote or co-wrote, with publication year and publisher. A résumé line, and a further independent account of their career.",
+   "level": "person",
+   "endpoint": "Preferred: GET https://openlibrary.org/authors/{OLID}/works.json?limit=50 using the Open Library ID from Wikidata P648. Fallback: GET https://openlibrary.org/search/authors.json?q={name} (robots-restricted, see terms)",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "The developer docs invite programs to use the search and works JSON: one request a second without identification, three a second with a contact User-Agent, and no bulk downloads. robots.txt disallows /search and /api for crawlers, so use only /authors/{id}/works.json, which robots allows, unless the owner accepts the search path.",
+   "termsUrl": "https://openlibrary.org/developers/api",
+   "value": 2,
+   "effort": 2,
+   "nonCommercialOnly": false,
+   "privacyNotes": "Drop birth_date and death_date from author records. Keep the name, work titles, first publish date and subjects.",
+   "request": "curl -A 'research-reader/1.0' -L 'https://openlibrary.org/authors/OL2622837A/works.json?limit=2' ; curl -A 'research-reader/1.0' 'https://openlibrary.org/search/authors.json?q=Elizabeth%20Holmes&limit=3'",
+   "responseShape": "works.json: entries[] {title, key '/works/OL..W', first_publish_date, subjects}. search/authors.json: docs[] {key 'OL..A', name, top_work, work_count, top_subjects, birth_date (drop it)}. A name search for 'Elizabeth Holmes' returned 22 namesakes, all of them teachers' handbook authors, so only an author key reached through Wikidata P648 (the Wikidata item tied to the person) is 'likely'. A name-search hit stays 'possible' and is used only when top_subjects fit.",
+   "risks": "The name search is noisy, and its robots status is in conflict. Few founders have a Wikidata P648. Google Books would have been better but is unusable without a key."
+  },
+  {
+   "id": "fi-prh-companies",
+   "label": "Finnish Trade Register (PRH open data)",
+   "what": "For a Finnish company tied to the person: business ID, registration date, every past name, company form, main line of business, website and status (for example liquidation). It shows that a claimed company exists and when it started, but it lists no people.",
+   "level": "company",
+   "endpoint": "GET https://avoindata.prh.fi/opendata-ytj-api/v3/companies?name={company}",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "PRH open data (CC BY 4.0) needs no sign-in. The host's robots.txt is served as an HTML app page with no rules, so it does not restrict this path. Pace it about one request a second.",
+   "termsUrl": "https://avoindata.prh.fi/en",
+   "value": 2,
+   "effort": 1,
+   "nonCommercialOnly": false,
+   "privacyNotes": "Addresses are company addresses, but drop them anyway. No personal data is present.",
+   "request": "curl -A 'research-reader/1.0' 'https://avoindata.prh.fi/opendata-ytj-api/v3/companies?name=Supercell'",
+   "responseShape": "totalResults, companies[] {businessId{value, registrationDate}, names[] {name, type, registrationDate, endDate}, companyForms[], mainBusinessLine{descriptions[]}, website{url}, companySituations[] (bankruptcy or liquidation), tradeRegisterStatus}. Accept only an exact name match to a known company. With no people listed, the tie rests on the name and the record must say so, as the US-state registers already do.",
+   "risks": "No officers, so it cannot confirm the person's role. It is only useful for Finnish companies."
+  },
+  {
+   "id": "ee-ariregister-persons",
+   "label": "Estonian e-Business Register (open data files: persons on the registry card)",
+   "what": "For an Estonian company tied to the person: board members and other people on the registry card, with role and start dates, plus shareholders and beneficial owners. This covers the many startups incorporated in Estonia through e-Residency.",
+   "level": "company",
+   "endpoint": "Daily bulk file https://avaandmed.ariregister.rik.ee/sites/default/files/avaandmed/ettevotja_rekvisiidid__kaardile_kantud_isikud.json.zip (about 46 MB; also ..._lihtandmed.csv.zip, about 19 MB, for company names). Load it through cache.js as a compact index.",
+   "keyless": true,
+   "verifiedLive": false,
+   "termsSummary": "Free since October 2022 under CC BY 4.0. Downloading requires accepting the licence terms, and re-users must follow GDPR. Personal ID codes were removed on 1 November 2024. The live XML services need a contract, so only the bulk files qualify, and the site's autocomplete endpoint is a web-app internal and must not be used.",
+   "termsUrl": "https://avaandmed.ariregister.rik.ee/en/downloading-open-data",
+   "value": 2,
+   "effort": 4,
+   "nonCommercialOnly": false,
+   "privacyNotes": "Keep only the name, role and dates. Drop any address, birth date or ID fields, and do not keep people unrelated to the subject's companies in the index.",
+   "request": "curl -sI -A 'research-reader/1.0' https://avaandmed.ariregister.rik.ee/sites/default/files/avaandmed/ettevotja_rekvisiidid__kaardile_kantud_isikud.json.zip  (verified 200, 46,170,901 bytes, updated daily; the contents were not downloaded in this session)",
+   "responseShape": "The JSON zip is expected to hold one record per company (ariregistri_kood, nimi) with a list of persons on the card (role such as juhatuse liige, first name, surname, start date). The engineer must confirm the field names on first download. Index it by registry code and normalised company name. Match the company exactly to a known company, then the person by first name plus surname, and grade at most 'likely'.",
+   "risks": "A large download for serverless, so it needs a cache. The field names were not verified here. It covers only companies currently registered. The GDPR obligation means only matched rows may be stored."
+  },
+  {
+   "id": "crates-io-owner",
+   "label": "crates.io (Rust packages) for a known handle",
+   "what": "The Rust crates a GitHub handle already tied to the person publishes, with downloads and dates. A minor technical footprint, like npm-packages.",
+   "level": "person",
+   "endpoint": "GET https://crates.io/api/v1/users/{github_login} then GET https://crates.io/api/v1/crates?user_id={id}&sort=downloads&per_page=20",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "robots.txt allows everything. The data-access policy requires at most one request a second and a User-Agent that uniquely identifies the application with contact details, so enable it only when FOUNDER_HTTP_CONTACT is set.",
+   "termsUrl": "https://crates.io/data-access",
+   "value": 1,
+   "effort": 1,
+   "nonCommercialOnly": false,
+   "privacyNotes": "Keep the login, name, url, crate names, descriptions and download counts. Drop the avatar.",
+   "request": "curl -A 'research-reader/1.0' https://crates.io/api/v1/users/dtolnay ; curl -A 'research-reader/1.0' 'https://crates.io/api/v1/crates?user_id=3618&per_page=2&sort=downloads'",
+   "responseShape": "user {id, login, name, url, github_username_matches}. crates[] {name, description, downloads, created_at, updated_at}. Only for a handle thread already tied to the person, and kept only if user.name passes personNameFits. Then 'likely'.",
+   "risks": "Low yield for most founders. It must be disabled without a declared contact, or it risks a 403 under their crawler policy."
+  }
+ ],
+ "rejected": [
+  {
+   "name": "Google Books volumes search",
+   "reason": "A keyless call returned 429 with quota_limit_value 0 for anonymous use. It needs a Google Cloud project key, which requires an account."
+  },
+  {
+   "name": "DBLP author search",
+   "reason": "dblp.org serves an Anubis anti-bot challenge to automated clients, and the house rules forbid getting past bot detection. The CC0 XML dump is several GB, too large to use."
+  },
+  {
+   "name": "OATD / NDLTD thesis search",
+   "reason": "oatd.org, the NDLTD global search front end, answers with a Cloudflare 'Just a moment' challenge, even for robots.txt."
+  },
+  {
+   "name": "SBIR.gov awards service",
+   "reason": "api.www.sbir.gov/public/api/awards returned 403 Forbidden to a plain client. NSF awards (proposed) and USAspending (already present) cover SBIR grants partly."
+  },
+  {
+   "name": "YouTube channel feeds",
+   "reason": "youtube.com robots.txt has 'Disallow: /feeds/videos.xml'. The YouTube data service needs a key and was dropped earlier."
+  },
+  {
+   "name": "GlobeNewswire",
+   "reason": "It returned 403 even for robots.txt to an automated client, and has no documented search feed."
+  },
+  {
+   "name": "PR Newswire / Business Wire",
+   "reason": "No search service, only HTML search pages and news sitemaps of recent items. Their releases are already reached through the open-web and news search and the page reader."
+  },
+  {
+   "name": "Estonia ariregister autocomplete",
+   "reason": "ariregister.rik.ee/est/api/autocomplete answers, but it is an undocumented internal endpoint of the web app (the same issue as the removed USPTO search). The live XML services need a contract. Only the bulk open-data files qualify."
+  },
+  {
+   "name": "Denmark CVR (cvrapi.dk and the official CVR distribution)",
+   "reason": "cvrapi.dk is a third-party commercial service and answered QUOTA_EXCEEDED. The official Erhvervsstyrelsen system-to-system access needs credentials issued on application, not instantly."
+  },
+  {
+   "name": "Canada federal corporations directors",
+   "reason": "Directors are available only through the Corporations Canada API Store, which needs sign-in. The open-data bulk file has no director names. The guessed keyless search path returned 'could not find corporation search'."
+  },
+  {
+   "name": "New Zealand Companies Register",
+   "reason": "The api.business.govt.nz entities service returned 404 without a subscription key. Access needs a registered account."
+  },
+  {
+   "name": "Ireland CRO Open Services",
+   "reason": "Free, but it needs a sign-up plus a signed Terms and Conditions document e-mailed to the CRO, so it is not instant. The CC BY open-data portal has no officers."
+  },
+  {
+   "name": "RubyGems owner lookup",
+   "reason": "It works keylessly (api/v1/owners/{handle}/gems.json), but it needs an exact handle and returned nothing for the public test, so it adds almost nothing over GitHub and npm."
+  },
+  {
+   "name": "PyPI user packages",
+   "reason": "No per-user JSON service, only HTML user pages (scraping). The JSON service is per package only."
+  },
+  {
+   "name": "ORCID employment and education, Wikidata statements, OpenAlex authors, Crossref dissertations, theses.fr, Keybase, Y Combinator directory, GDELT, SEC Form D and proxy (DEF 14A) biographies",
+   "reason": "Already in the check (scholar.js, knowledge.js, profiles.js, registries.js, searchEngines.js, sec.js). Only the OpenAlex dissertation filter is proposed, as an extension."
+  },
+  {
+   "name": "Other accelerator directories (Techstars, 500 Global and others), university news and alumni pages, conference speaker sites",
+   "reason": "No documented open data or search service. They are already reached through the open-web search plus the page reader, which honours robots.txt."
+  },
+  {
+   "name": "Crunchbase, Product Hunt, Podcast Index, YouTube data service, CanLII, World Bank list, ADB register, certificate transparency, ProPublica people search, USPTO web-app search, ransomware.live, Ahmia",
+   "reason": "Removed or dropped earlier (key, login or terms). Nothing seen in this session shows those reasons have changed."
+  }
+ ]
+}

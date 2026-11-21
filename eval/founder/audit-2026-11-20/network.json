@@ -1,0 +1,252 @@
+{
+ "key": "network",
+ "notes": "Every query is scoped to user_id, and contacts never reach a model or an outside service; only a seeded company name and the report's company (for the investor lookup) go out. Not reported: hyphenated versus spaced surnames miss a match; name folding runs per row with no index (fine at 10k, could use a stored folded-name column); DDL runs on cold start inside the 4s network budget; the chip uses exact company keys. Schools cannot be matched because contact exports have no education. My temp test file was created and deleted; the other zzAudit files belong to other auditors.",
+ "omitted": 4,
+ "findings": [
+  {
+   "id": "network-company-lookup-failure-shown-as-none",
+   "title": "A failed company lookup is shown as 'none of your contacts work there'",
+   "severity": "high",
+   "kind": "honesty",
+   "file": "src/server/network/store.js",
+   "line": 317,
+   "scenario": "Neon times out or errors on the company query during the report read. findContactsAtCompanies catches the error and returns []. The report, still marked available, then says \"None of your contacts work at Nikola\" with no notes. I reproduced this with a fake DB that throws: available:true, groups:[], notes:[].",
+   "fix": "Add a strict variant, or a {strict:true} option, that throws or returns {rows, failed}. In networkForReport, use Promise.allSettled per query and add a note for each part that failed: 'People at their companies could not be read just now'. Never render the 'None of your contacts…' sentence for a lookup that failed.",
+   "evidence": "store.js 317-320 catch returns []; networkLink 391 uses it unguarded; temp test confirmed",
+   "filesToChange": [
+    "src/server/network/store.js",
+    "src/server/founder/networkLink.js",
+    "src/components/founder/NetworkLinks.js"
+   ],
+   "dim": "network",
+   "verdict": "confirmed",
+   "verifyNote": "store.js 317-320 catches and returns []. networkForReport treats that as a real empty result and builds available:true with no note. This breaks honest-coverage rule 5. findContactsByNames already throws for this reason, so the two lookups behave inconsistently.",
+   "betterFix": "Add {strict:true} to findContactsAtCompanies so it rethrows, and keep the never-throws default for other callers. In networkForReport, settle each of the four lookups separately. For each failed one, mark that group 'could not be read' and add a note. Never render 'None of your contacts work at X' for a lookup that failed. Apply the same treatment to the investors lookup."
+  },
+  {
+   "id": "network-seed-namesake-anchors-check",
+   "title": "A namesake contact's company silently anchors the whole check as confirmed",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/pages/api/founder/deep.js",
+   "line": 186,
+   "scenario": "The user types only 'John Smith' and means a founder they have never met. Their one contact named John Smith works at Acme. The check starts with company=Acme as 'the company given', so records about the contact are graded confirmed and the report is about the wrong person. The only notice sits in the 'In your network' section, far below the red flags.",
+   "fix": "Do not seed silently. Before starting, return {needsConfirm:{company}} so the page asks: 'Is this the John Smith at Acme in your network?' Seed only after a yes. Show the seeded anchor in the report header, not only in the network section, and link to re-run without it.",
+   "evidence": "deep.js 34-37, 186-189: seed becomes startState company; networkLink companySeed lines 408-421",
+   "filesToChange": [
+    "src/pages/api/founder/deep.js",
+    "src/server/founder/networkLink.js",
+    "src/components/founder/DeepCheck.js"
+   ],
+   "dim": "network",
+   "verdict": "confirmed",
+   "verifyNote": "deep.js 186-189 silently sets the start company from the single same-name contact. That company becomes 'the company given', and identity.js 388 grades company matches as confirmed. A namesake contact's records can therefore be confirmed against the wrong person. The only disclosure is in NetworkLinks line 110.",
+   "betterFix": "Ask before seeding: return needsConfirm with the company and let the page say 'Is this the X at Acme in your network?'. If kept automatic, record origin 'network' rather than 'given', cap anchored records at likely (rule 2), and show the anchor in the report header with a re-run-without-it link."
+  },
+  {
+   "id": "network-one-word-company-variants",
+   "title": "One-word companies never match their longer names ('Nikola' vs 'Nikola Motor Company')",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/utils/network/parseContacts.js",
+   "line": 136,
+   "scenario": "The check's company is 'Nikola'; contacts list 'Nikola Motor Company'. Investors are 'Sequoia' and the contact says 'Sequoia Capital'. Another pair is 'Meta' and 'Meta Platforms'. Verified: companyMatch returns null for each pair, and the SQL prefilter only fetches exact keys for one-word targets. So contacts at the person's own company are reported as none.",
+   "fix": "Add a Founder-Check matcher. Match a one-word target when the contact key starts with it and the rest is a generic tail (motor, motors, company, technologies, labs, capital, ventures, partners, group, holdings, health, ai, platforms). Add alias targets from the check (registry legal names, 'earlier name' threads). Widen the SQL prefilter to `company_key LIKE k || ' %'`. Label these matches 'similar name'.",
+   "evidence": "temp test: nikola/nikola motor company, sequoia/sequoia capital, meta/meta platforms all null",
+   "filesToChange": [
+    "src/server/network/store.js",
+    "src/server/founder/networkLink.js",
+    "src/utils/network/parseContacts.js"
+   ],
+   "dim": "network",
+   "verdict": "confirmed",
+   "verifyNote": "companyMatch('nikola motor','nikola') returns null, and the SQL prefilter only matches exact keys for one-word targets. 'Nikola Corporation' already collapses to 'nikola' (suffix stripped), and threads can add multi-word names, so the gap is partly offset. Severity is medium rather than high.",
+   "betterFix": "Avoid a broad generic-tail list: it reopens the 'Meta' vs 'Meta Financial' false match the code deliberately blocks. Match only when the tail is purely a company-form word (motor company, technologies, platforms, capital or ventures for investors). Label these 'similar company name', keep them out of self-basis 'company', and widen SQL with company_key LIKE k || ' %'."
+  },
+  {
+   "id": "network-checked-chip-starts-new-check",
+   "title": "'Checked' chip and history links start a new deep check instead of opening the finished one",
+   "severity": "high",
+   "kind": "ux",
+   "file": "src/pages/network.js",
+   "line": 134,
+   "scenario": "The user clicks 'Checked · 2 red flags' on a contact an hour after the check, or in a new tab. The link goes to /founder?name=&company=. DeepCheck resumes only from a sessionStorage jobId under 30 minutes old, so it starts a fresh 3-5 minute check that hits about sixty sources again and uses one of the 12 hourly slots.",
+   "fix": "Return the job id from listFinishedChecks/history. Link to /founder?job=<id>, and have DeepCheck load that job through GET /api/founder/deep?jobId (already owner-scoped) before starting anything. Also match the chip with companyMatch and tidyName (honorifics, degrees) rather than exact keys.",
+   "evidence": "history returns {name,company,date,redFlags} only; DeepCheck.js 96-103 RESUME_MINUTES=30; useEffect auto-runs",
+   "filesToChange": [
+    "src/server/founder/networkLink.js",
+    "src/pages/api/founder/history.js",
+    "src/pages/network.js",
+    "src/components/founder/DeepCheck.js",
+    "src/pages/founder.js"
+   ],
+   "dim": "network",
+   "verdict": "confirmed",
+   "verifyNote": "network.js 134 links to /founder?name&company. DeepCheck auto-runs and resumes only from a sessionStorage jobId less than 30 minutes old (DeepCheck.js 97-103), so a new tab or a later click starts a fresh check and uses an hourly slot. history returns no job id.",
+   "betterFix": "Also return the job's seeded company. The founder_jobs company column holds the seed, and re-running with it typed loses the seeded flag."
+  },
+  {
+   "id": "network-cross-source-duplicate-loses-self",
+   "title": "The person in both LinkedIn and Attio is shown as 'may be someone else'",
+   "severity": "medium",
+   "kind": "wrong-person",
+   "file": "src/server/founder/networkLink.js",
+   "line": 268,
+   "scenario": "The subject appears in the LinkedIn import (profileUrl key) and the Attio import (email key), both at Nikola. dedupeKey differs, so both rows survive. atTheirCompanies.length is 2, self becomes null, and both copies are listed as 'nothing ties these contacts to the person… They may be someone else'. Reproduced.",
+   "fix": "Collapse nameMatches by contactId (name plus company key) before deciding self, merging the direct and firm copies and preferring direct. Decide self on the unique people, not the rows.",
+   "evidence": "temp test: two copies of 'Trevor Milton','Nikola' -> self null, sameNameContacts 2",
+   "filesToChange": [
+    "src/server/founder/networkLink.js"
+   ],
+   "dim": "network",
+   "verdict": "confirmed",
+   "verifyNote": "dedupeKey uses the profile URL for LinkedIn and the email for Attio, so cross-source rows survive. In a temp test, two 'Trevor Milton'/'Nikola' rows gave self:null and listed 2 same-name contacts as 'may be someone else'."
+  },
+  {
+   "id": "network-weak-self-basis",
+   "title": "A contact becomes 'the person' on weak evidence: different middle initials or no company",
+   "severity": "medium",
+   "kind": "wrong-person",
+   "file": "src/server/founder/networkLink.js",
+   "line": 274,
+   "scenario": "sameName('John P. Smith','John Q. Smith') is true (verified). A contact with no company is made self even when the user typed a company (verified with 'Nikola'). A same-name contact at a company the person only left, or merely sits on the board of, counts as basis 'company'.",
+   "fix": "Treat conflicting middle initials as different people. Never set self from a contact with a blank company when the check has a company; list them under 'same name'. Allow basis 'company' only for current or founded ties; for earlier or other ties, say 'same name, works at a company they were tied to: confirm'.",
+   "evidence": "temp test: initials true; blank-company contact returned self basis 'name'",
+   "filesToChange": [
+    "src/server/founder/networkLink.js"
+   ],
+   "dim": "network",
+   "verdict": "confirmed",
+   "verifyNote": "Temp test: sameName('John P. Smith','John Q. Smith') returns true. A contact with a blank company became self with basis 'name' even though the report had current company Nikola (line 274 only excludes a conflicting non-blank company). atTheirCompanies accepts any tie, including 'other' and earlier ones."
+  },
+  {
+   "id": "network-silent-2000-row-cap",
+   "title": "The company query silently drops rows past 2,000, in alphabetical order",
+   "severity": "medium",
+   "kind": "honesty",
+   "file": "src/server/network/store.js",
+   "line": 296,
+   "scenario": "A 10,000-contact network where the check ties the person to Google and McKinsey (earlier employers) and Nikola. Rows at all 40 companies are pooled, sorted by name and cut at 2,000. Contacts at the current company whose names sort late vanish, and the report can say there is no one at Nikola.",
+   "fix": "Rank within each target (ROW_NUMBER() OVER (PARTITION BY matched target), e.g. 200 each), return per-company totals, and flag truncation. Show 'N more at Google not listed' in the group instead of dropping rows silently.",
+   "evidence": "store.js 287-297: one query, ORDER BY lower(name) LIMIT 2000, no truncation signal",
+   "filesToChange": [
+    "src/server/network/store.js",
+    "src/server/founder/networkLink.js"
+   ],
+   "dim": "network",
+   "verdict": "confirmed",
+   "verifyNote": "store.js 287-297 runs one pooled query with ORDER BY lower(name) LIMIT 2000 and gives no truncation signal. With up to 40 target companies, large former employers can crowd out current-company rows, which are then reported as none. Realistic mainly for big networks."
+  },
+  {
+   "id": "network-profile-roles-ignored",
+   "title": "The profile's dated roles, boards, founded companies and investments are not matched",
+   "severity": "low",
+   "kind": "missed-information",
+   "file": "src/server/founder/networkLink.js",
+   "line": 104,
+   "scenario": "The model-read profile lists roles with years (dHybrid founder 2008-2012), board seats and portfolio companies. companiesOf reads only profile.company and profile.earlier, which carries no years, so contacts at those organisations are never looked for. Verified: only 'Nikola' came back. The UI then tells the user to check overlap themselves.",
+   "fix": "Read profile.roles (with from/to), boards, founded and investments into companiesOf, with ties 'board' and 'portfolio'. Carry the years and show 'they were there 2008-2012' on each group and person. Rank earlier-employer contacts lower when the person left more than ~8 years ago, and say overlap is unconfirmed.",
+   "evidence": "profileModel.js 345-352 exposes roles/boards/founded/investments; companiesOf uses none of them",
+   "filesToChange": [
+    "src/server/founder/networkLink.js",
+    "src/components/founder/NetworkLinks.js"
+   ],
+   "dim": "network",
+   "verdict": "confirmed",
+   "verifyNote": "Partly overstated. mergeProfile builds profile.earlier from all non-current roles, so earlier employers are matched (temp test returned dHybrid:earlier). Founded companies also arrive through FOUNDED threads. Still absent: boards, investments and profile.founded, plus years and tenure in the output.",
+   "betterFix": "Add profile.founded (tie 'founded'), boards (new tie 'board') and investments (a portfolio tie ranked below 'other') to companiesOf. Carry from/to from report.profile.roles onto each company and show the years. Do not claim tenure overlap."
+  },
+  {
+   "id": "network-title-mentions-past-colleagues",
+   "title": "Contacts whose title says 'ex-Nikola' or 'formerly at Theranos' are never found",
+   "severity": "low",
+   "kind": "missed-information",
+   "file": "src/server/network/store.js",
+   "line": 272,
+   "scenario": "A contact's position reads 'Partner at X · ex-Theranos'. Their company field is X, so the company-key match misses them, though they are exactly the former colleague the report wants. The Network Map's scoreContacts already scores these as a 'title' relation.",
+   "fix": "Add a second user-scoped query on position, a whole-word match of each multi-word or distinctive company name. List the hits as 'their title mentions Theranos (possibly a former colleague)' in the earlier and founded groups, and let them reach the shortlist only below direct company matches.",
+   "evidence": "query.js 422 title relation exists; findContactsAtCompanies selects by company_key only",
+   "filesToChange": [
+    "src/server/network/store.js",
+    "src/server/founder/networkLink.js"
+   ],
+   "dim": "network",
+   "verdict": "confirmed",
+   "verifyNote": "findContactsAtCompanies selects by company_key only, so a position reading 'ex-Theranos' is never searched. This is feasible with the user's own data. It is lower value and prone to false hits for generic names, so it should be limited to distinctive or multi-word names and labelled as possible."
+  },
+  {
+   "id": "network-shortlist-ranking",
+   "title": "The reference shortlist puts any ex-employer contact ahead of the person's named co-founder",
+   "severity": "low",
+   "kind": "improvement",
+   "file": "src/server/founder/networkLink.js",
+   "line": 221,
+   "scenario": "The user's contact is the person's named co-founder, a related party. SHORTLIST_ORDER fills 'earlier' first, so two senior contacts at a 100,000-person former employer, who likely never met them, outrank the co-founder. Parties without a company share the key 'their work together', which caps them at two.",
+   "fix": "Score each person by closeness: named co-founder, board member or investor highest; then founded-company staff; then earlier employers, weighted by tenure overlap and small company size; then seniority and connection age. Key parties by their own name, not 'their work together'. Show the reason for each rank.",
+   "evidence": "SHORTLIST_ORDER line 221; p.at 'their work together' line 290 used as company key line 240",
+   "filesToChange": [
+    "src/server/founder/networkLink.js"
+   ],
+   "dim": "network",
+   "verdict": "confirmed",
+   "verifyNote": "SHORTLIST_ORDER fills from 'earlier' first (line 221), so a named co-founder in 'parties' ranks below ex-employer contacts. Parties without a company share the key normalizeCompanyKey('their work together') at line 240, which caps them at two. Tenure-overlap and company-size weighting are not available from the data, so keep the fix simple.",
+   "betterFix": "Put 'parties' with a co-founder, board or investor relation first and key parties by their own personKey. Leave the rest of the order as is."
+  },
+  {
+   "id": "network-second-degree-investors",
+   "title": "Investors are looked up only for the current company; no second-degree intro path",
+   "severity": "low",
+   "kind": "missed-information",
+   "file": "src/pages/api/founder/deep.js",
+   "line": 58,
+   "scenario": "The person founded two earlier companies, and the check names their investors and board members as related parties. Only report.company's profile investors are matched. Contacts at the earlier companies' backers, or contacts who share employers with a named co-founder or board member, are never surfaced as a warm path.",
+   "fix": "Look up investors for each founded company (bounded, cached, company names only). Match investors and board members named in the check (relatedParties with an investor or board role) to contacts by name and by firm. Reuse introPaths' investor logic to show 'who can introduce you' alongside the reference shortlist.",
+   "evidence": "deep.js 58 single company; query.js introPaths viaPastEmployees [] and investor matching",
+   "filesToChange": [
+    "src/pages/api/founder/deep.js",
+    "src/server/founder/networkLink.js",
+    "src/server/network/query.js"
+   ],
+   "dim": "network",
+   "verdict": "confirmed",
+   "verifyNote": "deep.js 58 looks up investors only for report.company. Related parties, including investor or board ones, are already matched by name in partiesOf, so the gap is mainly firm-level contacts at earlier companies' backers. Feasible with the existing free companyProfile, but each added lookup must be bounded and must report the timeout as missed."
+  },
+  {
+   "id": "network-ask-from-report",
+   "title": "There is no way to ask the network from a report, and finished checks vanish after three days",
+   "severity": "low",
+   "kind": "improvement",
+   "file": "src/components/founder/NetworkLinks.js",
+   "line": 133,
+   "scenario": "A report finds no contacts at Nikola. The user wants the Network Map's intro paths or a lens search, but there is no link, and network.js reads no query parameter to prefill a question. The 'Checked' mark disappears when the job expires at 72 hours.",
+   "fix": "Add 'Ask your network about <company>' linking to /network?ask=intro%20to%20<company>, and have network.js run that ask on load. Keep a compact owner-scoped row per finished check (name, company, date, red-flag count, job id) beyond 72 hours, so a contact's card shows the check and can re-run it.",
+   "evidence": "network.js has no router.query ask handling; history reads founder_jobs (72h)",
+   "filesToChange": [
+    "src/components/founder/NetworkLinks.js",
+    "src/pages/network.js",
+    "src/server/founder/networkLink.js"
+   ],
+   "dim": "network",
+   "verdict": "confirmed",
+   "verifyNote": "network.js reads only error/auth from router.query (line 324), and NetworkLinks links only to /network. jobStore RETENTION_HOURS=72 deletes finished jobs, so the 'Checked' chip disappears after three days."
+  },
+  {
+   "id": "network-all-or-nothing",
+   "title": "One failed name query hides the whole network section",
+   "severity": "low",
+   "kind": "robustness",
+   "file": "src/server/founder/networkLink.js",
+   "line": 389,
+   "scenario": "The 60 related-party names include a common pair that returns more than 1,000 rows, or that one query errors. findContactsByNames throws, so the whole Promise.all rejects, and the self match and company matches that did succeed are thrown away. The user sees 'could not be read just now'.",
+   "fix": "Use Promise.allSettled. Build the sections that succeeded and add a note for each part that failed ('People named in the check could not be matched'). Drop over-common party names (pairs over the limit) individually rather than failing the batch.",
+   "evidence": "lines 389-399 Promise.all inside single try/catch",
+   "filesToChange": [
+    "src/server/founder/networkLink.js"
+   ],
+   "dim": "network",
+   "verdict": "confirmed",
+   "verifyNote": "networkForReport lines 389-399 run Promise.all inside one try. findContactsByNames throws over NAME_MATCH_LIMIT or on error, so a failed party lookup discards the self and company matches that succeeded and returns available:false. It fails visibly, not silently, so severity is low.",
+   "betterFix": "Settle each lookup separately and add a note per failed part. For the parties lookup, retry over-limit names one at a time and drop only the over-common ones with a note, rather than failing the whole batch."
+  }
+ ]
+}

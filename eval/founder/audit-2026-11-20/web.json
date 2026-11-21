@@ -1,0 +1,266 @@
+{
+ "key": "web",
+ "notes": "I verified findings with a temporary Jest file, now deleted: the SSRF readable/plan results, the degree false and missed changes, news-only answers resolving as searched, and the 500 ms retryAt for site queries. Lesser items left out: Crawl-delay ignored for readSite; a 'missing' page gives no note; the DDG 'site: OR site:' forums query likely does not work; LinkedIn signed-out truncation can flag a single removed role at medium severity.",
+ "omitted": 4,
+ "findings": [
+  {
+   "id": "web-news-only-counts-as-searched",
+   "title": "Web questions answered only by headline feeds are counted as searched, with no retry",
+   "severity": "high",
+   "kind": "honesty",
+   "file": "src/server/founder/sources/searchEngines.js",
+   "line": 697,
+   "scenario": "DuckDuckGo allows about 4 non-site searches per 10 minutes, so most of the ~18 subject lookups (lawsuit, fraud, education, background) skip it. Tested: DDG paused, Google News and Bing News returned 'nothing'. keylessSearch resolved [] with no error. The lookup is recorded as run with nothing found, is never retried, and counts against the pattern's learned score.",
+   "fix": "When no general engine (ddg/brave/metered) answered a non-news, non-reference question, throw SEARCH_RESTING with retryAt from nextFreeAt(false, e=>e.general), as the 'archive' branch already does. Do this even if the news feeds answered, and keep their results as partial. Report 'searched news headlines only' in coverage, and skip learning updates for these runs.",
+   "filesToChange": [
+    "src/server/founder/sources/searchEngines.js",
+    "src/server/founder/sources/web.js",
+    "src/server/founder/deepCheck.js"
+   ],
+   "evidence": "Audit test: tried=[ddg paused, gnews nothing, bingnews nothing, wikipedia nothing], results [] with no throw.",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "keylessSearch counts gnews/bingnews/wikipedia as 'answered', so a web lookup DDG skipped resolves to [] with no throw. ORDER.web falls through to news on purpose, but nothing records that no general engine ran. DDG allows 4 non-site searches per 10 min (max 6, reserve 2).",
+   "betterFix": "Always throwing SEARCH_RESTING won't work: about 18 lookups at 4 per 10 min is well past the 12-minute maxWaitAge, so most would be dropped. Instead return generalAnswered/newsOnly from keylessSearch. Tag those runs 'headlines only' in the notes and coverage, and skip learning updates for them. Re-queue with retryAt only the seed and adverse templates, and spend DDG turns on them first."
+  },
+  {
+   "id": "web-site-query-retry-spin",
+   "title": "Site-restricted lookups (LinkedIn) retry every 0.5 s while DuckDuckGo is paused for 10+ minutes",
+   "severity": "high",
+   "kind": "robustness",
+   "file": "src/server/founder/sources/searchEngines.js",
+   "line": 693,
+   "scenario": "q.linkedin ('site:linkedin.com/in') can only run on DuckDuckGo. When DDG is paused, retryAt = nextFreeAt(false) counts Google News, Bing and Wikipedia, which cannot serve site: queries, so retryAt is now+500 ms (tested). deepCheck re-queues the task every ~0.5 s for up to 12 minutes (maxWaitAgeMs). Steps run to their deadline doing nothing, and the LinkedIn lookup is never run.",
+   "fix": "Pass the same site and coverage filter used by engineOrder into nextFreeAt (only engines that can take this query: sites===true for site queries, covers() for windows). With no such engine enabled, throw a plain 'not run: needs a general web search' instead of SEARCH_RESTING.",
+   "filesToChange": [
+    "src/server/founder/sources/searchEngines.js"
+   ],
+   "evidence": "Audit test: site:linkedin.com/in query with DDG paused gave code SEARCH_RESTING, retryInMs 500.",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "engineOrder for a site:linkedin.com/in query keeps only sites===true engines (ddg, or brave, which is off by default). When DDG is paused, the answered===0 branch calls nextFreeAt(news=false), which counts gnews, bingnews and wikipedia, so retryAt is now+500. deepCheck then sets notBefore=retryAt and re-runs the task until maxWaitAge.",
+   "betterFix": "Pass the same filter engineOrder uses (sites, covers) to nextFreeAt. Also count the reserve correctly: a site search uses the full DDG allowance (takeTurn has siteSearch=true), but nextFreeAt always subtracts the reserve. When no eligible engine is enabled, throw a plain not-run error."
+  },
+  {
+   "id": "web-pages-ssrf",
+   "title": "Page reader opens private, loopback and metadata addresses and follows redirects to them",
+   "severity": "medium",
+   "kind": "security",
+   "file": "src/server/founder/sources/pages.js",
+   "line": 64,
+   "scenario": "readable('http://169.254.169.254/latest/meta-data/'), readable('http://127.0.0.1:3009/…') and readable('http://localhost/about') all return true. plan({kind:'domain', value:'10.0.0.5'}) plans a site read. A tied page can also 302-redirect to an internal address, and http.js fetches it with redirect:'follow' before the landed URL is checked. That is a blind server-side request forgery (GET).",
+   "fix": "Add a URL guard in http.js used by pages/archive. Allow only http(s) on ports 80/443 and reject IP-literal and 'localhost'/.local/.internal hosts. Resolve DNS and reject private, loopback, link-local, CGNAT and ULA ranges. Use redirect:'manual' and re-check each hop (robots plus the guard), with at most 5 hops. In readable() and siteOf(), reject IP literals.",
+   "filesToChange": [
+    "src/server/founder/http.js",
+    "src/server/founder/sources/pages.js"
+   ],
+   "evidence": "Audit test output: readable 127/169/localhost true; domain plan for 10.0.0.5 and 127.0.0.1 returned read.site.",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "readable() checks only NEVER, file extensions and isBlockedUrl (people-search hosts). There is no IP, loopback or private-range check. request() uses redirect:'follow', and the landed URL is checked only after the fetch. Exploiting it needs a page planted in search results or a redirect from a tied page, so medium, not high.",
+   "betterFix": "The proposed guard is right. Also apply it in archive.js and in the robots.txt fetch, since robotsVerdict requests the internal host first. Lower the risk further by refusing non-80/443 ports in siteOf and readable."
+  },
+  {
+   "id": "web-false-degree-change",
+   "title": "'Bachelor's degree' vs 'BS' reported as a medium-severity degree change",
+   "severity": "high",
+   "kind": "accuracy",
+   "file": "src/server/founder/sources/archiveClaims.js",
+   "line": 626,
+   "scenario": "LinkedIn has written the same degree both ways over the years. compareClaims({degree:\"Bachelor's degree, Chemical Engineering\"} vs {degree:'BS, Chemical Engineering'}) returns a 'degree changed' entry at severity medium. The same happens for \"Master's degree, Computer Science\" vs 'MS Computer Science' (tested). The report then shows a false 'claim that changed' about credentials.",
+   "fix": "In TITLE_SYNONYMS, map bs/bsc/ba/bachelor (and ms/msc/ma/master) to one level token ('bachelor', 'master'), keeping mba/phd distinct. In sameDegree, treat a generic level word ('bachelor', 'master') as compatible with any specific degree at that level. Add tests for both pairs.",
+   "filesToChange": [
+    "src/server/founder/sources/archiveClaims.js"
+   ],
+   "evidence": "Audit test: both pairs returned [{field:'education', change:'changed', aspect:'degree', severity:'medium'}].",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced with a temporary test. Both pairs return a 'degree changed' entry at severity medium. DEGREE_LEVEL holds only words like undergraduate and graduate. 'bachelor' and 'bs' stay as different tokens, so sameDegree's rest comparison fails.",
+   "betterFix": "Don't merge bs and ba into one token: that would hide a real BA to BS change. Instead treat the generic words 'bachelor' or 'master' as matching any specific degree at that level (bs, ba, bsc, beng, bba / ms, msc, ma, meng, but not mba) inside sameDegree. Add tests for both directions."
+  },
+  {
+   "id": "web-missed-degree-change",
+   "title": "A degree added to, or removed from, an unchanged school is never reported",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/archiveClaims.js",
+   "line": 709,
+   "scenario": "An older copy lists 'Stanford University' with no degree; a later copy says 'PhD, Chemistry, Stanford University' (credential inflation). The reverse case: 'BS, Chemical Engineering' becomes the school only. diffEntries pairs the entry with the blank-degree one (lines 709-710), so compareClaims returns [] in both cases (tested). These are the most important claims that change.",
+   "fix": "When one side has a degree and the other has none, emit change 'added' or 'removed' with aspect 'degree'. Use severity low when the newer copy is a signed-out or masked view, and medium otherwise; for a doctorate or MBA that appears, use medium and cross-check it with the thesis source. Keep the current silence only for role titles.",
+   "filesToChange": [
+    "src/server/founder/sources/archiveClaims.js"
+   ],
+   "evidence": "Audit test: 'PhD added' -> [], 'degree dropped' -> [].",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced: blank to 'PhD, Chemistry' and 'BS' to blank both return []. diffEntries pairs with i=0 when the older side has no detail, and with the blank-detail newer entry otherwise. Signed-out and archived LinkedIn views often hide degrees, so false-positive risk is high and medium severity for every case would add noise.",
+   "betterFix": "Report a degree that appears on an unchanged school as added: medium for PhD, MBA or a doctorate, low otherwise, cross-checked with the thesis source. Report a degree that drops out as low, and only when the newer copy shows degrees for other schools, which shows the view is not masking them."
+  },
+  {
+   "id": "web-gnews-articles-never-read",
+   "title": "Press articles found through Google News are never opened by the page reader",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/web.js",
+   "line": 283,
+   "scenario": "Google News answers most lookups but gives no snippet, and its result URL is a news.google.com forwarding link with result.host set. pageThreads excludes news.google.com from 'page about them' and requires !result.host for 'article naming them'. So a confirmed founder profile in TechCrunch or Forbes found that way never gets a page-reader thread, and its career and education text is lost.",
+   "fix": "For confirmed Google News results whose headline names the person and whose host is in PRESS_HOSTS, find the real article URL by headline through Bing News RSS or GDELT (both return real URLs), matching on title and host. Then emit an 'article naming them' url thread. Cap this at about 3 per check.",
+   "filesToChange": [
+    "src/server/founder/sources/web.js",
+    "src/server/founder/sources/searchEngines.js"
+   ],
+   "evidence": "pageThreads lines 283 and 287: the news.google.com exclusion and the !result.host conditions. parseGoogleNews sets host from <source url>.",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "In pageThreads, 'page about them' excludes the news.google.com host, and 'article naming them' requires !result.host, which parseGoogleNews always sets. Bing News results (publisher set, no host, unwrapped URL) are still eligible. Google's encoded links cannot be decoded politely, so a title lookup is the feasible route.",
+   "betterFix": "Prefer re-asking Bing News or GDELT with the exact headline plus host:, capped at 2 or 3 per check against their budgets. Only emit a thread when the title matches exactly and the host matches. Never decode Google News links through Google's internal endpoints."
+  },
+  {
+   "id": "web-prior-ventures-excludes-company",
+   "title": "The prior-ventures seed excludes the known company, which favours namesakes",
+   "severity": "medium",
+   "kind": "accuracy",
+   "file": "src/server/founder/sources/web.js",
+   "line": 122,
+   "scenario": "For 'Trevor Milton' / 'Nikola', q.prior-ventures asks '\"Trevor Milton\" (founder OR \"co-founder\" OR CEO) -\"Nikola\"'. Nearly every article on his earlier ventures (dHybrid, upFit) mentions Nikola, so they are excluded. What remains is mostly other people named Trevor Milton who are founders or CEOs. The owner calls this 'random people'.",
+   "fix": "Drop the -\"company\" exclusion. Ask '\"name\" \"company\" (\"previously founded\" OR \"before founding\" OR \"serial entrepreneur\" OR \"his first company\" OR \"her first company\" OR \"sold his\" OR \"sold her\")'. Keep a separate company-free variant only for when the company is unknown.",
+   "filesToChange": [
+    "src/server/founder/sources/web.js"
+   ],
+   "evidence": "subjectTemplates line 122 adds ` -${phrase(company)}` whenever a company is given.",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "Line 122 appends -\"company\" whenever a company is known, which drops coverage that ties the person to the known firm and leaves namesake founders. The seed's prefer:'reference' also lets Wikipedia answer it.",
+   "betterFix": "Keep the company in the query, using phrases about earlier ventures, as proposed. Results still go through acceptFor and match grading, so namesakes stay graded down. Use the company-free variant only when no company is given."
+  },
+  {
+   "id": "web-adverse-terms-gaps",
+   "title": "Adverse queries miss 'accused', 'allegations', 'convicted', 'sentenced', 'arrested' and 'class action'",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/web.js",
+   "line": 615,
+   "scenario": "News headlines about misconduct usually say 'accused of' or 'allegations', and criminal outcomes say 'convicted', 'sentenced', 'pleads guilty' or 'arrested'. NEWS_ADVERSE (lawsuit, fraud, investigation, charged, bankruptcy, scandal, fired, settlement) and the web templates have none of these, and no 'sanction', 'banned', 'class action', 'whistleblower', 'Ponzi' or 'embezzlement'. A headline like 'X accused of misleading investors' is not matched.",
+   "fix": "Add q.criminal ('\"name\" (arrested OR convicted OR sentenced OR \"pleaded guilty\" OR indicted)') and q.allegations ('\"name\" (accused OR allegations OR \"class action\" OR whistleblower OR sanctioned OR banned)'). Add 'accused' and 'allegations' to NEWS_ADVERSE and 'sanction' to COMPANY_ADVERSE. Give them prior 0.7 so they run early.",
+   "filesToChange": [
+    "src/server/founder/sources/web.js"
+   ],
+   "evidence": "subjectTemplates lines 120-137 and the NEWS_ADVERSE and COMPANY_ADVERSE constants have none of these terms.",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "The templates and NEWS_ADVERSE/COMPANY_ADVERSE have none of accused, allegations, convicted, sentenced, arrested, pleaded guilty, class action or sanctioned. The fraud template does include indicted and charged.",
+   "betterFix": "DDG allows only about 4 general searches per 10 minutes, so new web templates compete with the seed. Put the new terms mainly into NEWS_ADVERSE and add a news-window criminal pattern, since Google News has 60 per 10 minutes. Add at most one combined web template (criminal and allegations), not two."
+  },
+  {
+   "id": "web-positive-footprint-gaps",
+   "title": "No lookups for board seats, investments, awards or talks",
+   "severity": "low",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/web.js",
+   "line": 131,
+   "scenario": "The Profile card has boards, investments and recognition, but no query asks for them. 'later-ventures' covers only their own raises. A founder's angel investments, board appointments ('joins board of'), awards ('30 Under 30', 'named to') and conference talks (TEDx, 'speaker') surface only by chance.",
+   "fix": "Add q.boards ('\"name\" (\"joins board\" OR \"board of directors\" OR \"appointed\" OR trustee)'), q.investor ('\"name\" (\"angel investor\" OR \"invested in\" OR \"backed by\" OR portfolio)'), q.awards ('\"name\" (award OR \"under 30\" OR honored OR \"named to\")') and q.talks ('\"name\" (TEDx OR speaker OR panel OR fireside)'), each with prior 0.45. Add q.talks to TALK_PATH-style page threads.",
+   "filesToChange": [
+    "src/server/founder/sources/web.js"
+   ],
+   "evidence": "subjectTemplates has profile, linkedin, lawsuit, fraud, prior/later ventures, employment, regulatory, education, background, insolvency, resume, interviews, family, forums and related-party. It has no board, investor, award or talk patterns.",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "No board, investor, award or talk templates exist. 'interviews' covers keynote and podcast, and 'later-ventures' covers 'backed by'. These are improvements, not defects, and four more DDG templates would starve higher-value lookups under the tight budget.",
+   "betterFix": "Add news-feed patterns (boards and awards) rather than DDG templates, at a prior below the adverse and seed lookups, and fold talks into the existing interviews query (TEDx, speaker)."
+  },
+  {
+   "id": "web-charset-utf8-only",
+   "title": "Pages and archive copies are always decoded as UTF-8, so Latin-1 pages lose accented names",
+   "severity": "medium",
+   "kind": "robustness",
+   "file": "src/server/founder/http.js",
+   "line": 177,
+   "scenario": "request() uses response.text(), which always decodes as UTF-8. An older French or German team page served as ISO-8859-1 or windows-1252 (common in archive copies) turns 'Jürgen Müller' into 'J�rgen M�ller'. subject.hasName and nameIs then fail, and the report says the person 'is not named on the saved team pages', which is a wrong negative.",
+   "fix": "Read response.arrayBuffer(), take the charset from the Content-Type header or else from <meta charset> / http-equiv in the first 2 KB, and decode with new TextDecoder(charset, {fatal:false}), falling back to windows-1252 when UTF-8 decoding yields U+FFFD. Use this for pages.js and archive.js.",
+   "filesToChange": [
+    "src/server/founder/http.js"
+   ],
+   "evidence": "http.js line 177: `const text = await response.text();` with no charset handling anywhere in http.js.",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "http.js calls response.text() and has no charset handling anywhere, so Latin-1 and windows-1252 pages lose their accented letters. htmlToText also decodes only a few named entities, so '&uuml;' and '&eacute;' stay undecoded and break name matching as well.",
+   "betterFix": "Do the proposed arrayBuffer and TextDecoder sniffing. Also decode the full set of HTML named entities (or at least Latin-1) in htmlToText, and fold accents in hasName if it does not already."
+  },
+  {
+   "id": "web-consent-paywall-no-archive",
+   "title": "Consent walls and paywalls are read as the page: nothing kept, no note, no archive fallback",
+   "severity": "low",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/pages.js",
+   "line": 497,
+   "scenario": "A tied article (for example on forbes.com or a Yahoo-owned site) answers 200 with a cookie-consent or subscribe interstitial, or redirects to a consent host. readPage finds no name and returns empty, and readOne adds no note. The archive copy, which usually holds the full text, is only tried on 403, 429 or a timeout.",
+   "fix": "In readOne, when the thread was tied (its snippet or title named them) and the fetched page does not name them, or matches consent/paywall markers (consent, 'subscribe to continue', guce.), try archivedCopy(url). Add a note: '<host> showed a consent or subscription page; read from the web archive's copy of <date>'.",
+   "filesToChange": [
+    "src/server/founder/sources/pages.js"
+   ],
+   "evidence": "openPage only calls archivedCopy when turnedAway(error) is true. readOne returns readPage output with no note when it is empty.",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "A redirect to a consent host already returns 'elsewhere' with a note. A 200 interstitial gives readPage empty with no note and no archive fallback, since archivedCopy runs only on turnedAway errors. Archive copies of paywalled pages are often walled too, and each fallback costs two of the 18 page requests.",
+   "betterFix": "Fall back only for a thread tied by its title, when the page text is short and has consent or paywall markers. Always add a note when a tied page yields nothing."
+  },
+  {
+   "id": "web-linkedin-regional-host",
+   "title": "Regional LinkedIn hosts (fr., uk., de.linkedin.com) are looked up as separate archive pages",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/archive.js",
+   "line": 123,
+   "scenario": "A search result gives https://fr.linkedin.com/in/arthurmensch. pageOf keeps host 'fr.linkedin.com', so the CDX listing asks for fr.linkedin.com/in/… while most copies are under www.linkedin.com. Result: 'The web archive holds no readable copy'. The same profile seen on two subdomains is also looked up twice.",
+   "fix": "In pageOf, normalize any *.linkedin.com host to 'linkedin.com' (as is already done for twitter.com and crunchbase.com). In extract.profileFromUrl, also normalize the LinkedIn URL to https://linkedin.com/in/<handle> so threads deduplicate.",
+   "filesToChange": [
+    "src/server/founder/sources/archive.js",
+    "src/server/founder/extract.js"
+   ],
+   "evidence": "pageOf keeps u.hostname minus 'www.' for LinkedIn. Only the Twitter and Crunchbase branches rewrite the host.",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "pageOf keeps fr.linkedin.com as the host (it only strips www.), and the CDX url= lookup treats subdomains as separate keys. profileFromUrl also keeps the regional host in its URL, so threads for one profile do not deduplicate.",
+   "betterFix": "Normalize to linkedin.com in pageOf and profileFromUrl as proposed. Optionally also ask the CDX for the regional host when the main host returns nothing."
+  },
+  {
+   "id": "web-coverage-note-misleading",
+   "title": "The search coverage note says searches 'ran on' engines that never answered",
+   "severity": "medium",
+   "kind": "honesty",
+   "file": "src/server/founder/sources/searchEngines.js",
+   "line": 718,
+   "scenario": "engineHealth's note lists every enabled engine ('ran on DuckDuckGo, Google News, Bing News, Wikipedia, GDELT') even when DuckDuckGo was resting or paused for the whole check and every web question fell back to headline feeds. The report does not say how many web questions had no general web search.",
+   "fix": "Count per check how many web lookups were answered by a general engine, by news feeds only, or by nothing (from `tried`, returned through the connector notes or ctx.spend). State it: 'N of M open-web questions were answered from news headlines only (DuckDuckGo was resting)'. List only engines with answers>0 as having run.",
+   "filesToChange": [
+    "src/server/founder/sources/searchEngines.js",
+    "src/server/founder/sources/web.js"
+   ],
+   "evidence": "The note is built from engines whose state !== 'off', not from their answers. pauseNotes only reports 'blocked' outcomes, not 'resting' or 'paused'.",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "engineHealth builds 'ran on' from engines whose state is not 'off', not from their answers. pauseNotes reports only 'blocked' outcomes, so resting, paused and busy skips are never mentioned.",
+   "betterFix": "Count per-check general, news-only and none outcomes through ctx.spend or connector notes (see web-news-only-counts-as-searched) and name only engines with answers>0. engineHealth counts are per process, so per-check counts must come from the check state, not the module."
+  },
+  {
+   "id": "web-body-size-unbounded",
+   "title": "The page size limit is checked only after the whole body has been read",
+   "severity": "low",
+   "kind": "robustness",
+   "file": "src/server/founder/http.js",
+   "line": 177,
+   "scenario": "A tied page sent without Content-Length (chunked) can stream hundreds of MB within the 12 s timeout. response.text() buffers all of it before the 3 MB maxBytes check. With maxParallel 3, that can exhaust a serverless instance's memory.",
+   "fix": "Read response.body with a reader, count bytes, and cancel the stream once the limit is passed (throw tooLarge). Also check the Content-Type and refuse non-HTML bodies in pages.js (application/pdf, image/*) before reading.",
+   "filesToChange": [
+    "src/server/founder/http.js",
+    "src/server/founder/sources/pages.js"
+   ],
+   "evidence": "The declared length is checked at line 173; otherwise text() is read in full at line 177 and its length compared afterwards.",
+   "dim": "web",
+   "verdict": "confirmed",
+   "verifyNote": "When there is no Content-Length, response.text() buffers the whole body before the size check. The 12 s timeout bounds it but does not cap memory.",
+   "betterFix": "Stream with a byte counter and cancel past the limit, as proposed. Check the Content-Type before reading in pages.js."
+  }
+ ]
+}

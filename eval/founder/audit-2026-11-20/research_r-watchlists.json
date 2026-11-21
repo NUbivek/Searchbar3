@@ -1,0 +1,148 @@
+{
+ "candidates": [
+  {
+   "id": "opensanctions-lists",
+   "label": "Watchlists, regulators' bans and debarments worldwide (OpenSanctions bundle)",
+   "what": "About 30 lists the check does not read yet, in one connector: Interpol red notices, World Bank/ADB/IADB/AfDB own debarments (including short ones the EBRD list omits), EU EDES exclusions, ESMA national sanctions, FINRA actions and bars, FCA-equivalents (AMF, FINMA, DFSA, Turkey CMB, NSE India), FDA investigator disqualifications, SEC Fair Fund defendants, OFAC/NFA enforcement, Australia DFAT, Swiss SECO and Japan MOF sanctions, Guernsey and Isle of Man disqualified directors.",
+   "level": "both",
+   "endpoint": "GET https://data.opensanctions.org/datasets/latest/<dataset>/targets.simple.csv (307 redirect to /artifacts/<dataset>/<version>/targets.simple.csv; http.js follows). Metadata: https://data.opensanctions.org/datasets/latest/<dataset>/index.json (resources[].checksum, .size; dataset url/publisher). Catalogue: https://data.opensanctions.org/datasets/latest/index.json (2.2 MB, 507 datasets). Datasets verified 2026-11-20 (targets, CSV size): interpol_red_notices 6352/1.8MB, worldbank_debarred 1409/0.48MB, adb_sanctions 1454, iadb_sanctions 1237, afdb_sanctions 1388, eu_edes 5, eu_esma_sanctions 632/1.6MB, fr_amf_regulatory_sanctions 397, ch_finma_warnings 2398, ch_finma_rulings, us_finra_actions 14588/2.9MB, us_finra_barred 9361/1.9MB, us_fda_restricted 181, us_sec_harmed_investors 846, us_ofac_enforcement_actions 181, us_nfa_enforcement_actions 148, ae_dfsa_prohibited 24, tr_cmb_banned 337, in_nse_debarred 14439/3.7MB, br_bcb_disqualified_persons 307, lu_administrative_sanctions 115, gg_disqualified_directors 33, im_disqualified_directors 13, au_dfat_sanctions 3911/1.2MB, ch_seco_sanctions 7038/6.9MB, jp_mof_sanctions 2834/2.2MB, hk_icac_wanted, gb_nca_most_wanted, de_bka_wanted. Total about 25 MB of CSV across 29 files. Do NOT take whole collections (regulatory 45 MB, crime 67 MB, debarment 87 MB): they repeat lists already read (CSL, SAM, HHS OIG, Fed, OCC, FinCEN, Companies House) and are too large for the 6 MB database cache.",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "Bulk data is CC BY-NC 4.0. Docs say it is downloadable 'without any login or API key', free for non-commercial use, and give stable latest/ URLs for scheduled retrieval at most every 6 hours. Caveat: data.opensanctions.org robots.txt is 'Disallow: /' for all agents, and www robots excludes bulk data from unknown bots. The owner should accept this, as with ASIC.",
+   "termsUrl": "https://www.opensanctions.org/licensing/",
+   "nonCommercialOnly": true,
+   "privacyNotes": "Never read these columns: birth_date, addresses, identifiers (NPI, prison register numbers like '#24965-111'), phones, emails. Read countries for entities only. Run mentionsMinor on the sanctions text (Interpol reasons include 'Murder of three minors'). Strip '#nnnn' suffixes from names.",
+   "request": "curl -sL -A 'diligence-research/1.0 (automated public-records lookup)' https://data.opensanctions.org/datasets/latest/us_sec_harmed_investors/targets.simple.csv | grep -i 'Nikola Corporation'  -> \"NK-6wuX5uNwKt934iXCHKQgse\",\"LegalEntity\",\"Nikola Corporation\",...,\"US SEC Distributions to Harmed Investors\". Also: curl -sL -A '...' https://data.opensanctions.org/datasets/latest/interpol_red_notices/targets.simple.csv (6352 Person rows, sanctions column = charge text).",
+   "responseShape": "Every dataset has the same CSV header: id,schema,name,aliases,birth_date,countries,addresses,identifiers,sanctions,phones,emails,program_ids,dataset,first_seen,last_seen,last_change. Use name and aliases (split on ';'), schema (Person, Company, LegalEntity, Organization; persons are often LegalEntity in exclusion lists), sanctions (reason or programme, ';'-separated, sometimes '\"\"'), dataset (list title), first_seen and last_change. Match with matchPersonName and matchCompanyName from sanctions.js. Names may be upper case or surname-first. Link to the dataset's index.json url and https://www.opensanctions.org/entities/<id>/ for the person reading. Credit 'OpenSanctions, CC BY-NC'.",
+   "risks": "robots.txt says Disallow, though the docs invite scheduled download. OpenSanctions scrapers can go quiet (sg_mas_enforcement_actions has 0 targets): check target_count from index.json and report an empty list as did not answer. Interpol notices include politically motivated ones. Rows are name-only and must stay possible.",
+   "value": 5,
+   "effort": 2
+  },
+  {
+   "id": "opensanctions-peps",
+   "label": "Politically exposed persons (OpenSanctions PEP collection)",
+   "what": "Whether the founder, a relative or an associate is a politically exposed person: legislators, ministers, senior officials and state-company executives in 229 national sources, beyond what Wikidata covers. This is investor KYC and conflict-of-interest context, not a red flag.",
+   "level": "person",
+   "endpoint": "https://data.opensanctions.org/datasets/latest/peps/targets.simple.csv is 182 MB, 726,131 targets, above the 96 MB ceiling in http.js, so it must be streamed. Prefilter: https://data.opensanctions.org/datasets/latest/peps/names.txt is 26 MB with 1,023,750 deduplicated names, one per line. Details: entities.ftm.json (943 MB, Occupancy and Position entities). Do not use it.",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "Same as the bundle: CC BY-NC 4.0, bulk download without a key is documented, non-commercial only, and data.opensanctions.org robots.txt says Disallow for all. The hosted API returned 401 without a key and is metered, so do not use it.",
+   "termsUrl": "https://www.opensanctions.org/licensing/",
+   "nonCommercialOnly": true,
+   "privacyNotes": "Drop birth_date, addresses, identifiers, phones and emails. Keep the name, aliases and the 'dataset' titles, which name the office list, for example 'Portugal Members of the Assembly'. Never show a relative's PEP hit unless the existing kinship rules already admitted that relative.",
+   "request": "curl -sL -A 'diligence-research/1.0 (automated public-records lookup)' https://data.opensanctions.org/datasets/latest/peps/names.txt | grep -i -x -E 'rishi sunak|trevor milton|elizabeth holmes'  -> all three present. 'Trevor Milton' and 'Elizabeth Holmes' are namesake PEPs, which proves hits must stay 'possible'. Header peek: curl -sL -r 0-6000 .../peps/targets.simple.csv",
+   "responseShape": "targets.simple.csv has the same columns as the bundle. For PEPs, 'sanctions' is empty and 'dataset' holds the office lists joined by ';', which is the only role context in the CSV. Build once a day by streaming the CSV with a fetch ReadableStream and csv-parse, keeping {id,name,aliases,dataset}. Shard by the normalised first letter of the surname into cache entries under 6 MB each. Match strictly with matchPersonName. A hit is graded 'likely' only if the dataset title names a country or body already tied to the subject.",
+   "risks": "Large daily download (182 MB) and a long first build in serverless. Namesake rate is very high: the test subjects themselves hit. Wikidata already covers prominent office holders, so the added value is mostly non-US and lower-level PEPs.",
+   "value": 3,
+   "effort": 4
+  },
+  {
+   "id": "fara-registrations",
+   "label": "US Foreign Agents Registration Act (FARA) filings",
+   "what": "Whether the person filed a FARA short form as an individual foreign agent, or their company is a FARA registrant, and which foreign governments or parties it represents. This is foreign-influence and related-party context for an investor.",
+   "level": "both",
+   "endpoint": "Bulk ZIPs, CSV inside, refreshed daily: https://efile.fara.gov/bulk/zip/FARA_All_ShortForms.csv.zip (942 KB), https://efile.fara.gov/bulk/zip/FARA_All_Registrants.csv.zip (248 KB), https://efile.fara.gov/bulk/zip/FARA_All_ForeignPrincipals.csv.zip (704 KB). JSON API: https://efile.fara.gov/api/v1/Registrants/json/Active, /api/v1/Registrants/json/Terminated, /api/v1/ShortFormRegistrants/json/Active/{regNumber}, /api/v1/ForeignPrincipals/json/Active/{regNumber}. The API has no name search, so read the bulk files once a day.",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "US Department of Justice public data with no key. The bulk-data page invites download. efile.fara.gov/robots.txt returns 404, so nothing is disallowed. An unofficial report puts the API limit at about 5 requests per 10 seconds; bulk download needs 3 requests a day.",
+   "termsUrl": "https://efile.fara.gov/ords/fara/f?p=API:BULKDATA",
+   "nonCommercialOnly": false,
+   "privacyNotes": "Short-form rows carry the individual's street address, city, state and ZIP: never read them. Keep SF first and last name, registrant name, registration number, registration and termination dates, and foreign principal name and country.",
+   "request": "curl -s -A 'diligence-research/1.0 (automated public-records lookup)' https://efile.fara.gov/api/v1/ShortFormRegistrants/json/Active/7795  -> {\"ROWSET\":{\"ROW\":{\"SF_LAST_NAME\":...,\"SF_FIRST_NAME\":...,\"REG_NUMBER\":7795,\"REGISTRANT_NAME\":\"The DUX Group, LLC\",\"SHORTFORM_DATE\":\"2026-11-12T00:00:00\",...}}}; curl -s -A '...' https://efile.fara.gov/api/v1/Registrants/json/Active (103 KB JSON, REGISTRANTS_ACTIVE.ROW[] {Name, Registration_Number, Registration_Date}).",
+   "responseShape": "ROW is an object when there is one result and an array otherwise. Match people on the short-form first and last name with matchPersonName. Match companies on registrant Name or foreign principal name with matchCompanyName. Join to foreign principals on registration number to say who they represent and from which country. Link to https://efile.fara.gov/ords/fara/f?p=1235:10 and the registrant's document list. Grade a person hit 'likely' only when the registrant is a company already tied to them.",
+   "risks": "http.js returns text only, so binary support is needed to unzip. Use zlib.inflateRawSync on the single entry, or XLSX.CFB, which is already a dependency. Alternatively page the JSON endpoints by registration number at 2 seconds apart. FARA registration is lawful and must not be shown as a red flag.",
+   "value": 3,
+   "effort": 2
+  },
+  {
+   "id": "fda-debarment",
+   "label": "FDA debarment list (drug product applications)",
+   "what": "Individuals the FDA has debarred from the drug industry, usually after a criminal conviction, with effective date, term (often permanent) and Federal Register citation. Relevant to biotech, pharma and health founders. The investigator-disqualification list comes in the OpenSanctions bundle.",
+   "level": "both",
+   "endpoint": "HTML page: https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations/compliance-actions-and-activities/fda-debarment-list-drug-product-applications. It has two <table class=\"Table table\">, firms (currently 'None as of this date') and individuals (157 rows). The XLSX is at https://www.fda.gov/media/185848/download?attachment (28 KB). Read once a day.",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "US government public-domain page. fda.gov robots.txt fully disallows only 'vspider'. For '*' it blocks /node/, /search/ and admin paths, and allows /inspections-compliance-... and /media/. The site already reads fda.gov for recalls.",
+   "termsUrl": "https://www.fda.gov/about-fda/about-website/website-policies",
+   "nonCommercialOnly": false,
+   "privacyNotes": "The table holds only name, dates and FR citation, so nothing needs dropping.",
+   "request": "curl -s -A 'diligence-research/1.0 (automated public-records lookup)' 'https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations/compliance-actions-and-activities/fda-debarment-list-drug-product-applications'  -> individuals table rows like ['Acosta','Gina','05/15/2024','Permanent^','05/15/2024','89 FR 42474'].",
+   "responseShape": "Individuals table columns: Last Name | First & Middle Names | Effective Date | End/Term of Debarment ('Permanent^', '25 Year%') | FR Date | Volume Page ('89 FR 42474', linked to the FR PDF). Build '<First> <Last>' and match with matchPersonName. The FR citation gives the link and can thread into the Federal Register source. Name-only hits stay 'possible'.",
+   "risks": "Parsing HTML breaks if the page layout changes. Throw when no table has the header 'Last Name' and fewer than 50 rows parse. The accessdata.fda.gov clinical-investigator export returned 503 'temporarily unavailable', so use the OpenSanctions copy for that list.",
+   "value": 2,
+   "effort": 1
+  },
+  {
+   "id": "opensanctions-medicaid-exclusions",
+   "label": "US state Medicaid exclusion lists (39 states, via OpenSanctions)",
+   "what": "People and providers excluded from state Medicaid programmes, which the federal HHS OIG list does not always carry. Relevant to healthtech, clinic and pharmacy founders and their companies.",
+   "level": "both",
+   "endpoint": "https://data.opensanctions.org/datasets/latest/us_<st>_med_exclusions/targets.simple.csv for 38 states, plus us_dc_exclusions: 84,051 targets, 21 MB in total (California alone is 7 MB). For example us_ny_med_exclusions, us_ca_med_exclusions, us_tx_med_exclusions.",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "Same as the OpenSanctions bundle: CC BY-NC 4.0, bulk download documented without a key, non-commercial only, and data.opensanctions.org robots.txt says Disallow.",
+   "termsUrl": "https://www.opensanctions.org/licensing/",
+   "nonCommercialOnly": true,
+   "privacyNotes": "The identifiers column holds NPI and state licence numbers: never read it. Drop addresses and birth_date. Name suffixes like 'LPN' or 'MD' are professional titles and may be kept.",
+   "request": "curl -sL -r 0-1500 -A 'diligence-research/1.0 (automated public-records lookup)' https://data.opensanctions.org/datasets/latest/us_ny_med_exclusions/targets.simple.csv  -> rows like \"LegalEntity\",\"DROST ANDREW WALTER\",...,\"sanctions\":\"2021-01-11\",\"dataset\":\"US New York State Medicaid Exclusions\".",
+   "responseShape": "Same CSV header as the bundle. Persons are typed LegalEntity and written 'SURNAME FIRST MIDDLE [CREDENTIAL]', so try surname-first order with a credential stripped. The 'sanctions' column is often just the exclusion date. Match companies with matchCompanyName. Run only when the subject or company is health-related, to limit downloads and namesake noise.",
+   "risks": "Low base rate for most founders, and surname-first names raise the namesake risk, so keep hits 'possible'. California is 7 MB, above the 6 MB stored-cache limit, so compact it or split it into its own cache entry.",
+   "value": 2,
+   "effort": 2
+  }
+ ],
+ "rejected": [
+  {
+   "name": "Interpol red notices, direct (ws-public.interpol.int)",
+   "reason": "Still refuses automated readers: GET /notices/v1/red?name=Milton&forename=Trevor returned 403 and robots.txt returns 'Access Denied'. The covered alternative is the OpenSanctions interpol_red_notices dataset in the bundle."
+  },
+  {
+   "name": "US Consolidated Screening List (BIS denied persons and entity list, State/DDTC debarred)",
+   "reason": "Already read in full by sanctions-lists (sanctions.js parseUsCsl, data.trade.gov consolidated.csv). Nothing to add."
+  },
+  {
+   "name": "UK disqualified directors",
+   "reason": "Already searched per name through Companies House (registries.js parseDisqualifiedSearch). The OpenSanctions gb_coh_disqualified copy (10,223 rows, 4.2 MB) would only duplicate it."
+  },
+  {
+   "name": "ASIC banned and disqualified persons/organisations (data.gov.au)",
+   "reason": "The data exists (bd_per_YYYYMM.csv, bd_org_YYYYMM.csv, CC BY 3.0 AU, also served by the CKAN package_search API), but data.gov.au robots.txt is 'User-agent: * Disallow: /'. The earlier rejection holds, and OpenSanctions does not carry it. It could be reconsidered only if the owner treats the documented CKAN interface as permitted despite robots.txt."
+  },
+  {
+   "name": "World Bank debarment list, direct",
+   "reason": "Its own data service still needs a subscription key. That reason no longer blocks coverage: OpenSanctions worldbank_debarred (1,409 entries) is keyless and is in the bundle."
+  },
+  {
+   "name": "ADB sanctions register, direct",
+   "reason": "Behind a login gateway, as before. The OpenSanctions adb_sanctions copy (1,454 entries) is in the bundle; IADB and AfDB are covered the same way."
+  },
+  {
+   "name": "OpenSanctions hosted API (api.opensanctions.org search/match)",
+   "reason": "Returned 401 without a key. It is billed by the query, and free credits are a trial, which breaks the free-only rule. Use the bulk files."
+  },
+  {
+   "name": "OpenSanctions whole collections (regulatory, crime, debarment, default)",
+   "reason": "45 to 87 MB of CSV each, above the 6 MB stored-cache limit, so every serverless instance would re-download them. They also repeat lists already read (CSL, SAM, HHS OIG, Fed, OCC, FinCEN, Companies House, FBI). Use the per-dataset files instead."
+  },
+  {
+   "name": "Canada CSA disciplined list",
+   "reason": "securities-administrators.ca/disciplined-list/ returned 403 to an honestly identified automated client. The earlier rejection holds."
+  },
+  {
+   "name": "UK FCA warning list / FCA register",
+   "reason": "The register data service needs a registered key. fca.org.uk robots.txt disallows '/*?', which covers all search URLs. OpenSanctions has no FCA warnings dataset."
+  },
+  {
+   "name": "Hong Kong SFC public register and disciplinary records",
+   "reason": "sfc.hk and apps.sfc.hk robots.txt disallow /publicregWeb/ and /dodWeb/ for all agents. The press releases are already reachable through web search (sfc.hk is in REGULATOR_HOSTS)."
+  },
+  {
+   "name": "Singapore MAS enforcement actions",
+   "reason": "robots.txt allows it (Crawl-delay 2), but the enforcement-actions page is client-rendered (854 KB of HTML with no records and no documented data endpoint). The OpenSanctions copy, sg_mas_enforcement_actions, currently has 0 targets, so no working free feed was verified."
+  },
+  {
+   "name": "FDA clinical investigator disqualification export, direct (accessdata.fda.gov sdExportData)",
+   "reason": "Returned 503 'temporarily unavailable' during this check. The same list (181 entries) comes through OpenSanctions us_fda_restricted in the bundle."
+  }
+ ]
+}
