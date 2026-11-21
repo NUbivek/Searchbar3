@@ -47,6 +47,16 @@ const MAX_PER_PROVIDER = 2;
 /** The longest one model may take when others are still waiting behind it. */
 const FIRST_ATTEMPT_MS = { analysis: 26000, other: 24000 };
 const MAX_ATTEMPTS = 6;
+/** Raced requests (chatComplete's hedgeMs): how many services may write at once, how much stronger a model must
+ *  be for an answer in hand to wait for it, and for how long. */
+const RACE_MAX_PARALLEL = 3;
+const RACE_STRONGER_BY = 8;
+const RACE_GRACE_MS = 7000;
+/** A service that timed out or failed on its side is asked after the others for this long, on every instance. */
+const SLOW_MARK_MS = 12 * 60000;
+const SLOW_PREFIX = 'slow:';
+/** A raced request dropped at the time limit counts as too slow only after this long. */
+const SLOW_AFTER_MS = 18000;
 /** Groq's free plan allows 8,000 tokens a minute; a paid plan reports far more. */
 const GROQ_FREE_TPM = 8000;
 const GROQ_PAID_TRIPWIRE_TPM = 50000;
@@ -357,6 +367,15 @@ function resting(p, model) {
   return null;
 }
 
+/** Whether a service is marked slow right now (see SLOW_MARK_MS). */
+function markedSlow(p) {
+  const key = `${SLOW_PREFIX}${p.id}`;
+  const c = cooldowns.get(key);
+  if (c && c.until > Date.now()) return true;
+  if (c) cooldowns.delete(key);
+  return false;
+}
+
 /** OpenRouter says how many free calls are left today; ask at most every few minutes. */
 async function openRouterRemaining(p) {
   const cached = quotaCache.get(p.id);
@@ -439,6 +458,11 @@ async function buildChain({ task, preferred, personal, promptTokens, deadline, a
   }
   // 'chat': a weak model is a last resort, whatever its score
   chain.sort((a, b) => (task === 'chat' ? Number(Boolean(a.entry.weak)) - Number(Boolean(b.entry.weak)) : 0) || b.score - a.score);
+
+  // A service that timed out or failed on its side in the last few minutes (on any server instance) is asked
+  // after the others: the first request after a quiet spell then starts with a service that is answering.
+  const quick = chain.filter((c) => !markedSlow(c.p));
+  if (quick.length && quick.length < chain.length) chain.splice(0, chain.length, ...quick, ...chain.filter((c) => markedSlow(c.p)));
 
   // The model picked in the menu goes first, if it is on the list.
   const [prefProvider, ...rest] = String(preferred || 'auto').split(':');
@@ -523,7 +547,7 @@ const cleanText = (data) => String(data?.choices?.[0]?.message?.content || '').r
  *   null when no provider is configured or every model failed.
  *   skipped: models tried first that failed, e.g. [{ model, provider, why }]
  */
-export async function chatComplete(messages, { preferred = 'auto', task = 'chat', maxTokens = 3000, temperature = 0.2, timeoutMs = 60000, deadline = null, personal = false, accept = null, json = null, avoid = [], trace = null } = {}) {
+export async function chatComplete(messages, { preferred = 'auto', task = 'chat', maxTokens = 3000, temperature = 0.2, timeoutMs = 60000, deadline = null, personal = false, accept = null, json = null, avoid = [], trace = null, hedgeMs = 0 } = {}) {
   if (!llmConfigured()) return null;
   const kind = TASKS.includes(task) ? task : 'chat';
   const promptTokens = estimateTokens(messages);
@@ -545,32 +569,15 @@ export async function chatComplete(messages, { preferred = 'auto', task = 'chat'
   const outcomes = [];
   const used = [];
   const shared = [];
-  let result = null;
+  const cap = kind === 'analysis' ? FIRST_ATTEMPT_MS.analysis : FIRST_ATTEMPT_MS.other;
 
-  for (const [i, c] of attempts.entries()) {
+  /**
+   * One model, one request. Resolves to the answer, or to null after noting why it failed.
+   * `signal` lets a raced request be dropped: one dropped because another model answered first says
+   * nothing about this model; one dropped at the deadline was too slow.
+   */
+  const attemptOne = async (c, attemptMs, signal = null) => {
     const { p } = c;
-    if (resting(p, c.id)) continue; // switched off or rested during this request (a tripwire, a 402)
-    // A service that just timed out is passed over while another service is still waiting to be asked
-    // (it goes to the back of the line, and is asked after them if they fail too)
-    if (!c.deferred && struggling.has(p.id) && attempts.slice(i + 1).some((x) => x.p.id !== p.id && !struggling.has(x.p.id) && !resting(x.p, x.id))) {
-      attempts.push({ ...c, deferred: true });
-      continue;
-    }
-    let attemptMs = timeoutMs;
-    if (deadline) {
-      const remaining = deadline - Date.now();
-      // last = nothing after it can still run (later models may be resting)
-      const isLast = attempts.slice(i + 1).every((x) => resting(x.p, x.id));
-      // No single model gets nearly all the time: a slow first model used to leave the fallbacks a few
-      // seconds, so the answer fell back to a quoted digest. Each attempt but the last is capped.
-      const cap = kind === 'analysis' ? FIRST_ATTEMPT_MS.analysis : FIRST_ATTEMPT_MS.other;
-      attemptMs = Math.min(timeoutMs, isLast ? remaining : Math.min(cap, remaining - FALLBACK_RESERVE_MS));
-      if (!isLast && attemptMs < MIN_ATTEMPT_MS) attemptMs = Math.min(timeoutMs, remaining); // no room to reserve
-      if (attemptMs < MIN_ATTEMPT_MS) {
-        errors.push(`${p.id}:${c.id} not tried (out of time)`);
-        break;
-      }
-    }
     // `learn`: running out of allowance says nothing about how good a model is, so it is not held against it
     const fail = (why, note, learn = true) => {
       errors.push(`${p.id}:${c.id} ${note || why}`);
@@ -578,21 +585,43 @@ export async function chatComplete(messages, { preferred = 'auto', task = 'chat'
       if (Array.isArray(trace)) trace.push({ provider: p.label, model: c.id, family: c.entry.family, why });
       if (learn) outcomes.push({ key: statKey(kind, c), win: 0, ms: 0 });
     };
+    const slow = () => {
+      struggling.add(p.id);
+      // remembered for a while on every server instance, so the next request (even after a cold start) leads with another service
+      const until = Date.now() + SLOW_MARK_MS;
+      cooldowns.set(`${SLOW_PREFIX}${p.id}`, { until, why: 'slow' });
+      shared.push(shareRest(`${SLOW_PREFIX}${p.id}`, until, 'slow'));
+    };
     const started = Date.now();
+    // The HTTP client's own timeout only counts silence on the connection, and a service that keeps the
+    // connection busy while it thinks (OpenRouter sends keep-alive padding) never trips it. So each request
+    // also has a wall-clock limit: at attemptMs it is dropped and counted as timed out, whatever the client does.
+    const own = new AbortController();
+    const fromCaller = () => own.abort(signal.reason);
+    if (signal) { if (signal.aborted) fromCaller(); else signal.addEventListener('abort', fromCaller, { once: true }); }
+    let wall;
+    const wallClock = new Promise((_, reject) => {
+      wall = setTimeout(() => {
+        own.abort('timeout');
+        reject(Object.assign(new Error(`timeout of ${attemptMs}ms exceeded`), { code: 'ECONNABORTED' }));
+      }, attemptMs + 200);
+    });
+    wallClock.catch(() => {}); // settled by the race below; never an unhandled rejection
+    const post = (payload, ms) => Promise.race([axios.post(`${p.baseUrl}/chat/completions`, payload, { headers: requestHeaders, timeout: ms, signal: own.signal }), wallClock]);
+    const requestHeaders = { Authorization: `Bearer ${providerKey(p)}`, 'Content-Type': 'application/json', ...(p.id === 'openrouter' ? { 'X-Title': 'Research Hub' } : {}) };
     try {
-      const headers = { Authorization: `Bearer ${providerKey(p)}`, 'Content-Type': 'application/json', ...(p.id === 'openrouter' ? { 'X-Title': 'Research Hub' } : {}) };
       const { body, extras } = requestBody(c, messages, { task: kind, maxTokens, temperature, json, promptTokens, attemptMs });
       if (c.entry.scarce) used.push({ key: `${dayKey(p.resets)}|${p.id}:${c.entry.family}`, win: 1 });
       let response;
       try {
-        response = await axios.post(`${p.baseUrl}/chat/completions`, { ...body, ...extras }, { headers, timeout: attemptMs });
+        response = await post({ ...body, ...extras }, attemptMs);
       } catch (error) {
         // A provider that rejects the extra settings: retry without them
         if (error.response?.status !== 400 || Object.keys(extras).length === 0) throw error;
         // The retry keeps to the deadline: with too little time left, the 400 stands
         const room = deadline ? deadline - Date.now() : attemptMs;
         if (deadline && room < MIN_ATTEMPT_MS) throw error;
-        response = await axios.post(`${p.baseUrl}/chat/completions`, body, { headers, timeout: Math.min(attemptMs, room) });
+        response = await post(body, Math.min(attemptMs, room));
       }
       const { data } = response;
       // Tripwires: proof that a call was not on a free plan. The answer is not used, and the
@@ -608,29 +637,47 @@ export async function chatComplete(messages, { preferred = 'auto', task = 'chat'
         shared.push(shareRest(`${p.id}:*`, until, WHY.unavailable));
         console.error(`${tripped}: ${p.label} is switched off on every server instance for 30 days; its answer was discarded.`);
         fail(WHY.unavailable, tripped, false);
-        continue;
+        return null;
       }
       const text = cleanText(data);
       if (!text) {
         fail(data?.choices?.[0]?.finish_reason === 'length' ? WHY.cutShort : 'empty response');
-        continue;
+        return null;
       }
       if (typeof accept === 'function') {
         let ok = false;
         try { ok = Boolean(accept(text)); } catch { ok = false; }
-        if (!ok) { fail('answer did not pass checks'); continue; }
+        if (!ok) { fail('answer did not pass checks'); return null; }
       }
       const ms = Date.now() - started;
       outcomes.push({ key: statKey(kind, c), win: 1, ms });
+      // it answered in time: no longer marked slow
+      if (cooldowns.delete(`${SLOW_PREFIX}${p.id}`)) shared.push(shareRest(`${SLOW_PREFIX}${p.id}`, Date.now() - 1, 'slow'));
       // Stronger models that were resting or could not take this request are part of the story too
       const passedOver = left.filter((x) => x.base > c.base).map(({ provider, model, why }) => ({ provider, model, why }));
-      result = { text, provider: p.id, providerLabel: p.label, model: c.id, family: c.entry.family, skipped: [...passedOver, ...skipped], ms };
-      break;
+      return { text, provider: p.id, providerLabel: p.label, model: c.id, family: c.entry.family, skipped: [...passedOver, ...skipped], ms, base: c.base };
     } catch (error) {
+      // our own wall-clock limit: a timeout, however the client reports being dropped
+      if (own.signal.aborted && own.signal.reason === 'timeout') {
+        fail('timed out', 'timed out');
+        slow();
+        return null;
+      }
+      if (signal?.aborted) {
+        // dropped because another model answered first: says nothing about this one. Dropped at the time limit:
+        // too slow only if it had a fair share of the time (a model that joined late did not).
+        if (signal.reason === 'deadline') {
+          if (Date.now() - started >= SLOW_AFTER_MS) { fail('timed out', 'timed out'); slow(); }
+          else fail('ran out of time', 'not finished in the time left', false);
+        }
+        // an answer in hand waited for this stronger model and it still did not finish: next time it is asked after the others
+        if (signal.reason === 'outwaited') slow();
+        return null;
+      }
       const f = describeFailure(error);
       const quota = f.status === 429 || f.status === 402 || f.status === 401 || f.status === 403;
       fail(f.why, `${f.status || error.message}${f.detail ? ` (${f.detail})` : ''}`, !quota);
-      if (error.code === 'ECONNABORTED' || /timeout|timed out/i.test(String(error.message)) || error.response?.status >= 500) struggling.add(p.id);
+      if (error.code === 'ECONNABORTED' || /timeout|timed out/i.test(String(error.message)) || error.response?.status >= 500) slow();
       const rest = restAfter(p, c.id, error);
       if (rest) {
         const until = Date.now() + rest.ms;
@@ -638,6 +685,42 @@ export async function chatComplete(messages, { preferred = 'auto', task = 'chat'
         if (rest.ms >= 10 * 60000) shared.push(shareRest(rest.key, until, rest.why));
       }
       if (error.response?.status === 404) listCache.delete(p.id);
+      return null;
+    } finally {
+      clearTimeout(wall);
+      if (signal) signal.removeEventListener('abort', fromCaller);
+    }
+  };
+
+  let result = null;
+  if (hedgeMs > 0 && deadline) {
+    result = await raceAttempts({ attempts, attemptOne, struggling, errors, deadline, hedgeMs, timeoutMs, cap });
+  } else {
+    for (const [i, c] of attempts.entries()) {
+      const { p } = c;
+      if (resting(p, c.id)) continue; // switched off or rested during this request (a tripwire, a 402)
+      // A service that just timed out is passed over while another service is still waiting to be asked
+      // (it goes to the back of the line, and is asked after them if they fail too)
+      if (!c.deferred && struggling.has(p.id) && attempts.slice(i + 1).some((x) => x.p.id !== p.id && !struggling.has(x.p.id) && !resting(x.p, x.id))) {
+        attempts.push({ ...c, deferred: true });
+        continue;
+      }
+      let attemptMs = timeoutMs;
+      if (deadline) {
+        const remaining = deadline - Date.now();
+        // last = nothing after it can still run (later models may be resting)
+        const isLast = attempts.slice(i + 1).every((x) => resting(x.p, x.id));
+        // No single model gets nearly all the time: a slow first model used to leave the fallbacks a few
+        // seconds, so the answer fell back to a quoted digest. Each attempt but the last is capped.
+        attemptMs = Math.min(timeoutMs, isLast ? remaining : Math.min(cap, remaining - FALLBACK_RESERVE_MS));
+        if (!isLast && attemptMs < MIN_ATTEMPT_MS) attemptMs = Math.min(timeoutMs, remaining); // no room to reserve
+        if (attemptMs < MIN_ATTEMPT_MS) {
+          errors.push(`${p.id}:${c.id} not tried (out of time)`);
+          break;
+        }
+      }
+      result = await attemptOne(c, attemptMs);
+      if (result) break;
     }
   }
 
@@ -651,11 +734,96 @@ export async function chatComplete(messages, { preferred = 'auto', task = 'chat'
   if (used.length) prunedUsage = true;
 
   if (result) {
-    if (skipped.length) console.warn('LLM fallback:', errors.join('; '));
-    return result;
+    if (result.skipped.length) console.warn('LLM fallback:', errors.join('; '));
+    const { base: _base, ...answer } = result;
+    return answer;
   }
   if (errors.length) console.warn('All LLM attempts failed:', errors.join('; '));
   return null;
+}
+
+/**
+ * Several services asked side by side, for a caller with a person waiting and a hard time limit.
+ *
+ * The first model starts alone. If it has not answered after `hedgeMs`, the best model of another
+ * service joins, and after another `hedgeMs` a third: one slow or failing service can then no longer
+ * cost the answer. A model that fails is replaced at once. One service never runs two requests at the
+ * same time. The first answer that passes the caller's checks wins, with one refinement: when a
+ * clearly stronger model is still writing and there is time, the answer in hand waits a few seconds
+ * for it.
+ */
+async function raceAttempts({ attempts, attemptOne, struggling, errors, deadline, hedgeMs, timeoutMs, cap }) {
+  const items = attempts.map((c) => ({ c, state: 'waiting' }));
+  const active = new Map(); // service id -> { item, promise, controller }
+  const TICK = Symbol('tick');
+  let held = null; // an answer in hand while a stronger model finishes
+  let holdUntil = 0;
+  let outwaited = false;
+  // only a service in good standing is worth waiting for
+  const worthWaitingFor = (a, than) => a.it.c.base > than.base + RACE_STRONGER_BY && !struggling.has(a.it.c.p.id) && !markedSlow(a.it.c.p);
+
+  const free = (it) => it.state === 'waiting' && !active.has(it.c.p.id) && !resting(it.c.p, it.c.id);
+  const startNext = () => {
+    if (held || active.size >= RACE_MAX_PARALLEL) return false;
+    const remaining = deadline - Date.now();
+    if (remaining < MIN_ATTEMPT_MS) return false;
+    // a service that has just failed on its side waits behind the services that have not
+    const it = items.find((x) => free(x) && !struggling.has(x.c.p.id)) || items.find(free);
+    if (!it) return false;
+    it.state = 'running';
+    const controller = new AbortController();
+    // with another of the same service's models still to try, this one may not take all the time
+    const moreOfSame = items.some((x) => x !== it && x.state === 'waiting' && x.c.p.id === it.c.p.id);
+    const attemptMs = Math.min(timeoutMs, moreOfSame ? Math.min(cap, remaining) : remaining);
+    const promise = attemptOne(it.c, attemptMs, controller.signal).then((r) => ({ it, r }), () => ({ it, r: null }));
+    active.set(it.c.p.id, { it, promise, controller });
+    return true;
+  };
+
+  startNext();
+  let hedgeAt = Date.now() + hedgeMs;
+  let winner = null;
+  while (active.size) {
+    const now = Date.now();
+    const wake = Math.min(held ? holdUntil : hedgeAt, deadline);
+    let timer;
+    const tick = new Promise((resolve) => { timer = setTimeout(() => resolve(TICK), Math.max(0, wake - now)); });
+    const settled = await Promise.race([...[...active.values()].map((a) => a.promise), tick]);
+    clearTimeout(timer);
+    if (settled === TICK) {
+      if (Date.now() >= deadline) break;
+      if (held) { winner = held; outwaited = true; break; } // waited long enough for the stronger model
+      startNext();
+      hedgeAt = Date.now() + hedgeMs;
+      continue;
+    }
+    active.delete(settled.it.c.p.id);
+    settled.it.state = 'done';
+    if (settled.r) {
+      const best = !held || settled.r.base > held.base ? settled.r : held;
+      const strongerStillWriting = [...active.values()].some((a) => worthWaitingFor(a, best));
+      const room = deadline - Date.now() - 3000;
+      if (strongerStillWriting && room > 2000) {
+        if (!held) holdUntil = Date.now() + Math.min(RACE_GRACE_MS, room);
+        held = best;
+        continue;
+      }
+      winner = best;
+      break;
+    }
+    if (held) {
+      // the model that was being waited for failed: is another stronger one still writing?
+      if (![...active.values()].some((a) => worthWaitingFor(a, held))) { winner = held; break; }
+      continue;
+    }
+    startNext(); // a failure is replaced at once
+  }
+  if (!winner && held) winner = held;
+  const late = !winner && Date.now() >= deadline;
+  for (const a of active.values()) a.controller.abort(late ? 'deadline' : outwaited && worthWaitingFor(a, winner) ? 'outwaited' : 'answered');
+  if (late || outwaited) await Promise.all([...active.values()].map((a) => a.promise)); // let them note that they were too slow
+  if (!winner && !errors.length && !items.some((x) => x.state !== 'waiting')) errors.push('no model could be started in the time left');
+  return winner;
 }
 
 /** The first JSON object or array in a model's reply, or null. */

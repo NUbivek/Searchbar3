@@ -3,6 +3,7 @@ import { chatComplete, chatJson, describeChain, llmStatus } from '../../../serve
 import { sampleState } from '../../../server/founder/sample';
 import { buildReport, writeDeepBrief } from '../../../server/founder/report';
 import { findGaps } from '../../../server/founder/gaps';
+import { readProfile } from '../../../server/founder/profileModel';
 
 /**
  * GET /api/debug/llm-check            -> the order the model chain would use now, per task (no model is called)
@@ -10,6 +11,7 @@ import { findGaps } from '../../../server/founder/gaps';
  *                                        to confirm a provider accepts the request the chain sends
  * GET /api/debug/llm-check?run=brief  -> the deep background check's report writer on a fictional sample
  * GET /api/debug/llm-check?run=gaps   -> its second reader on the same fictional sample
+ * GET /api/debug/llm-check?run=profile -> its profile reader (roles, education, boards) on the same fictional sample
  *
  * Open in development and on preview deployments (which sit behind the
  * host's own sign-in); in production it requires a signed-in session.
@@ -17,7 +19,16 @@ import { findGaps } from '../../../server/founder/gaps';
  */
 export const config = { maxDuration: 60 };
 
-const RUNS = ['chat', 'analysis', 'extract', 'json', 'brief', 'gaps'];
+const RUNS = ['chat', 'analysis', 'extract', 'json', 'brief', 'gaps', 'profile'];
+
+/** The route always answers inside its own time limit, whatever a model service does. */
+const within = (promise, ms) => {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => clearTimeout(timer)),
+    new Promise((resolve) => { timer = setTimeout(() => resolve(undefined), ms); }),
+  ]);
+};
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -43,12 +54,21 @@ export default async function handler(req, res) {
   const started = Date.now();
   if (run === 'brief') {
     const report = buildReport(sampleState());
-    const { brief, briefInfo } = await writeDeepBrief(report, { deadline });
+    const written = await within(writeDeepBrief(report, { deadline: Date.now() + 44000 }), 52000);
+    if (!written) return res.status(200).json({ run, ok: false, ms: Date.now() - started, note: 'no model answered inside the time limit' });
+    const { brief, briefInfo } = written;
     return res.status(200).json({ run, ok: briefInfo?.mode === 'ai', ms: Date.now() - started, briefInfo, brief });
   }
   if (run === 'gaps') {
-    const found = await findGaps(sampleState(), { deadline: Date.now() + 30000 });
+    const found = await within(findGaps(sampleState(), { deadline: Date.now() + 30000 }), 45000);
+    if (!found) return res.status(200).json({ run, ok: false, ms: Date.now() - started, note: 'no model answered inside the time limit' });
     return res.status(200).json({ run, ok: Boolean(found.model), ms: Date.now() - started, ...found });
+  }
+  if (run === 'profile') {
+    const state = sampleState();
+    const report = buildReport(state);
+    const profile = await within(readProfile(report, state, { deadline: Date.now() + 40000 }), 50000);
+    return res.status(200).json({ run, ok: profile?.readBy === 'model', ms: Date.now() - started, readBy: profile?.readBy || 'rules', profile: profile || null });
   }
   if (run === 'json') {
     const schema = { type: 'object', properties: { capital: { type: 'string' }, country: { type: 'string' } }, required: ['capital', 'country'], additionalProperties: false };

@@ -29,6 +29,8 @@ import { cleanText, formatDate, sourceLabel, sourceType, sentencesOf } from '../
 
 const USER_AGENT = 'Searchbar3-Research/1.0';
 const QUERY_TIMEOUT_MS = 9000;
+/** How long the brief waits on one model service before the next is asked alongside it. */
+const BRIEF_HEDGE_MS = 4000;
 const MAX_SOURCES = 20;
 const MAX_TIMELINE = 25;
 const MAX_COMPANIES = 20;
@@ -817,31 +819,16 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
   let briefInfo = { mode: 'quoted', reason: 'AI answers are not enabled on this deployment' };
   if (ranked.length > 0 && useLLM && PROVIDERS.some(providerEnabled)) {
     const user = `Today's date: ${new Date().toISOString().slice(0, 10)}\nPerson: ${displayName}${co ? `\nCompany (to disambiguate): ${co}` : ''}\n\nSources:\n${sourcesBlock(ranked)}`;
-    // An answer that fails the citation checks sends the request to the next model rather than giving up on AI
-    // Whatever a model service does, the brief is back by the deadline: past it, the quoted digest is used
-    const ask = (avoid) => chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], {
-      preferred: model, maxTokens: 1300, deadline, personal: true, avoid,
+    // An answer that fails the citation checks sends the request to the next model rather than giving up on AI.
+    // One service having a bad day must not cost the brief: when the first model has not answered after a few
+    // seconds the other services are asked the same question side by side, and the first good answer is used
+    // (hedgeMs, llm/providers.js). A model picked in the menu is asked alone.
+    // Whatever a model service does, the brief is back by the deadline: past it, the quoted digest is used.
+    const asked = chatComplete([{ role: 'system', content: BRIEF_PROMPT }, { role: 'user', content: user }], {
+      preferred: model, maxTokens: 1300, deadline, personal: true, hedgeMs: deadline && model === 'auto' ? BRIEF_HEDGE_MS : 0,
       accept: (text) => validateAnswer(text, ranked.length, BRIEF_SECTIONS).ok,
     }).catch(() => null);
-    // One service having a bad day must not cost the brief: when the first request has not answered after
-    // a few seconds, the same question also goes to the other services, and the first good answer is used.
-    const HEDGE_AFTER_MS = 6000;
-    const hedged = async () => {
-      const first = ask([]);
-      const early = await Promise.race([first, new Promise((resolve) => setTimeout(() => resolve(undefined), HEDGE_AFTER_MS))]);
-      if (early !== undefined) return early;
-      const enabled = PROVIDERS.filter(providerEnabled).map((p) => p.id);
-      if (enabled.length < 2 || model !== 'auto') return first;
-      // the second request leaves out the service the chain leads with (the one the first request is waiting on)
-      const second = ask([`${enabled[0]}:*`]);
-      const firstGood = (ps) => new Promise((resolve) => {
-        let left = ps.length;
-        for (const p of ps) p.then((v) => { left -= 1; if (v || left === 0) resolve(v || null); });
-      });
-      return firstGood([first, second]);
-    };
-    // Whatever a model service does, the brief is back by the deadline: past it, the quoted digest is used
-    const out = await withTimeout(hedged(), deadline ? Math.max(1000, deadline - Date.now() + 1500) : 120000, 'AI brief').catch(() => null);
+    const out = await withTimeout(asked, deadline ? Math.max(1000, deadline - Date.now() + 1500) : 120000, 'AI brief').catch(() => null);
     if (out) {
       const checked = validateAnswer(out.text, ranked.length, BRIEF_SECTIONS);
       if (checked.ok) {

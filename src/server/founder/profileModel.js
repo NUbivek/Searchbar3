@@ -378,6 +378,7 @@ export async function readProfile(report, state, { deadline = null, complete = c
     const user = `Person: ${state.name}${state.company ? `\nCompany: ${state.company}` : ''}\n\nRecords:\n${block}`;
     const out = await complete([{ role: 'system', content: PROMPT }, { role: 'user', content: user }], {
       schema: PROFILE_SCHEMA, name: 'profile', deadline, personal: true, maxTokens: 2500,
+      hedgeMs: 5000, // a slow first service is joined by the others (llm/providers.js)
       check: (d) => Boolean(d) && typeof d === 'object' && !Array.isArray(d),
     });
     if (!out?.data) return base;

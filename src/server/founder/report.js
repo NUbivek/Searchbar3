@@ -872,6 +872,7 @@ export async function writeDeepBrief(report, { deadline = null, maxRecords = 70,
   const trace = [];
   const out = await complete([{ role: 'system', content: DEEP_PROMPT }, { role: 'user', content: user }], {
     maxTokens: 3500, deadline, task: 'analysis', personal: true, avoid, trace,
+    hedgeMs: 6000, // a slow first service is joined by the others rather than waited out (llm/providers.js)
     accept: (text) => check(text).ok,
   });
   if (!out) {
