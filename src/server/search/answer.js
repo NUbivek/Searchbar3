@@ -108,11 +108,22 @@ const NUMBER_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven
 const NOT_A_NAME = new Set(`the a an he she they his her their it its this that these those in on at for with from by of to and or but not no yes as after before since during while when where who which what why how there here
 also however although though both each either neither most more some many several one two three four five six seven eight nine ten
 january february march april may june july august september october november december monday tuesday wednesday thursday friday saturday sunday
+jan feb mar apr jun jul aug sep sept oct nov dec q1 q2 q3 q4 h1 h2 fy early mid late spring summer autumn fall winter
 ceo cto coo cfo cpo cro cmo cio vp svp evp chief executive officer president chair chairman chairwoman founder co-founder cofounder director partner head
 source sources summary note confirm verify ask check review consider question questions red flags open press career education litigation regulatory past companies roles timeline confidence
 mr mrs ms dr prof jr sr inc corp ltd llc co plc sa ag gmbh`.split(/\s+/));
 // A sentence that only says something was not found, or repeats the coverage caveat, needs no citation.
-const NEGATIVE = /\b(?:not found|no (?:\w+ ){0,3}(?:found|mentions?|results?|records?|sources?)|none found|not evidence of|absence of|could not be (?:found|confirmed)|nothing (?:was )?found)\b/i;
+// "No litigation or regulatory actions involving X are mentioned in the sources" is one too (seen from a live model).
+const NEGATIVE = /\b(?:not found|no (?:[\p{L}\p{N}'’&.-]+[ ,]+){0,12}?(?:found|mentions?|mentioned|results?|records?|sources?|identified|reported|listed|known|disclosed|appears?|appeared|exists?)|none (?:found|identified|reported|mentioned|known)|not evidence of|absence of|could not be (?:found|confirmed|verified)|nothing (?:was )?found|there (?:is|are|was|were) no)\b/iu;
+// ... unless it goes on to state something after all ("No conviction was found, but he was sued by X").
+const CONTRAST = /\b(?:but|however|although|though|except|yet|while)\b/i;
+const onlyNegative = (claim) => NEGATIVE.test(claim) && !CONTRAST.test(claim);
+// A reference question or a request to the reader states nothing: "Confirm whether any litigation exists",
+// "Ask about the 2021 lawsuit?", "**Verification of funding:** Confirm the seed round".
+const ASKING = /^(?:[^:]{0,60}:\s*)?(?:ask|confirm|verify|check|request|clarify|obtain|review|seek|probe|explore|determine|establish|find out|whether|what|why|how|who|when|which|did|does|do|is|are|was|were|has|have|had|can|could|should|would)\b/i;
+const isAsking = (claim) => /\?\s*$/.test(claim) || ASKING.test(claim);
+// Markdown emphasis a model adds around a label ("**Sept 2025:** Closed a round") says nothing about names.
+const plain = (text) => String(text || '').replace(/\*\*|__|`/g, '').replace(/(^|\s)\*(?=\S)|(?<=\S)\*(?=\s|$)/g, '$1');
 const YEAR = /\b(?:19|20)\d{2}\b/g;
 const fold = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 const escRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -133,16 +144,20 @@ function claimNumbers(sentence) {
 }
 
 /** Runs of capitalised words: organisation, school and place names a claim gives. */
-function claimNames(sentence, ignore) {
+function claimNames(text, ignore) {
+  const sentence = plain(text);
   const runs = [];
   const re = /(?<![\p{L}\p{N}])[A-Z][\p{L}\p{N}&'’.-]*(?:\s+(?:(?:of|de|du|la|and|&|for)\s+)?[A-Z][\p{L}\p{N}&'’.-]*)*/gu;
+  // where a clause starts: the sentence itself, and whatever follows a label or a dash ("2026: Advocated for ...",
+  // "Funding: Closed a round"). A single capitalised word there is capitalised anyway, like the first of a sentence.
+  const startsClause = (i) => i === 0 || /(?:[:;—–]|\s-)\s*$/.test(sentence.slice(0, i)) || /^\s*$/.test(sentence.slice(0, i));
   for (const m of sentence.matchAll(re)) {
     const tokens = m[0].split(/\s+/)
       .map((w) => w.replace(/['’]s$/, '').replace(/[.,;:'’-]+$/, ''))
       .filter((w) => /^[A-Z]/.test(w) && !NOT_A_NAME.has(w.toLowerCase()) && !ignore.has(fold(w)) && w.length >= 2);
     if (!tokens.length) continue;
-    // the first word of a sentence is capitalised anyway: on its own it is not a name
-    if (m.index === 0 && m[0].split(/\s+/).length === 1) continue;
+    // the first word of a sentence or clause is capitalised anyway: on its own it is not a name
+    if (startsClause(m.index) && m[0].split(/\s+/).length === 1) continue;
     runs.push(tokens);
   }
   return runs;
@@ -289,12 +304,13 @@ export function checkClaims(content, sources, opts = {}) {
       const claim = sentence.replace(/\s*\[Source \d+\]/g, '').trim();
       const { years, numbers } = claimNumbers(claim);
       if (!claim || /^[.;,]$/.test(claim)) return;
-      if (!valid.length && NEGATIVE.test(claim) && !years.length && !numbers.length) { kept.push(sentence); return; }
+      if (!valid.length && onlyNegative(claim) && !years.length && !numbers.length) { kept.push(sentence); return; }
       checked += 1;
       const inFail = failSections.includes(section);
       let why = null;
       let legal = false;
-      if (legalTerms && !NEGATIVE.test(claim)) {
+      // "no litigation was found" and a reference question in an advisory section state no legal matter
+      if (legalTerms && !onlyNegative(claim) && !(advisorySections.includes(section) && isAsking(plain(claim)))) {
         // only sources tied to the subject by more than the name may carry a legal matter
         const tied = valid.filter((n) => !map.get(n)?.weak).map((n) => map.get(n)?.text || '').join(' \n ');
         why = legalUnsupported(claim, tied);

@@ -339,3 +339,35 @@ describe('a live model\'s way of writing is not refused wholesale (found on the 
     expect(two.ok).toBe(false);
   });
 });
+
+describe('false alarms of the line check, seen from a live model on the preview (Arthur Mensch, 2026-11-21)', () => {
+  const { checkClaims: check } = require('../../../src/server/search/answer');
+  const src = new Map([
+    [1, { text: 'Mistral AI closes $2 billion Series B at a $14 billion valuation. In September 2025 Mistral AI, led by Arthur Mensch, closed a $2 billion Series B at a $14 billion valuation.' }],
+    [2, { text: 'Arthur Mensch on sovereign AI at 20VC. In 2026 Arthur Mensch advocated for sovereign AI and cost-effective compute at 20VC. Mistral AI raised a $113 M seed round.' }],
+  ]);
+  const opts = { inherit: true, elsewhere: true, failAfter: 2, maxDropShare: 0.5, legalTerms: true, failSections: ['## LITIGATION AND REGULATORY'], advisorySections: ['## RED FLAGS AND OPEN QUESTIONS'], ignoreWords: ['Arthur Mensch'] };
+
+  test('a bold date label and the verb after it are not names', () => {
+    const out = check('## CAREER TIMELINE\n• **Sept 2025:** Closed $2 billion Series B at a $14 billion valuation [Source 1]\n• **2026:** Advocated for sovereign AI and cost-effective compute at 20VC [Source 2]', src, opts);
+    expect(out).toMatchObject({ ok: true, dropped: 0 });
+  });
+
+  test('"No litigation ... are mentioned" is a negative, not a legal claim; a real uncited claim after "but" still is', () => {
+    const none = check('## SUMMARY\nMistral AI closed a $2 billion Series B [Source 1].\n## LITIGATION AND REGULATORY\nNo litigation or regulatory actions involving Arthur Mensch are mentioned in the sources.', src, opts);
+    expect(none).toMatchObject({ ok: true, dropped: 0 });
+    const but = check('## SUMMARY\nMistral AI closed a $2 billion Series B [Source 1].\n## LITIGATION AND REGULATORY\nNo conviction was found, but he was sued for fraud by Globex [Source 1].', src, opts);
+    expect(but.content).not.toMatch(/Globex/);
+  });
+
+  test('a reference question about litigation, with a bold label, is not an invented legal matter', () => {
+    const out = check('## SUMMARY\nMistral AI closed a $2 billion Series B [Source 1].\n## RED FLAGS AND OPEN QUESTIONS\n• **Verification of funding details:** Confirm the $113 M seed round and $2 billion Series B with the company.\n• **Litigation:** Ask whether any lawsuit or regulatory investigation involves the company?\n• Confirm that no fraud claims or settlements exist.', src, opts);
+    expect(out.ok).toBe(true);
+    expect(out.reasons.join(' ')).not.toMatch(/legal matter/);
+  });
+
+  test('a stated legal matter in a question section is still checked', () => {
+    const out = check('## SUMMARY\nMistral AI closed a $2 billion Series B [Source 1].\n## RED FLAGS AND OPEN QUESTIONS\n• He was convicted of fraud in 2019 [Source 1].\n• The company was fined by the regulator [Source 2].', src, opts);
+    expect(out.ok).toBe(false);
+  });
+});
