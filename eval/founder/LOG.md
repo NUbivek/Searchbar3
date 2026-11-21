@@ -46,6 +46,7 @@
   - Trevor Milton / Nikola: 37 red flags -> 21 matters, each with its latest outcome (sentence: pardoned 2025); headline "Founder, Nikola (former CEO and Executive Chairman, until 2020)" (it said current before).
   - Shensi Ding / Merge: Expanse and Silver Lake with years, Credit Suisse 2015-2017 as a lead to confirm, Columbia 2015; the Ethereum "Merge" and same-name register entries are gone (44 records -> 21, all relevant).
   - Jack Zhang / Airwallex (a very common name): 39 records tied, none about another person; 73 name-only records kept apart; UK directorships at Airwallex entities now tied.
+- Last live check, run through the real page (Trevor Milton / Nikola): it stood at one round for five minutes with four lookups queued, because the limit on empty steps applied only when every queued lookup was waiting. The limit now applies whatever the reason nothing ran; the same job finished at once and the report on the page was read and is correct (headline, current role, conviction with its mixed verdict, pardon as the latest outcome).
 - Preview `claude/research-hub-fix`: 3,813 tests pass; production build compiles; `/api/debug/llm-check?run=profile|brief|quick|gaps` all pass with real models.
 - Still not verified: the signed-in deep check on a deployment (needs the owner's Google sign-in); print and night mode of the rebuilt page were not looked at in a browser.
 - Release note for the owner: preview is green and 20-odd commits ahead of production; say "push to production" to release.

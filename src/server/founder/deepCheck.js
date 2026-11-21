@@ -1821,18 +1821,29 @@ export async function stepDeepCheck(state, { connectors, deadline = Date.now() +
   // Nothing ran because every remaining lookup waits for a resting host: not a round, and not a dry one.
   // But a check does not sit idle for minutes for its last few lookups: when only waiting lookups are left
   // and the next is more than tailWaitMs away, they are reported as not run and the check moves on.
-  if (ran.size === 0 && state.queue.some((t) => t.notBefore && t.notBefore > Date.now())) {
+  // And whatever the reason nothing ran (some lookups waiting, others unable to start behind them: a live check
+  // stood at "round 5" for five minutes with four lookups queued), after maxIdleSteps such steps in a row everything
+  // still queued is reported as not run and the check goes on to its report.
+  if (ran.size === 0 && state.queue.length > 0) {
     const waiting = state.queue.filter((t) => t.notBefore && t.notBefore > Date.now());
-    const next = Math.min(...waiting.map((t) => t.notBefore));
-    const onlyWaiting = waiting.length === state.queue.length;
+    const next = waiting.length ? Math.min(...waiting.map((t) => t.notBefore)) : 0;
+    const onlyWaiting = waiting.length > 0 && waiting.length === state.queue.length;
     state.idleSteps = (state.idleSteps || 0) + 1;
     const idledOut = state.idleSteps > (limits.maxIdleSteps ?? LIMITS.maxIdleSteps);
-    if (onlyWaiting && (idledOut || next - Date.now() > (limits.tailWaitMs ?? LIMITS.tailWaitMs))) {
+    if (idledOut) {
+      const others = state.queue.filter((t) => !waiting.includes(t));
+      if (waiting.length) markNotRun(state, waiting, byId, { waited: true });
+      if (others.length) markNotRun(state, others, byId);
+      const n = state.queue.length;
+      state.queue = [];
+      state.log.pop();
+      state.log.push({ step: state.step, text: `${n} last lookup${n === 1 ? '' : 's'} not run: ${waiting.length ? (n === 1 ? 'its source' : 'their sources') + ' kept asking the check to wait' : 'they could not be started'}.` });
+    } else if (onlyWaiting && next - Date.now() > (limits.tailWaitMs ?? LIMITS.tailWaitMs)) {
       markNotRun(state, waiting, byId, { waited: true });
       state.queue = state.queue.filter((t) => !waiting.includes(t));
       state.log.pop();
       state.log.push({ step: state.step, text: `${waiting.length} last lookup${waiting.length === 1 ? '' : 's'} not run: ${waiting.length === 1 ? 'its source' : 'their sources'} kept asking the check to wait.` });
-    } else {
+    } else if (waiting.length) {
       state.log.pop();
       return { state, progress: summarize(state) };
     }
