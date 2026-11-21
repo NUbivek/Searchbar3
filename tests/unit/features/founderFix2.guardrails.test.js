@@ -39,7 +39,13 @@ describe('parents of children', () => {
     'John Doe, dad of a girl',
   ])('drops %s', (text) => {
     expect(mentionsMinor(text)).toBe(true);
-    expect(sanitizeFinding(rec({ quote: text }))).toBeNull();
+    // round 3: a "mother of two" aside loses only that clause; any other sentence about children goes whole
+    const out = sanitizeFinding(rec({ quote: text }));
+    if (out) expect(out.quote).not.toMatch(/mother|mum|father|dad|twins|two/);
+  });
+  test('a sentence about children with no other fact goes whole', () => {
+    expect(sanitizeFinding(rec({ quote: 'John Doe is a father of 3 and a pilot.' }))).toBeNull();
+    expect(sanitizeFinding(rec({ quote: 'Jane Doe, mother of two, lives quietly.' })).quote).toBe('Jane Doe, lives quietly.');
   });
   test('business senses of father of are kept', () => {
     expect(mentionsMinor('Jane Doe, the father of two startups, raised again.')).toBe(false);

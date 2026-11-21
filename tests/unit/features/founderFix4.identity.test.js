@@ -46,10 +46,12 @@ describe('event anchors', () => {
     return s;
   };
 
-  test('full name plus the event word, dated on or after the event, grades likely with a reason', () => {
-    const r = matchSubject(subject(), 'Pardon of Utah billionaire Jane Roe, who was convicted of fraud', { date: '2025-03-28' });
+  test('full name plus the event word, dated within weeks of the event, grades likely with a reason', () => {
+    const r = matchSubject(subject(), 'Utah billionaire Jane Roe, who was convicted of fraud, plans an appeal', { date: '2022-11-02' });
     expect(r.level).toBe('likely');
     expect(r.reasons).toContain('names conviction reported in rec-7');
+    // audit 2026-11-20: a report years later may be a namesake's conviction; without the same matter it stays possible
+    expect(matchSubject(subject(), 'Pardon of Utah billionaire Jane Roe, who was convicted of fraud', { date: '2025-03-28' }).level).toBe('possible');
   });
 
   test('never without the full name, before the event, without a date, or for another event', () => {

@@ -5,15 +5,24 @@
  * about the subject (their "anchors": companies, schools, co-founders,
  * handles), never by name alone.
  *
- *   confirmed  the name and a known company of the subject appear together
- *   likely     the name and another anchor (school, co-founder, handle) appear,
+ *   confirmed  the full name and a known company of the subject appear close together
+ *              (same sentence, or neighbouring sentences), the company named as a company
+ *              and not given to someone else in between
+ *   likely     the full name and another anchor (school, co-founder, handle) appear,
  *              or a record dated inside the person's CEO tenure names that company's CEO
- *   possible   only the exact name appears: may be a namesake
+ *   possible   only the name appears: may be a namesake
+ *
+ * The matching itself (name forms, company mentions, closeness, how common a
+ * name is) lives in names.js and is shared with the quick brief.
  *
  * Anchors grow as the check learns more (a company found in round 1 confirms
  * records in round 2), which is why matching is recomputed, not stored once.
  */
-import { nameMatcher, nameVariants, normalizePersonName, companyKeys } from '../founderCheck';
+import { nameMatcher, normalizePersonName, companyKeys } from '../founderCheck';
+import {
+  companyKeyStrict as strictKey, companyMentionMatcher, companyMatchForms, cooccurrences, isCommonName, isBroadOrganisation,
+  describedAsSomeoneElse, parsePersonName, isOrdinaryWordCompany, personNameVariants,
+} from './names';
 
 const stripAccents = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
 const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -31,11 +40,7 @@ export function nameTokens(name) {
  * "Mistral AI" must not be taken for "Mistral, Inc.".
  */
 export function companyKeyStrict(name) {
-  return String(name || '').toLowerCase()
-    .replace(/[^a-z0-9À-ɏ ]+/g, ' ')
-    .replace(/\b(inc|incorporated|llc|ltd|limited|corp|corporation|co|company|plc|sa|sas|sarl|gmbh|ag|bv|nv|pty|lp|llp|the)\b/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return strictKey(name);
 }
 
 /**
@@ -72,120 +77,30 @@ export function slugCandidates(name) {
 }
 
 /**
- * A matcher for an organisation name that tolerates suffixes ("Theranos,
- * Inc." matches "Theranos").
- *
- * Many companies are named with an ordinary word (Stripe, Flow, Square,
- * Notion). "A blue stripe" or "cash flow" beside a namesake must not confirm
- * that the record is about the founder, so a one-word name only counts when
- * it is written as a name: with a capital letter somewhere ("Stripe",
- * "dHybrid", "STRIPE"), or as part of an address or handle ("stripe.com",
- * "/company/stripe", "@stripe").
- *
- * A capitalised word can still be one part of a longer, different name
- * ("Cash Flow Capital", "Red Stripe Brewing", "Domaine du Mistral"), so a
- * one-word name also must not come after another capitalised word of the
- * same name. Words after it are allowed, since a company's full legal name
- * and its subsidiaries start with it ("Nikola Motor Company LLC", "Theranos
- * IP Company"). Legal forms ("Inc Stripe"), the company's own other words
- * ("The Flow"), job titles ("CEO Stripe"), possessives ("Neumann's Flow")
- * and the first word of a sentence do not count. Headlines written in Title
- * Case or capitals say nothing by their capitals, so there only a joining
- * word ("Domaine du Mistral") marks a longer name.
+ * A matcher for an organisation name, as the subject's anchor: test(text) says
+ * whether the text names the organisation as an organisation (names.js
+ * companyMention: an ordinary word such as Ramp or Flow counts only where it is
+ * used as a company; a leftover key such as "of america" never stands alone).
+ * `.positions(text)` gives the spans, so a caller can check they are close to
+ * the person's name. Fuller legal names and domains learned for this company
+ * (addCompanyAlias) count as the company too.
  */
-const LEGAL_FORMS = new Set(['inc', 'incorporated', 'llc', 'llp', 'lp', 'ltd', 'limited', 'corp', 'corporation', 'co', 'company', 'plc', 'gmbh', 'ag', 'sa', 'sas', 'sarl', 'nv', 'bv', 'se', 'pty', 'ab', 'oy', 'spa', 'srl']);
-const ROLE_WORDS = new Set(['ceo', 'cto', 'cfo', 'coo', 'cpo', 'founder', 'cofounder', 'co-founder', 'chief', 'president', 'chairman', 'chairwoman', 'chair', 'head', 'director', 'vp', 'boss', 'owner', 'executive']);
-// Lowercase words that join the parts of one proper name ("Domaine du Mistral", "Bank of Flow").
-const NAME_JOINERS = new Set(['du', 'de', 'des', 'la', 'le', 'les', 'di', 'da', 'del', 'della', 'von', 'van', 'der', 'den', 'of', '&']);
-// Common words that a headline capitalises before a company ("With Acme CEO", "Former Acme CEO"): never part of its name.
-const FUNCTION_WORDS = new Set(['with', 'from', 'by', 'for', 'at', 'to', 'and', 'says', 'meet', 'inside', 'how', 'why', 'interview', 'former', 'ex', 'avec', 'pour', 'chez']);
-const wordKey = (w) => String(w || '').toLowerCase().replace(/^[^a-z0-9À-ɏ&]+|[^a-z0-9À-ɏ&]+$/g, '');
-const startsCapital = (w) => /^[^A-Za-zÀ-ɏ0-9]*[A-ZÀ-Þ]/.test(w);
-
 function orgMatcher(org, subject = null) {
   const raw = String(org || '').trim();
   if (raw.length < 2) return null;
-  // The person's own name beside the company ("Jane Roe of Acme", "Jane Roe Acme trial") is not a longer
-  // organisation name: it is exactly the pairing that confirms a record.
-  const personWords = new Set(subject ? nameTokens(subject.name) : []);
-  const exact = new RegExp(`(?<![A-Za-z0-9])${escapeRe(raw)}(?![A-Za-z0-9])`, 'i');
-  const keyList = companyKeys(raw).filter((k) => k.length >= 3);
-  const keys = keyList.map((k) => new RegExp(`(?<![a-z0-9])${escapeRe(k)}(?![a-z0-9])`));
-  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9À-ɏ ]+/g, ' ').replace(/\s+/g, ' ');
-  const single = keyList.length === 1 && !/\s/.test(keyList[0]) ? keyList[0] : (!/\s/.test(raw) ? raw.toLowerCase() : null);
-  const occurrences = single ? new RegExp(`(?<![A-Za-z0-9])${escapeRe(single)}(?![A-Za-z0-9])`, 'gi') : null;
-  // A multi-word name that reduces to one key ("Mistral AI" -> "mistral") is tried whole first.
-  const whole = single && /\s/.test(raw) ? new RegExp(exact.source, 'gi') : null;
-  const ownWords = new Set(raw.split(/\s+/).map(wordKey).filter(Boolean));
-  const neutral = (w) => { const k = wordKey(w); return LEGAL_FORMS.has(k) || ROLE_WORDS.has(k) || FUNCTION_WORDS.has(k) || ownWords.has(k) || personWords.has(nameTokens(w)[0]); };
-  // The word right before a span, only when nothing but spaces separates them.
-  const wordBefore = (str, at) => {
-    const m = str.slice(0, at).match(/(\S+)[ \t]+$/);
-    if (!m || /[,;:)\]}.!?"”—–|]$/.test(m[1])) return null;
-    return { word: m[1], at: m.index };
+  if (!companyMatchForms(raw).length) return null;
+  const key = companyKeys(raw)[0] || raw.toLowerCase();
+  const aliases = () => {
+    const list = subject?.anchors?.aliases;
+    return list ? [...list.values()].filter((a) => a.of === key).map((a) => a.value) : [];
   };
-  const sentenceStart = (str, at) => /(^|[.!?]\s+|\n\s*)$/.test(str.slice(0, at));
-  // Title Case or capitals around the span: almost no long word is lowercase.
-  const headline = (str, start, end) => {
-    // Bracketed tags ("[video]", "[pdf]") are written lowercase in any headline.
-    const near = `${str.slice(Math.max(0, start - 80), start)} ${str.slice(end, end + 80)}`.replace(/\[[^\]]{1,12}\]/g, ' ');
-    const long = near.match(/[A-Za-zÀ-ɏ]{5,}/g) || [];
-    return long.length >= 3 && long.filter((w) => w === w.toLowerCase()).length / long.length < 0.2;
-  };
-  const insideLongerName = (str, start, end) => {
-    const prev = wordBefore(str, start);
-    if (!prev) return false;
-    if (/['’]s$/i.test(prev.word)) return false; // "Neumann's Flow"
-    // Followed by a possessive or a title ("Acme's", "Acme CEO", "Acme founder"), the word is named as the company.
-    const after = str.slice(end);
-    const next = after.match(/^[ \t]+(\S+)/);
-    const titled = /^['’]s\b/i.test(after) || Boolean(next && ROLE_WORDS.has(wordKey(next[1])));
-    if (NAME_JOINERS.has(wordKey(prev.word)) || prev.word === '&') {
-      const head = wordBefore(str, prev.at);
-      if (!head || !startsCapital(head.word) || neutral(head.word)) return false;
-      // In a headline, a capitalised joiner ("Worth Of Acme Stock") is only Title Case, and a possessive or
-      // title marks the company ("A Timeline of Acme's Founder"). In prose a joined name stays one name
-      // ("Domaine du Mistral CEO"), and so does a lowercase joiner in a headline otherwise ("Buys Domaine du
-      // Mistral Vineyard").
-      if (!headline(str, start, end)) return true;
-      return !(startsCapital(prev.word) || titled);
-    }
-    if (!startsCapital(prev.word) || neutral(prev.word) || titled) return false;
-    return !sentenceStart(str, prev.at) && !headline(str, start, end);
-  };
-  const writtenAsName = (str) => {
-    if (!occurrences) return true;
-    for (const re of [whole, occurrences]) {
-      if (!re) continue;
-      for (const m of str.matchAll(re)) {
-        const start = m.index;
-        const end = m.index + m[0].length;
-        const before = start > 0 ? str[start - 1] : '';
-        if (before && '/@.'.includes(before)) return true;
-        if (/^\.[a-z]{2,6}(?![a-z])/.test(str.slice(end, end + 8))) return true;
-        if (m[0] === m[0].toLowerCase()) continue;
-        if (!insideLongerName(str, start, end)) return true;
-      }
-    }
-    return false;
-  };
-  // Handles and domains often glue a word to the name ("@acmemotor", "acmemotor.com"). The company key
-  // (spaces removed) counts as the start of an @handle or a domain label when it has 5 or more characters,
-  // so short keys ("@flowstate") and the person's own name ("@janeroe" for a company called Jane) do not.
-  const prefixes = [...new Set(keyList.map((k) => k.replace(/\s+/g, '')))]
-    .filter((k) => k.length >= 5 && /^[a-z0-9]+$/.test(k) && !personWords.has(k))
-    .flatMap((k) => [
-      new RegExp(`(?<![A-Za-z0-9_])@${escapeRe(k)}[a-z0-9_]*(?![A-Za-z0-9_])`, 'gi'),
-      new RegExp(`(?<![A-Za-z0-9_-])${escapeRe(k)}[a-z0-9-]*\\.[a-z]{2,6}(?![A-Za-z0-9])`, 'gi'),
-    ]);
-  // The top-level domain is written lowercase: "Acmecorp.Then" is two sentences, not an address.
-  const handleOrDomain = (str) => prefixes.some((re) => [...str.matchAll(re)]
-    .some((m) => m[0].startsWith('@') || /\.[a-z]{2,6}$/.test(m[0])));
-  return (text) => {
-    const str = String(text || '');
-    if (handleOrDomain(str)) return true;
-    return (exact.test(str) || (keys.length > 0 && keys.some((k) => k.test(norm(str))))) && writtenAsName(str);
-  };
+  const person = subject ? subject.hasName : null;
+  const personWords = subject ? nameTokens(subject.name) : [];
+  const mention = companyMentionMatcher(raw, { aliases, person, personWords });
+  const test = (text) => mention(text).named;
+  test.positions = (text) => mention(text).spans;
+  test.mention = mention;
+  return test;
 }
 
 /**
@@ -194,15 +109,21 @@ function orgMatcher(org, subject = null) {
  */
 export function createSubject({ name, company = '' }) {
   const person = normalizePersonName(name);
-  const variants = nameVariants(person);
+  // Search forms: as typed, and given name plus surname without any middle name.
+  const variants = personNameVariants(person);
   const subject = {
     name: person,
     variants,
     hasName: nameMatcher(variants),
     slugs: slugCandidates(person),
     company: String(company || '').trim(),
-    anchors: { companies: new Map(), schools: new Map(), people: new Map(), handles: new Map(), domains: new Map(), roles: new Map(), related: new Map(), events: new Map() },
+    // A very common full name ("John Smith") needs the company or another anchor beside it in the same record.
+    common: isCommonName(person),
+    anchors: { companies: new Map(), schools: new Map(), people: new Map(), handles: new Map(), domains: new Map(), roles: new Map(), related: new Map(), events: new Map(), aliases: new Map() },
   };
+  // A generational suffix typed with the name ("John Smith Jr.") is kept so "John Smith Sr." is not taken for them.
+  const typedSuffix = parsePersonName(String(name || '').replace(/["“”„]/g, '')).suffix;
+  if (typedSuffix) subject.hasName = nameMatcher([`${person} ${typedSuffix}`]);
   if (subject.company) addAnchor(subject, 'companies', subject.company, 'given');
   return subject;
 }
@@ -221,11 +142,14 @@ const isEncyclopedia = (origin) => /^encyclopedia(?::|$)/.test(String(origin || 
  */
 export function addAnchor(subject, kind, value, origin = 'found') {
   const v = String(value || '').trim();
-  if (v.length < 2 || !subject.anchors[kind] || kind === 'roles' || kind === 'events' || kind === 'related') return false;
+  if (v.length < 2 || !subject.anchors[kind] || kind === 'roles' || kind === 'events' || kind === 'related' || kind === 'aliases') return false;
   const key = kind === 'companies' ? (companyKeys(v)[0] || v.toLowerCase()) : v.toLowerCase();
   if (!key || subject.anchors[kind].has(key)) return false;
   if (isEncyclopedia(origin)) {
     if (kind !== 'companies' && kind !== 'people') return false;
+    // A university, a party or a very large employer has thousands of members: being linked to one in an
+    // encyclopedia entry says nothing about which namesake a record is about.
+    if (kind === 'companies' && isBroadOrganisation(v)) return false;
     if (!subject.anchors.related) subject.anchors.related = new Map();
     const rkey = `${kind}|${key}`;
     if (subject.anchors.related.has(rkey) || subject.hasName(v)) return false;
@@ -244,6 +168,42 @@ export function addAnchor(subject, kind, value, origin = 'found') {
     : orgMatcher(v, subject);
   if (!test) return false;
   subject.anchors[kind].set(key, { value: v, origin, test });
+  return true;
+}
+
+/**
+ * Learn a fuller legal name or a domain of one of the subject's companies,
+ * from a record tied to them by more than the bare word (for example an SEC
+ * Form D naming the person as an officer of "Ramp Business Corp"). From then
+ * on the legal name counts as the company: "Ramp Business UK Ltd" and "Ramp
+ * Business Corporation" tie, while a bare prefix ("Ramp Network", "Merge
+ * Labs") never does.
+ *
+ * `company` is the company as already known (an existing company anchor, or
+ * the company typed); `alias` is the legal name ("Ramp Business Corp") or a
+ * domain ("ramp.com"). Refused: an alias that adds nothing (same key), a
+ * one-word alias that is an ordinary word, a company not yet an anchor, and a
+ * name of the person. Aliases travel with exportAnchors / restoreSubject
+ * (kind 'aliases': { value, of, origin }). Returns true when the alias is new.
+ */
+export function addCompanyAlias(subject, { company, alias, origin = 'found' } = {}) {
+  const c = String(company || '').trim();
+  const v = String(alias || '').trim().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/.*$/, '');
+  if (!c || v.length < 3 || isEncyclopedia(origin)) return false;
+  const of = companyKeys(c)[0] || c.toLowerCase();
+  if (!subject.anchors.companies.has(of)) return false;
+  if (!subject.anchors.aliases) subject.anchors.aliases = new Map();
+  const isDomain = /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(v) && /\.[a-z]{2,}$/i.test(v);
+  const value = isDomain ? v.toLowerCase() : String(alias).trim();
+  if (!isDomain) {
+    const strict = companyKeyStrict(value);
+    if (!strict || strict === companyKeyStrict(c)) return false;
+    if (!/\s/.test(strict) && isOrdinaryWordCompany(strict)) return false;
+    if (subject.hasName(value)) return false;
+  }
+  const key = isDomain ? value : companyKeyStrict(value);
+  if (subject.anchors.aliases.has(key)) return false;
+  subject.anchors.aliases.set(key, { value, of, origin });
   return true;
 }
 
@@ -270,7 +230,9 @@ export function addRoleAnchor(subject, { org, role = 'ceo', from, to = '', origi
   if (!subject.anchors.roles) subject.anchors.roles = new Map();
   const key = `${companyKeys(value)[0] || value.toLowerCase()}|${start}${role === 'ceo' ? '' : `|${role}`}`;
   if (subject.anchors.roles.has(key)) return false;
-  const names = [...new Set([value, ...companyKeys(value).filter((k) => k.length >= 3)])].map(escapeRe).join('|');
+  // The registered name and its safe shorter form only: a leftover such as "silicon valley" or "one" never stands
+  // for the company.
+  const names = [...new Set([value, ...companyMatchForms(value).map((f) => f.form).filter((k) => k.length >= 3)])].map(escapeRe).join('|');
   // "Acme CEO", "Acme's chief executive", but not a predecessor, successor or a shared role ("former Acme CEO",
   // "new Acme CEO", "Acme co-CEO"). A founder: "Acme founder", "Acme's founder", but not "Acme co-founder".
   const title = role === 'ceo' ? 'CEO|chief executive|C\\.E\\.O\\.' : 'founder';
@@ -309,15 +271,35 @@ const EVENT_KIND = {
  * person in full and reports that kind of event is then 'likely' about them, never 'confirmed'.
  * Returns true when the anchor is new.
  */
-export function addEventAnchor(subject, { event, date, origin = 'found' } = {}) {
+export function addEventAnchor(subject, { event, date, origin = 'found', docket = '' } = {}) {
   const kind = EVENT_KIND[String(event || '').trim().toLowerCase()];
   const day = isoDay(date);
   if (!kind || !day) return false;
   if (!subject.anchors.events) subject.anchors.events = new Map();
   const key = `${kind}|${day}`;
   if (subject.anchors.events.has(key)) return false;
-  subject.anchors.events.set(key, { value: kind, event: kind, date: day, origin, test: (text) => EVENT_FAMILIES[kind].test(String(text || '')) });
+  // A docket or case number ties a later record to the same matter whatever its date.
+  const dk = String(docket || '').trim();
+  const docketRe = dk.length >= 5 ? new RegExp(`(?<![A-Za-z0-9])${escapeRe(dk).replace(/[-:\s]+/g, '[-:\\s]*')}(?![A-Za-z0-9])`, 'i') : null;
+  subject.anchors.events.set(key, {
+    value: kind, event: kind, date: day, origin, docket: dk,
+    test: (text) => EVENT_FAMILIES[kind].test(String(text || '')),
+    sameMatter: (text) => Boolean(docketRe && docketRe.test(String(text || ''))),
+  });
   return true;
+}
+
+// How long after an event a record reporting the same kind of event is taken to report that event (and a little
+// before, for records dated by their publisher a day or two early). A namesake's conviction years later is not it.
+const EVENT_WINDOW_BEFORE_DAYS = 14;
+const EVENT_WINDOW_AFTER_DAYS = 120;
+const dayMs = 86400000;
+/** Whether a full date (YYYY-MM-DD) falls inside the window around an event day; a year or month alone cannot tell. */
+function withinEventWindow(date, eventDay) {
+  const d = isoDay(date);
+  if (d.length !== 10 || eventDay.length !== 10) return false;
+  const diff = (Date.parse(d) - Date.parse(eventDay)) / dayMs;
+  return diff >= -EVENT_WINDOW_BEFORE_DAYS && diff <= EVENT_WINDOW_AFTER_DAYS;
 }
 
 /** Whether an ISO date (any precision) falls inside a tenure, comparing at the shorter precision. */
@@ -338,9 +320,10 @@ function withinTenure(date, from, to) {
 export function exportAnchors(subject) {
   const out = {};
   for (const [kind, map] of Object.entries(subject.anchors)) {
-    out[kind] = [...map.values()].map(({ value, origin, role, from, to, as, date }) => (kind === 'roles' ? { value, org: value, role, from, to, origin }
-      : kind === 'events' ? { value, event: value, date, origin }
-        : kind === 'related' ? { value, as, origin } : { value, origin }));
+    out[kind] = [...map.values()].map(({ value, origin, role, from, to, as, date, docket, of }) => (kind === 'roles' ? { value, org: value, role, from, to, origin }
+      : kind === 'events' ? { value, event: value, date, origin, ...(docket ? { docket } : {}) }
+        : kind === 'related' ? { value, as, origin }
+          : kind === 'aliases' ? { value, of, origin } : { value, origin }));
   }
   return out;
 }
@@ -348,10 +331,16 @@ export function exportAnchors(subject) {
 /** Rebuild a subject from { name, company, anchors } saved by exportAnchors. */
 export function restoreSubject({ name, company, anchors = {} }) {
   const subject = createSubject({ name, company });
-  for (const [kind, list] of Object.entries(anchors)) {
+  // Aliases attach to company anchors, so they are restored after every company.
+  const kinds = Object.entries(anchors).sort(([a], [b]) => Number(a === 'aliases') - Number(b === 'aliases'));
+  for (const [kind, list] of kinds) {
     for (const a of list || []) {
       if (kind === 'roles') addRoleAnchor(subject, { org: a.org || a.value, role: a.role, from: a.from, to: a.to, origin: a.origin });
-      else if (kind === 'events') addEventAnchor(subject, { event: a.event || a.value, date: a.date, origin: a.origin });
+      else if (kind === 'events') addEventAnchor(subject, { event: a.event || a.value, date: a.date, origin: a.origin, docket: a.docket });
+      else if (kind === 'aliases') {
+        const owner = subject.anchors.companies.get(a.of);
+        if (owner) addCompanyAlias(subject, { company: owner.value, alias: a.value, origin: a.origin });
+      }
       else if (kind === 'related') addAnchor(subject, a.as === 'people' ? 'people' : 'companies', a.value, a.origin);
       else addAnchor(subject, kind, a.value, a.origin);
     }
@@ -361,33 +350,97 @@ export function restoreSubject({ name, company, anchors = {} }) {
 
 /**
  * Grade a piece of text against the subject.
- * @returns {{ level: 'confirmed'|'likely'|'possible'|'none', reasons: string[] }}
+ *
+ * The full name is required. A company anchor confirms only when it is named
+ * as a company close to a mention of the name (same sentence, or neighbouring
+ * sentences) and is not given to someone else in between. A very common name
+ * ("John Smith") needs the company or a school, associate, handle or domain
+ * beside it to rise above possible; encyclopedia links and events never raise
+ * it. An event anchor counts only for the same matter: a shared docket number,
+ * or a record dated within weeks of the event that does not describe someone
+ * else ("John Smith, a Utah man").
+ *
+ * The name written surname first without a comma ("Xiaoming Wang" for Wang
+ * Xiaoming) is the name in another order: possible alone, likely with the
+ * company beside it, never confirmed. Initials, a nickname, a longer surname or
+ * another middle name are not the person's name: 'none', with `weak` saying
+ * what was seen.
+ *
+ * @returns {{ level: 'confirmed'|'likely'|'possible'|'none', reasons: string[], basis?: string[], weak?: string }}
+ *   basis: which kinds of anchor carried the grade ('company', 'schools', 'people', 'handles', 'domains',
+ *   'related', 'event', 'role', 'reversed-name'), so a caller can decide what to trust; a grade carried only by
+ *   'related' or 'event' should not make the record's threads trusted.
  */
 export function matchSubject(subject, text, { date } = {}) {
   const str = String(text || '');
-  // The person's full name is required: a role alone never ties a record to them (lead rule)
-  if (!subject.hasName(str)) return { level: 'none', reasons: [] };
+  const isSelf = (s) => subject.hasName(s);
+  const companyAnchors = [...subject.anchors.companies.values()];
+  const pairedCompanies = (names) => {
+    const hits = [];
+    const far = [];
+    for (const a of companyAnchors) {
+      const spans = typeof a.test.positions === 'function' ? a.test.positions(str) : (a.test(str) ? [{ start: 0, end: 0 }] : []);
+      if (!spans.length) continue;
+      if (typeof a.test.positions !== 'function' || cooccurrences(str, names, spans, { isSelf }).length) hits.push(a);
+      else far.push(a);
+    }
+    return { hits, far };
+  };
+  const names = subject.hasName.positions(str);
+  if (!names.length) {
+    // The full name is required: a role alone never ties a record to them (lead rule)
+    const weak = typeof subject.hasName.weakPositions === 'function' ? subject.hasName.weakPositions(str) : [];
+    const reversed = weak.filter((w) => w.kind === 'reversed');
+    if (reversed.length) {
+      const { hits } = pairedCompanies(reversed);
+      if (hits.length) return { level: 'likely', reasons: [`names ${hits[0].value}`, 'the name is written surname first'].slice(0, 4), basis: ['company', 'reversed-name'] };
+      return { level: 'possible', reasons: ['matched by name only (written surname first)'], basis: ['reversed-name'] };
+    }
+    return weak.length ? { level: 'none', reasons: [], weak: weak[0].kind } : { level: 'none', reasons: [] };
+  }
   const reasons = [];
-  let company = false;
-  for (const a of subject.anchors.companies.values()) if (a.test(str)) { company = true; reasons.push(`names ${a.value}`); }
+  const basis = new Set();
+  const { hits, far } = pairedCompanies(names);
+  for (const a of hits) reasons.push(`names ${a.value}`);
+  const company = hits.length > 0;
+  if (company) basis.add('company');
   // Handles and domains are looked for outside the person's own name, so the
   // name itself can never supply the second clue.
   let masked = '';
   let from = 0;
-  for (const p of subject.hasName.positions(str)) { masked += `${str.slice(from, p.start)} \u2022 `; from = p.end; }
+  for (const p of names) { masked += `${str.slice(from, p.start)} \u2022 `; from = p.end; }
   masked += str.slice(from);
+  const common = Boolean(subject.common);
   let other = 0;
   for (const kind of ['schools', 'people', 'handles', 'domains', 'related']) {
+    // An encyclopedia link never raises a very common name: too many namesakes share such a link.
+    if (kind === 'related' && common) continue;
     const where = kind === 'handles' || kind === 'domains' ? masked : str;
-    for (const a of (subject.anchors[kind] || new Map()).values()) if (a.test(where)) { other += 1; reasons.push(`names ${a.value}`); }
+    for (const a of (subject.anchors[kind] || new Map()).values()) {
+      if (!a.test(where)) continue;
+      // For a very common name a school counts only beside the name ("John Smith, a Stanford graduate").
+      if (common && kind === 'schools' && typeof a.test.positions === 'function' && !cooccurrences(str, names, a.test.positions(str), { isSelf }).length) continue;
+      other += 1;
+      basis.add(kind);
+      reasons.push(`names ${a.value}`);
+    }
   }
-  // An event a confirmed record states, reported on or after its date.
-  for (const a of (subject.anchors.events || new Map()).values()) {
-    if (withinTenure(date, a.date, '') && a.test(str)) { other += 1; reasons.push(`names ${a.event} reported in ${a.origin}`); }
+  // An event a confirmed record states: the same matter (a shared docket number), or a record dated within weeks
+  // of the event that does not describe someone else. Never for a very common name.
+  if (!common) {
+    for (const a of (subject.anchors.events || new Map()).values()) {
+      if (!a.test(str)) continue;
+      const same = typeof a.sameMatter === 'function' && a.sameMatter(str);
+      const near = withinEventWindow(date, a.date) && !names.some((nm) => describedAsSomeoneElse(str, nm));
+      if (same || near) { other += 1; basis.add('event'); reasons.push(`names ${a.event} reported in ${a.origin}`); }
+    }
   }
-  if (company) return { level: 'confirmed', reasons: reasons.slice(0, 4) };
-  if (other > 0) return { level: 'likely', reasons: reasons.slice(0, 4) };
-  return roleMatch(subject, str, date, true) || { level: 'possible', reasons: ['matched by name only'] };
+  if (!company && far.length) reasons.push(`names ${far[0].value}, but not beside the person's name`);
+  if (company) return { level: 'confirmed', reasons: reasons.slice(0, 4), basis: [...basis] };
+  if (other > 0) return { level: 'likely', reasons: reasons.slice(0, 4), basis: [...basis] };
+  const role = roleMatch(subject, str, date, true);
+  if (role) return { ...role, basis: ['role'] };
+  return { level: 'possible', reasons: ['matched by name only', ...reasons].slice(0, 4) };
 }
 
 /**

@@ -26,6 +26,7 @@ import { validateAnswer } from './search/answer';
 import { tierInfo } from '../utils/sourceTiers';
 import { isBlockedUrl } from './founder/guardrails';
 import { cleanText, formatDate, sourceLabel, sourceType, sentencesOf } from '../utils/evidence';
+import { personNameMatcher, cleanPersonName, companyKeys, companyMentionMatcher, cooccurrences } from './founder/names';
 
 const USER_AGENT = 'Searchbar3-Research/1.0';
 const QUERY_TIMEOUT_MS = 9000;
@@ -113,56 +114,74 @@ function escapeRe(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function isInitial(token) {
-  return /^[A-Za-z]\.?$/.test(token);
-}
-
-/** The name as typed, and without middle initials ("Paul J. Graham" -> "Paul Graham"). */
+/**
+ * The name as typed (without titles or suffixes), and without middle
+ * initials ("Paul J. Graham" -> "Paul Graham"). Full middle names are kept
+ * here, because the network pairing (networkLink.js) compares people by these
+ * forms; the deep check searches without any middle name (personNameVariants
+ * in founder/names.js), and matching itself (personNameMatcher) accepts other
+ * middle names, accents, "Surname, Given" and register capitals either way.
+ */
 export function nameVariants(name) {
-  const tokens = String(name || '').trim().split(/\s+/).filter(Boolean);
+  const display = cleanPersonName(normalizeTyped(name));
+  const tokens = display.split(/\s+/).filter(Boolean);
   const variants = [];
   if (tokens.length) variants.push(tokens.join(' '));
   if (tokens.length > 2) {
-    const noInitials = tokens.filter((t, i) => !(i > 0 && i < tokens.length - 1 && isInitial(t)));
+    const noInitials = tokens.filter((t, i) => !(i > 0 && i < tokens.length - 1 && /^[A-Za-z]\.?$/.test(t)));
     if (noInitials.length >= 2 && noInitials.length < tokens.length) variants.push(noInitials.join(' '));
   }
   return variants;
 }
 
+const normalizeTyped = (name) => String(name || '').trim().replace(/\s+/g, ' ');
+
+// A plain pattern for the name forms, for callers that build their own expressions around `.re` (no `u` flag).
 function nameRegex(variants, flags = 'gi') {
   const alts = variants.map((v) => v.split(/\s+/).map(escapeRe).join('\\s+'));
-  return new RegExp(`(?<![A-Za-z0-9])(?:${alts.join('|')})(?![A-Za-z0-9])`, flags);
-}
-
-function isProperCase(match) {
-  return match.split(/\s+/).every((w) => /^[A-ZÀ-ɏ]/.test(w));
+  return new RegExp(`(?<![A-Za-z0-9\u00C0-\u024F])(?:${alts.join('|')})(?![A-Za-z0-9\u00C0-\u024F])(?!-[A-Za-z])`, flags);
 }
 
 /**
- * Strict full-name matcher: full name (or a listed variant), word
- * boundaries, capitalized in the source. Returns a function with
- * `.positions(text)` (capitalized matches) and `.re`.
+ * Strict full-name matcher, shared with the deep check (founder/names.js):
+ * the full name on word boundaries, written as a name in the source. Returns
+ * a function with `.positions(text)` (full-name mentions, in the text's own
+ * coordinates), `.weakPositions(text)` (initials, nicknames, a longer
+ * surname and the like: never the full name), `.re` and `.variants`.
  */
 export function nameMatcher(name) {
   const variants = Array.isArray(name) ? name.filter(Boolean) : nameVariants(name);
   if (!variants.length) {
     const none = () => false;
     none.positions = () => [];
+    none.weakPositions = () => [];
     none.variants = [];
     return none;
   }
-  const re = nameRegex(variants);
-  const positions = (text) => {
-    const out = [];
-    for (const m of String(text || '').matchAll(re)) {
-      if (isProperCase(m[0])) out.push({ start: m.index, end: m.index + m[0].length, text: m[0] });
-    }
-    return out;
+  // One matcher per distinct person among the forms given (the forms of one name collapse into one).
+  const seen = new Set();
+  const matchers = [];
+  for (const v of variants) {
+    const m = personNameMatcher(v);
+    const k = `${m.parts.given}|${m.parts.surname}`.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    matchers.push(m);
+  }
+  const merge = (lists) => {
+    const all = lists.flat().sort((a, b) => a.start - b.start || b.end - a.end);
+    return all.filter((x, i) => !all.slice(0, i).some((y) => y.start <= x.start && x.end <= y.end));
   };
-  const test = (text) => positions(text).length > 0;
+  const positions = (text) => merge(matchers.map((m) => m.positions(text)));
+  const test = (text) => matchers.some((m) => m(text));
   test.positions = positions;
-  test.re = re;
+  test.weakPositions = (text) => {
+    const full = positions(text);
+    return merge(matchers.map((m) => m.weakPositions(text))).filter((w) => !full.some((f) => w.start < f.end && f.start < w.end));
+  };
+  test.re = nameRegex(variants);
   test.variants = variants;
+  test.parts = matchers[0].parts;
   return test;
 }
 
@@ -199,27 +218,32 @@ function nearName(text, hasName, re, window = NEAR_CHARS, { ownOnly = false } = 
   return null;
 }
 
-/** "Mistral AI, Inc." and "Mistral" match each other; punctuation and suffixes are ignored. */
-export function companyKeys(company) {
-  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9À-ɏ ]+/g, ' ')
-    .replace(/\b(inc|llc|ltd|limited|corp|corporation|co|company|ai|labs|lab|technologies|technology|tech|group|holdings|plc|sa|sas|gmbh|the|io|com|financial|software|systems|solutions|networks|capital|partners|ventures|health|robotics|energy|security|data|cloud|digital|media|bank)\b/g, ' ')
-    .replace(/\s+/g, ' ').trim();
-  const full = norm(company);
-  return full ? [full] : [];
-}
+/** "Mistral AI, Inc." and "Mistral" share a key; punctuation, legal forms and describing words are ignored (founder/names.js). */
+export { companyKeys };
 
-function companyMatcher(company) {
+/**
+ * Does a text name the company the user typed? The shared company matcher
+ * (founder/names.js companyMention): a one-word company that is an ordinary
+ * word (Ramp, Merge, Flow) counts only where it is used as a company, and a
+ * key left over after generic words are removed ("of america", "one") never
+ * stands alone. Returns test(text) -> boolean, with `.spans(text)` and
+ * `.near(text, hasName)`: whether the company sits close to a mention of the
+ * person and is not given to someone else there.
+ */
+export function companyMatcher(company, { person = null } = {}) {
   const c = String(company || '').trim();
   if (!c) return null;
-  const exact = new RegExp(`(?<![A-Za-z0-9])${escapeRe(c)}(?![A-Za-z0-9])`, 'i');
-  const keys = companyKeys(c).map((k) => new RegExp(`(?<![a-z0-9])${escapeRe(k)}(?![a-z0-9])`));
-  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9À-ɏ ]+/g, ' ').replace(/\s+/g, ' ');
-  return (text) => {
+  const mention = companyMentionMatcher(c, { person, personWords: person?.parts ? [person.parts.given, person.parts.surname] : [] });
+  const test = (text) => mention(text).named;
+  test.spans = (text) => mention(text).spans;
+  test.near = (text, hasName) => {
     const str = String(text || '');
-    if (exact.test(str)) return true;
-    const n = norm(str);
-    return keys.some((k) => k.test(n));
+    const names = hasName.positions(str);
+    if (!names.length) return false;
+    const spans = mention(str).spans;
+    return cooccurrences(str, names, spans, { isSelf: (s) => hasName(s) }).length > 0;
   };
+  return test;
 }
 
 function cleanCompany(raw, name, host = '') {
@@ -312,7 +336,7 @@ function sourceEntry(r, i) {
 export function extractFounderEvidence({ name, company, results, keepAllSources = false }) {
   const hasName = typeof name === 'function' ? name : nameMatcher(name);
   const personName = typeof name === 'function' ? (name.variants?.[0] || '') : String(name || '');
-  const hasCompany = companyMatcher(company);
+  const hasCompany = companyMatcher(company, { person: hasName });
   const deduped = dedupeResults(results);
 
   // Items reference the deduped result index (ri); renumbered at the end.
@@ -339,7 +363,8 @@ export function extractFounderEvidence({ name, company, results, keepAllSources 
     const full = `${title} ${body}`;
     if (!hasName(full)) return;
     const headlineOnly = !body || body === title;
-    const sourceMentionsCompany = hasCompany ? hasCompany(full) : null;
+    // The page counts as naming the company only where it names it beside the person (founder/names.js).
+    const sourceMentionsCompany = hasCompany ? hasCompany.near(full, hasName) : null;
     const flag = (sentence) => {
       if (!hasCompany) return {};
       const inSentence = hasCompany(sentence);
@@ -665,13 +690,18 @@ async function searchCourtListener(name, { timeoutMs = 12000 } = {}) {
   }
 }
 
-/** Normalise what the user typed: quotes, possessives, spacing. */
+/**
+ * Normalise what the user typed: quotes, possessives, spacing, titles and
+ * generational or degree suffixes ("Dr. John Smith Jr." -> "John Smith"),
+ * and "Surname, Given" order ("Glyman, Eric" -> "Eric Glyman").
+ */
 export function normalizePersonName(name) {
-  return String(name || '')
+  const tidy = String(name || '')
     .replace(/["“”„]/g, '')
     .replace(/[’']s\b/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+  return cleanPersonName(tidy) || tidy;
 }
 
 /**
@@ -746,8 +776,12 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
 
   // Keep sources that name the person; rank: mentions the company, profile
   // pages, source tier, recency.
-  const hasCo = companyMatcher(co);
+  const hasCo = companyMatcher(co, { person: hasName });
   const text = (r) => `${cleanText(r.title)} ${cleanText(r.snippet || r.content)}`;
+  // The company must be named as a company close to a mention of the person, and not given to someone else
+  // there: a namesake's page that uses "ramp" or "merge" as a word, or names the company sentences away from an
+  // unrelated "John Smith", is not about them.
+  const namesBoth = (r) => Boolean(hasCo && hasCo.near(text(r), hasName));
   // A page only counts when it is about this person:
   //  - never a people-search or contact-broker page;
   //  - never somebody else's profile page that merely mentions them (a colleague's LinkedIn);
@@ -759,12 +793,12 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
   const candidates = dedupeResults(raw)
     .filter((r) => hasName(text(r)) && !isBlockedUrl(r.url))
     .filter((r) => !(isRootProfile(r) && !hasName(cleanText(r.title))));
-  const theirs = new Set(candidates.filter((r) => profileOf(r) && hasName(cleanText(r.title)) && (!hasCo || hasCo(text(r)))).map(profileOf));
-  const named = candidates.filter((r) => !hasCo || hasCo(text(r)) || (profileOf(r) && theirs.has(profileOf(r))));
+  const theirs = new Set(candidates.filter((r) => profileOf(r) && hasName(cleanText(r.title)) && (!hasCo || namesBoth(r))).map(profileOf));
+  const named = candidates.filter((r) => !hasCo || namesBoth(r) || (profileOf(r) && theirs.has(profileOf(r))));
   const leftOut = dedupeResults(raw).filter((r) => hasName(text(r))).length - named.length;
   const scoreOf = (r) => {
     let sc = 0;
-    if (hasCo && hasCo(text(r))) sc += 3;
+    if (hasCo && namesBoth(r)) sc += 3;
     if (/linkedin\.com\/in\/|crunchbase\.com\/person\//i.test(r.url || '')) sc += 2;
     if (r.source === 'courtlistener') sc += 2;
     if (hasName(cleanText(r.title))) sc += 1;
@@ -779,8 +813,10 @@ export async function runFounderCheck({ name, company, model = 'auto', useLLM = 
   const firstMention = ranked.map((r) => hasName.positions(text(r))[0]?.text).find(Boolean);
   const displayName = firstMention || person;
   if (variants.length > 1) {
-    const exact = nameMatcher([variants[0]]);
-    const onlyShort = ranked.length > 0 && !ranked.some((r) => exact(text(r)));
+    // Matching accepts the name with or without its middle names; the warning says when no source writes them.
+    const middles = (hasName.parts?.middles || []).map((m) => m.replace(/\.$/, '').toLowerCase());
+    const writesMiddle = (r) => hasName.positions(text(r)).some((p) => p.text.replace(/[.,]/g, ' ').split(/\s+/).some((w) => middles.some((m) => w.toLowerCase() === m || (w.length === 1 && w.toLowerCase() === m[0]))));
+    const onlyShort = middles.length > 0 && ranked.length > 0 && !ranked.some(writesMiddle);
     if (onlyShort) warnings.push(`No source writes "${variants[0]}" with the initial; the sources below match "${variants[1]}". Check that they describe the same person.`);
   }
 

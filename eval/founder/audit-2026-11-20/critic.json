@@ -1,0 +1,182 @@
+{
+ "key": "critic",
+ "notes": "Every finding was checked in code; five were reproduced with the temporary jest file (big employer, tieOf, severity outcomes, legal forms, non-Latin), which has been deleted. The repo was otherwise read-only, with no network calls. Points to watch: the common-name finding overlaps the stated 'grading ignores commonness' item but covers the typed-company path; the inferred-identity finding is about the deep check, not the quick brief. Also possible but not reported: no re-screen or monitoring of a checked person.",
+ "omitted": 2,
+ "findings": [
+  {
+   "id": "critic-big-employer-typed-company",
+   "title": "A typed company that is a large employer confirms any same-name employee, even for very common names",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/identity.js",
+   "line": 371,
+   "scenario": "The investor checks 'John Smith' at 'Google' (or 'Michael Johnson' at 'Amazon'). The record 'John Smith, a Google engineer in Ohio, was charged with wire fraud' grades confirmed with the reason 'names Google', so it becomes a red flag. The commonness flag only blocks 'related' anchors. A typed company anchor is never weighed by employer size, and 'a Google engineer in Ohio' is not caught as describing someone else.",
+   "evidence": "Temporary jest test: matchSubject(createSubject({name:'John Smith',company:'Google'}), 'John Smith, a Google engineer in Ohio, was charged...') returned level 'confirmed'. The Amazon and Microsoft cases did the same.",
+   "fix": "When the name is common or the typed company is a broad or large employer (isBroadOrganisation plus a list of large employers), a company co-mention gives at most 'likely' and needs a second anchor (role, school, handle) to confirm. Extend describedAsSomeoneElse to catch 'a <Company> <job> in <Place>'.",
+   "filesToChange": [
+    "src/server/founder/identity.js",
+    "src/server/founder/names.js"
+   ],
+   "dim": "critic",
+   "verdict": "unverified"
+  },
+  {
+   "id": "critic-inferred-namesake-redflags",
+   "title": "With no company typed, the check adopts the best-covered namesake's company, and that namesake's records become red flags",
+   "severity": "high",
+   "kind": "wrong-person",
+   "file": "src/server/founder/deepCheck.js",
+   "line": 436,
+   "scenario": "The investor enters 'John Smith' with no company. resolveIdentity counts company threads from untrusted, name-only records. With two pages on two sites it adopts the most-covered John Smith's employer as a primary anchor. gradeOf caps those records at 'likely', but report.js puts likely records in red flags. The investor's John Smith inherits a stranger's lawsuits. A single amber note says the check 'follows that person'.",
+   "evidence": "resolveIdentity (436-457) never calls isCommonName. Candidates are threads with !t.trusted. gradeOf (464-469) returns 'likely'. report.js line 558 sends confirmed or likely records to redFlags.",
+   "fix": "Never infer an identity for a common name. When a company is inferred, keep records tied only through it out of red flags: show them as 'possible namesake' or in a separate 'if this is the right person' block. Ask the user to confirm the inferred company before the full check runs.",
+   "filesToChange": [
+    "src/server/founder/deepCheck.js",
+    "src/server/founder/report.js"
+   ],
+   "dim": "critic",
+   "verdict": "unverified"
+  },
+  {
+   "id": "critic-past-founded-company-affiliate",
+   "title": "An earlier company the person founded, read from a tied record, is checked only as an affiliate: no courts, DOJ, sanctions or insolvency lookups",
+   "severity": "high",
+   "kind": "missed-information",
+   "file": "src/server/founder/deepCheck.js",
+   "line": 279,
+   "scenario": "For a serial founder, a confirmed press snippet says they 'founded' an earlier venture. extract.js turns this into a thread with why 'founder (past)'. tieOf returns 'affiliate' for 'founder (past)', 'co-founder (past)', 'CEO (past)' and even 'Founder'. The earlier company is then asked only of SEC company search, Companies House, the French register and YC. An SEC action, bankruptcy or DOJ case against the earlier company itself is never looked up.",
+   "evidence": "Temporary test: tieOf({why}) returned 'affiliate' for every one of those values. LOOSE_ROLE matches them and STATED does not. planTasks skips every connector outside AFFILIATE_SOURCES for affiliates (line 314).",
+   "fix": "Treat a founder or CEO role from a confirmed or likely record whose sentence opens on the person (as profile.js already requires) as primary. At minimum, run the company-level court, enforcement, insolvency and watchlist connectors for earlier ventures where the person was founder or CEO.",
+   "filesToChange": [
+    "src/server/founder/deepCheck.js",
+    "src/server/founder/extract.js"
+   ],
+   "dim": "critic",
+   "verdict": "unverified"
+  },
+  {
+   "id": "critic-outcome-blind-severity",
+   "title": "Severity ignores outcome and party role: an acquittal is a high red flag, a dismissed suit or one the founder brought is medium",
+   "severity": "high",
+   "kind": "accuracy",
+   "file": "src/server/founder/finding.js",
+   "line": 228,
+   "scenario": "'Jury acquits Jane Doe of all fraud charges' grades high. 'Conviction of Jane Doe overturned on appeal' grades high. 'Judge dismisses lawsuit against Jane Doe', 'Jane Doe sues former employer' and 'Jane Doe testified as a witness in the fraud trial of John Roe' all grade medium. 'Charges against Jane Doe dropped' grades info, so the dropped-charges record never joins the matter, and the matter's red flag shows no outcome.",
+   "evidence": "Temporary jest run of severityFromText on those titles gave the grades above. report.js EVENTS has no acquittal, dismissal or dropped event. There is no plaintiff, defendant or witness logic anywhere in report.js or finding.js.",
+   "fix": "Add outcome events (acquitted, dismissed, dropped, vacated, overturned, won) and role cues (sues versus sued, witness, juror, plaintiff). Grade exculpatory or plaintiff-only records low. Attach them to the matter they resolve and show the latest outcome on the red flag.",
+   "filesToChange": [
+    "src/server/founder/finding.js",
+    "src/server/founder/report.js"
+   ],
+   "dim": "critic",
+   "verdict": "unverified"
+  },
+  {
+   "id": "critic-foreign-legal-forms",
+   "title": "Non-US legal forms are not stripped, so a company typed by its registered name never matches the press",
+   "severity": "high",
+   "kind": "missed-information",
+   "file": "src/server/founder/names.js",
+   "line": 226,
+   "scenario": "The investor types the company's legal name: 'Zepto Technologies Private Limited', 'Grab Holdings Pte Ltd', 'Booksy Sp. z o.o.', 'Rappi S.A.S.', 'Kavak S.A. de C.V.', 'Northvolt AB', 'Nubank Ltda' or 'Grab Sdn Bhd'. The only match form stays multi-word ('zepto technologies private', 'rappi s a s'). 'co-founder of Zepto' gives named:false, so no record confirms. The quick brief flags every page 'company not mentioned'.",
+   "evidence": "Temporary test of companyMatchForms gave a single multi-word form for each name. companyMention('Zepto Technologies Private Limited', '...co-founder of Zepto...') returned strength 'none'. LEGAL_RE lacks pvt, private, pte, ltda, sdn bhd, jsc, ab, publ and sp z o o. Dotted forms (S.A.S.) are split before matching.",
+   "fix": "Expand LEGAL_RE and LEGAL_FORMS with international forms (pvt, private, pte, ltda, sdn bhd, bhd, jsc, pjsc, ooo, ab, publ, as, aps, oy, kft, sp z o o, s a de c v, srl, spa, kk, gk) and collapse dotted abbreviations before stripping. Keep the brand as a match form.",
+   "filesToChange": [
+    "src/server/founder/names.js"
+   ],
+   "dim": "critic",
+   "verdict": "unverified"
+  },
+  {
+   "id": "critic-non-latin-and-mononyms",
+   "title": "Names in non-Latin scripts and one-word names cannot be checked: non-Latin company keys are empty, CJK names are refused",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/names.js",
+   "line": 454,
+   "scenario": "A company typed as 'Яндекс' or '字节跳动' yields no company keys or match forms, so no record can be confirmed through it. The person '张一鸣' is refused by deep.js ('Enter the full name'), since CJK names have no space. Founders with one name (common in Indonesia, parts of India and Myanmar) are also refused. Nothing transliterates or accepts a romanised and a native form together.",
+   "evidence": "Temporary test: companyMatchForms('Яндекс') and companyMatchForms('字节跳动') returned []. companyKeys strips [^a-z0-9À-ɏ ]. deep.js rejects names with fewer than two space-separated tokens (line 65 of the start handler).",
+   "fix": "Keep \\p{L} characters in company keys. Add an optional 'name in another script' input, and search and match both forms. Allow a one-word name when a company is given, with stricter grading. Report in coverage when a script could not be screened.",
+   "filesToChange": [
+    "src/server/founder/names.js",
+    "src/pages/api/founder/deep.js",
+    "src/pages/founder.js"
+   ],
+   "dim": "critic",
+   "verdict": "unverified"
+  },
+  {
+   "id": "critic-no-former-names",
+   "title": "Former names, maiden names and aliases are never searched: there is no person-alias thread kind",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/finding.js",
+   "line": 56,
+   "scenario": "A founder who changed their surname on marriage, anglicised their name, or (typical for serial fraudsters) uses a new name has their earlier lawsuits, convictions and SEC or FINRA records filed under the old name. The check searches only the typed name, plus that name without its middle names. Wikidata 'also known as' and birth name are not read, and a record saying 'formerly known as' creates no thread.",
+   "evidence": "THREAD_KINDS = company, school, associate, relative, handle, domain, url. A grep for maiden, aka, 'formerly known', née and the Wikidata birth-name property found only company aliases and debarment-list aliases.",
+   "fix": "Add an 'alias' thread kind from Wikidata aliases and birth name, and from 'formerly known as', 'née' and 'born X' in tied records. Add an optional 'other names' field on the form. Search and screen aliases on the watchlist, court and enforcement sources, graded 'likely' at most unless tied.",
+   "filesToChange": [
+    "src/server/founder/finding.js",
+    "src/server/founder/extract.js",
+    "src/server/founder/sources/knowledge.js",
+    "src/pages/founder.js"
+   ],
+   "dim": "critic",
+   "verdict": "unverified"
+  },
+  {
+   "id": "critic-search-languages",
+   "title": "Adverse searches and news editions exist only for French, German and Spanish; everyone else gets US-English Google News",
+   "severity": "medium",
+   "kind": "missed-information",
+   "file": "src/server/founder/sources/web.js",
+   "line": 88,
+   "scenario": "For a Brazilian, Italian, Indian, Japanese, Korean, Chinese, Israeli, Dutch, Nordic or Polish founder, languageHints returns nothing. All adverse queries are English ('lawsuit', 'fraud') and Google News uses hl=en-US&gl=US. Local reporting of fraud, insolvency or arrests ('fraude', 'processo', 'truffa', '詐欺', '사기') is never searched.",
+   "evidence": "languageHints iterates only ['fr','de','es']. ADVERSE has only fr, de and es. searchEngines.js REGION has only fr, de and es, with a default edition of 'hl=en-US&gl=US&ceid=US:en'.",
+   "fix": "Add language packs (pt, it, nl, sv, pl, ja, ko, zh, he, hi, id, tr) with adverse terms and Google News and DuckDuckGo regions. Infer the language from the company domain TLD, registry country, Wikidata citizenship, or an optional country field.",
+   "filesToChange": [
+    "src/server/founder/sources/web.js",
+    "src/server/founder/sources/searchEngines.js"
+   ],
+   "dim": "critic",
+   "verdict": "unverified"
+  },
+  {
+   "id": "critic-thin-input",
+   "title": "The form takes only a name and one company: no LinkedIn URL, website, city, other companies or school to pin down the person",
+   "severity": "medium",
+   "kind": "ux",
+   "file": "src/pages/founder.js",
+   "line": 184,
+   "scenario": "An investor who knows the founder's LinkedIn URL, company domain, city and earlier ventures can type only a name and one company. Common names, ordinary-word companies and serial founders all rely on inference that the audit found weak. The disambiguators the investor already has (domain, LinkedIn slug, prior company) would become strong anchors (domains and handles already exist as anchor kinds), but cannot be given.",
+   "evidence": "founder.js has two inputs (name, company). deep.js start reads only body.name and body.company. startState({name, company}) seeds one company anchor.",
+   "fix": "Add optional fields: company website, profile URL (its slug becomes a handle anchor; never scraped), city or country, earlier companies, school. Seed them as 'given' anchors (domains, handles, companies, schools). Show in the report which inputs confirmed records.",
+   "filesToChange": [
+    "src/pages/founder.js",
+    "src/pages/api/founder/deep.js",
+    "src/server/founder/deepCheck.js",
+    "src/components/founder/DeepCheck.js"
+   ],
+   "dim": "critic",
+   "verdict": "unverified"
+  },
+  {
+   "id": "critic-unverified-claimed-role",
+   "title": "When no record ties the person to the typed company, the report does not say so: a thin footprint reads as clean",
+   "severity": "medium",
+   "kind": "honesty",
+   "file": "src/server/founder/report.js",
+   "line": 789,
+   "scenario": "A person with almost no web presence, or one falsely claiming to run the company, yields 0 confirmed or likely records. The header shows a green '0 tied to this person' chip and a green '0 red flags' chip, and the brief says 'No serious record is tied to this person'. Nothing states that the claimed role or company could not be confirmed by any independent record, which is itself a diligence signal. Every watchlist or court hit stays 'possible'.",
+   "evidence": "state.identity.note is set only in resolveIdentity (inferred or ambiguous, when no company was given). With a typed company, status is 'given' and no note is ever written. DeepCheck.js gives '{confirmed+likely} tied' a chip-good class unconditionally.",
+   "fix": "When a company was typed and no confirmed record names the person with it, add an identity note ('No independent record ties NAME to COMPANY; verify identity and role directly'). Put it in the brief and the gaps list, and make the chips neutral or amber rather than green.",
+   "filesToChange": [
+    "src/server/founder/report.js",
+    "src/server/founder/deepCheck.js",
+    "src/components/founder/DeepCheck.js"
+   ],
+   "dim": "critic",
+   "verdict": "unverified"
+  }
+ ]
+}

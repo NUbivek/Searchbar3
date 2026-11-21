@@ -1,0 +1,186 @@
+[
+ {
+  "id": "fda-debarment",
+  "exportName": "fdaDebarmentConnector",
+  "file": "src/server/founder/sources/fdaDebarment.js",
+  "label": "FDA debarment list (people and firms barred from drug applications)",
+  "kinds": [
+   "subject",
+   "company"
+  ],
+  "screenGroup": "Sanctions and watchlists",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "docsRow": "Sanctions and watchlists | The FDA debarment list for drug product applications (current page and the page of ended debarments, each read whole once a day from fda.gov) (`sources/fdaDebarment.js`) | Whether the person or a company is on the FDA's list of people and firms barred from drug applications, since when, for how long, and the Federal Register order. The list gives names only, so a hit on a person is always a name match to verify",
+  "notes": "Live check on 2026-11-20 (one request per page, the code's own client name): the current page answered 200 (74 KB), with 157 person rows (152 people once continuation rows are merged) and a firms table reading 'None as of this date'. The expired page answered 200 (60 KB) with 63 people and 'None at this time' for firms. I ran the real pages through the parser: Elizabeth Holmes and Trevor Milton have no match, and John Kapoor matches. robots.txt allows these paths for every reader except 'vspider'. Public-domain US government page.\n\nGrading: a row holds only the name, the effective date, the term, the FR date and the FR citation, with no company or role. So every hit on a person is set by hand to 'possible' (matchFixed), with a title ending 'name match only, verify identity'. The source never sets 'likely' or 'confirmed', because the record has no second fact to compare. A firm matched on its whole name with the legal form removed is 'company'. A one-word firm name is 'possible'. Name screening reuses screenRows and personNameForms from debarment.js, built on sanctions.js (strict first and last name in order). No threads are emitted, since every hit is name-only.\n\nFailure handling: the current page must load, and it throws when the persons or firms table is missing, a column is missing, or fewer than 50 people are listed. The expired page is optional (it throws below 30 people). When only the expired page fails, the result is partial: ['FDA expired debarment list'] with a plain note. A name that is too short returns partial and makes no request. The no-match notes say exactly what was searched, for example 'no match for X among current or ended FDA debarments', or 'no firm is currently debarred, so there is no match for X'. Caches: 'debarment:fda-current:v1' and 'debarment:fda-expired:v1', one day each, about 35 KB stored each, maxBytes 2 MB.\n\nPrivacy: the page's footnotes, which give towns and docket numbers of people who have namesakes, are never read. A leading '**' marker is kept only as a flag, and the quote then says 'The FDA notes that this person is not to be confused with another person of the same name'. Only links to federalregister.gov, govinfo.gov or gpo.gov are kept.\n\nParsing handles the real page's oddities: 'a.k.a.' and 'a/k/a' aliases in the last-name cell, 'Jr.' suffixes, 'NMI', dates split across styled spans, and the notations ^ % * # + ++. 'FR Correction' and 'Sp.Termination' continuation rows are attached to the row above. On the expired page the header row is made of <td> cells inside tbody.\n\nFor the integrator:\n(1) In index.js, import { fdaDebarmentConnector } from './fdaDebarment' and add it next to mdbDebarmentConnector.\n(2) report.js: add 'fda-debarment' to the 'Sanctions and watchlists' group, and give it a short name such as 'FDA debarments'.\n(3) guardrails.js: add 'fda-debarment' to the official-record source list beside 'mdb-debarment'.\n(4) kinds are deliberately subject and company only, so the registry test's relative/associate allow-list needs no change. If you want associates and relatives screened, add 'associate' and 'relative' to kinds and 'fda-debarment' to that allow-list. The run code already handles them as name-only 'possible' hits, but no aboutPrefix titles are built for them.\n(5) FOUNDER-CHECK.md: use the docsRow.\n\nCategory is 'sanctions' and severity 'high' for both current and ended debarments. The finding's data carries citation, term, ended and listPage."
+ },
+ {
+  "id": "podcast-episodes",
+  "exportName": "podcastEpisodesConnector",
+  "file": "src/server/founder/sources/podcasts.js",
+  "label": "Podcast episodes (Apple Podcasts directory)",
+  "kinds": [
+   "subject"
+  ],
+  "screenGroup": "none",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": true,
+  "notes": "OFF unless FOUNDER_SOURCES_ON contains 'podcast-episodes' (FOUNDER_SOURCES_OFF still wins). unavailableReason: 'Podcast episode search is not enabled on this deployment.' Reason: itunes.apple.com robots.txt has 'Disallow: /search*'. The search service is documented and keyless, and its terms say previews and artwork must not be stored. The owner must accept the robots conflict explicitly, as was done for the Google News feed. The research also marks the source nonCommercialOnly.\n\nEndpoint: GET https://itunes.apple.com/search?term=<full name>[ <company>]&media=podcast&entity=podcastEpisode&limit=25. I checked it live on 2026-11-20 with 'Trevor Milton Nikola', 'Elizabeth Holmes' and one nonsense term that returned resultCount 0. It answers 200 with content-type text/javascript and JSON of about 60-80 KB.\n\nThe file spaces its own calls 3.1 s apart per host (the service allows about 20 a minute). The connector sets maxParallel: 1, so the integrator does not need to add anything in index.js. Tests can call __resetPodcastsForTests() to turn the spacing off. The source has two plans when the subject has a company, 'podcasts:name-company' (name plus company) and 'podcasts:name' (name alone), and only the second when there is no company. The search results are about the person, so they are deliberately not stored with cached(): cache.js says it holds public reference data only. This source has no whole-list download, so it has nothing to cache once a day.\n\nRules the code applies:\n- Only the episode's own title and description are read, never the show name. The live Holmes answer included a namesake's show, 'The Radiant Badass with Elizabeth Holmes'.\n- The full name must appear in that text, matched with namesPerson from courts.js. A longer name such as 'X Y Brooks' does not count.\n- For a common surname, or a company that is one word once the legal form is removed, the text must also name a known company. Episodes left out for this reason are counted in a note. 'Common' is a short in-file surname list (most frequent US census surnames plus a few frequent worldwide ones). It is a heuristic and the integrator may want to review it.\n- matchSubject decides the grade. Its 'confirmed' and 'likely' both become match 'likely' with reasons; a name-only match stays 'possible', with the title ending ': name match only, verify identity'. Every grade is set by hand, so matchFixed is true and no later re-grade can lift a record to confirmed.\n\nPrivacy: only the title, show, date, description and podcasts.apple.com page link are read; previewUrl, episodeUrl, artwork, feedUrl and the uo referral parameter are dropped. Description sentences that fail isSensitive or mentionsMinor are removed, redactPII runs on the rest, and show boilerplate and URLs are stripped.\n\nRecords are category 'press', with severity from severityFromText and data {show, kind: 'interview'|'about', namesCompany}. There are at most 10 findings per lookup: 'likely' before 'possible', then newest first.\n\nFailure handling: an HTTP error, a body that is not JSON, a missing resultCount or results, results reported but none sent, or results that contain no episode with a title and link all throw. An empty answer returns a plain 'returned no episodes' note. A one-word subject name returns partial: ['name too short to search'] plus a note, as an array like debarment and government, because deepCheck only reads an array. A full page of 25 results adds a note that more episodes may exist.\n\nRun offline on the saved live answers: Trevor Milton/Nikola keeps 21 of 25 episodes and drops 1 that names him without Nikola. Elizabeth Holmes/Theranos keeps 17 of 23 and drops 5 without Theranos, including the namesake host's episodes. Nothing is confirmed.\n\nTo register: import { podcastEpisodesConnector } from './podcasts' and add it to CONNECTORS. If report.js has a list of profile and press sources, it belongs there. It is not official and not a screen. Add FOUNDER_SOURCES_ON (comma-separated ids to switch on) to the switches table in FOUNDER-CHECK.md, and add an owner-choice entry about the robots conflict.",
+  "docsRow": "Podcast appearances (off by default; the owner turns it on with FOUNDER_SOURCES_ON=podcast-episodes) | Apple's podcast directory search for the person's full name with their company and alone; only the episode's own title and description, never the show name, previews or artwork | Interviews in the person's own words and investigative or news episodes about them. 'Likely' only when the episode also names their company or another known fact; a name-only episode stays a possible namesake to verify. For a common name or a one-word company, the company must be named"
+ },
+ {
+  "id": "opensanctions-lists",
+  "exportName": "openSanctionsConnector",
+  "file": "src/server/founder/sources/opensanctions.js",
+  "label": "Watchlists, regulators' bans and debarments worldwide (OpenSanctions)",
+  "kinds": [
+   "subject",
+   "company",
+   "associate",
+   "relative"
+  ],
+  "screenGroup": "Sanctions and watchlists",
+  "official": true,
+  "verifiedLive": true,
+  "takesRelatives": true,
+  "offByDefault": true,
+  "notes": "OFF unless FOUNDER_SOURCES_ON contains 'opensanctions-lists'. enabled() also respects FOUNDER_SOURCES_OFF, and unavailableReason is 'not enabled on this deployment'. The data is CC BY-NC 4.0 and data.opensanctions.org's robots.txt is 'Disallow: /', while the publisher's docs invite scheduled downloads of the latest/ files. The owner has to agree before it is switched on.\n\nWhat it reads: 29 per-list files (targets.simple.csv), in 5 lookup groups (templates os.wanted, os.mdb, os.us-markets, os.intl-markets, os.sanctions). The subject gets one lookup per group. A company gets the same lookups except os.wanted, and lists that hold only people are skipped for it. An associate or relative gets one lookup, os.all.\n- wanted: Interpol red notices, HK ICAC, UK NCA, DE BKA.\n- mdb: World Bank, ADB, IADB, AfDB, EU EDES.\n- us-markets: FINRA barred, FINRA actions, SEC harmed-investor actions, NFA, OFAC enforcement, FDA restricted investigators.\n- intl-markets: ESMA, AMF, FINMA warnings and rulings, CSSF, DFSA, Turkey CMB, NSE India, Brazil BCB, Guernsey and Isle of Man disqualified directors.\n- sanctions: Australia DFAT, Swiss SECO, Japan MOF.\nThe PEPs file, the Medicaid lists and the whole collections are left out.\n\nLoading and caching: each list loads lazily and is cached per list for a day (key opensanctions:<dataset>:v1) as a compact index: name, aliases, type, reason, start and end dates, first-seen and last-changed dates, the entity id, and a country for companies only. The live parse of Interpol gave 1.2 MB and FINRA actions 1.4 MB, well under the 6 MB stored limit. Before each file, the list's index.json is read. A target_count of 0 throws ('empty at the publisher'), and so do a changed header, a cut-off file, or fewer than 80% of the expected rows. One list failing inside a group gives partial: ['<list>: did not answer'] plus a note. All lists of a group failing throws. Note that partial is an array of strings (the form deepCheck.js reads with Array.isArray), not `true`.\n\nGrading: name matching uses screenRows from debarment.js (strict first and last name in order) and the company matchers from sanctions.js. A name-only hit is 'possible', with ': name match only, verify identity' in the title. A hit becomes 'likely' only when the listing's own reason text names something already tied to the person, such as their company. A grade that would come out 'confirmed' is held at 'likely'. A company hit is 'company', or 'possible' for a one-word name. Associates and relatives stay 'possible'.\n\nPrivacy: birth_date, addresses, identifiers (CRD numbers and the like), phones, emails and a person's countries are never read. Honorifics and '#nnnn' suffixes are stripped from names. Reason text goes through sanctions.js reasonText. It is withheld entirely when it touches a minor (mentionsMinor, plus words like child or minors that the guardrail misses) or trips isSensitive. Interpol hits say in the title, the quote and a note that a notice is a request by one country, not a conviction, and can be politically motivated. Notes credit 'OpenSanctions (CC BY-NC 4.0)' and list in plain words which lists were searched with no entry found.\n\nThe connector sets maxParallel 2 and timeoutMs 40000. The first load of os.sanctions downloads about 10 MB (SECO alone is 6.9 MB), so check that deepCheck honours the connector's timeoutMs.\n\nIntegrator actions:\n(1) Import openSanctionsConnector from './opensanctions' and add it to CONNECTORS near the watchlists.\n(2) Add 'opensanctions-lists' to the allowed set in founderSources.registry.test.js ('only watchlists and joint lookups accept a relative or associate'). It takes associate and relative, so that test fails until this is done.\n(3) Consider adding 'opensanctions-lists' to OFFICIAL_SOURCES in guardrails.js. The records are official lists republished by OpenSanctions. Sensitive reason text is already withheld at source, so the impact is small either way.\n(4) In FOUNDER-CHECK.md, add a FOUNDER_SOURCES_ON row to Switches and a 'Choices the owner should know about' entry for the licence and robots conflict.\n\nLive check on 2026-11-20 (about 10 requests to data.opensanctions.org, generic client name): read the catalogue index.json. All 29 lists had non-zero target_count; the smallest were eu_edes 5 and im_disqualified_directors 13. Downloaded and parsed 8 real files with the new parser: interpol, worldbank, adb, esma, finra_actions, finra_barred, sec_harmed_investors, fda_restricted. 'Nikola Corporation' was found in us_sec_harmed_investors. No match for Trevor Milton, Elizabeth Holmes or Theranos in those 8 files.",
+  "docsRow": "Sanctions and watchlists (off unless FOUNDER_SOURCES_ON names opensanctions-lists) | 29 per-list files published by OpenSanctions: Interpol red notices and the HK, UK and German wanted lists; the World Bank, ADB, IDB and AfDB debarment lists and EU EDES; FINRA bars and actions, SEC harmed-investor actions, NFA, OFAC enforcement and FDA investigator disqualifications; ESMA, AMF, FINMA, CSSF, DFSA, Turkey CMB, NSE India, Brazil BCB, Guernsey and Isle of Man; the Australian, Swiss and Japanese sanctions lists | Whether the person, a company, an associate or a relative appears on one of them, with the list, the listing reason and dates; name-only matches marked to verify identity, and Interpol notices flagged as requests that can be politically motivated"
+ },
+ {
+  "id": "huggingface",
+  "exportName": "huggingFaceConnector",
+  "file": "src/server/founder/sources/presenceMore.js",
+  "label": "Hugging Face public profiles",
+  "kinds": [
+   "subject",
+   "handle",
+   "url"
+  ],
+  "screenGroup": "none",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Subject: GET huggingface.co/api/quicksearch?q={name}&type=user&limit=10, keeps users whose fullname passes personNameFits (via statedName from presence.js), reads up to 3 /api/users/{user}/overview. A name-only hit is 'possible' with ': name match only, verify identity' in the title; 'likely' only when an organisation fullname/name or the bio names a known company (subject.anchors.companies), or when the account was reached through a tied handle (any platform; a Hugging Face handle counts as exact) or a huggingface.co/{user} link AND states the full name. An account without the full name is dropped (with a note). Never 'confirmed'. Avatar, follower counts and lists, and contact details in the bio are not kept. Throws when the search answer has no users list or every overview read failed; one failed overview gives partial: [string] plus a note (the loop expects partial as an array of strings, not true). Live-checked 2026-11-20 with 'Trevor Milton' (one namesake account, overview shape confirmed) and 'Nikola' (users shape), and a 404 for a missing user. The orgs[] {name, fullname} shape comes from the research notes because no test subject's account had organisations. maxParallel 2, prior 0.15. Emits no threads.",
+  "docsRow": "Professional footprint | Hugging Face account search by full name, plus accounts reached through a handle or link already tied to the person (sources/presenceMore.js) | Name, organisations, counts of models, datasets, spaces and papers; a name-only account stays a name match to verify"
+ },
+ {
+  "id": "open-library-books",
+  "exportName": "openLibraryBooksConnector",
+  "file": "src/server/founder/sources/presenceMore.js",
+  "label": "Open Library books by the person",
+  "kinds": [
+   "subject",
+   "url"
+  ],
+  "screenGroup": "none",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Open Library's robots.txt disallows /search and /api for every crawler, so the name search is never used. Subject: one SPARQL query to query.wikidata.org for humans whose en label or alias is exactly the full name and who carry P648 (Open Library id), with their description and their employer/owner-of/founded/CEO-of labels. Then /authors/{OLID}/works.json?limit=50 (a path robots allows) for up to 3 entries. 'likely' only when the Wikidata description or orgs name a known company; otherwise 'possible' with 'verify identity'. URL kind: an openlibrary.org/authors/OL..A link reads /authors/{id}.json (only the name, personal_name and alternate_names fields; birth and death dates are never read) and must pass personNameFits; it is then 'likely' (exact link plus full name). Redirect records are followed once. No P648 found: plain note saying nothing was looked up and why. Throws on a malformed Wikidata or works answer, or when every works read failed; partial: [string] when some failed. Paced to 1 request a second on openlibrary.org (a third of that when FOUNDER_HTTP_CONTACT is set), on top of http.js spacing. Live-checked: robots.txt; Wikidata query for 'Elizabeth Holmes' and 'Trevor Milton' (neither has P648, so in production the source will usually return the 'no author id' note); works.json and author.json shape checked on the research's example id OL2622837A because no test subject has an Open Library id; 422 for an invalid id. Integrator: knowledge.js does not request P648 and no extractor emits openlibrary.org url threads, so the url path only runs if a later change adds them.",
+  "docsRow": "Professional footprint | Open Library author pages for the author id on the person's Wikidata entry, or an Open Library author link tied to them; never Open Library's search, which its robots.txt closes (sources/presenceMore.js) | Books the person wrote, with first publication year and subjects; an entry that matches the name only stays a name match to verify"
+ },
+ {
+  "id": "crates-io",
+  "exportName": "cratesIoConnector",
+  "file": "src/server/founder/sources/presenceMore.js",
+  "label": "crates.io Rust packages",
+  "kinds": [
+   "handle"
+  ],
+  "screenGroup": "none",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Runs only when FOUNDER_HTTP_CONTACT is set. enabled() returns Boolean(contact). unavailableReason: 'crates.io asks automated readers to name a contact, and this deployment does not declare one' (no banned words). Handle tasks only when the platform is github or crates (crates.io logins are GitHub logins); other platforms make no request. GET crates.io/api/v1/users/{login}: 404 gives a plain note. user.name must pass personNameFits, otherwise the account is left out with a note. Then /crates?user_id={id}&sort=downloads&per_page=20. Graded 'likely' (tied GitHub login plus full name), never 'confirmed'. The avatar is dropped. Throws on a malformed user or crates answer. Paced to 1 request a second. Live-checked 2026-11-20 with the generic client name: users/nikola and users/trevormilton returned 404 {errors:[{detail}]}, and crates?user_id=999999999 returned {crates:[],meta:{total,next_page,prev_page}}. The populated user/crates shape comes from the research notes. prior 0.1, maxParallel 1.",
+  "docsRow": "Professional footprint | crates.io account for a GitHub login already tied to the person, only when the deployment declares a contact (sources/presenceMore.js) | Rust packages they publish, with downloads and last update"
+ },
+ {
+  "id": "datacite-theses",
+  "exportName": "dataciteThesesConnector",
+  "file": "src/server/founder/sources/academicMore.js",
+  "label": "University thesis repositories (DataCite)",
+  "kinds": [
+   "subject"
+  ],
+  "screenGroup": "none",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Register with `import { dataciteThesesConnector, nsfAwardsConnector } from './academicMore';` and place both in CONNECTORS next to academicRecordConnector / publicationsConnector. The file also exports ACADEMIC_MORE_CONNECTORS, so `...connectorsOf(academicMore)` works too. This source makes one GET per lookup to https://api.datacite.org/dois with query=types.resourceTypeGeneral:Dissertation AND ((creators.familyName:\"Last\" AND creators.givenName:\"First\") OR creators.name:\"Last, First\"). It asks for 25 records and only these fields: doi, titles, creators, contributors, publisher, publicationYear, types and url. Descriptions and subjects are never requested. The result goes through cached() once a day under the key founder:datacite-theses:v1:<name tokens>, and only compact records are stored (a few KB). An author is kept only when scholar.personNameFits accepts the full name. A record becomes 'likely' only when the publisher or an affiliation is a school or company already known for the person (scholar.sameSchool / courts.sameCompany), or when its ORCID equals one on an earlier tied finding (it reads ctx.findings if the loop passes them; this is optional). If theses under the name come from 2 or more schools or carry 2 or more ORCIDs, a match on the school alone stays 'possible', as in scholar.js. Name-only matches are 'possible', and their reason ends with 'verify identity'. Grades are set by hand, so matchFixed is true and the record is never 'confirmed'. The downside: a 'possible' thesis is not raised later in the check when the school becomes known. At most 3 namesake records are kept. A title the privacy rules would reject (health and so on) is dropped, and the degree record stays. data = {registry, kind, degree, school, year, institution, institutions, doi, orcid?, supervisors?}. The degree comes from types.resourceType only ('Thesis' when the record does not say). The year is publicationYear, which some repositories set to the digitisation year. Trusted 'school' threads are opened only from tied records. A 5xx, non-JSON, missing data/meta, or more than half the records without creators throws. When more than 25 match, the result is partial: ['University theses (DataCite, first 25 of N read)'] plus a note. partial is an array of short strings, because that is what deepCheck.js line 709 reads; a boolean would be ignored. Terms: reading needs no sign-in, the metadata is CC0, and there is no robots.txt. The shared default User-Agent is used (it adds FOUNDER_HTTP_CONTACT if set). Live check on 2026-11-20 with Elizabeth Holmes: HTTP 200, no thesis, note returned. The response shape was confirmed on a surname-only query.",
+  "docsRow": "Identity and public roles | DataCite (theses and dissertations that university repositories register), `sources/academicMore.js` | A thesis by the person: the school, the degree where the record states it, the year and the supervisor. It is independent proof of a degree. A name-only match stays a possible namesake, and finding nothing proves nothing"
+ },
+ {
+  "id": "nsf-awards",
+  "exportName": "nsfAwardsConnector",
+  "file": "src/server/founder/sources/academicMore.js",
+  "label": "US National Science Foundation awards (NSF)",
+  "kinds": [
+   "subject",
+   "company"
+  ],
+  "screenGroup": "none",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Subject lookups call GET https://api.nsf.gov/services/v1/awards.json?pdPIName=<name>&rpp=25 for each of person().queryNames (at most 2: the name, then the formal first name, such as Sam to Samuel). Company lookups use ?awardeeName=<company>&rpp=25. The file paces itself to 1 request every 1.1 s to api.nsf.gov, because http.js has no entry for that host. Tests switch the pacing off with __resetAcademicMoreForTests({unpaced:true}). Results go through cached() once a day under the key founder:nsf-awards:v1:<param>:<value tokens>. Before caching, each award is reduced to a compact record. The service ignores printFields, so every answer contains piEmail, poEmail, poPhone, awardeePhone, awardeeAddress, perfAddress, ZIP codes, abstractText and e-mails inside pi[] and coPDPI[]. None of these is read or stored, and e-mails are cut out of the co-investigator names. The PI is matched with courts.sameName on piFirstName, middle initial and piLastName, the same way as NIH. The record is 'likely' only when awardeeName is a company (courts.sameCompany) or school (scholar.sameSchool) already known for the person. With 2 or more distinct piIds under the name, a school match alone stays 'possible'. Otherwise the record is 'possible' with 'verify identity' wording. Grades are set by hand and never 'confirmed'. At most 8 findings and 4 namesakes are kept. Subject findings have category 'career' and data = {awardId, institution, role:'Principal investigator', program, awardType, amount, start, end (ISO), state, smallBusiness}. A tied award opens a trusted school or company thread for the awardee. A company lookup gives one 'corporate' summary (count, amount, years, programs, PI names). It is 'likely' when the subject is a PI and the company is already known; otherwise government.companyGrade decides ('company', or 'possible' for one-word names). Failure handling: a 5xx, non-JSON, a missing response.award or metadata (for example a serviceNotification error), or more than half the awards without an id throws. If one of the two name forms fails, the result is partial: ['NSF awards (one name form not searched)'] plus a note. If totalCount is above the rows read, the result is partial: ['NSF awards (first N of M read)']. Co-PI searching (being a co-PI rather than the PI) is not done. Terms: a federal public service with no key, no robots.txt and public-domain data. Live check on 2026-11-20: Elizabeth Holmes returned 1 award, a 1995 fellowship to a namesake (Elizabeth E Holmes), graded 'possible' with no thread. Theranos as awardee returned 0 awards and a note.",
+  "docsRow": "Identity and public roles | US National Science Foundation awards, `sources/academicMore.js` | Awards where the person is principal investigator (the institution or startup, the program such as SBIR, I-Corps or a fellowship, the amount and dates), and the NSF awards to their company. A name-only match stays a possible namesake"
+ },
+ {
+  "id": "no-company-register",
+  "exportName": "noCompanyRegisterConnector",
+  "file": "src/server/founder/sources/registriesIntl.js",
+  "label": "Norwegian company register (Brønnøysund Register Centre)",
+  "kinds": [
+   "company"
+  ],
+  "screenGroup": "none",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Checked live on 20 Nov 2026 with 'Nikola': GET data.brreg.no/enhetsregisteret/api/enheter?navn=..&size=20&organisasjonsform=AS,ASA,NUF,ANS,DA,SA,KS,SE,STI (an exact name is listed first; an empty search is page.totalElements 0), then /enheter/{orgnr}/roller. Sole traders (ENK) are never requested, because their records carry the owner's mobile number and e-mail. Fields are read by key: fodselsdato, erDoed and addresses are never read. The register holds current roles only and gives no start dates: data.roleGroupLastChanged is the role group's sistEndret, and the role record has date null. Licence NLOD 2.0. robots.txt allows these paths. plan(): returns intl.no.company when the name carries AS/ASA/ANS/NUF, the thread's why says Norwegian/Norway/Oslo etc., or the company's web address is .no. For the company the user gave, it returns intl.no.if-placed (prior 0.08), and run() then also checks the records found so far (a tied LEI record with jurisdiction NO, a reference entry naming the country, a tied record on the company's .no site). Otherwise it returns []. A person matched by full name (sanctions matchPersonName) is 'likely' only when the company is already tied to the person, and 'possible' with 'name match only, verify identity' otherwise. A company record is 'company' when the person is a tied officer, or when it is the only exact-name entity and its name has two or more words (government.companyGrade). Otherwise it is 'possible'. It never sets 'confirmed'. Co-officers become trusted associate threads only from a 'likely' role (auditors and accountants are left out). The per-company result is cached once a day (intl:no:v1:<name>, a few KB). INTEGRATOR: consider adding this id to AFFILIATE_SOURCES in deepCheck.js, so board-seat companies still get an officer check.",
+  "docsRow": "Filings and company records | Norwegian Register of Business Enterprises: a company found under its exact name, with its current officers (chief executive, board chair and members, auditor) | Founding date, earlier names, bankruptcy and winding-up flags, and the person's current role there. Asked only about a company placed in Norway"
+ },
+ {
+  "id": "cz-company-register",
+  "exportName": "czCompanyRegisterConnector",
+  "file": "src/server/founder/sources/registriesIntl.js",
+  "label": "Czech company register (ARES public register extract)",
+  "kinds": [
+   "company"
+  ],
+  "screenGroup": "none",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Checked live on 20 Nov 2026 with 'Nikola' and 'Theranos'. POST ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/vyhledat {obchodniJmeno, pocet:30, pravniForma:[111,112,113,121,205,421,931,932]}. The search matches whole words and needs the name without its legal form: 'Nikola a.s.' found nothing. Without the legal-form filter, 'Nikola' gets HTTP 400 VYSTUP_PRILIS_MNOHO_VYSLEDKU (more than 1,000 results, many of them sole traders). With the filter it returns 14. The extract comes from GET .../ekonomicke-subjekty-vr/{ico}, and an unknown ico returns 404 NENALEZENO. The extract is fetched only when seznamRegistraci.stavZdrojeVr is AKTIVNI or ZANIKLY. Live shape: clenoveOrganu[].clenstvi.funkce{vznikFunkce, zanikFunkce, nazev}, or clenstvi.clenstvi{vznikClenstvi, zanikClenstvi}. The register rewrites an entry whenever a detail changes (datumVymazu on the old entry), so entries that touch are merged into one spell, and a gap starts a second spell. data has from, to, current and appointments[]. fyzickaOsoba.datumNarozeni, adresa, sidlo and adresy are never read. Sole traders (forms 10x) are never requested. stavZdrojeIr AKTIVNI or ZANIKLY is reported as an insolvency-register entry (an active one makes the company record medium). A 400 from the search is returned as partial with a note, but the body is not readable through http.js, so any 400 is treated the same way. The terms ask for well under 500 queries a minute, so the file adds 300 ms spacing per host. Shareholders (spolecnici) are not read. Grading and plan are the same as for Norway (forms s.r.o., spol. s r.o., a.s., v.o.s., k.s.; .cz). The result is cached once a day. Also a candidate for AFFILIATE_SOURCES.",
+  "docsRow": "Filings and company records | Czech public register extract (ARES): a company found under its exact name, with every member of its statutory body and supervisory board | The person's role there with start and end dates, the company's status, legal form, earlier names and any insolvency-register entry. Asked only about a company placed in the Czech Republic"
+ },
+ {
+  "id": "fi-trade-register",
+  "exportName": "fiTradeRegisterConnector",
+  "file": "src/server/founder/sources/registriesIntl.js",
+  "label": "Finnish Trade Register (PRH)",
+  "kinds": [
+   "company"
+  ],
+  "screenGroup": "none",
+  "official": false,
+  "verifiedLive": true,
+  "takesRelatives": false,
+  "offByDefault": false,
+  "notes": "Checked live on 20 Nov 2026: GET avoindata.prh.fi/opendata-ytj-api/v3/companies?name=Nikola returned 46 results and 133 KB; 'Theranos' returned {totalResults:0, companies:[]}. The /v3/description endpoint confirmed that KONK means bankrupt and SELTILA means liquidation. It lists no people: the record is about the company only, and a note says the person's role cannot be checked there. A company is matched on its current or any earlier name. It is 'company' only when one entity carries the exact name and the matched name has two or more words; otherwise it is 'possible', with severity info. Addresses are never read. Sole-trader forms are skipped. The host asks for about one request a second, so the file adds 1.1 s spacing per host and the connector has maxParallel 1. Licence CC BY 4.0. Forms are Oy, Oyj, Ky, Osk, 'Oy Ab' and 'Ab Oy'; 'AB' on its own is treated as Swedish and does not place a company in Finland. The domain sign is .fi. The result is cached once a day. tradeRegisterStatus codes were not confirmed, so the file reads the endDate and companySituations fields instead.",
+  "docsRow": "Filings and company records | Finnish Trade Register (PRH open data): a company found under its exact or an earlier name | Business ID, registration date, every name it has had, legal form, main line of business, website, bankruptcy or liquidation. No officers. Asked only about a company placed in Finland"
+ }
+]

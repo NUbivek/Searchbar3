@@ -31,8 +31,8 @@ describe('births and named children', () => {
 });
 
 describe('month and year of birth', () => {
-  test('born in a month and year keeps only the year', () => {
-    expect(redactPII('Jane Doe was born in March 1984 in Ohio.')).toBe('Jane Doe was born in 1984 in Ohio.');
+  test('born in a month and year: the date goes, the place stays (round 3: the year goes too)', () => {
+    expect(redactPII('Jane Doe was born in March 1984 in Ohio.')).toBe('Jane Doe was born in Ohio.');
     expect(redactPII('Jane Doe (born March 1984) is an American entrepreneur.')).toBe('Jane Doe is an American entrepreneur.');
   });
   test('a Companies House date of birth is removed', () => {
@@ -40,7 +40,7 @@ describe('month and year of birth', () => {
     expect(redactPII('DOB: 03/1984')).toBe('DOB [date removed]');
   });
   test('full dates still behave as before', () => {
-    expect(redactPII('born on March 3, 1984 in Lyon')).toBe('born in 1984 in Lyon');
+    expect(redactPII('born on March 3, 1984 in Lyon')).toBe('born in Lyon');
   });
 });
 
@@ -79,7 +79,7 @@ describe('religion, citizenship, visas and locating details', () => {
     expect(isSensitive('Jane Doe funded a refugee resettlement charity.')).toBe(false);
   });
   test('UK street names and where someone lives are removed', () => {
-    expect(press('Jane Doe, 41, lives at 12 Kensington Gardens, London W8.').quote).toBe('Jane Doe, 41, [location removed].');
+    expect(press('Jane Doe, 41, lives at 12 Kensington Gardens, London W8.').quote).toBe('Jane Doe, [location removed].'); // round 3: the age beside the name goes too
     expect(redactPII('Her office is at 12 Kensington Gardens, London.')).toBe('Her office is at [address removed], London.');
     expect(redactPII('She lives in Palo Alto.')).toBe('She [location removed].');
   });

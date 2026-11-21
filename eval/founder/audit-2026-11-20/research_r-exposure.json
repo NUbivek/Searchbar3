@@ -1,0 +1,228 @@
+{
+ "candidates": [
+  {
+   "id": "leak-sites-ransomfeed",
+   "label": "Ransomware leak-site claims (RansomFeed, CC BY 4.0)",
+   "what": "A second, independent index of ransomware leak-site victim posts from 2021 to now, updated daily. It keeps the leak-site screen working when RansomLook is down and catches posts that RansomLook missed. Adds the victim, group, date and the victim's website.",
+   "level": "company",
+   "endpoint": "GET https://api.ransomfeed.it/search/{term}  (also /gang/{gang}, /date/{year}, /offset/{n}; default 100 rows, max 1000). Record page: https://ransomfeed.it/index.php?page=post_details&id_post={id}",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "The site footer and privacy page say \"Ransomfeed © 2026 by Dario Fadda is licensed under CC BY 4.0\": reuse is allowed with attribution, including commercial use. robots.txt ('just crawl it') blocks only one post id. The API docs at /docs/#api list the endpoints as public. No key, no stated rate limit.",
+   "termsUrl": "https://ransomfeed.it/?page=privacy",
+   "value": 4,
+   "effort": 2,
+   "nonCommercialOnly": false,
+   "request": "curl -A 'research-check/1.0' 'https://api.ransomfeed.it/search/mgmresorts'  -> 1 row: {id:10813, date:'2023-09-14 20:39:00', victim:'Statement on MGM Resorts International: Setting the record straight', gang:'alphv', website:'www.mgmresorts.com', country:'USA'}. curl 'https://api.ransomfeed.it/search/Nikola' -> 1 row (Nikolaus & Hohenadel, bianlian, n-hlaw.com): a namesake that matchOrgName must reject.",
+   "responseShape": "A JSON array of {id, date 'YYYY-MM-DD hh:mm:ss', victim, gang, website (domain or 'None'), country, description, city, region, dataset_pub, victim_notes, work_sector, fortibleed_leak, hash}. The search is a substring match over victim, description, city, region and sector. A multi-word term returned 0 rows ('MGM Resorts', 'Change Healthcare'), so search the joined name ('mgmresorts') and the most distinctive single word. Then re-check each row with matchOrgName(key, victim) or registrableDomain(website) === the company domain. One finding per gang, like the existing leak-sites code, labelled 'claimed, unverified'.",
+   "privacyNotes": "Never read or show description, dataset_pub, victim_notes or hash (attacker-written text and links to dumps). Drop city and region. Some victim titles name individuals ('Ken Cai EMPIRE'): keep only rows matched to the company. Never search a person's name.",
+   "risks": "Run by one person, so it could stop or change shape. The search also matches the description, so many rows mention the company without being about it. Pace at about one request every two seconds. Attribution line required: 'RansomFeed (ransomfeed.it, CC BY 4.0)'."
+  },
+  {
+   "id": "breach-registers-delaware",
+   "label": "Delaware Attorney General breach database (data.delaware.gov)",
+   "what": "Breach notices filed with the Delaware Attorney General, updated daily (478 rows, newest 2026-11-12). Each gives the company, breach, discovery and notice dates, Delaware and national counts affected, the kinds of data, and a link to the sample notice PDF. Same shape as the Washington open-data register.",
+   "level": "company",
+   "endpoint": "GET https://data.delaware.gov/resource/dir6-wx8v.json?$where=upper(company_name) like '%TERM%'&$order=date_of_notice DESC&$limit=200",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "State open-data portal (Socrata). Its disclaimer says the agency has determined the data is public and provides it 'as is'. robots.txt allows the resource API (crawl-delay 1; only some /browse filters are blocked). No key is needed at low volume, and a free Socrata app token can be added later.",
+   "termsUrl": "https://opendatacouncil.delaware.gov/open-data-portal-terms-of-service/",
+   "value": 4,
+   "effort": 1,
+   "nonCommercialOnly": false,
+   "request": "curl -A 'research-check/1.0' \"https://data.delaware.gov/resource/dir6-wx8v.json?\\$where=upper(company_name)%20like%20'%25UBER%25'&\\$order=date_of_notice%20DESC&\\$limit=200\"  (an unfiltered newest-first query returned 'Uber Technologies, Inc.', date_of_notice 2026-11-10, de_residents_affected 2520, information_breached 'DriverLicense', sample_of_notice.url a PDF on attorneygeneral.delaware.gov)",
+   "responseShape": "A JSON array of {company_name (may have trailing spaces), date_of_breach, breach_discovered, date_of_notice (ISO), de_residents_affected, total_affected, supplemental_notification_date, supplemental_de_residents_affected, supplemental_total_affected, information_breached (comma-separated codes such as SSN, MedTreatment, HealthID), sample_of_notice.url}. Match with matchOrgName(key, company_name). Link to sample_of_notice.url when it is on attorneygeneral.delaware.gov, otherwise to https://data.delaware.gov/d/dir6-wx8v. Add it as a fifth reader in REGISTERS and update REGISTERS_COVERAGE.",
+   "privacyNotes": "Never open or quote the sample notice PDFs, which can carry letterhead and contact details. Translate health-related data codes (MedTreatment, MedHistory, MedDiagnosis) to 'health information' through PROTECTED_CLASS.",
+   "risks": "One date_of_notice reads 1971-01-01, so isoDay must reject implausible dates (validIso already starts at 1990). Company names are written inconsistently ('Premise HealthHolding Corporation')."
+  },
+  {
+   "id": "infostealer-exposure",
+   "label": "Infostealer exposure of a company domain (Hudson Rock free lookup)",
+   "what": "Aggregate counts of computers infected with infostealer malware that held logins for the company's domain: how many were employees' and how many were users'. It also gives a total and a recency signal. This is the only free company-level view of dark-web credential exposure, and no personal data is read.",
+   "level": "company",
+   "endpoint": "GET https://cavalier.hudsonrock.com/api/json/v2/osint-tools/search-by-domain?domain={registrable domain}",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "robots.txt on cavalier.hudsonrock.com blocks only /tokenaccess. The endpoint is Hudson Rock's advertised free OSINT tool, built into theHarvester and others with no key. The site says it is for 'defensive security purposes only'. I could not read the /tos page (it renders in the browser); the readable licence (bp-eula) covers paid customers only.",
+   "termsUrl": "https://www.hudsonrock.com/tos",
+   "value": 3,
+   "effort": 2,
+   "nonCommercialOnly": false,
+   "request": "curl -A 'research-check/1.0' 'https://cavalier.hudsonrock.com/api/json/v2/osint-tools/search-by-domain?domain=theranos.com'  -> {total:18, totalStealers:37385730, employees:0, users:18, third_parties:0, totalUrls:7, data:{employees_urls:[], clients_urls:[{occurrence:14,type:'User',url:'https://www.theranos.com/me/login'},...]}, stats:{...}, is_shopify:false}",
+   "responseShape": "Read only total, employees, users, third_parties and totalStealers (the size of the database, for context). Match on the domain alone: run it only for a domain the check already tied to a company the person founded or runs, and never for a shared domain (reuse targetOf and SHARED_DOMAINS). Write one finding: '{domain}: N employee and M user computers infected by infostealer malware held logins for this domain (aggregate count)'. Grade it medium only when employees > 0.",
+   "privacyNotes": "Read counts only. Drop data.*_urls, stats.*_urls and logo, because captured URLs can carry usernames or emails in query strings. Never call the search-by-email or search-by-username endpoints.",
+   "risks": "The terms of service could not be read, so the owner should confirm them or ask Hudson Rock before turning this on; ship it switchable through FOUNDER_SOURCES_OFF. There is no published rate limit, so allow one request per check. The source is a commercial vendor that could add a key requirement."
+  },
+  {
+   "id": "gdpr-fines",
+   "label": "EU GDPR fines and decisions (CMS Enforcement Tracker)",
+   "what": "Over 3,400 fines issued by EU and EEA data-protection authorities against named companies, each with country, authority, date, amount, sector, the articles breached and the type of violation. Covers the EU the way the ICO screen covers the UK.",
+   "level": "company",
+   "endpoint": "GET https://www.enforcementtracker.com/  (the whole dataset is embedded as JSON in <script type=\"application/json\" id=\"et-cases\">). Per-case link: https://www.enforcementtracker.com/ETid-{e}",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "The database is under CC BY-NC-SA 4.0 with the attribution 'enforcementtracker.com, provided by CMS'. robots.txt says 'Allow: /' and blocks only scaffolding folders and a honeypot link. CMS also states a text-and-data-mining reservation under German copyright law §44b, which the NC licence grant has to be read against.",
+   "termsUrl": "https://www.enforcementtracker.com/license",
+   "value": 3,
+   "effort": 2,
+   "nonCommercialOnly": true,
+   "request": "curl -A 'research-check/1.0' https://www.enforcementtracker.com/ -o et.html ; extract the JSON array inside the et-cases script tag (3,432 rows on 2026-11-20). Searching p for 'Uber' found 'Uber Technologies Inc.' fined 290,000,000 on 2024-07-22 and 824,990,000 on 2026-08-21, and 'Uber Technologies Inc.\\nUber B.V.' fined 10,000,000 on 2023-12-11.",
+   "responseShape": "Each row is {e: ETid number, c: COUNTRY, C: Country, a: authority, d: 'YYYY-MM-DD' or 'Unknown', f: fine in EUR (number), p: controller or processor name (may list several separated by newlines or commas), s: sector, r: articles, t: violation type}. Download it once a day through cached() as a compact index. Split p on newlines and commas, then matchOrgName(key, part). Link each finding to /ETid-{e}. Severity medium, high for fines of EUR 1M or more.",
+   "privacyNotes": "The list includes individuals ('Private person', 'Doctor', 'Mayor', 'Individual entrepreneur'). Keep only rows whose p matches the company name. Never match the founder's own name against p.",
+   "risks": "Non-commercial only. The §44b reservation and the honeypot link suggest the owner dislikes heavy bots, so fetch the page at most once a day and never follow links. The page is 1.1 MB and the format could change."
+  },
+  {
+   "id": "breach-registers-vermont",
+   "label": "Vermont Attorney General security breach notices",
+   "what": "Notices filed with the Vermont Attorney General: the 2026 table on the page (572 rows, April 17 to November 20, 2026) gives date, organisation, organisation type, Vermont residents affected and categories of data. Older notices back to about 2017 are listed as dated document pages.",
+   "level": "company",
+   "endpoint": "GET https://ago.vermont.gov/categories/security-breach-notices  (current-year table inline; ?page=0..49 lists older /document/YYYY-MM-DD-{org-slug}-data-breach-notice-consumers pages)",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "State government site. robots.txt blocks /search/, /admin/ and similar paths but not /categories/ or /document/. Publishing these notices is the Attorney General's statutory practice. No terms restrict reuse.",
+   "termsUrl": "https://ago.vermont.gov/privacy-data-security",
+   "value": 3,
+   "effort": 2,
+   "nonCommercialOnly": false,
+   "request": "curl -A 'research-check/1.0' https://ago.vermont.gov/categories/security-breach-notices  -> HTML with one <table>. The header row is 'Date Reported to AGO | Reporting Organization Name | Reporting Organization Type | Number of VT Residents Affected | Categories of Data Breached'. A data row reads '4-17-2026 | Connected Credit Union | Financial Services | 8 | Social Security Numbers, Financial Account Codes'.",
+   "responseShape": "Parse the <tr>/<td> cells; the date is M-D-YYYY. Match with matchOrgName(key, org). For older years, cache the ?page=N lists weekly (about 50 pages, crawl slowly) and match the org part of each /document/ slug and link text. Link to https://ago.vermont.gov/document/{slug} when one exists, otherwise to the category page. Add it as a reader in REGISTERS.",
+   "privacyNotes": "Show the categories as given ('Social Security Numbers' is a data class, not data). Do not open the notice PDFs.",
+   "risks": "The current table has no per-row link. Reading older years means about 50 page fetches, so cache them and space them out. The page layout is Drupal markup that could change."
+  },
+  {
+   "id": "breach-registers-indiana",
+   "label": "Indiana Attorney General data breach year-to-date reports",
+   "what": "Yearly reports of breach notices sent to the Indiana Attorney General (2014 to November 2026), listing the organisation, notice sent date, breach date, Indiana residents affected and the national total affected. Indiana receives notices from most national companies.",
+   "level": "company",
+   "endpoint": "GET https://www.in.gov/attorneygeneral/consumer-protection-division/id-theft-prevention/security-breaches/ (lists the yearly PDFs), e.g. https://www.in.gov/attorneygeneral/consumer-protection-division/id-theft-prevention/files/DB-Year-to-Date-Report-Novemver-2026.pdf",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "State government site. robots.txt has 'User-agent: *' with no Disallow, plus a sitemap. The reports are published for the public. No reuse restrictions found.",
+   "termsUrl": "https://www.in.gov/core/policies.html",
+   "value": 2,
+   "effort": 3,
+   "nonCommercialOnly": false,
+   "request": "curl -A 'research-check/1.0' -o in2026.pdf 'https://www.in.gov/attorneygeneral/consumer-protection-division/id-theft-prevention/files/DB-Year-to-Date-Report-Novemver-2026.pdf'  (890 KB, 36 pages). The pdf-parse module the repo already has extracts rows such as 'Row No. | Matter: Name | Notific Sent | Breach Occ | IN Affected | Total Affected' -> '7 | 7 Eleven Inc | 5/1/2026 | 4/8/2026 | 6 | 3001' (rendered as text without separators).",
+   "responseShape": "Take the PDF links from the listing page, because file names are irregular ('Novemver', 'D-BYear'). Cache each year's parsed rows (current year daily, past years monthly). Plain pdf-parse text joins the columns ('97 Eleven Inc5/1/20264/8/202663001'), so use the text items' x positions (pagerender) to split them, or the two US dates as anchors: name = text between the row number and the first date, and the trailing digits are IN affected followed by Total affected (ambiguous without positions). Match with matchOrgName.",
+   "privacyNotes": "The rows hold only organisation, dates and counts. Some matter names may be sole proprietors or practices named after a person: keep only rows matched to the company.",
+   "risks": "PDF parsing is fragile and the URLs change each update. The two count columns can be split wrongly without x positions. This is the most effort of the state lists."
+  },
+  {
+   "id": "breach-registers-maryland",
+   "label": "Maryland Attorney General security breach notices (2020 to March 2025)",
+   "what": "Maryland breach notices with organisation, date received, Maryland residents affected, what information was breached and how the breach occurred, each with a case number and notice PDF. It is historical: the 2025 list stops on 2025-03-21 and no 2026 list exists.",
+   "level": "company",
+   "endpoint": "GET https://oag.maryland.gov/resources-info/_api/web/lists/getbytitle('Security-Breach-Notices-{YEAR}')/items?$top=5000&$select=Title,Date_x0020_Received,Case_x0020_No_x002e_,No_x0020_of_x0020_Maryland_x0020,Information_x0020_Breached,How_x0020_Breach_x0020_Occurred  (YEAR 2020 to 2025; header Accept: application/json;odata=nometadata)",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "This is the same anonymous SharePoint REST call the Attorney General's public page makes to draw its table (security-breach-notices.aspx). robots.txt does not exist (404), so nothing is blocked. The page says it publishes notices from the past three years.",
+   "termsUrl": "https://oag.maryland.gov/resources-info/Pages/security-breach-notices.aspx",
+   "value": 2,
+   "effort": 1,
+   "nonCommercialOnly": false,
+   "request": "curl -A 'research-check/1.0' -H 'Accept: application/json;odata=nometadata' \"https://oag.maryland.gov/resources-info/_api/web/lists/getbytitle('Security-Breach-Notices-2025')/items?\\$top=5000&\\$select=Title,Date_x0020_Received,Case_x0020_No_x002e_,No_x0020_of_x0020_Maryland_x0020,Information_x0020_Breached,How_x0020_Breach_x0020_Occurred\"  -> {value:[{Title:'Boart Longyear Group, Ltd.', Date_x0020_Received:'3/7/25', No_x0020_of_x0020_Maryland_x0020:'1', Information_x0020_Breached:'Name, National Identification number, ...', How_x0020_Breach_x0020_Occurred:'...', Case_x0020_No_x002e_:'ITU-....pdf'}, ...]} (257 rows for 2025)",
+   "responseShape": "Read value[]. Title is the organisation; match it with matchOrgName. Date_x0020_Received is M/D/YY. The notice PDF is at https://oag.maryland.gov/resources-info/SBN%20Documents/{YEAR}/{Case_x0020_No_x002e_}. Download the six yearly lists once a week into a compact cached index. Skip a missing year's list (404 'does not exist') without failing.",
+   "privacyNotes": "Information_x0020_Breached lists data classes only. Map health and medical classes to 'Sensitive personal details'. Never open the PDFs.",
+   "risks": "Stale since March 2025, so the coverage note must say 'Maryland notices to March 2025'. The year-to-list-name map comes from the page script and may change."
+  },
+  {
+   "id": "leak-sites-ransomwatch-archive",
+   "label": "Ransomware leak-site archive 2020 to mid-2025 (ransomwatch, public domain)",
+   "what": "A static, public-domain archive of 16,072 leak-site posts (January 2020 to June 2025). A third, offline backstop for historical victim listings when both live indexes are down. Public-domain data, so there is no terms risk.",
+   "level": "company",
+   "endpoint": "GET https://raw.githubusercontent.com/joshhighet/ransomwatch/main/posts.json",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "The repository is under The Unlicense (public domain) and was archived on GitHub (last push 2026-03-03, newest post 2025-06-16). raw.githubusercontent.com serves files for programs to fetch.",
+   "termsUrl": "https://github.com/joshhighet/ransomwatch",
+   "value": 2,
+   "effort": 1,
+   "nonCommercialOnly": false,
+   "request": "curl -A 'research-check/1.0' https://raw.githubusercontent.com/joshhighet/ransomwatch/main/posts.json  -> 2.3 MB JSON array, e.g. {post_title:'Leaks Company Birch Communications inc.', group_name:'ragnarlocker', discovered:'2020-06-10 00:00:00.000000'}",
+   "responseShape": "A JSON array of {post_title, group_name, discovered}, the same fields the leak-sites code already reads from RansomLook. Load it once and cache it for about 30 days as a compact index (it no longer changes). Match post_title with matchOrgName and ownNameIn, and keep 'claimed, unverified'. The link can only be the group's RansomLook page or the repository.",
+   "privacyNotes": "Titles are attacker-written: show only ownNameIn(...), as the existing code does.",
+   "risks": "Frozen in June 2025, so the report must say so. Use it only as a fallback or a merge for older years, never as proof of 'no listing'."
+  },
+  {
+   "id": "phishing-impersonation",
+   "label": "Active phishing domains impersonating the company (Phishing.Database)",
+   "what": "Whether domains currently listed as active phishing carry the company's distinctive brand, as a count with a few examples. A weak signal for an investor, but cheap; useful mostly for consumer-facing companies.",
+   "level": "company",
+   "endpoint": "GET https://raw.githubusercontent.com/Phishing-Database/Phishing.Database/master/phishing-domains-ACTIVE.txt",
+   "keyless": true,
+   "verifiedLive": true,
+   "termsSummary": "MIT licence (Phishing.Database contributors). The repository is active (last push 2026-10-02). It is a public file served from raw.githubusercontent.com for programs.",
+   "termsUrl": "https://github.com/Phishing-Database/Phishing.Database/blob/master/LICENSE",
+   "value": 1,
+   "effort": 2,
+   "nonCommercialOnly": false,
+   "request": "curl -A 'research-check/1.0' https://raw.githubusercontent.com/Phishing-Database/Phishing.Database/master/phishing-domains-ACTIVE.txt  -> 11 MB, 392,178 domains, one per line. 'coinbase' matched 1,143 (e.g. 000717-coinbase.com); 'theranos' and 'nikolamotor' matched 0.",
+   "responseShape": "Plain text, one domain per line. Cache daily as a Set or a sorted array. Match only when the company's own registrable-domain label is 6 or more characters and specific: the label appears whole between dot or hyphen boundaries in another domain, excluding the company's own domain. Report one finding with the count and up to five examples, as context only (category exposure, severity low).",
+   "privacyNotes": "Domains only; nothing personal.",
+   "risks": "Substring brand matches create noise for short or common labels. 11 MB a day is a heavy download for low value, so it is the last candidate."
+  }
+ ],
+ "rejected": [
+  {
+   "name": "ransomware.live (legacy v2 API and api-pro)",
+   "reason": "Terms still do not allow it (T&C updated 2026-08-19). The keyless v2 API is 'Personal use only... not intended for corporate or business use' and limited to one request a minute per endpoint. api-pro needs a personal token from an account, and §4 forbids relaying customers' queries to Ransomware.live, which is exactly what a check does. Stays removed."
+  },
+  {
+   "name": "Maine, Massachusetts, New Hampshire and Montana Attorney General breach lists",
+   "reason": "maine.gov, mass.gov, doj.nh.gov and dojmt.gov return 403 to a non-browser client, even for robots.txt (CloudFront or WAF blocks). Reaching them would need a browser disguise, which the rules forbid."
+  },
+  {
+   "name": "Texas Attorney General data security breach reports (oag.my.site.com)",
+   "reason": "Rows are loaded by a Salesforce Visualforce remoting call that needs a CSRF token taken from the page (two chained requests). I could not verify the call this session because the session's permission check blocked it. Entries also carry 'Entity or Individual Address', which holds home addresses for sole proprietors, and entries are removed after a year. Revisit only if the owner approves token reuse."
+  },
+  {
+   "name": "HHS OCR breach portal",
+   "reason": "It redirects to /ocr/maint/scheduled_maintenance.jsf today. Its JSF export also needs a session and chained postbacks (the existing note in exposure.js already gives this reason). No open-data mirror was found."
+  },
+  {
+   "name": "SEC 8-K Item 1.05 cyber disclosures",
+   "reason": "Already built: secCompanyConnector in sources/sec.js runs the cyber-incident query (CYBER_QUERY and Item 1.05)."
+  },
+  {
+   "name": "GDPRhub (noyb)",
+   "reason": "robots.txt has 'User-agent: * Disallow: /'. Its content licence is also CC BY-NC-SA. The CMS Enforcement Tracker covers the same fines."
+  },
+  {
+   "name": "XposedOrNot breach catalogue (api.xposedornot.com/v1/breaches)",
+   "reason": "robots.txt on the API host allows only /, /docs, /v1/help and /static and disallows everything else. The terms forbid collecting breach data in bulk without written permission and require a licence for commercial use. It largely duplicates the HIBP catalogue the check already reads."
+  },
+  {
+   "name": "urlscan.io search",
+   "reason": "robots.txt disallows /api/. Anonymous search covers only 30 days. Results include page screenshots and DOMs that can hold personal data. Low value for a background check."
+  },
+  {
+   "name": "OpenPhish community feed",
+   "reason": "Terms allow only 'academic, independent, or personal research' and forbid automation and enrichment for any organisation. It holds only about 300 URLs."
+  },
+  {
+   "name": "URLhaus and PhishTank",
+   "reason": "Both need an account-issued key (an abuse.ch Auth-Key, PhishTank registration). They are looked up by URL, not by company, so add little for a company screen."
+  },
+  {
+   "name": "eCrime.ch",
+   "reason": "The API needs an X-API-Key from an account and is aimed at 'professional users'. No free terms are published."
+  },
+  {
+   "name": "Have I Been Pwned domain search, DeHashed, IntelX, LeakCheck and similar",
+   "reason": "They return or are built on individuals' breached records (emails, passwords), and HIBP domain search requires proving you own the domain. They break the no-stolen-personal-data rule."
+  },
+  {
+   "name": "Privacy Rights Clearinghouse breach chronology",
+   "reason": "Now sold as a licensed or paid dataset, with no free automated access."
+  },
+  {
+   "name": "Delaware AG HTML database page",
+   "reason": "It is replaced by the data.delaware.gov open-data set (dir6-wx8v). The HTML table stops in July 2025, while the open data is current."
+  },
+  {
+   "name": "Typosquat generation plus DNS resolution (dnstwist-style)",
+   "reason": "Not a data source: it generates guesses, and live domains that look like a startup's name are mostly unrelated registrations. That risks pinning namesakes for very little investor value."
+  }
+ ]
+}

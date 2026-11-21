@@ -18,7 +18,9 @@
     "tests/unit/features/founderDeepExtract.test.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced. relativesFromText returned John Farley (brother, chairman) from 'his brother' that refers to Jim Farley. associatesFromText added Jim Smith: the ofAnother lead regex needs a capitalised word right before 'co-founder', and 'Henry Ford and ' ends in 'and', so the check never runs.",
+   "betterFix": "For his/her/their kin, reject the match when plausiblePerson finds a full name between the subject's last mention (or the sentence start) and the possessive. For co-founder, strip a trailing 'and' or comma before running the lead regex, and treat '<Org> founder <Name> and co-founder' as another company's. Add both sentences as regression tests."
   },
   {
    "id": "report-gaps-company-role-unverified",
@@ -35,7 +37,8 @@
     "tests/unit/features/founderDeepGaps.test.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced. verifyGaps kept Ford with why 'co-founder; named in a record...' only because the record names Milton somewhere. tieOf returned 'primary', so Ford gets a full check and its matters are filed as the person's company. Nothing checks the role against a sentence that names the subject."
   },
   {
    "id": "report-gaps-associate-other-sentence",
@@ -51,12 +54,14 @@
     "src/server/founder/gaps.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced. tieIn tests TIE_WORDS only on the sentence that contains the proposed name ('Ford CEO Jim Farley announced a recall'), which never names Milton. Jim Farley became a trusted associate. The 'kin' path in publicRelativeIn has the same gap: it never requires the subject in the sentence.",
+   "betterFix": "Count a tie only in a sentence that names the subject, or a pronoun sentence that continues one (export sentencesAbout from extract.js), and require the tie word within roughly 60 characters of the proposed name. Apply the same subject-sentence rule to the kin path through publicRelativeIn."
   },
   {
    "id": "report-claimchanges-noise-wrong-person",
    "title": "'Claims that changed' lists other people's bios and marketing-copy edits",
-   "severity": "high",
+   "severity": "medium",
    "kind": "wrong-person",
    "file": "src/server/founder/report.js",
    "line": 632,
@@ -68,7 +73,9 @@
     "src/server/founder/sources/archiveClaims.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "report.js line 632 keeps every archive 'change' record that is not 'possible'. archive.js builds bio and headline diffs from whole pages, including company blog pages with several people, and grades a change by the page's match. Nothing checks that the changed text is about the subject. I could not re-check the r9 data myself, but the code allows exactly what the finding describes.",
+   "betterFix": "Fix this at the source, in archive.js when the change finding is built. For a page that is not the person's own profile, keep a bio or headline change only when its before or after text names the subject. Mark marketing-copy diffs as info and keep them out of claimChanges. The report filter can then also require field in role, title, education or headline, or a bio diff that names the subject."
   },
   {
    "id": "report-clean-screens-false",
@@ -84,7 +91,8 @@
     "src/server/founder/report.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced. screensOf marked sanctions (4 lookups waited out) and uk-gazette (partial) as 'partial', yet cleanScreens returned both as 'Screens with no match', because coverage.searched carries neither waitedOut nor partial. SCREENS also lacks delaware-courts, eu-courts, canada-federal-courts, us-bank-regulators, fincen-actions, leak-sites and breach-catalogue. This breaks rule 5 (honest coverage)."
   },
   {
    "id": "report-screened-from-failed",
@@ -101,7 +109,9 @@
     "src/server/founder/deepCheck.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced. A us-exclusions lookup for an associate that failed with HTTP 503 still produced screened:true. In deepCheck.js, failed and waited-out tasks stay in `ran` and go into state.done; only retried or rested tasks are removed. WATCHLISTS also omits mdb-debarment, us-bank-regulators and fincen-actions.",
+   "betterFix": "In deepCheck, add the task key to state.screenedOk only when a watchlist task returns a result, and keep failed or waited-out keys in state.screenFailed. The report then sets screened from screenedOk and lists the screens that failed for each party. Do not take failed keys out of done, because done also prevents re-queueing."
   },
   {
    "id": "report-flag-order-sanctions-last",
@@ -117,7 +127,8 @@
     "src/server/founder/report.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "Reproduced. A tied, high-severity mdb-debarment flag (category 'sanctions') sorted below a medium resignation. FLAG_WEIGHTS has no bar, debar or sanction terms, the category fallback covers only 'regulatory', and severity is never compared when sorting red flags."
   },
   {
    "id": "report-coverage-contradictions",
@@ -133,7 +144,9 @@
     "src/server/founder/report.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "notCoveredFor adds the Delaware Court of Chancery clause whenever court-dockets is silent, without checking delaware-courts. partlyAnswered checks only errors at 20% or more and waitedOut, never s.partial; my run showed uk-gazette 'partial' missing from partlyAnswered. Failed lookups under 20% never reach the brief.",
+   "betterFix": "Also add s.partial and failures under 20% to coverage.searched rows, so that cleanScreens and the brief read one source of truth."
   },
   {
    "id": "report-rank-noise-first",
@@ -150,7 +163,9 @@
     "src/server/founder/guardrails.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "score() gives severity x3 against match x2: a possible medium press record scores 6+2+1=9 and a confirmed info one 0+6+1=7, so name-only noise is numbered first. Sorting by match tier first is consistent with rule 2. Dropping people-search pages is consistent with the privacy rule, though those hosts should already be blocked in guardrails.",
+   "betterFix": "Sort tied records (confirmed, likely, company) before possible ones, then by score. Do not drop companyNamesake records outright. Move them to a collapsed 'name only' group at the end, which keeps coverage honest."
   },
   {
    "id": "report-duplicate-pages",
@@ -166,7 +181,9 @@
     "src/server/founder/report.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "In deepCheck, pageKey is urlKey plus the headline of the title, so one URL found under different titles (search result vs page reader) is kept twice. urlKey does not strip the web.archive.org/web/<ts>/ prefix, and archive records are exempt from URL dedupe. The report adds no URL grouping. I did not check the r8/r9 counts.",
+   "betterFix": "Fix this mainly in deepCheck.js: drop the title from pageKey for non-archive records, unwrap archive replay URLs in urlKey, and merge copies into alsoIn while keeping the strongest match (upgradeKept). In the report, count totals per canonical page. Raise a URL under a trusted profile URL to likely only if it is the same platform handle and the record names the person."
   },
   {
    "id": "report-timeline-capture-dates",
@@ -182,12 +199,13 @@
     "src/server/founder/report.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "The `rest` filter includes category 'archive' with no data.kind check, so 'snapshot' capture records fill the timeline. domains.js gives the corporate record the registration date as its date, so a 1994 domain registration becomes the first event. No code reads dated career events from tied quotes."
   },
   {
    "id": "report-gazette-not-merged",
    "title": "One liquidation is shown as three 'possible namesake' matters",
-   "severity": "medium",
+   "severity": "low",
    "kind": "accuracy",
    "file": "src/server/founder/report.js",
    "line": 533,
@@ -198,7 +216,9 @@
     "src/server/founder/report.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "For 'possible' records, matterKey and agreement need at least 2 shared headline words and Jaccard 0.4. Event words such as liquidat and winding-up, and the company name in `skip`, are removed, so three notices about one company on one date stay separate. This is cosmetic: they stay with the possible namesakes either way.",
+   "betterFix": "For uk-gazette and fr-bodacc, key the matter on the notice's company name (from data, or title or quote) plus a date within 14 days, before headline matching."
   },
   {
    "id": "report-ordinary-word-demotion",
@@ -214,7 +234,9 @@
     "src/server/founder/report.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "BUSINESS lacks backers, rival, partnership, lobbying and competitor, so a headline about Ramp's backers fails BUSINESS.test unless the quote has a listed word, and is marked as a companyNamesake. Widening the list is safe because PART_OF_LONGER still catches 'boat ramp' and 'The Ramp church'.",
+   "betterFix": "Widen BUSINESS, but keep 'deal', 'card' and 'payments' out unless next to the company word: they are common in unrelated news. Treating the possessive form ('Ramp's') followed by a business noun as a name is a good signal."
   },
   {
    "id": "report-profile-no-model-thin",
@@ -231,7 +253,9 @@
     "src/server/founder/profile.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "The proposed fix is partly already there: profile.js lines 244-255 already parse 'Experience:' and 'Education:' when the record title names the person. But years are stripped, reportProfile hard-codes degree and field as null and founded as [], and WHAT CHECKS OUT is built from category lists rather than profile lines. Archived LinkedIn records whose title does not name the person are skipped.",
+   "betterFix": "Extend the existing profile.js parser instead of writing a new one: keep years, degree and field (archiveClaims already returns education.degree and dates, so use data from archive records), and pass them through reportProfile. Raising byEmployer from Form D legal names is a separate item; keep its two-record rule for serious items."
   },
   {
    "id": "report-substack-profile-link",
@@ -248,7 +272,9 @@
     "src/server/founder/profile.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "Confirmed in sources/web.js line 260, not in extract.js: when the result title names the person, profileFromUrl's url thread is added with no handleFitsSubject check. For Substack that thread is the root subdomain (notanotherceo.substack.com) of an article page. profile.js then lists it as their 'substack' link. threadsFromResult in extract.js itself does check handleFitsSubject.",
+   "betterFix": "In web.js, and in profileFromUrl for substack or medium, return a profile only for a root or about path, never for /p/ or article paths, and require handleFitsSubject unless the link came from the person's own Person-node sameAs. In profile.js links, apply handleFitsSubject to any platform whose URL carries a handle."
   },
   {
    "id": "report-silent-caps",
@@ -264,7 +290,8 @@
     "src/server/founder/report.js"
    ],
    "dim": "report",
-   "verdict": "unverified"
+   "verdict": "confirmed",
+   "verifyNote": "These slices are visible in the code: slice(0,14) red flags, 8 company matters, 10 checks, 10 claim changes, 10 related parties, 8 and 5 in the gaps section, timeline 60, capWikiOther, and 12 company matters sent to the model. None reports how many were left out. Saying so is required by the honest-coverage rule (rule 5)."
   }
  ]
 }

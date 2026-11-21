@@ -1,0 +1,441 @@
+[
+ {
+  "id": "identity-likely-cascade",
+  "title": "A 'likely' record's company thread becomes a full anchor, which then confirms records, including the record it came from",
+  "severity": "critical",
+  "kind": "wrong-person",
+  "file": "src/server/founder/deepCheck.js",
+  "line": 394,
+  "scenario": "School anchor Stanford. A namesake record says 'John Smith, a Stanford University graduate, founded Zeta Bank' and grades likely. Its trusted thread makes Zeta Bank a 'found' anchor. The same record is then re-graded to confirmed, and 'Zeta Bank founder John Smith sentenced for fraud' becomes a confirmed red flag.",
+  "evidence": "A temporary stepDeepCheck run with a stub connector produced all three records as confirmed, a red flag 'Zeta Bank founder… sentenced', and anchors including Zeta Bank with origin 'found'.",
+  "fix": "Give each anchor a strength. Anchors from confirmed records, or given by the user, can confirm. Anchors taken from likely records (or inferred, encyclopedia or event anchors) can only make a record likely, as gradeOf already does for 'inferred'. Never re-grade a record using an anchor it produced itself (store the origin finding id and skip it).",
+  "filesToChange": [
+   "src/server/founder/deepCheck.js",
+   "src/server/founder/identity.js"
+  ],
+  "dim": "identity",
+  "verdict": "confirmed",
+  "verifyNote": "Sources pass trusted: finding.match !== 'possible', so likely counts as trusted. noteThread (deepCheck.js:385/394) then adds the company as a 'found' anchor, which confirms in matchSubject. gradeOf only caps 'inferred', and regrade raises the original likely record using its own thread.",
+  "betterFix": "Store the anchor's strength and its origin finding id. Only 'given' anchors, and anchors from confirmed records that do not rest on another weak anchor, may confirm. Anchors from likely records can give likely at most (extend gradeOf beyond 'inferred'). Skip an anchor when re-grading the record it came from."
+ },
+ {
+  "id": "loop-screened-on-failure",
+  "title": "Related party shown as screened when their watchlist lookup failed or was never run",
+  "severity": "high",
+  "kind": "honesty",
+  "file": "src/server/founder/deepCheck.js",
+  "line": 646,
+  "evidence": "Test: sanctions-lists threw HTTP 500 for associate, and separately waited-out (retryAt past maxWaitAge). Both times relatedParties showed screened:true; done held 'sanctions-lists|associate|mark russell|'. report.js:636 reads state.done.",
+  "scenario": "An associate's sanctions lookup fails (HTTP 500), or its host asks for a wait past 12 minutes. The key stays in state.done, so report.js marks the person screened and hides the 'not screened in this run' chip.",
+  "fix": "Keep a separate state.screened set that is written only when a watchlist run returned a result (after connectorResult succeeds). report.js reads that set, not state.done. Also remove waited-out tasks from `ran` so they are not counted in tasksRun or done.",
+  "filesToChange": [
+   "src/server/founder/deepCheck.js",
+   "src/server/founder/report.js"
+  ],
+  "dim": "loop",
+  "verdict": "confirmed",
+  "verifyNote": "deepCheck.js:646 adds the key to `ran` before running. The error path (693-699) and the waited-out path (679-682) never remove it, so 778-779 push it into done. report.js:636-640 then marks the party screened from state.done alone.",
+  "betterFix": "Record state.screened[personKey] only after connectorResult succeeds for a watchlist connector, and only when raw.partial and notes show that no list failed. report.js reads that set. Remove waited-out tasks from `ran` without counting them in tasksRun, and keep them in a separate notRun tally."
+ },
+ {
+  "id": "loop-dropped-screens-clear",
+  "title": "Screens whose lookups were dropped at stop are shown as 'No match' or not shown at all",
+  "severity": "high",
+  "kind": "honesty",
+  "file": "src/server/founder/deepCheck.js",
+  "line": 834,
+  "evidence": "Test: maxTasks=1. The founder's sanctions screen ran and the company's sanctions and court lookups were dropped. screens showed sanctions-lists 'clear' and no court-dockets row. dropped.tasks only counts a global total.",
+  "scenario": "The budget, round limit, dry stop or a failed review (line 545) drops the queued sanctions lookup on the company and every court lookup. The checklist says 'No match' for sanctions, and courts disappear from the screens and from 'Did not answer'.",
+  "fix": "When dropping queued tasks (lines 545, 835), count notRun per connector in state.sources, creating the entry if it is missing. In screensOf, show 'partial' when notRun>0 and runs>0, and 'not-run' when runs is 0. List these sources in coverage.",
+  "filesToChange": [
+   "src/server/founder/deepCheck.js",
+   "src/server/founder/report.js"
+  ],
+  "dim": "loop",
+  "verdict": "confirmed",
+  "verifyNote": "Drops at 545, 815 and 835 add only to the global dropped.tasks. screensOf (report.js:110-128) shows 'clear' when a source ran once, and the filter(Boolean) on byId silently leaves out any source that has no state.sources entry. Rule 5 needs lookups that were not run to be reported as not run."
+ },
+ {
+  "id": "loop-screen-starvation",
+  "title": "Learning and dry-stop push watchlist and court screens to the end and then drop them",
+  "severity": "medium",
+  "kind": "robustness",
+  "file": "src/server/founder/deepCheck.js",
+  "line": 573,
+  "evidence": "rankByLearning: sanctions-lists (60 tries, 0 wins) scored 0.15 vs web-search 0.72. Clean screens record win=0 (line 773). Test H: a round of 7 clean associate screens counted as dry, phase became report, and 5 screens were dropped.",
+  "scenario": "After a few checks, clean screens learn a near-zero score. Associate and relative screens score about 0.27, below every page or company lookup. They run last, rounds of clean answers count as dry, and the check stops with screens unrun.",
+  "fix": "Mark screening connectors `mustRun`. Sort them right after the seed, outside learning. Score an answered screen as a win for ordering, or exclude screens from query learning. Do not count rounds of mustRun screens as dry, and never drop mustRun tasks on dry or round stops. Reserve about 15% of maxTasks for them.",
+  "filesToChange": [
+   "src/server/founder/deepCheck.js",
+   "src/server/founder/sources/index.js"
+  ],
+  "dim": "loop",
+  "verdict": "confirmed",
+  "verifyNote": "Clean screens record win 0 (line 773). rankByLearning then cuts their factor to about 0.55, so associate screens rank below company and page lookups. Only the seed is protected (line 575). Rounds of clean screens count as dry (827) and lead to drops. It is a priority problem, so screens are lost only when a stop or the budget comes first.",
+  "betterFix": "Do not score answered screens as wins, because that corrupts query learning. Keep watchlist and court connectors out of learning ordering: give them a fixed tier right after the seed. Never count a round as dry while unrun screens remain, and never drop screens on a dry or round stop. Reserve part of maxTasks for them."
+ },
+ {
+  "id": "loop-poison-step",
+  "title": "One connector's plan()/enabled() throwing makes a check permanently unrunnable",
+  "severity": "medium",
+  "kind": "robustness",
+  "file": "src/server/founder/deepCheck.js",
+  "line": 317,
+  "evidence": "Test G: a connector whose plan throws TypeError made stepDeepCheck throw on the first step. planTasks has no try. With Neon the failed step is never saved, so every retry reloads the same state and throws again.",
+  "scenario": "A bug in one source's plan() for company threads throws. Start returns 500 after the job is created (one hourly slot used). Every later step reloads the unsaved state, hits the same throw, and returns 500 forever. The client gives up and 'Try again' repeats it.",
+  "fix": "Wrap c.plan/c.enabled per connector in try/catch and record a source error ('could not be planned'). Count consecutive failed steps on the job; after 2, save phase 'report' with honest coverage. Wrap buildReport in the same way.",
+  "filesToChange": [
+   "src/server/founder/deepCheck.js",
+   "src/pages/api/founder/deep.js"
+  ],
+  "dim": "loop",
+  "verdict": "confirmed",
+  "verifyNote": "planTasks (317) and c.enabled (316) have no try. A throw inside stepDeepCheck reaches the handler's 500 before saveNext, so every retry reloads the same unsaved state and throws again. This needs a latent bug in some connector's plan(), so medium rather than high."
+ },
+ {
+  "id": "loop-concurrent-steps",
+  "title": "Two step requests on one job both run all lookups; in memory mode they mutate one shared state",
+  "severity": "medium",
+  "kind": "robustness",
+  "file": "src/server/founder/jobStore.js",
+  "line": 145,
+  "evidence": "Test D: getJob returned the same state object twice. saveJob with the same expectRev=0 returned true both times. In Neon mode expectRev only rejects the later save, after its 40s of outside requests.",
+  "scenario": "A mobile network blip fails fetch, and the client retries 1.5s later while the first request still runs. Two steps hit the same hosts in parallel, doubling requests to paced sites. Locally (the eval's memory store), both mutate one object, so tasksRun and done are double-counted.",
+  "fix": "Add a lease: UPDATE founder_jobs SET lease_until=now()+55s WHERE id=$1 AND (lease_until IS NULL OR lease_until<now()) RETURNING state. Return 409 'busy' when no row comes back. In memory mode, structuredClone on get and save, check rev, and keep an in-process lease map.",
+  "filesToChange": [
+   "src/server/founder/jobStore.js",
+   "src/pages/api/founder/deep.js"
+  ],
+  "dim": "loop",
+  "verdict": "confirmed",
+  "verifyNote": "In memory mode, getJob returns the stored object and saveJob ignores expectRev (jobStore.js:145-149). In Neon, the rev check rejects only the second save, after its outside requests have already run. The client retries a network failure 1.5s later (DeepCheck.js:54-56) while the first server request is still running."
+ },
+ {
+  "id": "loop-start-burns-slot",
+  "title": "A failed or timed-out start uses an hourly slot and cannot be resumed",
+  "severity": "medium",
+  "kind": "robustness",
+  "file": "src/pages/api/founder/deep.js",
+  "line": 202,
+  "evidence": "createJob runs before the first stepDeepCheck. The jobId is only returned after the step and save. Client startJob has no retry, and rememberJob runs only on success.",
+  "scenario": "The first step throws, or the start request returns 504 or 503 on save. The job exists and counts toward 12 an hour, but the browser never learned its id. 'Try again' starts another job and repeats the same lookups. Several failures lock the user out for an hour.",
+  "fix": "Return { jobId } right after createJob, without stepping, and let the client's first 'step' do the work. Or catch step and save errors on start and still return jobId with the last progress. On start, reuse the owner's running job for the same name and company from the last hour.",
+  "filesToChange": [
+   "src/pages/api/founder/deep.js",
+   "src/components/founder/DeepCheck.js"
+  ],
+  "dim": "loop",
+  "verdict": "confirmed",
+  "verifyNote": "deep.js:202-206 calls createJob, which counts toward MAX_JOBS_PER_HOUR, and then steps and saves. The jobId is returned only on success, and rememberJob runs only on success (DeepCheck.js:82). A throw or a 503 leaves an orphan job that uses a slot."
+ },
+ {
+  "id": "loop-client-resume",
+  "title": "A closed tab or a network drop over 4.5s ends the check; a new tab starts it again from scratch",
+  "severity": "medium",
+  "kind": "ux",
+  "file": "src/components/founder/DeepCheck.js",
+  "line": 44,
+  "evidence": "stepWithRetry gives up after 3 tries (1.5s and 3s waits). The resume id is in sessionStorage, which is per tab, and is written only at start (30-minute window, while checks may run 25 minutes).",
+  "scenario": "The user loses Wi-Fi for 10s, so the check shows 'Failed to fetch'. Or the user closes the tab and reopens /founder: there is no saved id, so a new job starts and uses a slot. A reload at minute 31 of a long check also starts a new one.",
+  "fix": "Retry network and 5xx errors with backoff for up to about 2 minutes, and wait for the 'online' event. Keep the id in localStorage, refreshed on every step. Add a server lookup (GET ?name&company) for the owner's latest unexpired job, so any tab resumes it.",
+  "filesToChange": [
+   "src/components/founder/DeepCheck.js",
+   "src/pages/api/founder/deep.js"
+  ],
+  "dim": "loop",
+  "verdict": "confirmed",
+  "verifyNote": "stepWithRetry gives up after 3 attempts with 1.5s and 3s waits. The resume id is kept in sessionStorage, which is per tab, has a 30-minute window and is written only at start (DeepCheck.js:97-108). No server lookup finds the owner's running job."
+ },
+ {
+  "id": "loop-review-failure-honesty",
+  "title": "A second reader that timed out or errored is logged as 'found nothing more' and ends the check",
+  "severity": "medium",
+  "kind": "honesty",
+  "file": "src/server/founder/deepCheck.js",
+  "line": 524,
+  "evidence": "The review catch sets found=null. added stays 0, the queue is dropped, and the log says 'A second reading of the records found nothing more to follow.'",
+  "scenario": "The model chain is slow or rate-limited, so findGaps times out at 23s. The check ends, drops any queued lookups, and the report says the review found nothing, when it never answered.",
+  "fix": "Tell failure apart from empty. On a throw or timeout, log 'The second reading did not answer in time'. Do not drop the queue: continue the loop when the queue is not empty, and allow one retry if reviews < maxReviews.",
+  "filesToChange": [
+   "src/server/founder/deepCheck.js"
+  ],
+  "dim": "loop",
+  "verdict": "confirmed",
+  "verifyNote": "The catch at 524 sets found=null. That flows into added=0, the queue is dropped at 545, and the log says the review 'found nothing more'. A timeout is indistinguishable from an empty review, which breaks honest coverage."
+ },
+ {
+  "id": "loop-retention",
+  "title": "Expired checks are deleted only when someone starts a new check, and can still be read",
+  "severity": "low",
+  "kind": "privacy",
+  "file": "src/server/founder/jobStore.js",
+  "line": 87,
+  "evidence": "The DELETE of jobs older than 72h runs only inside createJob. getJob does not check updated_at.",
+  "scenario": "No new checks are started for weeks. Every saved report about a person stays in founder_jobs, and its owner can still open it, past the stated 72-hour retention.",
+  "fix": "In getJob, treat updated_at older than RETENTION_HOURS as not found, and delete it. Also run the purge from a daily cron or on GET, not only on create.",
+  "filesToChange": [
+   "src/server/founder/jobStore.js"
+  ],
+  "dim": "loop",
+  "verdict": "confirmed",
+  "verifyNote": "The purge runs only inside createJob (jobStore.js:87 for the database, and forgetOldInMemory for memory). getJob never checks updated_at, so reports outlive the 72 hours that FOUNDER-CHECK.md:101 states when no new check is started.",
+  "betterFix": "In getJob, return null for (and delete) records whose updated_at is past RETENTION_HOURS. Also purge on GET and step, or from a daily cron that already exists in vercel.json."
+ },
+ {
+  "id": "watchlists-related-screened-on-failure",
+  "title": "A related person is marked 'screened' even when the screen failed",
+  "severity": "high",
+  "kind": "honesty",
+  "file": "src/server/founder/report.js",
+  "line": 636,
+  "scenario": "A relative's sanctions lookup throws because every list failed to load. deepCheck adds the task key to `ran` before running it and keeps it after the error, so it ends up in state.done. The report then shows the relative as screened, against the documented promise to mark any related person not screened in that run.",
+  "fix": "Keep a separate state.screenedOk list, filled only when a watchlist lookup returns without throwing and without partial. Build `screened` in report.js from that list, not from state.done.",
+  "evidence": "deepCheck.js:646 runs ran.add(taskKey(task)) before c.run; the catch path does not delete it; line 779 pushes ran into state.done; report.js:636-638 reads done.",
+  "filesToChange": [
+   "src/server/founder/deepCheck.js",
+   "src/server/founder/report.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "deepCheck.js:646 adds the key to ran. The error path (stat.errors++) and the waitedOut path never delete it. Line 779 pushes ran into state.done. report.js:636-638 marks the person screened from done, including offshore-leaks, which never runs for related people.",
+  "betterFix": "Record per-task outcomes: state.screenedOk keyed by person, added only when a WATCHLISTS lookup resolves with no error and no partial. Mark a person screened only when every watchlist planned for them succeeded. Otherwise show 'screened in part' and name the lists that were missed."
+ },
+ {
+  "id": "watchlists-learning-deprioritises-screens",
+  "title": "Learning moves related-party watchlist screens to the back of the queue, where they can go unrun",
+  "severity": "medium",
+  "kind": "improvement",
+  "file": "src/server/founder/deepCheck.js",
+  "line": 574,
+  "scenario": "Sanctions screens almost never find anything, so their learned score falls toward 0. Associate and relative screens (depth 2, lower weight) are then ordered after web lookups and can fall outside maxTasks (420) or the time budget. The report then shows related people as not screened, check after check.",
+  "fix": "Treat watchlist screens (sanctions-lists, mdb-debarment, us-bank-regulators, fincen-actions, us-exclusions) for the subject, its companies and trusted related people like seed tasks. Order them ahead of learned scores, and do not count their 'no match' as a lost lookup in learning.",
+  "evidence": "The order score multiplies by (0.4 + learned); only isSeedTask bypasses it. A win is scored only when records are found.",
+  "filesToChange": [
+   "src/server/founder/deepCheck.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "The order score multiplies by (0.4 + learned), and only isSeedTask bypasses it (deepCheck.js:574). A clean screen records win 0 (line 773), so watchlist patterns learn low scores. Related-party screens at depth 2 then score about 0.14 and run last, where the step deadline or maxTasks can cut them."
+ },
+ {
+  "id": "network-seed-namesake-anchors-check",
+  "title": "A namesake contact's company silently anchors the whole check as confirmed",
+  "severity": "high",
+  "kind": "wrong-person",
+  "file": "src/pages/api/founder/deep.js",
+  "line": 186,
+  "scenario": "The user types only 'John Smith' and means a founder they have never met. Their one contact named John Smith works at Acme. The check starts with company=Acme as 'the company given', so records about the contact are graded confirmed and the report is about the wrong person. The only notice sits in the 'In your network' section, far below the red flags.",
+  "fix": "Do not seed silently. Before starting, return {needsConfirm:{company}} so the page asks: 'Is this the John Smith at Acme in your network?' Seed only after a yes. Show the seeded anchor in the report header, not only in the network section, and link to re-run without it.",
+  "evidence": "deep.js 34-37, 186-189: seed becomes startState company; networkLink companySeed lines 408-421",
+  "filesToChange": [
+   "src/pages/api/founder/deep.js",
+   "src/server/founder/networkLink.js",
+   "src/components/founder/DeepCheck.js"
+  ],
+  "dim": "network",
+  "verdict": "confirmed",
+  "verifyNote": "deep.js 186-189 silently sets the start company from the single same-name contact. That company becomes 'the company given', and identity.js 388 grades company matches as confirmed. A namesake contact's records can therefore be confirmed against the wrong person. The only disclosure is in NetworkLinks line 110.",
+  "betterFix": "Ask before seeding: return needsConfirm with the company and let the page say 'Is this the X at Acme in your network?'. If kept automatic, record origin 'network' rather than 'given', cap anchored records at likely (rule 2), and show the anchor in the report header with a re-run-without-it link."
+ },
+ {
+  "id": "network-second-degree-investors",
+  "title": "Investors are looked up only for the current company; no second-degree intro path",
+  "severity": "low",
+  "kind": "missed-information",
+  "file": "src/pages/api/founder/deep.js",
+  "line": 58,
+  "scenario": "The person founded two earlier companies, and the check names their investors and board members as related parties. Only report.company's profile investors are matched. Contacts at the earlier companies' backers, or contacts who share employers with a named co-founder or board member, are never surfaced as a warm path.",
+  "fix": "Look up investors for each founded company (bounded, cached, company names only). Match investors and board members named in the check (relatedParties with an investor or board role) to contacts by name and by firm. Reuse introPaths' investor logic to show 'who can introduce you' alongside the reference shortlist.",
+  "evidence": "deep.js 58 single company; query.js introPaths viaPastEmployees [] and investor matching",
+  "filesToChange": [
+   "src/pages/api/founder/deep.js",
+   "src/server/founder/networkLink.js",
+   "src/server/network/query.js"
+  ],
+  "dim": "network",
+  "verdict": "confirmed",
+  "verifyNote": "deep.js 58 looks up investors only for report.company. Related parties, including investor or board ones, are already matched by name in partiesOf, so the gap is mainly firm-level contacts at earlier companies' backers. Feasible with the existing free companyProfile, but each added lookup must be bounded and must report the timeout as missed."
+ },
+ {
+  "id": "llm-gap-profile-unverified-stack",
+  "title": "Model proposals become anchors with no independent record, so one hallucination compounds",
+  "severity": "medium",
+  "kind": "robustness",
+  "file": "src/pages/api/founder/deep.js",
+  "line": 101,
+  "filesToChange": [
+   "src/server/founder/deepCheck.js",
+   "src/server/founder/identity.js"
+  ],
+  "evidence": "noteThread calls addAnchor for every trusted thread, and findGaps threads are created trusted:true. Rounds 2 and 3 then grade records against these anchors, and readProfile reads 'likely' records graded by them.",
+  "scenario": "A school the reader proposed (any 'Stanford' mention in a tied record) becomes a school anchor. Namesake records naming Stanford become 'likely'. Those then feed the profile model and the brief as facts about the person.",
+  "fix": "Give anchors an origin weight. Anchors from the second reader may order and pull lookups but must not raise a record above 'possible' until a source record (register, filing, knowledge graph, bio page) supports them. Show 'suggested by the second reader' on those threads.",
+  "dim": "llm",
+  "verdict": "confirmed",
+  "verifyNote": "findGaps threads are trusted:true. noteThread calls addAnchor for schools and people with origin 'found', the same weight as a register-derived anchor. A school or person anchor lifts full-name records to 'likely', and readProfile and the brief consume those. This overlaps llm-gap-company-anchor.",
+  "betterFix": "Reuse the existing 'related' anchor channel (isEncyclopedia-style origin) for every reader-proposed anchor, and add a rule that a 'related'-only match from a reader origin stays 'possible' unless a second, non-reader clue agrees. Label these threads 'suggested by the second reader'."
+ },
+ {
+  "id": "security-step-no-lease",
+  "title": "Parallel 'step' or 'brief' calls on one job each repeat the full 40 s of outbound work; in memory mode they mutate one shared state",
+  "severity": "medium",
+  "kind": "robustness",
+  "file": "src/pages/api/founder/deep.js",
+  "line": 207,
+  "evidence": "step loads the job and runs stepDeepCheck. Only the save checks rev, so losers get a 409 after all their requests have gone out. In memory mode getJob returns the stored object (same state reference), and saveJob ignores expectRev.",
+  "scenario": "A client retry, a second tab or a script sends 20 concurrent steps for one jobId. That makes 20x the lookups against every source and bypasses the 12-checks-an-hour limit's purpose. Locally (the owner's test setup) two overlapping steps run on the same state object, which corrupts the queue, tasksRun and the findings.",
+  "fix": "Take a lease before working. Run UPDATE founder_jobs SET lease_until=now()+interval '55 s' WHERE id=$1 AND user_id=$2 AND (lease_until IS NULL OR lease_until<now()) RETURNING state, and answer 409 when it returns no row. In memory mode keep a per-id lease map and deep-clone state in getJob. Release the lease on save. Treat 'brief' the same way.",
+  "filesToChange": [
+   "src/pages/api/founder/deep.js",
+   "src/server/founder/jobStore.js"
+  ],
+  "dim": "security",
+  "verdict": "confirmed",
+  "verifyNote": "In memory mode, getJob returns the stored record whose state is the shared object, and saveJob ignores expectRev, so overlapping steps mutate the same state. In DB mode the rev check runs only at save, after all outbound requests were sent. Proposed lease is feasible."
+ },
+ {
+  "id": "security-name-validation",
+  "title": "The name and company inputs accept control, bidi and zero-width characters, search operators, emails and one-letter tokens",
+  "severity": "medium",
+  "kind": "accuracy",
+  "file": "src/pages/api/founder/deep.js",
+  "line": 181,
+  "evidence": "normalizePersonName only strips quotes and collapses whitespace. The only checks are 2 or more tokens and 120 characters or fewer. 'a b', 'x site:example.com', 'jo@x.com y' and names containing U+202E or U+200B all pass. The company is not cleaned beyond whitespace.",
+  "scenario": "'J S' starts a 420-lookup check that matches every page. 'Jane Roe -fraud' or 'Jane site:x.com' rewrites all ~15 query patterns. An email or phone turns the check into a people-search. A bidi override makes the History list show a different name.",
+  "fix": "Use one validator for both routes. Apply NFKC, strip Cc/Cf characters (control, zero-width, bidi), and allow only letters, marks, space, hyphen, apostrophe and period. Require at least two tokens, the last at least 2 letters. Reject '@', digits, ':' and URLs in names. For the company, strip Cc/Cf and search operators (site:, a leading -, OR). Return a clear message for each rejection.",
+  "filesToChange": [
+   "src/server/founderCheck.js",
+   "src/pages/api/founder/deep.js",
+   "src/pages/api/founder/index.js"
+  ],
+  "dim": "security",
+  "verdict": "confirmed",
+  "verifyNote": "normalizePersonName only strips quotes and possessive 's and collapses whitespace. The routes check only for 2 or more tokens and a 120-character limit, so control, bidi and zero-width characters, operators, emails and one-letter tokens all pass. The company only has whitespace collapsed.",
+  "betterFix": "As proposed, using Unicode classes (\\p{L}\\p{M}) so non-Latin names pass. Do not require the last token to be 2 or more letters; that rejects real names such as 'Malcolm X'. Instead require at least one token of 2 or more letters and reject names made only of initials. Quote the company in queries as well as cleaning it."
+ },
+ {
+  "id": "security-retention-read",
+  "title": "The 72-hour retention is not enforced on read: old reports stay readable until someone starts a new check",
+  "severity": "low",
+  "kind": "privacy",
+  "file": "src/server/founder/jobStore.js",
+  "line": 112,
+  "evidence": "The DELETE of old founder_jobs rows runs only inside createJob. getJob and listFinishedChecks never check updated_at, so a report about a person outlives the stated retention whenever no new check is started.",
+  "scenario": "An account runs a check and no one starts another for a week. GET /api/founder/deep?jobId= and /api/founder/history still return the full report seven days later, contrary to 'kept 72 hours'.",
+  "fix": "Add AND updated_at > now() - interval '72 hours' to the getJob and listFinishedChecks queries, and run the same age filter in memory mode. Optionally add a Vercel cron that deletes expired rows daily.",
+  "filesToChange": [
+   "src/server/founder/jobStore.js",
+   "src/server/founder/networkLink.js"
+  ],
+  "dim": "security",
+  "verdict": "confirmed",
+  "verifyNote": "The DELETE runs only in createJob (DB), and forgetOldInMemory runs only in createJob (memory). getJob and listFinishedChecks never filter on age, so a report outlives the stated 72 hours whenever no new check starts."
+ },
+ {
+  "id": "security-public-flag-prod",
+  "title": "FOUNDER_DEEP_PUBLIC is not blocked in production, and the anonymous owner is taken from the first x-forwarded-for value",
+  "severity": "low",
+  "kind": "security",
+  "file": "src/pages/api/founder/deep.js",
+  "line": 131,
+  "evidence": "ownerOf honours FOUNDER_DEEP_PUBLIC whatever NODE_ENV is. clientIp takes the left-most x-forwarded-for entry, which the client sets on any host that only appends to the header.",
+  "scenario": "If the flag is ever set on Vercel or another host, anyone can run deep checks. Outside Vercel, a new X-Forwarded-For value per request gives a fresh 12-an-hour allowance each time.",
+  "fix": "Honour the flag only when NODE_ENV==='development'. Take the client address from x-real-ip or x-vercel-forwarded-for, or from the right-most trusted hop, with the socket address as the fallback.",
+  "filesToChange": [
+   "src/pages/api/founder/deep.js"
+  ],
+  "dim": "security",
+  "verdict": "confirmed",
+  "verifyNote": "ownerOf honours FOUNDER_DEEP_PUBLIC in any environment, and clientIp takes the left-most x-forwarded-for value, which the client controls behind proxies that append to the header. The handover only says 'never set in Vercel'; there is no code guard."
+ },
+ {
+  "id": "critic-inferred-namesake-redflags",
+  "title": "With no company typed, the check adopts the best-covered namesake's company, and that namesake's records become red flags",
+  "severity": "high",
+  "kind": "wrong-person",
+  "file": "src/server/founder/deepCheck.js",
+  "line": 436,
+  "scenario": "The investor enters 'John Smith' with no company. resolveIdentity counts company threads from untrusted, name-only records. With two pages on two sites it adopts the most-covered John Smith's employer as a primary anchor. gradeOf caps those records at 'likely', but report.js puts likely records in red flags. The investor's John Smith inherits a stranger's lawsuits. A single amber note says the check 'follows that person'.",
+  "evidence": "resolveIdentity (436-457) never calls isCommonName. Candidates are threads with !t.trusted. gradeOf (464-469) returns 'likely'. report.js line 558 sends confirmed or likely records to redFlags.",
+  "fix": "Never infer an identity for a common name. When a company is inferred, keep records tied only through it out of red flags: show them as 'possible namesake' or in a separate 'if this is the right person' block. Ask the user to confirm the inferred company before the full check runs.",
+  "filesToChange": [
+   "src/server/founder/deepCheck.js",
+   "src/server/founder/report.js"
+  ],
+  "dim": "critic",
+  "verdict": "unverified"
+ },
+ {
+  "id": "critic-past-founded-company-affiliate",
+  "title": "An earlier company the person founded, read from a tied record, is checked only as an affiliate: no courts, DOJ, sanctions or insolvency lookups",
+  "severity": "high",
+  "kind": "missed-information",
+  "file": "src/server/founder/deepCheck.js",
+  "line": 279,
+  "scenario": "For a serial founder, a confirmed press snippet says they 'founded' an earlier venture. extract.js turns this into a thread with why 'founder (past)'. tieOf returns 'affiliate' for 'founder (past)', 'co-founder (past)', 'CEO (past)' and even 'Founder'. The earlier company is then asked only of SEC company search, Companies House, the French register and YC. An SEC action, bankruptcy or DOJ case against the earlier company itself is never looked up.",
+  "evidence": "Temporary test: tieOf({why}) returned 'affiliate' for every one of those values. LOOSE_ROLE matches them and STATED does not. planTasks skips every connector outside AFFILIATE_SOURCES for affiliates (line 314).",
+  "fix": "Treat a founder or CEO role from a confirmed or likely record whose sentence opens on the person (as profile.js already requires) as primary. At minimum, run the company-level court, enforcement, insolvency and watchlist connectors for earlier ventures where the person was founder or CEO.",
+  "filesToChange": [
+   "src/server/founder/deepCheck.js",
+   "src/server/founder/extract.js"
+  ],
+  "dim": "critic",
+  "verdict": "unverified"
+ },
+ {
+  "id": "critic-non-latin-and-mononyms",
+  "title": "Names in non-Latin scripts and one-word names cannot be checked: non-Latin company keys are empty, CJK names are refused",
+  "severity": "medium",
+  "kind": "missed-information",
+  "file": "src/server/founder/names.js",
+  "line": 454,
+  "scenario": "A company typed as 'Яндекс' or '字节跳动' yields no company keys or match forms, so no record can be confirmed through it. The person '张一鸣' is refused by deep.js ('Enter the full name'), since CJK names have no space. Founders with one name (common in Indonesia, parts of India and Myanmar) are also refused. Nothing transliterates or accepts a romanised and a native form together.",
+  "evidence": "Temporary test: companyMatchForms('Яндекс') and companyMatchForms('字节跳动') returned []. companyKeys strips [^a-z0-9À-ɏ ]. deep.js rejects names with fewer than two space-separated tokens (line 65 of the start handler).",
+  "fix": "Keep \\p{L} characters in company keys. Add an optional 'name in another script' input, and search and match both forms. Allow a one-word name when a company is given, with stricter grading. Report in coverage when a script could not be screened.",
+  "filesToChange": [
+   "src/server/founder/names.js",
+   "src/pages/api/founder/deep.js",
+   "src/pages/founder.js"
+  ],
+  "dim": "critic",
+  "verdict": "unverified"
+ },
+ {
+  "id": "critic-no-former-names",
+  "title": "Former names, maiden names and aliases are never searched: there is no person-alias thread kind",
+  "severity": "medium",
+  "kind": "missed-information",
+  "file": "src/server/founder/finding.js",
+  "line": 56,
+  "scenario": "A founder who changed their surname on marriage, anglicised their name, or (typical for serial fraudsters) uses a new name has their earlier lawsuits, convictions and SEC or FINRA records filed under the old name. The check searches only the typed name, plus that name without its middle names. Wikidata 'also known as' and birth name are not read, and a record saying 'formerly known as' creates no thread.",
+  "evidence": "THREAD_KINDS = company, school, associate, relative, handle, domain, url. A grep for maiden, aka, 'formerly known', née and the Wikidata birth-name property found only company aliases and debarment-list aliases.",
+  "fix": "Add an 'alias' thread kind from Wikidata aliases and birth name, and from 'formerly known as', 'née' and 'born X' in tied records. Add an optional 'other names' field on the form. Search and screen aliases on the watchlist, court and enforcement sources, graded 'likely' at most unless tied.",
+  "filesToChange": [
+   "src/server/founder/finding.js",
+   "src/server/founder/extract.js",
+   "src/server/founder/sources/knowledge.js",
+   "src/pages/founder.js"
+  ],
+  "dim": "critic",
+  "verdict": "unverified"
+ },
+ {
+  "id": "critic-thin-input",
+  "title": "The form takes only a name and one company: no LinkedIn URL, website, city, other companies or school to pin down the person",
+  "severity": "medium",
+  "kind": "ux",
+  "file": "src/pages/founder.js",
+  "line": 184,
+  "scenario": "An investor who knows the founder's LinkedIn URL, company domain, city and earlier ventures can type only a name and one company. Common names, ordinary-word companies and serial founders all rely on inference that the audit found weak. The disambiguators the investor already has (domain, LinkedIn slug, prior company) would become strong anchors (domains and handles already exist as anchor kinds), but cannot be given.",
+  "evidence": "founder.js has two inputs (name, company). deep.js start reads only body.name and body.company. startState({name, company}) seeds one company anchor.",
+  "fix": "Add optional fields: company website, profile URL (its slug becomes a handle anchor; never scraped), city or country, earlier companies, school. Seed them as 'given' anchors (domains, handles, companies, schools). Show in the report which inputs confirmed records.",
+  "filesToChange": [
+   "src/pages/founder.js",
+   "src/pages/api/founder/deep.js",
+   "src/server/founder/deepCheck.js",
+   "src/components/founder/DeepCheck.js"
+  ],
+  "dim": "critic",
+  "verdict": "unverified"
+ }
+]

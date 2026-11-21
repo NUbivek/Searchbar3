@@ -17,7 +17,7 @@
  *   severity     'high' | 'medium' | 'low' | 'info'  (how much it matters if true)
  *   data         optional structured extras for the UI (case number, snapshot time, ...)
  *   matchFixed   true when the source set the grade by hand: it is never re-graded
- *   gradeText    the text the grade was read from (internal; stripped before the page sees it)
+ *   gradeText    the text the grade was read from, cleaned by the privacy rules (internal; stripped before the page sees it)
  *
  * Thread: something new worth pulling on, found while reading a source.
  *   { kind: 'company'|'school'|'associate'|'relative'|'handle'|'domain'|'url', value, why,
@@ -27,7 +27,7 @@
  * A connector's run() resolves to { findings: Finding[], threads: Thread[], notes: string[] }.
  */
 import { matchSubject } from './identity';
-import { sanitizeFinding, redactPII } from './guardrails';
+import { sanitizeFinding, cleanSentences, isSafeUrl } from './guardrails';
 
 export const CATEGORIES = {
   identity: 'Identity',
@@ -115,6 +115,9 @@ const isoDate = (value) => {
 export function makeFinding(subject, f) {
   if (!f || !f.source || !f.url || !f.title) return null;
   if (!CATEGORIES[f.category]) throw new Error(`Unknown finding category: ${f.category}`);
+  // Only an absolute http(s) link is stored: the page renders it as <a href>, and a scraped javascript: or
+  // data: link would run script on the site with the investor's session.
+  if (!isSafeUrl(f.url)) return null;
   let match = f.match || null;
   let reasons = f.matchReasons || [];
   // A grade the source set by hand (a company record, a held 'possible') is final: the loop must not
@@ -123,7 +126,8 @@ export function makeFinding(subject, f) {
   const matchFixed = Boolean(match) || Boolean(f.matchFixed);
   // Title and quote on separate lines, so each is read as its own sentence.
   const text = f.matchText || `${f.title}\n${f.quote || ''}`;
-  const gradeText = match ? null : clipLines(redactPII(text), 1500);
+  // The grade text is cleaned by the same rules as the quote, so a re-grade never reads a private sentence.
+  const gradeText = match ? null : clipLines(cleanSentences(cleanText(text).slice(0, PRE_CLIP)).text, 1500);
   // The record's own date goes to the grade, so a role held at that time (a CEO tenure) can count.
   // A re-grade reads the same date back from the finding's `date`.
   const date = isoDate(f.date);
@@ -133,23 +137,44 @@ export function makeFinding(subject, f) {
     match = graded.level;
     reasons = graded.reasons;
   }
+  // The privacy rules run on the full text before it is clipped: a phone number or a birth date cut in half
+  // at the clip would no longer be recognised. The text is only pre-cut to a bound the rules can read quickly.
   const finding = sanitizeFinding({
     id: `${f.source}-${hash(`${f.url}|${f.title}`)}`,
     source: f.source,
     sourceLabel: f.sourceLabel || f.source,
     category: f.category,
-    title: clip(f.title, 220),
-    quote: clip(f.quote || '', 700),
-    url: String(f.url),
+    title: clip(f.title, PRE_CLIP),
+    quote: clipLines(f.quote || '', PRE_CLIP),
+    url: String(f.url).trim(),
     date,
     match,
     matchReasons: reasons,
     severity: SEVERITIES.includes(f.severity) ? f.severity : 'info',
     ...(matchFixed ? { matchFixed: true } : {}),
-    ...(gradeText ? { gradeText } : {}),
     ...(f.data ? { data: f.data } : {}),
   });
+  if (!finding) return null;
+  finding.title = clipClean(finding.title, 220);
+  finding.quote = clipClean(finding.quote, 700);
+  if (!finding.title) return null;
+  // The grade text is kept on the finding because a re-grade later in the run (also after the saved check is
+  // resumed) must read the same text. It holds only sentences that passed the privacy rules, and deep.js strips
+  // it before the page sees it.
+  if (gradeText) finding.gradeText = gradeText;
   return finding;
+}
+
+// How much raw text the privacy rules read before the final clip (well past the 700 shown, so nothing cut at
+// this bound can reach the page).
+const PRE_CLIP = 4000;
+
+// Clip text the rules have already cleaned. A run of digits the clip cuts at the end ("… 415-55…") is dropped:
+// the rules saw the whole number and did not call it a phone, but half a number is no use to anyone either.
+function clipClean(s, n) {
+  const out = clip(s, n);
+  if (!out.endsWith('…')) return out;
+  return out.replace(/(?<![\w/.-])\+?\(?\d[\d\s().-]{3,}…$/, (m) => ((m.match(/\d/g) || []).length >= 5 && /[\s().-]/.test(m.slice(0, -1)) ? '…' : m));
 }
 
 const HIGH = /\b(indict(?:s|ed|ments?)?|convict(?:s|ed|ions?)?|plead(?:ed|s)? guilty|pled guilty|found guilty|guilty verdict|guilty of|jailed|sentenced|imprison\w*|felony|criminal charges?|charged with|securities fraud|wire fraud|bank fraud|fraud charges|ponzi|embezzl\w*|money launder\w*|bribe\w*|racketeer\w*|insider trading|sanctioned|sanctions list|debarred|barred from|disqualified|banned from|arrest(?:ed)?|extradit\w*|wanted by|cease[- ]and[- ]desist)\b/i;
@@ -249,7 +274,9 @@ export function severityFromText(text, subject = null) {
 export function makeThread(kind, value, why = '', extra = {}) {
   const v = String(value || '').replace(/\s+/g, ' ').trim();
   if (!THREAD_KINDS.includes(kind) || v.length < 2 || v.length > 200) return null;
-  return { kind, value: v, why: clip(why, 160), ...extra };
+  // a url thread is fetched and may be shown as a link: http(s) only
+  if (kind === 'url' && !isSafeUrl(v)) return null;
+  return { kind, value: v, why: clip(cleanSentences(cleanText(why).slice(0, PRE_CLIP), { kin: false }).text, 160), ...extra };
 }
 
 /** Normalise whatever a connector returned into { findings, threads, notes }. */

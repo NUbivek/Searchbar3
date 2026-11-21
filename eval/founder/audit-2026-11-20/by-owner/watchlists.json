@@ -1,0 +1,236 @@
+[
+ {
+  "id": "watchlists-namesake-confirmed-by-employer",
+  "title": "A namesake's regulator order becomes 'confirmed' when the bank is a former employer",
+  "severity": "high",
+  "kind": "wrong-person",
+  "file": "src/server/founder/sources/debarment.js",
+  "line": 307,
+  "scenario": "Subject John Smith has the anchor 'Wells Fargo' (from a résumé record). The FRB file lists a different 'John R. Smith', prohibited, at Wells Fargo Bank. The audit test returned match 'confirmed' plus a trusted thread 'Wells Fargo Bank'. That puts a namesake's prohibition among the red flags. OCC, NCUA, EBRD and the sanctions lists (sanctions.js:668) build their grade text the same way.",
+  "fix": "When the name match came only from the list, cap the grade at 'likely'. Better: return 'possible' unless the context names a company the person founded or ran and that the user gave, never an employer. Raise no trusted thread from that grade. Add a namesake-at-a-large-bank test.",
+  "evidence": "zzAudit test: FRB grade [[\"confirmed\",\"Federal Reserve Prohibition from Banking: John R. Smith (Wells Fargo Bank...)\",[\"names Wells Fargo\"]]], threads [\"Wells Fargo Bank\"]. gradeOf keeps 'confirmed' for non-inferred anchors.",
+  "filesToChange": [
+   "src/server/founder/sources/debarment.js",
+   "src/server/founder/sources/sanctions.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "In debarment.js:307 and sanctions.js:668, matchText is the subject's own name plus the record's context, so the listed name's middle initial is lost. gradeOf (deepCheck.js:467) keeps 'confirmed' for any anchor that was not inferred, including employers found on records. institutionThread then raises a trusted thread.",
+  "betterFix": "For a subject screen on any watchlist or regulator list: grade 'confirmed' only when the listed name is tier 1 AND the context names a company the user gave (origin 'given'). Otherwise cap at 'likely' or 'possible'. Make institutionThread require 'confirmed' and a non-list name source. Apply the same in sanctions gradedFinding. Add a test with a namesake at a large bank."
+ },
+ {
+  "id": "watchlists-oneword-company-sanctions",
+  "title": "A one-word company name matches a sanctioned firm and is graded as the founder's company",
+  "severity": "high",
+  "kind": "wrong-person",
+  "file": "src/server/founder/sources/sanctions.js",
+  "line": 748,
+  "scenario": "The company 'Flow Inc.' is screened, and the US list has an entity named 'FLOW LLC' (RUSSIA-EO14024). The finding is graded 'company' and lands in 'About their companies' as a sanctions record. The SAM.gov company path does the same. Only Offshore Leaks passes coreOnly; debarment.js and government.js already hold one-word names as 'possible'.",
+  "fix": "In screenList and screenSam, set meta.coreOnly = companyTokens(task.value).length < 2, as offshoreLeaksConnector already does. That holds a one-word match as 'possible'. Add a test for a one-word company against the US list.",
+  "evidence": "zzAudit test: one-word company [[\"company\",\"Name match on the US Consolidated Screening List: FLOW LLC (RUSSIA-EO14024): verify identity\"]].",
+  "filesToChange": [
+   "src/server/founder/sources/sanctions.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "screenList (sanctions.js:748) and screenSam (853) never pass meta.coreOnly. gradedFinding then grades a tier-1 one-word core ('FLOW' = 'Flow Inc.') as 'company'. Only offshoreLeaks sets coreOnly; debarment.js graded already holds one-word names as 'possible'."
+ },
+ {
+  "id": "watchlists-unscreenable-reported-clean",
+  "title": "Names that cannot be screened (Cyrillic, one word) are reported as clean screens",
+  "severity": "high",
+  "kind": "honesty",
+  "file": "src/server/founder/sources/sanctions.js",
+  "line": 791,
+  "scenario": "The subject is typed as 'Олег Дерипаска'. sanctions-lists, us-exclusions, offshore-leaks and wanted-lists return no findings, no error and no partial, so the report shows them as 'clear'. The brief then says 'Screens with no match: sanctions…'. mdb-debarment sets partial, but cleanScreens ignores partial, so it is listed as having no match too.",
+  "fix": "Return partial from every 'too short' path, like debarment.js tooShort. In report.js cleanScreens, also drop any source with a partial result or a not-run lookup. Transliterate Cyrillic and Greek names to Latin before normalizeName so these names get screened at all.",
+  "evidence": "zzAudit cyrillic test: sanctions and exclusions results had only notes and no partial; mdb had partial. report.js cleanScreens only checks records and failed.",
+  "filesToChange": [
+   "src/server/founder/sources/sanctions.js",
+   "src/server/founder/report.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "normalizeName strips everything that is not A-Z, so a Cyrillic name has no tokens and canScreen is false. The too-short paths in sanctions-lists, us-exclusions, offshore-leaks and wanted-lists return notes only. cleanScreens (report.js:132) checks only records and failed, not partial, so mdb-debarment is listed too.",
+  "betterFix": "Return partial on every too-short path, and make cleanScreens skip sources with partial, waitedOut or notRun. Carry partial through coverage.searched (it is dropped there today). Transliterate Cyrillic and Greek names (ICAO 9303 table) into the subject's variants, so the name is screened rather than only reported as not screened."
+ },
+ {
+  "id": "watchlists-alllists-partial-missing",
+  "title": "An all-lists screen with lists that failed is still counted as fully answered",
+  "severity": "medium",
+  "kind": "honesty",
+  "file": "src/server/founder/sources/sanctions.js",
+  "line": 810,
+  "scenario": "A company, associate or relative is screened with list.all while the UN, EU, UK and Canada lists fail to load. Only the US list is read, yet run() returns normally with notes only. The source counts as answered, the screen shows 'clear', and cleanScreens prints 'sanctions (US, UN, EU, UK, Canada)' with no match.",
+  "fix": "Add a partial entry per failed list: `partial: failed.map(l => l.name)`. This mirrors usBankRegulatorsConnector. Add a test where four of the five lists fail.",
+  "evidence": "zzAudit test: run() result had no partial field; its notes said four lists 'could not be read'.",
+  "filesToChange": [
+   "src/server/founder/sources/sanctions.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "sanctions.js:802-811 records failed lists only as notes and returns no partial, so errors stay 0. When the same lists also failed for the subject's per-list lookups, errors>0 already removes the source from cleanScreens. The gap is real but needs the failures to fall only in later related-party lookups.",
+  "betterFix": "Return partial: failed.map(l => `${l.name}: not read`). Also make cleanScreens and coverage.searched honour partial: today cleanScreens ignores it, so the proposed partial alone would not change the 'Screens with no match' line."
+ },
+ {
+  "id": "watchlists-truncated-searches-clean",
+  "title": "SAM.gov and HHS OIG read one result page, and the report still calls the screen clean",
+  "severity": "medium",
+  "kind": "honesty",
+  "file": "src/server/founder/sources/sanctions.js",
+  "line": 878,
+  "scenario": "A common name such as 'John Smith' brings back more than 50 SAM rows, or more than one OIG page. Only the first page is read, and the limit appears only as a log note. No partial is set, so 'US exclusion lists' shows 'clear' and is listed under 'Screens with no match' even though the matching record may be on page 2.",
+  "fix": "Return partial whenever totalElements > rows.length or the OIG pager is present. Better: replace the OIG form scraping with the official monthly LEIE file (oig.hhs.gov/exclusions/downloadables/UPDATED.csv, about 10.8 MB, cached daily, reading only the name, type, specialty and date columns).",
+  "evidence": "screenSam and screenOig push notes only. The UPDATED.csv HEAD request returned 200 text/csv, last modified 10 Nov 2026.",
+  "filesToChange": [
+   "src/server/founder/sources/sanctions.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "screenSam (sanctions.js:878) and screenOig (936) report truncation only as a note, with no partial. The screen status becomes 'clear' and cleanScreens lists it. A common name exceeding 50 SAM rows or one OIG page is realistic. The official LEIE CSV is free and is a permitted bulk download.",
+  "betterFix": "Set partial on truncation, and fix cleanScreens to honour partial. Better still, replace the OIG form scraping with the cached monthly UPDATED.csv, indexed by name like the other lists. For SAM, page through results (page=1..n) up to a small cap before falling back to partial."
+ },
+ {
+  "id": "watchlists-false-negatives-names",
+  "title": "Middle names, suffixes, titles, nicknames and double surnames hide real list entries",
+  "severity": "medium",
+  "kind": "accuracy",
+  "file": "src/server/founder/sources/sanctions.js",
+  "line": 163,
+  "scenario": "matchPersonName returned 0 for each of these: 'Trevor Roy Milton' against 'MILTON, Trevor'; 'Albert Kelly Jr.' against 'KELLY, Albert'; 'Sam Bankman-Fried' against 'BANKMAN-FRIED, Samuel Benjamin'; 'Juan Garcia' against 'Juan Carlos Garcia Lopez'. EBRD has 138 IDB debarments, mostly Hispanic double surnames.",
+  "fix": "In personVariants, add a first-plus-last variant without full middle names, and strip Dr/Mr/Ms and Jr/Sr/II/III. Add a small table of equivalent given names (Sam/Samuel, Bill/William, Mohammed/Muhammad, Aleksandr/Alexander). Allow one trailing extra surname. Match these as tier 3, always 'possible', titled 'name variant'.",
+  "evidence": "zzAudit matching test: middle name 0, suffix 0, nickname 0, two surnames 0.",
+  "filesToChange": [
+   "src/server/founder/sources/sanctions.js",
+   "src/server/founder/sources/debarment.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "matchTier requires every searched token in the listed name. personVariants drops only middle initials, not middle names, suffixes or titles. There is no nickname table. personOrderMatch rejects an extra trailing surname. nameVariants in founderCheck.js does the same. Holding these variants as tier 3 'possible' respects the namesake rule."
+ },
+ {
+  "id": "watchlists-stale-unbounded",
+  "title": "An old copy of a list is served with no age limit and the list date is not shown",
+  "severity": "medium",
+  "kind": "robustness",
+  "file": "src/server/founder/cache.js",
+  "line": 101,
+  "scenario": "The EU host is down for three weeks. cached() keeps returning the database copy from three weeks ago (the audit test showed a stale copy served after a failed load). The screen reads 'EU consolidated sanctions list: no match' with no date, and status is 'clear'. A designation added in that window is silently missed.",
+  "fix": "Add a maxStaleMs option (for example 7 days for watchlists). Past it, throw instead of serving the old copy. Whenever the copy is older than the TTL, add partial or a note such as 'list as of <date>', and add listReadAt to the 'no match' note.",
+  "evidence": "zzAudit test: cached() returned {at:'old'} after the loader threw. The fallback `const stale = inMemory || stored` has no age check.",
+  "filesToChange": [
+   "src/server/founder/cache.js",
+   "src/server/founder/sources/sanctions.js",
+   "src/server/founder/sources/debarment.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "cache.js:100-104 serves inMemory or stored with no age check, and keeps it refreshed for 10 minutes each time. The 'no match' notes (sanctions.js:798/808) carry no list date. listReadAt appears only in findings' data, so a stale clean screen looks current."
+ },
+ {
+  "id": "watchlists-5xx-not-retried",
+  "title": "One transient 500 on a list download disables that source for five minutes",
+  "severity": "low",
+  "kind": "robustness",
+  "file": "src/server/founder/sources/debarment.js",
+  "line": 386,
+  "scenario": "The audit's first EBRD download POST got HTTP 500 (an Adobe cloud error page); the identical second request returned the 350 KB CSV. request() retries only 429 and 503, and cached() then holds the failure for FAILURE_HOLD_MS (5 min). Every subject, company and relative lookup in that check then reports the development bank list as 'did not answer'.",
+  "fix": "For whole-list loaders, retry once on 500, 502 and 504 after a 2-4 s pause (pass retries plus a retryOn set to request). Lower the failure hold for list keys to about 60 s, so a 3-5 minute check gets a second attempt.",
+  "evidence": "curl: first POST returned 500 text/html (1,034 bytes); the second returned 200 text/csv (350,772 bytes). http.js:159 retries only on 429 and 503.",
+  "filesToChange": [
+   "src/server/founder/http.js",
+   "src/server/founder/cache.js",
+   "src/server/founder/sources/debarment.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "http.js retries only on 429 and 503, and cached() then holds the failure for 5 minutes. A stale copy is served on failure when one exists (in memory or in the database), so only a cold load with no earlier copy loses the source. The impact is narrower than stated.",
+  "betterFix": "Retry once on 500, 502 and 504 for whole-list loaders, with a short pause. Lower the failure hold for list keys to about 60 s. Keep the stale-copy fallback."
+ },
+ {
+  "id": "watchlists-mdb-e2e-ok-expired-wording",
+  "title": "Development bank list works end to end, but ended debarments are titled 'Debarred by'",
+  "severity": "low",
+  "kind": "accuracy",
+  "file": "src/server/founder/sources/debarment.js",
+  "line": 409,
+  "scenario": "The live EBRD file parses into 1,274 rows: 220 people, and cross-debarments from the World Bank 622, ADB 342, IDB 138 and AfDB 37, plus 131 primary. 16 rows have an end date before today, yet the title still says 'Debarred by the World Bank Group', which reads as a current bar.",
+  "fix": "When row.e is a date before today, title the finding 'Formerly debarred by X (ended <date>)' and lower severity to medium. Otherwise keep it as it is.",
+  "evidence": "parseEbrd on today's live CSV: 1,274 rows, 271 KB index; 16 rows with an end date before 2026-11-20.",
+  "filesToChange": [
+   "src/server/founder/sources/debarment.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "ebrdFinding (debarment.js:409) always titles the finding 'Debarred by…' at high severity, whatever row.e says. row.e is shown only in the quote. An ended debarment reads as a current bar."
+ },
+ {
+  "id": "watchlists-associates-not-on-exclusions",
+  "title": "Associates and relatives are never screened on SAM.gov, HHS OIG or the wanted lists",
+  "severity": "medium",
+  "kind": "missed-information",
+  "file": "src/server/founder/sources/sanctions.js",
+  "line": 943,
+  "scenario": "A co-founder is federally debarred on SAM.gov. exclusionsConnector.kinds is ['subject','company'] and wantedConnector is subject-only, so the debarment never shows up. FOUNDER-CHECK.md says the watchlist row screens associates and relatives, and report.js counts us-exclusions and wanted-lists in WATCHLISTS when it marks related people as screened.",
+  "fix": "Add 'associate' and 'relative' to exclusionsConnector.kinds, using SAM only to save lookups, and grade them as debarment.js does ('possible' unless the record names the subject). Or correct the documentation and drop these ids from WATCHLISTS.",
+  "evidence": "sanctions.js:943 kinds ['subject','company']; :1110 kinds ['subject']; FOUNDER-CHECK.md:34.",
+  "filesToChange": [
+   "src/server/founder/sources/sanctions.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "exclusionsConnector.kinds is ['subject','company'] (sanctions.js:943) and wantedConnector is ['subject'] (1110). FOUNDER-CHECK.md says associates and relatives are screened on watchlists. report.js WATCHLISTS counts us-exclusions, wanted-lists and offshore-leaks when it marks a related person as screened.",
+  "betterFix": "Add associate and relative to SAM (and to OIG, at a small cost), graded 'possible' unless the record names the subject. Remove offshore-leaks from WATCHLISTS for related people, since its own comment forbids searching them, and add mdb-debarment and us-bank-regulators, which do screen them."
+ },
+ {
+  "id": "watchlists-frb-recent-empty",
+  "title": "An empty file of recent Federal Reserve actions is accepted without error",
+  "severity": "low",
+  "kind": "robustness",
+  "file": "src/server/founder/sources/debarment.js",
+  "line": 481,
+  "scenario": "The Federal Reserve renames or empties ea-cms-recent.json but still serves {\"eaitems\":[]}. parseFrb checks only that the file of earlier actions has 500 or more entries, so every action since about 2023 drops out silently and recent prohibitions screen as 'no match'.",
+  "fix": "Require recent.length >= 20 and at least one item dated within the last 18 months. Otherwise throw 'The Federal Reserve recent actions file had too few entries'.",
+  "evidence": "parseFrb: only `old.length < 500` and `!rows.length` are guarded.",
+  "filesToChange": [
+   "src/server/founder/sources/debarment.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "parseFrb (debarment.js:480-501) guards only old.length<500 and an empty rows array. An empty or renamed recent file is accepted silently, and newer prohibitions screen as no match."
+ },
+ {
+  "id": "watchlists-sam-inactive-hidden",
+  "title": "SAM.gov search drops exclusions that have ended",
+  "severity": "low",
+  "kind": "missed-information",
+  "file": "src/server/founder/sources/sanctions.js",
+  "line": 831,
+  "scenario": "A founder was debarred from federal contracts from 2016 to 2019. The query has is_active=true, so the expired exclusion is never returned. Past debarment is material for diligence.",
+  "fix": "Drop is_active=true, or run a second query with is_active=false. Label ended rows 'Exclusion ended <terminationDate>' with severity medium.",
+  "evidence": "The live SAM query answered (3 rows for Elizabeth Holmes, all active); the URL hard-codes is_active=true.",
+  "filesToChange": [
+   "src/server/founder/sources/sanctions.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "The SAM URL (sanctions.js:831) hard-codes is_active=true, so exclusions that have ended are never returned. Past federal debarment is material and freely available. Label ended rows clearly, at medium severity."
+ },
+ {
+  "id": "watchlists-family-in-reasons",
+  "title": "Family ties of listed people to third parties stay in the quoted reason text",
+  "severity": "low",
+  "kind": "privacy",
+  "file": "src/server/founder/sources/sanctions.js",
+  "line": 392,
+  "scenario": "57 UK designations quote reason text such as 'together with her husband Kim Su Gwang, her father-in-law Kim Yon…'. A name-match finding would show these third-party family ties, which the privacy rules say must be stripped.",
+  "fix": "In reasonText, drop sentences that state a kinship (wife, husband, son, daughter, father, mother, brother, sister, in-law, spouse), as mentionsMinor already does for children.",
+  "evidence": "parseUk on today's live file: 57 rows whose reason text mentions family.",
+  "filesToChange": [
+   "src/server/founder/sources/sanctions.js"
+  ],
+  "dim": "watchlists",
+  "verdict": "confirmed",
+  "verifyNote": "reasonText's docstring promises 'without… family members', but it filters only PERSONAL and mentionsMinor. Kinship sentences about adult third parties survive, and sanitizeFinding does not strip them. This conflicts with the stated privacy intent, though the text is an official public record about a listed person, not the subject."
+ }
+]
