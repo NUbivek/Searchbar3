@@ -56,3 +56,8 @@
 - Debug routes follow sign-in: in production any signed-in account may call them (401 when signed out; an allow-list, when set, still applies), with the hourly limits kept.
 - Built by one engineer and read by two independent reviewers (privacy: no leak found; correctness: a name with non-Latin letters broke the request header, fixed). 3,840 tests pass; build compiles; preview `6d31070` checked (diagnostics, a quick brief, the sign-in gate, the privacy text).
 - Not done: the owner asked for the SEC contact to be set in Vercel with their details; the session's privacy guard refused the command because it carries their address, and the sign-in contact makes the setting unnecessary. Not verified: a signed-in deep check on a deployment (the owner's Chrome was not reachable from this session), so the SEC pages loading with a real declared contact has been checked by tests only.
+
+## 2026-11-21, released to production (Claude, on the owner's "Push to production")
+- Merged `claude/research-hub-fix` into `openclaw-fixes` with a merge commit, after the full suite (3,840 tests) and the production build passed on the preview head. Production before this release: `87b8248`.
+- In the release: the three passes of 2026-11-20 and 21 (first overhaul, second pass with the Network Map pairing, the audit of 226 findings and its repair, the independent review of 107 findings and its fixes, the live-run fixes), 28 new sources, the contact taken from sign-in, debug routes following sign-in.
+- Still for the owner after release: a signed-in deep check on the live site has not been run by anyone yet (it needs a Google sign-in); six sources are built and off (`FOUNDER_SOURCES_ON`); patents and US trademarks are off.

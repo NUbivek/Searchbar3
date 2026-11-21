@@ -11,7 +11,7 @@ state things are in and how to run the maintenance loop.
 | | |
 |---|---|
 | Live site | https://diligence.bivek.ai (Vercel project `searchbar3`, team `1bivekadhikari-1506s-projects`) |
-| Production branch | `openclaw-fixes` at `87b8248`, released 2026-11-17 at the owner's request. Everything dated 2026-11-20 and later is on preview only |
+| Production branch | `openclaw-fixes`, released 2026-11-21 at the owner's request ("Push to production"): a merge of the preview branch as it stood after the third pass and the sign-in contact change. The release before it was `87b8248` (2026-11-17) |
 | Working branch | `claude/research-hub-fix` (every change lands here first) |
 | Tests | 3,840 passing (`npx jest`); production build compiles (`NEXT_DIST_DIR=.next-build npm run build`) |
 
@@ -21,7 +21,7 @@ Released on 2026-11-17 (all live):
 2. **Model chain: only models that cost nothing, strongest first** (`src/server/llm/providers.js`; README "AI models"). Gemini 4 Hydrogen leads. Guarantees are tested in `tests/unit/features/llmChain.test.js`. `GET /api/debug/llm-check` shows the order; `?run=chat|analysis|extract|json|brief|gaps` makes one small real call.
 3. **Deep background check** on the Founder Check page (`FOUNDER-CHECK.md`): about forty free public sources, a step-per-request loop, identity grading, privacy rules, a second reader, learning, and a report with red flags, company matters, possible namesakes, claims that changed, related parties, timeline and coverage. Sign-in required, 12 checks per hour per account.
 
-Changed on 2026-11-20 (on preview `claude/research-hub-fix`; in production only after the owner's "push to production"), after the owner reported the tab as broken: the quick brief keeps only pages about this person; the model chain switches service after a timeout; the deep check gained a page reader (`sources/pages.js`), a Profile card (`profile.js`) and a Public-record screens checklist; name-only records sit in one collapsed block. Details in `eval/founder/LOG.md` and FOUNDER-CHECK.md. Rule added by this work: profile lines (school, employer) are read only from sentences that open on the person, never from a sentence about a colleague or relative.
+Changed on 2026-11-20 (released to production on 2026-11-21), after the owner reported the tab as broken: the quick brief keeps only pages about this person; the model chain switches service after a timeout; the deep check gained a page reader (`sources/pages.js`), a Profile card (`profile.js`) and a Public-record screens checklist; name-only records sit in one collapsed block. Details in `eval/founder/LOG.md` and FOUNDER-CHECK.md. Rule added by this work: profile lines (school, employer) are read only from sentences that open on the person, never from a sentence about a colleague or relative.
 
 Second pass on 2026-11-20 (same branch): 18 more sources (`sources/debarment.js`, `government.js`, `courtsMore.js`, `presence.js`), a model-read profile (`profileModel.js`), a deeper page reader, the Network Map pairing (`networkLink.js`, `NetworkLinks.js`, `api/founder/history.js`), and a quick brief that asks a second model service in parallel when the first is slow. One source is written but not listed pending the owner (FOUNDER-CHECK.md, "Choices the owner should know about"). Rules added: contacts never leave the account and only a company name may become a search term; a one-word company name matched on the name alone is a name match, not a company record; a lookup that was cut short or not run returns `partial`, never a clean result.
 
