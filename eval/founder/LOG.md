@@ -64,3 +64,11 @@
 
 ## 2026-11-21, second release of the day (Claude, on the owner's "Yes, release it")
 - One commit: the quick brief showed two full stops after a citation ("[Source 6].."), seen on the live site after the first release. Production `openclaw-fixes` is now `bcbff9b`; the tree equals preview. Live checks after it: pages load, the deep check answers 401 signed out, two real quick briefs returned AI summaries in 9 to 10 s with no doubled full stop.
+
+## 2026-11-24, released to production (Claude, on the owner's "Push to production")
+- Merged `claude/research-hub-fix` (`a57d13d`) into `openclaw-fixes` with merge commit `17b04dc`, after the full suite (4,281 tests) and the production build passed on the preview head. Production before this release: `bcbff9b`.
+- In the release: the Network Map rebuild (the fixed presets, lens gauges, "Zoom to" and the layer stepper replaced by a read-out and shortcuts built from the uploaded file, one selection that lights the globe and fills a people list, role families as the globe's groups, one number per group of people everywhere; `NETWORK-MAP.md`, `eval/network/`). One Founder Check change rides with it: a UK Gazette notice's date is the day the notice gives, wherever the server runs (`sources/courts.js` `isoDay`).
+- Live checks after it at https://diligence.bivek.ai: `/`, `/network`, `/founder`, `/privacy` answer 200; the live Network Map bundle carries the new screen and none of the old preset names; the question route answers 400 with no contacts and returns the right two of four invented contacts by rules alone ("Stripe" with "Stripe, Inc."); saved contacts and the deep check answer 401 signed out; one real quick brief returned an AI summary with 20 sources in 12 s.
+- Saved data: the first company lookup for each account after this release refreshes that account's stored `company_key` values (spellings now merge; no schema change).
+- Not checked by anyone: how the globe's animation feels in a visible browser, a real upload through the file picker on the live site, and (carried over) a signed-in deep check on the live site.
+
