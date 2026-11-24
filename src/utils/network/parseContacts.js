@@ -105,26 +105,96 @@ const COMPANY_SUFFIXES = new Set([
 ]);
 
 /**
- * Grouping key for a company name: lower case, accents (on Latin letters)
- * and punctuation removed, "&" -> "and", leading "the" and trailing legal
- * suffixes (Inc, LLC, Ltd, Corp, GmbH...) stripped. "Stripe, Inc." ->
- * "stripe". Letters and digits of every script are kept, so "Яндекс" and
- * "株式会社トヨタ" get keys too (marks that are part of the script, such as
- * Japanese dakuten, are left alone).
+ * Spellings of one company that people mix in the same export, after the
+ * rest of normalizeCompanyKey has run. Only the same company under another
+ * spelling or a rename (Facebook is now Meta): a parent and its subsidiary
+ * stay apart (Google is not Alphabet, AWS is not Amazon). Kept here, not in
+ * the map's code, so the chips, the question engine and the founder check
+ * all count the same people.
  */
+const COMPANY_ALIASES = new Map([
+  ['facebook', 'meta'], ['meta platforms', 'meta'],
+  ['jp morgan', 'jpmorgan'], ['j p morgan', 'jpmorgan'], ['jpmorgan chase', 'jpmorgan'], ['jp morgan chase', 'jpmorgan'],
+  ['j p morgan chase', 'jpmorgan'], ['jpmorganchase', 'jpmorgan'], ['jpmc', 'jpmorgan'],
+  ['mckinsey company', 'mckinsey'],
+  ['boston consulting group', 'bcg'], ['bcg boston consulting group', 'bcg'],
+  ['pricewaterhousecoopers', 'pwc'], ['ernst and young', 'ey'], ['ernst young', 'ey'],
+  ['amazon web services', 'aws'],
+  ['google ventures', 'gv'], ['andreessen horowitz', 'a16z'],
+  // "Boston Consulting Group" loses its trailing "group" like any other name.
+  ['boston consulting', 'bcg'], ['bcg boston consulting', 'bcg'],
+  ['twitter', 'x'], ['x corp', 'x'],
+]);
+
+/**
+ * Grouping key for a company name: lower case, accents (on Latin letters)
+ * and punctuation removed, "&" -> "and", leading "the", trailing legal
+ * suffixes (Inc, LLC, Ltd, Corp, GmbH...) and a trailing "& Co." or "&
+ * Company" stripped, a bracketed short form dropped, and the spellings in
+ * COMPANY_ALIASES merged. "Stripe, Inc." -> "stripe", "McKinsey & Company"
+ * -> "mckinsey". Letters and digits of every script are kept, so "Яндекс"
+ * and "株式会社トヨタ" get keys too (marks that are part of the script, such
+ * as Japanese dakuten, are left alone).
+ */
+// Many people share an employer, and every count on the map reads the key:
+// each spelling is worked out once. The key depends only on the text.
+const companyKeyMemo = new Map();
 export function normalizeCompanyKey(name) {
+  const raw = typeof name === 'string' ? name : String(name ?? '');
+  const hit = companyKeyMemo.get(raw);
+  if (hit !== undefined) return hit;
+  const key = readCompanyKey(raw);
+  if (companyKeyMemo.size > 50000) companyKeyMemo.clear();
+  companyKeyMemo.set(raw, key);
+  return key;
+}
+
+function readCompanyKey(name) {
   let s = clean(name);
   if (!s) return '';
+  // "Amazon Web Services (AWS)": the bracket repeats the name in short.
+  if (/\S\s*\([^()]{1,12}\)\s*$/.test(s)) s = s.replace(/\s*\([^()]{1,12}\)\s*$/, '');
   // A fixed locale keeps keys identical in the browser and on the server.
+  // "Amazon.com", "Notion.so": a web address suffix written into the name.
+  s = s.replace(/(\S)\.(com|io|ai|co|net|org|so|app|dev)\s*$/i, '$1');
   s = s.normalize('NFKD').replace(/(\p{Script=Latin})\p{M}+/gu, '$1').normalize('NFC').toLocaleLowerCase('en');
   s = s.replace(/&/g, ' and ').replace(/['’`]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   let words = s.split(' ').filter(Boolean);
   if (words[0] === 'the' && words.length > 1) words = words.slice(1);
-  while (words.length > 1 && COMPANY_SUFFIXES.has(words[words.length - 1])) words.pop();
-  // "l l c" spelled out by punctuation removal ("L.L.C.")
-  const joined = words.join(' ').replace(/\s+l l c$/, '').replace(/\s+l l p$/, '');
-  return joined.trim();
+  // "l l c" / "l l p" spelled out by punctuation removal ("L.L.C.")
+  const tail = () => words.slice(-3).join(' ');
+  for (;;) {
+    const n = words.length;
+    if (n > 3 && (tail() === 'l l c' || tail() === 'l l p')) words = words.slice(0, -3);
+    else if (n > 1 && COMPANY_SUFFIXES.has(words[n - 1])) words.pop();
+    // "& Co." and "& Company" say only that it is a company; the "and" left
+    // behind would split "McKinsey & Co." from "McKinsey".
+    else if (n > 2 && words[n - 2] === 'and' && (words[n - 1] === 'company' || words[n - 1] === 'companies')) words = words.slice(0, -2);
+    else if (n > 1 && words[n - 1] === 'and') words.pop();
+    // "The Goldman Sachs Group, Inc." and "Goldman Sachs" are one employer.
+    else if (n > 1 && (words[n - 1] === 'group' || words[n - 1] === 'groups')) words.pop();
+    else break;
+  }
+  const joined = words.join(' ').trim();
+  return COMPANY_ALIASES.get(joined) || joined;
 }
+
+/**
+ * Words people put in the company column that name no company: they work
+ * for themselves, in a company they will not name, or nowhere. Read on the
+ * normalised key. These people have no company everywhere (chips, read-out,
+ * questions, By company).
+ */
+const PLACEHOLDER_COMPANY = /^(self|self employed|selfemployed|freelance\w*|freelancing|independent|(self employed|selfemployed|self|freelance|freelancer|freelancing|independent)( \w+)? (consultants?|consulting|contractors?|advisors?|advisers?|investors?|directors?|board member|researchers?|professionals?|writers?|designers?|developers?|engineers?|photographers?|coach|coaching|artists?|editors?|journalists?|producers?|marketers?|strategists?|analysts?|creatives?|trainers?|translators?|filmmakers?|architects?|copywriters?|programmers?|recruiters?|operators?|founders?|entrepreneurs?|owners?|work)|stealth|stealth( \w+)+|in stealth|building in stealth|retired|unemployed|student|n a|na|none|nil|null|no company|not applicable|confidential|undisclosed|private|various|multiple|several|unknown|tbd|tba|between (jobs|roles)|open to work|career break|looking for \w+( \w+)?|seeking \w+( \w+)?|currently (seeking|looking)( \w+)*|job seeker)$/;
+
+/** True when a company cell holds a placeholder rather than an employer ("Self-employed", "Stealth", "N/A", "-"). */
+export function isPlaceholderCompany(name) {
+  const k = normalizeCompanyKey(name);
+  return !k ? String(name ?? '').trim() !== '' : PLACEHOLDER_COMPANY.test(k);
+}
+
+/** The same test on a key normalizeCompanyKey already gave (saves normalising twice). */
+export const isPlaceholderKey = (key) => !!key && PLACEHOLDER_COMPANY.test(key);
 
 /**
  * How a contact's company relates to a target company (both normalised
@@ -348,18 +418,23 @@ export function dedupeContacts(contacts) {
 const normHeader = (h) => clean(h).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 const HEADER_MAP = {
-  name: ['name', 'full name', 'fullname', 'contact name', 'display name', 'contact', 'person'],
+  name: ['name', 'full name', 'fullname', 'contact name', 'display name', 'contact', 'person', 'candidate', 'candidate name', 'applicant', 'applicant name', 'lead name', 'prospect name'],
   firstName: ['first name', 'firstname', 'first', 'given name', 'forename'],
   lastName: ['last name', 'lastname', 'last', 'surname', 'family name'],
-  company: ['company', 'organization', 'organisation', 'employer', 'company name', 'current company', 'org', 'firm', 'account', 'account name'],
-  position: ['title', 'position', 'job title', 'role', 'headline', 'occupation', 'job', 'current title'],
+  company: ['company', 'organization', 'organisation', 'employer', 'company name', 'current company', 'current employer', 'org', 'firm', 'account', 'account name'],
+  position: ['title', 'position', 'job title', 'role', 'headline', 'occupation', 'job', 'current title', 'current position', 'current job title'],
   email: ['email', 'email address', 'e mail', 'e mail address', 'work email', 'primary email', 'email 1 value'],
   profileUrl: ['linkedin', 'linkedin url', 'url', 'profile', 'profile url', 'linkedin profile', 'linkedin profile url', 'profile link', 'twitter', 'x', 'x url', 'twitter url'],
   location: ['location', 'city', 'region', 'based in', 'address', 'metro', 'area'],
   country: ['country'],
   connectedOn: ['connected on', 'connected', 'date added', 'added on', 'connection date', 'created', 'date'],
-  tags: ['tags', 'tag', 'labels', 'label', 'groups', 'group', 'lists', 'list'],
-  notes: ['notes', 'note', 'comments', 'description'],
+  // Every column that sorts people into a few named piles is read as tags:
+  // a pipeline's stage or status is the signal a CRM or applicant list has.
+  tags: ['tags', 'tag', 'labels', 'label', 'groups', 'group', 'lists', 'list', 'segment', 'segments', 'category', 'categories',
+    'stage', 'status', 'pipeline stage', 'pipeline', 'lead status', 'deal stage', 'lifecycle stage', 'candidate stage', 'application status'],
+  // Recognised so the column is not mistaken for another field, but never
+  // kept: free-text notes are not tags, and there is nowhere to store them.
+  notes: ['notes', 'note', 'comments', 'comment', 'description'],
 };
 
 const HEADER_LOOKUP = (() => {
@@ -368,11 +443,15 @@ const HEADER_LOOKUP = (() => {
   return map;
 })();
 
-/** Map a header row to { field: columnIndex }. */
+/**
+ * Map a header row to { field: columnIndex }. A file may have several tag
+ * columns (Tags and Stage): `tags` is the first and `tagColumns` all of them.
+ */
 export function mapHeaders(headerRow) {
   const mapping = {};
   (headerRow || []).forEach((h, idx) => {
     const field = HEADER_LOOKUP.get(normHeader(h));
+    if (field === 'tags') (mapping.tagColumns = mapping.tagColumns || []).push(idx);
     if (field && mapping[field] === undefined) mapping[field] = idx;
   });
   return mapping;
@@ -383,9 +462,8 @@ const usableMapping = (m) => m.name !== undefined || m.firstName !== undefined |
 function rowToContact(row, mapping, source, { dayFirst = false } = {}) {
   const get = (field) => (mapping[field] === undefined ? '' : row[mapping[field]]);
   const location = [clean(get('location')), clean(get('country'))].filter(Boolean).join(', ');
-  const tags = cleanTags(get('tags'));
-  const notes = clean(get('notes'), LIMITS.tag);
-  if (notes && tags.length < LIMITS.tags) tags.push(notes);
+  const tagColumns = mapping.tagColumns || (mapping.tags === undefined ? [] : [mapping.tags]);
+  const tags = cleanTags(tagColumns.flatMap((i) => cleanTags(row[i])));
   return normalizeContact({
     name: get('name'),
     firstName: get('firstName'),

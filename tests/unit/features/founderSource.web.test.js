@@ -594,7 +594,7 @@ describe('news-archive', () => {
       ['press', 'possible', 'info', '2020-01-24'],
     ]);
     expect(out.findings[0]).toMatchObject({ source: 'news-archive', sourceLabel: 'News archives', url: 'https://news.google.com/rss/articles/CBMioAFBVV95?oc=5', data: { publisher: 'CNBC' }, quote: '' });
-  });
+  }, 20000); // takes over two seconds on its own, and longer than the default five when the whole suite shares the machine
 
   test('a regulator or court site in the news results is still filed under press', async () => {
     const subject = holmes();

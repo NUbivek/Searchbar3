@@ -1,0 +1,81 @@
+{
+ "name": "Facet-first Network Map: presets, labels and questions built from the file",
+ "summary": "The page treats each upload as data with facets: who (role), company, tag, place, when added, sector and seniority. It scores each facet against the file. The facet that splits the network best becomes the default globe grouping. Facet values that cover between 5% and 60% of people become one-tap presets that light people on the globe without moving it. A plain sentence says what is in the network, and example questions are filled in from the file's own companies, roles and cities. Nothing is fixed to a venture investor.",
+ "firstScreen": "The page scrolls to the map, not to the top. Top to bottom:\n\nVC sample (544):\n1. Heading \"Your network\". Sentence: \"544 people at 254 organisations: mostly investors (106), engineers (90) and founders & CEOs (78). Biggest cluster: Stripe (22). 85 added in the last 12 months.\"\n2. Preset chips: [Everyone 544] [At Stripe 22] [Investors 106] [Added in the last 12 months 85] [Software 66] [Decision-makers 201] [Engineers 90]\n3. Left: the globe, grouped \"By role\" with bubbles Investors 106, Engineers 90, Founders & CEOs 78, Executives 59, Product & design 56, Sales & marketing 39, Data & research 25, Other roles 91. Right: the panel \"Everyone · 544\", a seniority bar and a people list.\n4. Ask box directly under the globe, with chips: \"Who do I know at Stripe?\", \"Product managers at Google\", \"Engineers I know\", \"Intro paths to Google\". The answer opens in the right panel.\n5. A single line: \"544 contacts from LinkedIn · kept in this tab · Manage sources\".\n\nSales CRM (328):\n1. \"328 people at 147 organisations: mostly executives (130), clinicians (64) and sales & marketing (46). Biggest cluster: Marlowe Department Stores (18). Your tags: prospect 107, customer 73, partner 69. Mostly in New York, Toronto, Boston.\"\n2. [Everyone 328] [Tagged \"prospect\" 107] [Tagged \"customer\" 73] [At Marlowe Department Stores 18] [Executives 130] [In New York 63] [Healthcare 115]\n3. The globe is grouped \"By tag\" by default, with bubbles Prospect 89, Partner 53, Customer 53, Decision maker 51, Champion 48, Churned 34 (each person sits under their first tag). Panel: \"Everyone · 328\".\n4. Ask chips: \"Who do I know at Marlowe Department Stores?\" (18), \"Doctors at Bayview Health System\" (8), \"Executives in New York\" (44), \"Intro paths to Bayview Health System\" (16).\n5. \"328 contacts from CSV · Manage sources\".\n\nPressing \"At Marlowe Department Stores 18\" lights all 18 people on the globe. The panel then reads \"At Marlowe Department Stores · 18 people: 14 executives…\", and the chip stays pressed.",
+ "networkProfile": "New file src/utils/network/profile.js exports profileNetwork(contacts, today). It is pure and memoised per contacts array, and returns facets, grouping, presets, summary and questions. N is the number of contacts.\n\nEach field counts as present when its share of filled rows reaches a threshold:\n- location: at least 50%, which enables the place facet\n- tags: at least 30% (tag facet); at least 60% puts tags first among the presets\n- connectedOn: at least 80% (the \"when added\" facet)\n- company: at least 50%\n\nPlace uses the country unless one country holds more than 60% of people or fewer than 3 countries appear; then it uses the city (the first comma part of the location).\n\nFacet values:\n- who: the corrected role (see below) mapped to plain nouns, such as Investors, LPs & allocators, Founders & CEOs, Clinicians, Researchers & academics or Bankers. Operators split by the words in their title into Engineers, Product & design, Sales & marketing and Data & research.\n- tag: the lower-cased tag.\n- sector: industryOf limited to true sectors. The job-function fallbacks (Investing, Finance & operations and so on) become Other.\n- senior: seniority 0.\n- recent: connectedOn within 12 months.\n\nPrerequisite classification fixes:\n- Tags are never tested as titles.\n- When a match comes from the employer alone and the title names a different job, the title wins.\n- Words such as \"cardiologist\" and other \"-ologist\" titles count as clinicians.\n\nThe network kind is never named. The profile is simply the set of facets that pass these gates. That is why an LP list, a CRM and a clinician network each get different wording, and no setting is needed.",
+ "presets": [
+  {
+   "id": "everyone",
+   "label": "Everyone {N}",
+   "when": "Always first.",
+   "action": "Clears the active preset, the find box and the answer, sends focus to the root and shows the whole network in the panel. It replaces Whole network and Fit.",
+   "why": "One obvious way back."
+  },
+  {
+   "id": "company",
+   "label": "At {company} {n}",
+   "when": "The 1st and 2nd companies from groupByCompany over the whole network that have n>=3, n>=2% of N and n<=60%. At most 2.",
+   "action": "Sets highlightIds to every person at that company, merging all atlas slices. Turns the camera to them (or flies to the company bubble under By company). Panel: 'At {company} · {n} people' with the seniority bar and the list. The chip stays pressed; pressing it again clears it.",
+   "why": "Fixes 'Largest company': Stripe 22, not a Google slice of 12. The label names the company."
+  },
+  {
+   "id": "tag",
+   "label": "Tagged “{tag}” {n}",
+   "when": "Tag coverage >=30%; tag values with n>=3 and 5-60% of N, by count; up to 3.",
+   "action": "Lights every person who carries that tag. Under By tag grouping it flies to that bubble instead. The panel lists them.",
+   "why": "The user's own pipeline stages (customer, churned, committed, warm) are the most actionable axis."
+  },
+  {
+   "id": "who",
+   "label": "{who} {n}",
+   "when": "Who values other than 'Other roles' with n>=3 and 5-60% of N; up to 3.",
+   "action": "Lights those people, or flies to that bubble under By role. The panel lists them.",
+   "why": "Says what kinds of people the network holds, in this file's own words."
+  },
+  {
+   "id": "place",
+   "label": "In {place} {n}",
+   "when": "Place facet on; values in the 5-60% band; up to 2.",
+   "action": "Lights the people at that place (or flies to the bubble under By place). The panel lists them.",
+   "why": "Useful for trip planning and regional coverage."
+  },
+  {
+   "id": "recent",
+   "label": "Added in the last 12 months {n}",
+   "when": "connectedOn coverage >=80% and the count is in the 5-60% band.",
+   "action": "Lights the people whose connectedOn date is within 12 months of today. The panel lists them newest first.",
+   "why": "Fresh relationships are the warmest to ask."
+  },
+  {
+   "id": "sector",
+   "label": "{sector} {n}",
+   "when": "True-sector values only (no job-function fallbacks) in the 5-60% band.",
+   "action": "Lights the people whose industryOf equals the sector (filtered on the client, not through the query engine). The panel lists them.",
+   "why": "Sector coverage for sourcing or selling."
+  },
+  {
+   "id": "senior",
+   "label": "Decision-makers {n}",
+   "when": "Seniority-0 count is in the 5-60% band, and no tag already contains 'decision'.",
+   "action": "Lights the seniority-0 people. The panel lists them.",
+   "why": "Who can say yes."
+  }
+ ],
+ "labelsAndGroupings": "Grouping: each candidate (who, tag by first tag, place, sector) keeps its top 7 values and folds the rest into \"Other roles\", \"Other tags\", \"Elsewhere\" or \"Other\".\n- Gate: known coverage >=70%, at least 3 values each >=5%, and the largest value <=60%.\n- Score: coverage × normalised entropy, plus 0.15 for tags (the user's own labels).\n- The highest score becomes the default. Ties go in the order tag, who, place, sector. If nothing passes, use who.\n\nResults: VC who 0.80; founder who 0.76 against sector 0.75; sales tag 1.13 against place 1.00; healthcare place 0.79 against who 0.73; LP tag 1.14; small who 0.83.\n\nThe \"Group by\" control lists only the groupings that pass, plus By company. Its labels are By role, By tag, By place and By sector. A grouping that fails is hidden, not left disabled behind a tooltip.\n\nBy company is capped at 15 bubbles plus \"Other companies\". Today it takes 31 seconds on the VC file.\n\nBubble labels are the values as written in the file; for tags, the file's own spelling. The hint under each bubble is generated as \"{n} people · most at {company} ({k})\". The fixed VC hints (\"Who can fund you…\") are gone.\n\nThe Raise, Source and Diligence lenses are removed as buttons and gauges because they cannot tell people apart: Source matches 92% and 98% of two files, Raise matches 0% of one file and 100% of another. The ask box still understands those words.",
+ "layout": "Order: the summary sentence, then the preset chips, then a two-column area with the globe on the left (about 60% of the width) and the panel on the right, then the ask box and its example chips, then a one-line sources bar. On phones the columns stack: globe, then panel.\n\nAnswers render in the right panel, which becomes \"Answer · {n} people\", and light the people on the globe. They no longer appear below the map. An answer and a preset are mutually exclusive: setting one clears the other.\n\nRemoved:\n- the Zoom-to bar (the panel's \"Inside {bubble}\" bars remain)\n- the Layers steps (the breadcrumb remains)\n- the Largest company button\n- the Raise/Source/Diligence presets, gauges and panelLens\n- the dead companyFilter\n- the Fit button (Everyone does this)\n- the four-card Sources section after an upload (moved behind \"Manage sources\")\n\nMerged: \"Filter these people\" filters the list on the panel; the find box stays in the toolbar.\n\nFixes:\n- Remove all calls a function that does not exist (setExpanded), so it reports an error after a delete that worked.\n- readableOn uses hex colours; replace them with tokens.\n- Replace text-[10px] with token sizes.\n\nGlobe change: while highlightIds is set, unlit people and containers dim to the faint token. When lit people are spread more than 1.1 rad apart, the camera returns to home zoom so all of them stay visible.",
+ "examples": "VC (544):\n- Presets: At Stripe 22 · Investors 106 · Added in the last 12 months 85 · Software 66 (Venture capital 89 dropped: overlaps Investors ≥60%) · Decision-makers 201 · Engineers 90\n- Grouping: By role\n- Summary: \"544 people at 254 organisations: mostly investors (106), engineers (90) and founders & CEOs (78). Biggest cluster: Stripe (22). 85 added in the last 12 months.\"\n\nFounder (451):\n- Presets: At Google 41 · Engineers 176 · Added in the last 12 months 91 · Big Tech 124 · Decision-makers 74 · Product & design 123\n- Grouping: By role\n- Summary: \"…mostly engineers (176), product & design (123) and sales & marketing (50). Biggest cluster: Google (41). 91 added in the last 12 months.\"\n\nSales CRM (328):\n- Presets: Tagged \"prospect\" 107 · Tagged \"customer\" 73 · At Marlowe Department Stores 18 · Executives 130 · In New York 63 · Healthcare 115\n- Grouping: By tag\n- Summary: \"…mostly executives (130), clinicians (64) and sales & marketing (46). Biggest cluster: Marlowe Department Stores (18). Your tags: prospect 107, customer 73, partner 69. Mostly in New York, Toronto, Boston.\"\n\nHealthcare (239):\n- Presets: At Massachusetts General Hospital 22 · Clinicians 84 · In United States 125 · Education 58 · Decision-makers 60 · Executives 34\n- Grouping: By place (country)\n- Summary: \"…mostly clinicians (84), executives (34) and researchers & academics (34). Biggest cluster: Massachusetts General Hospital (22). Mostly in United States, United Kingdom, Australia.\"\n- Questions: MGH 22, \"Researchers at Johns Hopkins University\" 11, \"Doctors in Austin\" 2\n\nLP list (114):\n- Presets: Tagged \"met 2026\" 23 · Tagged \"cold\" 23 · At CalPERS 5 · Investors 51 · In United States 61 · Venture capital 25\n- Grouping: By tag\n- Summary: \"…mostly investors (51), LPs & allocators (36) and executives (17). Biggest cluster: CalPERS (5). Your tags: met 2026 23, cold 23, committed 20. Mostly in United States, United Kingdom, France.\"\n- Questions: \"Investors in Seattle\" 13\n\nSmall (22):\n- Presets: At Bluebird Labs 6 · Investors 7 · Added in the last 12 months 6 · Decision-makers 7 · Product & design 3 · At Harbor Capital 3\n- Grouping: By role",
+ "questions": "Up to four chips, each kept only if the rules engine (useLlm false) returns at least 1 person on the uploaded file:\n1. \"Who do I know at {company1}?\"\n2. \"{whoWord} at {company2}\", where whoWord is the top role among company2's people, mapped to an engine role word: Doctors, Researchers, Investors, Executives, Engineers, Product managers or Founders.\n3. With a location: \"{whoWord of the whole file} in {top city}\". Always use the city: country names return 0 because the engine matches location text.\n4. Otherwise \"{2nd whoWord} I know\", plus \"Intro paths to {company2}\".\n\nThe rotating placeholder uses the same list. A question that matches a preset label runs that preset on the client.",
+ "acceptance": [
+  "profileNetwork(vc fixture) puts 'At Stripe 22' in the presets and never a company slice; pressing it puts 22 ids in highlightIds even under By role grouping, where Stripe is split into 3 nodes.",
+  "Every preset count n satisfies 3<=n and 0.05N<=n<=0.6N, except company presets (>=2% and >=3); no preset shows 0 or N.",
+  "The default grouping is 'tag' for sales-crm and lp-fundraising, 'place' for healthcare-academic, and 'role' for the vc, founder and small files.",
+  "No preset or summary on the sales-crm file contains 'Investors' (tags are not read as titles); the founder-operator file has 4 or fewer Investors, not 73.",
+  "Every example question returns at least 1 person with answerQuestion(useLlm:false) on each of the six fixtures; no fixture shows 'Google' or 'Stripe' unless the file contains them.",
+  "Pressing a preset does not call buildAtlas again (spy) and leaves the node positions unchanged; pressing it twice clears it.",
+  "An answer renders in the panel, not below the map, and clears any active preset.",
+  "Grouping by company on the vc fixture builds in under 300 ms and shows at most 16 top bubbles.",
+  "Remove all leaves no error notice; network.js contains no hex colours and no text-[..px] classes; the interface text contains none of the words API, key, token, free, paid, tier or quota.",
+  "The summary sentence for each fixture matches the examples text exactly."
+ ],
+ "risks": "- The \"who\" mapping and the classification fixes change role counts. LP staff still split into Investors 51 and LPs 36; pension staff should count as LPs.\n- Tag-first grouping places each person under their first tag only. Presets count every tag, so a bubble and its chip differ (prospect 89 against 107). The hint must say \"first tag\".\n- The 5-60% band can drop a useful 70% facet, such as Healthcare at 69% on the clinician file.\n- The 12-month window depends on today's date.\n- When lit people are spread wide, the highlight may still read weakly without the dimming change to the globe."
+}

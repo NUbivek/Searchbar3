@@ -1,0 +1,65 @@
+{
+ "scores": [
+  {
+   "design": "insights",
+   "usefulIn30s": 9,
+   "fitsAnyNetwork": 8,
+   "simple": 7,
+   "buildable": 8,
+   "notes": "Best 30-second read. As the VC user I see one paragraph that says who I know (109 investors, 108 engineers), where (Stripe 22, Google 19) and how fresh (85 in the last 12 months), and every bold number is the button that lights those people. On the sales CRM it opens on my own pipeline tags and biggest accounts, opens By tag, and drops the false 69 investors. Splitting operators into engineers, product and sales gives the founder file a useful chip (192 engineers); simplify loses that. Weak spots: the answer renders in the read-out card above the globe, which pushes the map down and keeps a second place where results live. '66 in Software' and 'Strongest in Healthcare (165)' on a hospital file tell me little. The internal 'kind' switch adds a branch to maintain. It keeps the Next layer bars and the seniority bar, so the panel is still busy."
+  },
+  {
+   "design": "taxonomy",
+   "usefulIn30s": 7,
+   "fitsAnyNetwork": 8,
+   "simple": 5,
+   "buildable": 6,
+   "notes": "Cleanest model on paper: facets scored by coverage times entropy, with no named 'kind'. In practice the chips are weaker. The sales CRM gets 'Executives 130' (a generic bucket) and a summary that leads with 'mostly executives (130), clinicians (64)' before my tags. Healthcare opens By place with 'In United States 125', which is true but useless. Putting the ask box under the globe hides the strongest entry point below the fold. Entropy scoring and its tie rules are harder to explain and test. Good ideas: an always-first 'Everyone N' chip as the single reset; example questions kept only if the rule engine returns at least one person on this file; generated bubble hints ('n people · most at X (k)'); groupings that fail are hidden, not disabled."
+  },
+  {
+   "design": "simplify",
+   "usefulIn30s": 8,
+   "fitsAnyNetwork": 7,
+   "simple": 9,
+   "buildable": 8,
+   "notes": "Best interaction model. Chips, find, answers and clicks all set one selection that drives highlightIds and the panel title '{label} · {n} [x]', and nothing ever rebuilds the globe. Answers live in the People panel. Find and 'Filter these people' merge into one input with a 2-character minimum. Details open inline so the list never disappears. Sources fold into one line, and the rotating placeholder and seniority bar go. It removes the most noise. But generic roles never become chips, so the founder-operator file (mostly engineers) gets no engineers chip, and the sales CRM gets only 'Clinicians 43'. The summary is a list of numbers more than a read of the network. 'Past year' measured from the newest date in the file is test-stable but can mislead on an old export unless the label gives the date."
+  }
+ ],
+ "winner": "insights",
+ "graft": [
+  "From simplify: one selection model. Chips, find, answers and globe or person clicks each replace a single active selection {kind, label, ids}, which drives highlightIds and a panel title '{label} · {n} ×'. Never rebuild the atlas for a preset or an answer; only one chip is aria-pressed at a time.",
+  "From simplify and taxonomy: render answers in the right-hand People panel ('Answer · {total}', with reasons and intro paths under it), not inside the read-out card above the globe and not below the map. The ask input stays in the read-out card.",
+  "From simplify: merge the toolbar find box and 'Filter these people' into one Find input at the top of the People panel. It lights matches only from 2 characters on.",
+  "From simplify: open a clicked person inline in their list row instead of replacing the whole panel with the details view.",
+  "From simplify: collapse Sources to one line under the map ('544 contacts from LinkedIn · kept in your account · Add file · Remove all'), with the connector cards behind Add file.",
+  "From simplify: drop the rotating 3.5 s placeholder. Use a static placeholder built from the file, and show the example list in the dropdown on focus.",
+  "From taxonomy: an 'Everyone N' chip, always first, as the one reset. It replaces Whole network, Fit and the 'All' crumb, and clears any chip, find or answer.",
+  "From taxonomy: keep an example question only if answerQuestion(useLlm:false) returns at least one person on the uploaded file, and show that count next to it.",
+  "From taxonomy: generated bubble hints ('{n} people · most at {company} ({k})') in place of the fixed fund-manager hints.",
+  "From taxonomy: show only groupings that split the file, under an 'Arrange by' label; hide the rest instead of disabling them behind a tooltip.",
+  "From simplify: show 'Connected {Mon YYYY}' on each row when the recency chip is active, and each row's classifyContact reason as its why-line under a role chip.",
+  "For recency: anchor the window on today but fall back to the file's newest connectedOn when the export is more than 60 days old, and say which in the label ('in the 12 months before this export')."
+ ],
+ "cut": [
+  "The answer slot inside the read-out card: answers go in the People panel.",
+  "Industry chips and sentences when the sector covers more than 60% ('Strongest in Healthcare (165)' on a hospital file) or the value is a weak broad label. Keep an industry chip only if a slot is free after company, role, tag, place and recency.",
+  "The seniority bar and the Next layer bars in the panel. The 'Senior leaders/decision makers' chip and the most-senior-first sort replace the first. The group rows at the top of the panel replace the second, so the panel has one list, not three widgets.",
+  "The internal 'kind' label as a branch for wording. Keep it only for chip order (tags first when tags are present), so a mixed file does not get the wrong template.",
+  "'By tag' as the default grouping when most contacts carry several tags. Grouping by first tag makes a bubble (prospect 89) disagree with its chip (107). Default to role or company in that case, or state 'first tag' on the bubble.",
+  "The globe's 2.6 s swing-in on first load after an upload: the read-out and lit people should be visible at once.",
+  "The Raise/Source/Diligence buttons, gauges and panelLens, the Largest company button, the Zoom-to bar, the Layers steps, the back chip, the dead companyFilter state, the setExpanded call, hex colours and text-[..px] classes (all three designs agree)."
+ ],
+ "missing": [
+  "The next step once you have the people. None of the designs adds 'Copy names' or 'Export these {n} as CSV' for a selection, an open-profile link on every row, or a 'Draft intro ask' that sends only the question text to the model. Without one of these the value stops at seeing the people.",
+  "Combining two chips, such as 'prospect' and 'In New York', or 'investors' and 'at Stripe'. One selection at a time stops the most common real question. A second chip, or a typed refinement, should narrow the active selection.",
+  "Teaching the query engine tag, industryOf and connectedOn filters, so that typed questions, example questions and chips share one vocabulary. Today 'prospects in New York', 'Healthcare founders' and 'people I connected with this year' fail or match by accident.",
+  "An X following import with no company or title. No design says what the read-out and chips show when company coverage is under 50% and roles are mostly unknown (for example bio keywords or 'recently followed').",
+  "Selections that cover 30-60% of the network ('Senior leaders 201', 'Decision-makers 201'). They barely dim the globe, and the designs do not say how the globe shows them: a count overlay, a stronger dim, or zoom to bubbles.",
+  "Contacts with no company (14 on the VC file) and people classified 'Other'. Nothing makes them visible or fixable, so classification errors stay hidden.",
+  "A way for the user to correct or relabel a role or industry from the panel. Without it the classifier fixes are the only defence against wrong chips.",
+  "Large networks (5k-30k). Chip and profile cost, panel virtualisation and highlight rendering of thousands of lit dots are not budgeted.",
+  "Several sources together, such as LinkedIn plus a CRM. Should tags from one source and dates from the other combine into one read-out, and what does the source-chip filter do to the chips?",
+  "Keyboard and screen-reader use of the chips and the selection (aria-pressed, focus return after Clear), and a phone layout check of the read-out plus chips plus globe within one screen.",
+  "A measure of whether the 30-second goal is met: no design plans a usability check or event logging (which chip is pressed first, time to first press)."
+ ]
+}

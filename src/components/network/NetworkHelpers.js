@@ -23,7 +23,7 @@ function Person({ row }) {
           {row.roleLabel && row.role !== 'other' && <span className={`chip ${ROLE_CHIP[row.role] || ''}`}>{row.roleLabel}</span>}
         </div>
         <div className="truncate text-xs text-slate-600">{[c.position, c.company].filter(Boolean).join(' · ')}</div>
-        {row.reasons?.length > 0 && <div className="text-[11px] text-muted">{row.reasons.slice(0, 2).join(' · ')}</div>}
+        {row.reasons?.length > 0 && <div className="text-xs text-muted">{row.reasons.slice(0, 2).join(' · ')}</div>}
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {c.profileUrl && (

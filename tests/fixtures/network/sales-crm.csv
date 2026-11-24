@@ -1,0 +1,329 @@
+Name,Company,Title,Email,Location,Tags
+Oakley Merriweather,Marlowe Department Stores,Chief Marketing Officer,oakley.merriweather@example.org,"New York, NY",prospect
+Orion Orsini,Marlowe Department Stores,Chief Executive Officer,orion.orsini@example.org,"London, United Kingdom",prospect
+Gideon Northcott,Marlowe Department Stores,Chief Executive Officer,gideon.northcott@example.org,"Austin, TX",partner
+Oakley Pallister,Marlowe Department Stores,Buyer,oakley.pallister@example.org,"Toronto, Canada",prospect; partner
+Farah Joslin,Marlowe Department Stores,E-commerce Manager,farah.joslin@example.org,"San Francisco, CA",decision maker; partner
+Harper Ravenscroft,Marlowe Department Stores,Store Operations Director,harper.ravenscroft@example.org,"Boston, MA",customer; decision maker
+Dale Ravenscroft,Marlowe Department Stores,Head of Procurement,dale.ravenscroft@example.org,"San Francisco, CA",partner; prospect
+Logan Quennell,Marlowe Department Stores,Buyer,logan.quennell@example.org,"Boston, MA",customer; partner
+Oakley Ironwood,Marlowe Department Stores,Head of Procurement,oakley.ironwood@example.org,"Austin, TX",prospect; customer
+Kai Merriweather,Marlowe Department Stores,VP Merchandising,kai.merriweather@example.org,"Toronto, Canada",customer
+Parker Quillfeather,Marlowe Department Stores,Chief Executive Officer,parker.quillfeather@example.org,"Toronto, Canada",champion; customer
+Parker Jesperson,Marlowe Department Stores,Buyer,parker.jesperson@example.org,"San Francisco, CA",churned
+Oakley Bellweather,Marlowe Department Stores,VP Merchandising,oakley.bellweather@example.org,"Toronto, Canada",customer
+Vesper Merriweather,Marlowe Department Stores,Store Operations Director,vesper.merriweather@example.org,"London, United Kingdom",decision maker
+Bodhi Orsini,Marlowe Department Stores,Chief Executive Officer,bodhi.orsini@example.org,"Boston, MA",customer
+Milan Draycott,Marlowe Department Stores,VP Merchandising,milan.draycott@example.org,"Austin, TX",decision maker
+Dale Joslin,Marlowe Department Stores,Head of Procurement,dale.joslin@example.org,"Austin, TX",churned; prospect
+Morgan Whitlock,Marlowe Department Stores,Chief Marketing Officer,morgan.whitlock@example.org,"New York, NY",decision maker; customer
+Dario Joslin,Greenfield Grocers,IT Director,dario.joslin@example.org,"Austin, TX",decision maker
+Riley Oakhurst,Greenfield Grocers,IT Director,riley.oakhurst@example.org,"New York, NY",decision maker; customer
+Gideon Bellweather,Greenfield Grocers,Store Operations Director,gideon.bellweather@example.org,"Toronto, Canada",prospect; customer
+Hana Eastgate,Greenfield Grocers,IT Director,hana.eastgate@example.org,"London, United Kingdom",prospect
+Harper Foxworth,Greenfield Grocers,IT Director,harper.foxworth@example.org,"New York, NY",decision maker
+Bodhi Everhart,Greenfield Grocers,Head of Procurement,bodhi.everhart@example.org,"London, United Kingdom",churned
+Yael Nettleton,Greenfield Grocers,Buyer,yael.nettleton@example.org,"Boston, MA",partner; champion
+Marlow Inglewood,Greenfield Grocers,VP Merchandising,marlow.inglewood@example.org,"New York, NY",customer
+Indra Inglewood,Greenfield Grocers,Chief Executive Officer,indra.inglewood@example.org,"New York, NY",customer; partner
+Marlow Joslin,Greenfield Grocers,VP Merchandising,marlow.joslin@example.org,"New York, NY",champion
+Rowan Eastgate,Greenfield Grocers,Chief Executive Officer,rowan.eastgate@example.org,"Toronto, Canada",customer
+Noor Calloway,Greenfield Grocers,Head of Procurement,noor.calloway@example.org,"Boston, MA",decision maker
+Emerson Stannard,Greenfield Grocers,IT Director,emerson.stannard@example.org,"Boston, MA",prospect
+Ivo Thistlewood,Greenfield Grocers,Head of Procurement,ivo.thistlewood@example.org,"Toronto, Canada",prospect
+Finley Blackwood,Northgate Pharmacy Group,E-commerce Manager,finley.blackwood@example.org,"Toronto, Canada",prospect; champion
+Logan Inglewood,Northgate Pharmacy Group,IT Director,logan.inglewood@example.org,"London, United Kingdom",churned
+Rowan Castellan,Northgate Pharmacy Group,E-commerce Manager,rowan.castellan@example.org,"New York, NY",churned; decision maker
+Flynn Zeller,Northgate Pharmacy Group,IT Director,flynn.zeller@example.org,"London, United Kingdom",prospect
+Morgan Hawksley,Northgate Pharmacy Group,Buyer,morgan.hawksley@example.org,"Austin, TX",churned
+Kendall Stannard,Northgate Pharmacy Group,Store Operations Director,kendall.stannard@example.org,"San Francisco, CA",customer
+Finley Nettleton,Northgate Pharmacy Group,VP Merchandising,finley.nettleton@example.org,"London, United Kingdom",partner
+Teagan Abernathy,Northgate Pharmacy Group,Head of Procurement,teagan.abernathy@example.org,"San Francisco, CA",prospect
+Avery Draycott,Northgate Pharmacy Group,VP Merchandising,avery.draycott@example.org,"San Francisco, CA",churned
+Kai Everhart,Northgate Pharmacy Group,Chief Executive Officer,kai.everhart@example.org,"New York, NY",churned; prospect
+Ivo Vanterpool,Northgate Pharmacy Group,E-commerce Manager,ivo.vanterpool@example.org,"Boston, MA",customer; prospect
+Arden Orsini,Northgate Pharmacy Group,Chief Marketing Officer,arden.orsini@example.org,"San Francisco, CA",prospect
+Noor Northcott,Summit Outdoor Co,Head of Procurement,noor.northcott@example.org,"San Francisco, CA",decision maker
+Wren Castellan,Summit Outdoor Co,E-commerce Manager,wren.castellan@example.org,"Boston, MA",partner; prospect
+Ellis Trevelyan,Summit Outdoor Co,Chief Marketing Officer,ellis.trevelyan@example.org,"Boston, MA",partner
+Kendall Whitlock,Summit Outdoor Co,IT Director,kendall.whitlock@example.org,"New York, NY",prospect
+Indra Blackwood,Summit Outdoor Co,VP Merchandising,indra.blackwood@example.org,"San Francisco, CA",churned
+Zuri Quennell,Summit Outdoor Co,VP Merchandising,zuri.quennell@example.org,"New York, NY",churned
+Noor Oakhurst,Summit Outdoor Co,IT Director,noor.oakhurst@example.org,"Austin, TX",decision maker
+Arden Larkspur,Summit Outdoor Co,Buyer,arden.larkspur@example.org,"London, United Kingdom",partner
+Gray Halloran,Summit Outdoor Co,Chief Marketing Officer,gray.halloran@example.org,"London, United Kingdom",champion
+Celine Yarborough,Bayview Health System,Chief of Surgery,celine.yarborough@example.org,"Austin, TX",prospect
+Amara Joslin,Bayview Health System,Chief of Surgery,amara.joslin@example.org,"Toronto, Canada",prospect
+Milan Ravenscroft,Bayview Health System,Nurse Practitioner,milan.ravenscroft@example.org,"San Francisco, CA",prospect
+Ellis Zeller,Bayview Health System,Resident Physician,ellis.zeller@example.org,"New York, NY",partner
+Noor Quillfeather,Bayview Health System,Cardiologist,noor.quillfeather@example.org,"San Francisco, CA",partner; churned
+Hollis Underhill,Bayview Health System,Cardiologist,hollis.underhill@example.org,"Toronto, Canada",champion
+Kofi Yarborough,Bayview Health System,Nurse Practitioner,kofi.yarborough@example.org,"Austin, TX",partner
+Remy Fairbanks,Bayview Health System,Chief of Surgery,remy.fairbanks@example.org,"London, United Kingdom",prospect
+Xan Kettering,Bayview Health System,Resident Physician,xan.kettering@example.org,"New York, NY",customer
+Gideon Hawksley,Bayview Health System,Physician,gideon.hawksley@example.org,"Toronto, Canada",decision maker
+Jordan Joslin,Bayview Health System,Cardiologist,jordan.joslin@example.org,"Toronto, Canada",customer
+Kofi Inglewood,Bayview Health System,Nurse Practitioner,kofi.inglewood@example.org,"Austin, TX",churned
+Yael Bellweather,Bayview Health System,Nurse Practitioner,yael.bellweather@example.org,"San Francisco, CA",churned
+Nico Lockridge,Bayview Health System,Hospital Administrator,nico.lockridge@example.org,"Boston, MA",prospect; decision maker
+Teagan Glenmore,Bayview Health System,Resident Physician,teagan.glenmore@example.org,"New York, NY",champion
+Lane Yarborough,Bayview Health System,Chief of Surgery,lane.yarborough@example.org,"Toronto, Canada",customer
+Marlow Kettering,Lakeside Medical Group,Nurse Practitioner,marlow.kettering@example.org,"Austin, TX",decision maker
+Nico Kettering,Lakeside Medical Group,Chief of Surgery,nico.kettering@example.org,"New York, NY",decision maker
+Farah Foxworth,Lakeside Medical Group,Chief of Surgery,farah.foxworth@example.org,"Toronto, Canada",decision maker
+Kofi Silverton,Lakeside Medical Group,Cardiologist,kofi.silverton@example.org,"Austin, TX",prospect
+Gideon Quennell,Lakeside Medical Group,Physician,gideon.quennell@example.org,"Austin, TX",prospect; decision maker
+Rowan Vanterpool,Lakeside Medical Group,Nurse Practitioner,rowan.vanterpool@example.org,"London, United Kingdom",partner
+Junia Dunmore,Lakeside Medical Group,Nurse Practitioner,junia.dunmore@example.org,"Boston, MA",prospect; champion
+Nico Yarborough,Lakeside Medical Group,Cardiologist,nico.yarborough@example.org,"Boston, MA",churned
+Logan Rosewarne,Lakeside Medical Group,Physician,logan.rosewarne@example.org,"Toronto, Canada",customer
+Sage Pallister,Lakeside Medical Group,Resident Physician,sage.pallister@example.org,"Boston, MA",customer; partner
+Dale Vanterpool,Lakeside Medical Group,Cardiologist,dale.vanterpool@example.org,"San Francisco, CA",prospect
+Sloan Ironwood,Hartwell Home Goods,Head of Procurement,sloan.ironwood@example.org,"Boston, MA",customer; partner
+Milan Lockridge,Hartwell Home Goods,Chief Marketing Officer,milan.lockridge@example.org,"Toronto, Canada",customer
+Flynn Ironwood,Hartwell Home Goods,IT Director,flynn.ironwood@example.org,"Austin, TX",prospect
+Rowan Oakhurst,Hartwell Home Goods,Buyer,rowan.oakhurst@example.org,"Toronto, Canada",champion
+Arden Bellweather,Hartwell Home Goods,Chief Marketing Officer,arden.bellweather@example.org,"New York, NY",churned
+Flynn Joslin,Hartwell Home Goods,IT Director,flynn.joslin@example.org,"Austin, TX",prospect
+Kendall Quillfeather,Hartwell Home Goods,Chief Marketing Officer,kendall.quillfeather@example.org,"Toronto, Canada",churned
+Tatum Yarborough,Hartwell Home Goods,Chief Marketing Officer,tatum.yarborough@example.org,"Austin, TX",customer
+Noor Vanterpool,Sundial Clinic,VP Merchandising,noor.vanterpool@example.org,"Austin, TX",champion; decision maker
+Hollis Larkspur,Juniper Stores,Chief Executive Officer,hollis.larkspur@example.org,"Austin, TX",partner
+Perry Greystone,Nimbus Outfitters,Store Operations Director,perry.greystone@example.org,"New York, NY",partner; prospect
+Dario Ravenscroft,Bluebird Markets,Chief Marketing Officer,dario.ravenscroft@example.org,"New York, NY",decision maker
+Kofi Blackwood,Sundial Pharmacy,VP Merchandising,kofi.blackwood@example.org,"Toronto, Canada",customer; churned
+Ellis Underhill,Kestrel Markets,Hospital Administrator,ellis.underhill@example.org,"New York, NY",prospect
+Nadia Kettering,Nimbus Outfitters,Cardiologist,nadia.kettering@example.org,"San Francisco, CA",partner
+Omar Pemberton,Zephyr Supply Co,Chief Executive Officer,omar.pemberton@example.org,"Boston, MA",decision maker
+Indra Merriweather,Juniper Supply Co,Store Operations Director,indra.merriweather@example.org,"Toronto, Canada",partner
+Hollis Yarborough,Lumen Markets,Head of Procurement,hollis.yarborough@example.org,"London, United Kingdom",champion
+Wren Calloway,Lumen Clinic,Buyer,wren.calloway@example.org,"Toronto, Canada",churned; prospect
+Dario Zeller,Cobalt Markets,Head of Procurement,dario.zeller@example.org,"New York, NY",champion
+Dario Ashdown,Fathom Stores,Cardiologist,dario.ashdown@example.org,"London, United Kingdom",customer
+Hana Rosewarne,Granite Stores,Cardiologist,hana.rosewarne@example.org,"Austin, TX",champion
+Hollis Rosewarne,Lumen Outfitters,Buyer,hollis.rosewarne@example.org,"London, United Kingdom",prospect
+Indra Kettering,Granite Supply Co,E-commerce Manager,indra.kettering@example.org,"London, United Kingdom",partner; champion
+Ellis Blackwood,Zephyr Outfitters,Cardiologist,ellis.blackwood@example.org,"Austin, TX",prospect
+Morgan Pemberton,Juniper Markets,Hospital Administrator,morgan.pemberton@example.org,"London, United Kingdom",decision maker
+Uma Merriweather,Ember Outfitters,Resident Physician,uma.merriweather@example.org,"New York, NY",customer
+Jules Zeller,Ember Outfitters,Nurse Practitioner,jules.zeller@example.org,"New York, NY",prospect
+Nadia Bellweather,Northwind Pharmacy,Chief Executive Officer,nadia.bellweather@example.org,"Boston, MA",churned
+Tatum Kingsolver,Lumen Stores,E-commerce Manager,tatum.kingsolver@example.org,"London, United Kingdom",prospect
+Wren Oakhurst,Kestrel Pharmacy,Chief Marketing Officer,wren.oakhurst@example.org,"Toronto, Canada",champion
+Xan Zeller,Meridian Stores,Store Operations Director,xan.zeller@example.org,"San Francisco, CA",decision maker
+Orion Bellweather,Tidewater Clinic,Buyer,orion.bellweather@example.org,"Boston, MA",partner; customer
+Celine Underhill,Kestrel Pharmacy,Resident Physician,celine.underhill@example.org,"Austin, TX",champion; customer
+Nadia Fairbanks,Alder Outfitters,IT Director,nadia.fairbanks@example.org,"London, United Kingdom",decision maker
+Jules Quennell,Cinder Stores,Resident Physician,jules.quennell@example.org,"London, United Kingdom",prospect
+Amara Silverton,Northwind Outfitters,Chief of Surgery,amara.silverton@example.org,"London, United Kingdom",decision maker
+Wren Halloran,Ember Stores,Store Operations Director,wren.halloran@example.org,"New York, NY",decision maker; prospect
+Jordan Inglewood,Dovetail Pharmacy,Buyer,jordan.inglewood@example.org,"Toronto, Canada",champion; partner
+Celine Ashdown,Nimbus Clinic,Cardiologist,celine.ashdown@example.org,"Boston, MA",decision maker; churned
+Perry Nettleton,Cobalt Outfitters,IT Director,perry.nettleton@example.org,"Toronto, Canada",prospect
+Farah Halloran,Driftwood Outfitters,Hospital Administrator,farah.halloran@example.org,"Boston, MA",churned
+Leila Quillfeather,Willow Supply Co,Chief Marketing Officer,leila.quillfeather@example.org,"Boston, MA",customer; partner
+Jordan Quillfeather,Harbor Supply Co,VP Merchandising,jordan.quillfeather@example.org,"San Francisco, CA",partner
+Emerson Everhart,Pioneer Outfitters,Resident Physician,emerson.everhart@example.org,"Boston, MA",partner
+Reese Hawksley,Tidewater Clinic,Chief Marketing Officer,reese.hawksley@example.org,"London, United Kingdom",prospect; customer
+Rowan Rosewarne,Briar Pharmacy,E-commerce Manager,rowan.rosewarne@example.org,"Toronto, Canada",customer
+Leila Abernathy,Alder Clinic,Resident Physician,leila.abernathy@example.org,"Boston, MA",partner
+Tatum Northcott,Meridian Clinic,Physician,tatum.northcott@example.org,"New York, NY",customer
+Lane Kingsolver,Granite Clinic,IT Director,lane.kingsolver@example.org,"Austin, TX",champion
+Dario Rosewarne,Alder Outfitters,Chief Executive Officer,dario.rosewarne@example.org,"San Francisco, CA",partner; decision maker
+Ellis Calloway,Cobalt Pharmacy,IT Director,ellis.calloway@example.org,"London, United Kingdom",churned
+Hana Marchetti,Quarry Pharmacy,Physician,hana.marchetti@example.org,"Toronto, Canada",champion
+Blair Oakhurst,Briar Outfitters,E-commerce Manager,blair.oakhurst@example.org,"Toronto, Canada",decision maker
+Celine Pallister,Juniper Markets,Buyer,celine.pallister@example.org,"Toronto, Canada",decision maker
+Oakley Glenmore,Orchard Pharmacy,Head of Procurement,oakley.glenmore@example.org,"Toronto, Canada",partner; churned
+Jordan Larkspur,Willow Pharmacy,Physician,jordan.larkspur@example.org,"Toronto, Canada",prospect
+Wren Marchetti,Acme Clinic,Hospital Administrator,wren.marchetti@example.org,"New York, NY",customer
+Riley Halloran,Briar Clinic,IT Director,riley.halloran@example.org,"Boston, MA",customer
+Celine Kingsolver,Nimbus Stores,Buyer,celine.kingsolver@example.org,"San Francisco, CA",decision maker; prospect
+Parker Stannard,Dovetail Pharmacy,Head of Procurement,parker.stannard@example.org,"San Francisco, CA",churned
+Avery Kettering,Lumen Outfitters,Physician,avery.kettering@example.org,"Toronto, Canada",champion; customer
+Milan Halloran,Bluebird Outfitters,VP Merchandising,milan.halloran@example.org,"Toronto, Canada",prospect
+Lane Bellweather,Northwind Supply Co,Nurse Practitioner,lane.bellweather@example.org,"London, United Kingdom",customer
+Corin Joslin,Juniper Pharmacy,Head of Procurement,corin.joslin@example.org,"New York, NY",partner
+Tatum Bellweather,Lumen Markets,Nurse Practitioner,tatum.bellweather@example.org,"San Francisco, CA",decision maker; customer
+Uma Larkspur,Acme Markets,Nurse Practitioner,uma.larkspur@example.org,"Toronto, Canada",prospect
+Harper Halloran,Cinder Markets,Head of Procurement,harper.halloran@example.org,"San Francisco, CA",partner
+Hollis Lockridge,Vantage Markets,Chief of Surgery,hollis.lockridge@example.org,"Boston, MA",partner; prospect
+Dario Bellweather,Orchard Stores,E-commerce Manager,dario.bellweather@example.org,"San Francisco, CA",customer
+Elio Pallister,Alder Markets,IT Director,elio.pallister@example.org,"Austin, TX",churned
+Wren Northcott,Ridgeline Supply Co,IT Director,wren.northcott@example.org,"London, United Kingdom",prospect
+Uma Ashdown,Juniper Stores,Store Operations Director,uma.ashdown@example.org,"New York, NY",prospect
+Wren Underhill,Ember Outfitters,Chief of Surgery,wren.underhill@example.org,"Toronto, Canada",prospect
+Jordan Orsini,Ridgeline Markets,Chief of Surgery,jordan.orsini@example.org,"New York, NY",champion; customer
+Wren Bellweather,Harbor Pharmacy,Buyer,wren.bellweather@example.org,"San Francisco, CA",champion
+Gray Larkspur,Cobalt Markets,Chief Executive Officer,gray.larkspur@example.org,"Boston, MA",partner
+Wyatt Yarborough,Tidewater Stores,VP Merchandising,wyatt.yarborough@example.org,"Austin, TX",decision maker; partner
+Nico Underhill,Alder Markets,Hospital Administrator,nico.underhill@example.org,"London, United Kingdom",prospect
+Arden Pallister,Zephyr Markets,Store Operations Director,arden.pallister@example.org,"Boston, MA",decision maker
+Leila Bellweather,Fathom Supply Co,Head of Procurement,leila.bellweather@example.org,"Toronto, Canada",prospect; customer
+Hana Whitlock,Sundial Pharmacy,IT Director,hana.whitlock@example.org,"New York, NY",decision maker
+Tatum Oakhurst,Briar Clinic,Chief Executive Officer,tatum.oakhurst@example.org,"San Francisco, CA",champion
+Avery Inglewood,Ember Stores,VP Merchandising,avery.inglewood@example.org,"Boston, MA",prospect
+Nadia Pemberton,Meridian Stores,Head of Procurement,nadia.pemberton@example.org,"Toronto, Canada",champion; customer
+Gideon Silverton,Driftwood Clinic,Chief Marketing Officer,gideon.silverton@example.org,"London, United Kingdom",champion
+Flynn Eastgate,Alder Markets,Chief Executive Officer,flynn.eastgate@example.org,"Boston, MA",prospect
+Milan Yarborough,Lumen Clinic,IT Director,milan.yarborough@example.org,"London, United Kingdom",partner
+Marlow Greystone,Northwind Outfitters,Head of Procurement,marlow.greystone@example.org,"London, United Kingdom",prospect
+Arden Inglewood,Dovetail Pharmacy,E-commerce Manager,arden.inglewood@example.org,"San Francisco, CA",customer
+Ivo Blackwood,Acme Pharmacy,E-commerce Manager,ivo.blackwood@example.org,"Toronto, Canada",partner; prospect
+Gray Quennell,Granite Pharmacy,E-commerce Manager,gray.quennell@example.org,"London, United Kingdom",decision maker; customer
+Dario Underhill,Northwind Clinic,Buyer,dario.underhill@example.org,"Boston, MA",decision maker
+Sage Jesperson,Granite Outfitters,IT Director,sage.jesperson@example.org,"London, United Kingdom",prospect; partner
+Gray Abernathy,Alder Pharmacy,E-commerce Manager,gray.abernathy@example.org,"Toronto, Canada",champion; partner
+Junia Fairbanks,Pioneer Markets,Chief Executive Officer,junia.fairbanks@example.org,"Boston, MA",champion
+Corin Orsini,Quarry Clinic,E-commerce Manager,corin.orsini@example.org,"San Francisco, CA",champion
+Sloan Merriweather,Harbor Markets,VP Merchandising,sloan.merriweather@example.org,"New York, NY",champion; churned
+Wyatt Ironwood,Tidewater Markets,Resident Physician,wyatt.ironwood@example.org,"Boston, MA",prospect
+Arden Eastgate,Umbra Markets,Chief Marketing Officer,arden.eastgate@example.org,"Toronto, Canada",churned
+Bodhi Underhill,Sundial Clinic,Buyer,bodhi.underhill@example.org,"London, United Kingdom",prospect
+Bodhi Glenmore,Fathom Markets,Chief Executive Officer,bodhi.glenmore@example.org,"London, United Kingdom",decision maker
+Junia Oakhurst,Cinder Supply Co,Chief Executive Officer,junia.oakhurst@example.org,"San Francisco, CA",partner
+Xan Larkspur,Nimbus Outfitters,Chief Executive Officer,xan.larkspur@example.org,"San Francisco, CA",partner
+Nadia Halloran,Alder Outfitters,Chief Executive Officer,nadia.halloran@example.org,"Boston, MA",champion
+Sloan Dunmore,Umbra Outfitters,Hospital Administrator,sloan.dunmore@example.org,"San Francisco, CA",decision maker; prospect
+Emerson Vanterpool,Briar Markets,VP Merchandising,emerson.vanterpool@example.org,"Toronto, Canada",prospect
+Morgan Northcott,Meridian Markets,Resident Physician,morgan.northcott@example.org,"Austin, TX",prospect
+Sloan Yarborough,Willow Outfitters,Head of Procurement,sloan.yarborough@example.org,"Boston, MA",customer; prospect
+Ivo Ironwood,Ridgeline Pharmacy,Resident Physician,ivo.ironwood@example.org,"London, United Kingdom",decision maker; champion
+Arden Pemberton,Umbra Stores,Hospital Administrator,arden.pemberton@example.org,"San Francisco, CA",decision maker
+Oakley Zeller,Umbra Pharmacy,Chief Executive Officer,oakley.zeller@example.org,"Toronto, Canada",champion
+Hana Jesperson,Northwind Markets,Chief Executive Officer,hana.jesperson@example.org,"Austin, TX",prospect
+Morgan Quillfeather,Umbra Clinic,E-commerce Manager,morgan.quillfeather@example.org,"San Francisco, CA",prospect; churned
+Jordan Silverton,Zephyr Clinic,Chief Executive Officer,jordan.silverton@example.org,"New York, NY",customer; prospect
+Quinn Blackwood,Meridian Outfitters,Chief Executive Officer,quinn.blackwood@example.org,"Boston, MA",partner
+Oakley Underhill,Ridgeline Clinic,Physician,oakley.underhill@example.org,"San Francisco, CA",champion
+Farah Trevelyan,Umbra Clinic,Head of Procurement,farah.trevelyan@example.org,"New York, NY",prospect
+Perry Whitlock,Cinder Stores,Cardiologist,perry.whitlock@example.org,"Boston, MA",champion
+Quinn Ironwood,Alder Stores,VP Merchandising,quinn.ironwood@example.org,"New York, NY",partner; churned
+Hana Bellweather,Cinder Markets,Chief Executive Officer,hana.bellweather@example.org,"London, United Kingdom",prospect
+Arden Rosewarne,Sundial Markets,Buyer,arden.rosewarne@example.org,"Boston, MA",prospect
+Quinn Underhill,Orchard Stores,Hospital Administrator,quinn.underhill@example.org,"Austin, TX",partner
+Blair Fairbanks,Sundial Markets,Head of Procurement,blair.fairbanks@example.org,"Toronto, Canada",customer
+Remy Thistlewood,Fathom Stores,VP Merchandising,remy.thistlewood@example.org,"New York, NY",prospect
+Ivo Quennell,Cobalt Pharmacy,Head of Procurement,ivo.quennell@example.org,"London, United Kingdom",decision maker; customer
+Dale Rosewarne,Granite Pharmacy,IT Director,dale.rosewarne@example.org,"Austin, TX",prospect; partner
+Tatum Larkspur,Meridian Outfitters,Cardiologist,tatum.larkspur@example.org,"New York, NY",prospect
+Orion Oakhurst,Tidewater Outfitters,Store Operations Director,orion.oakhurst@example.org,"Boston, MA",prospect
+Riley Whitlock,Driftwood Supply Co,Resident Physician,riley.whitlock@example.org,"Austin, TX",partner
+Junia Larkspur,Pioneer Markets,Head of Procurement,junia.larkspur@example.org,"Austin, TX",churned
+Celine Inglewood,Umbra Clinic,Physician,celine.inglewood@example.org,"Austin, TX",decision maker
+Dale Kettering,Meridian Supply Co,VP Merchandising,dale.kettering@example.org,"San Francisco, CA",churned
+Farah Northcott,Lumen Outfitters,Chief Executive Officer,farah.northcott@example.org,"San Francisco, CA",partner
+Farah Castellan,Fathom Supply Co,Buyer,farah.castellan@example.org,"New York, NY",prospect
+Farah Inglewood,Granite Stores,Nurse Practitioner,farah.inglewood@example.org,"Austin, TX",champion
+Remy Zeller,Ridgeline Clinic,Nurse Practitioner,remy.zeller@example.org,"Toronto, Canada",customer
+Dale Pemberton,Quarry Markets,IT Director,dale.pemberton@example.org,"San Francisco, CA",prospect
+Finley Orsini,Acme Outfitters,Head of Procurement,finley.orsini@example.org,"San Francisco, CA",prospect
+Gideon Joslin,Driftwood Markets,Chief Marketing Officer,gideon.joslin@example.org,"New York, NY",prospect; decision maker
+Uma Thistlewood,Orchard Stores,Cardiologist,uma.thistlewood@example.org,"Boston, MA",prospect
+Farah Quillfeather,Nimbus Stores,Store Operations Director,farah.quillfeather@example.org,"London, United Kingdom",customer
+Nadia Marchetti,Alder Clinic,Chief of Surgery,nadia.marchetti@example.org,"Toronto, Canada",prospect
+Elio Hawksley,Kestrel Supply Co,E-commerce Manager,elio.hawksley@example.org,"Toronto, Canada",partner
+Celine Ravenscroft,Pioneer Pharmacy,IT Director,celine.ravenscroft@example.org,"Toronto, Canada",prospect; decision maker
+Corin Nettleton,Fathom Markets,Chief Executive Officer,corin.nettleton@example.org,"San Francisco, CA",partner
+Hollis Vanterpool,Ridgeline Supply Co,Chief Marketing Officer,hollis.vanterpool@example.org,"New York, NY",churned
+Perry Foxworth,Dovetail Stores,E-commerce Manager,perry.foxworth@example.org,"Toronto, Canada",prospect; decision maker
+Sloan Northcott,Acme Clinic,IT Director,sloan.northcott@example.org,"London, United Kingdom",churned
+Dario Kingsolver,Driftwood Supply Co,Chief of Surgery,dario.kingsolver@example.org,"Toronto, Canada",prospect
+Omar Glenmore,Cobalt Stores,Chief Marketing Officer,omar.glenmore@example.org,"Toronto, Canada",prospect; champion
+Corin Whitlock,Harbor Stores,Hospital Administrator,corin.whitlock@example.org,"San Francisco, CA",churned
+Gideon Quillfeather,Briar Stores,Head of Procurement,gideon.quillfeather@example.org,"Austin, TX",prospect
+Zuri Marchetti,Meridian Pharmacy,Store Operations Director,zuri.marchetti@example.org,"San Francisco, CA",customer
+Kofi Castellan,Acme Stores,Chief Executive Officer,kofi.castellan@example.org,"New York, NY",customer
+Sage Whitlock,Cinder Supply Co,Store Operations Director,sage.whitlock@example.org,"New York, NY",customer; partner
+Kendall Foxworth,Ridgeline Clinic,Hospital Administrator,kendall.foxworth@example.org,"Toronto, Canada",prospect
+Perry Marchetti,Dovetail Markets,E-commerce Manager,perry.marchetti@example.org,"San Francisco, CA",prospect
+Noor Jesperson,Pioneer Clinic,Head of Procurement,noor.jesperson@example.org,"San Francisco, CA",champion
+Harper Draycott,Nimbus Markets,VP Merchandising,harper.draycott@example.org,"New York, NY",partner
+Junia Kettering,Ember Outfitters,E-commerce Manager,junia.kettering@example.org,"London, United Kingdom",champion; churned
+Mateo Calloway,Quarry Clinic,Chief Marketing Officer,mateo.calloway@example.org,"San Francisco, CA",prospect
+Sage Greystone,Pioneer Clinic,Chief Executive Officer,sage.greystone@example.org,"Austin, TX",champion
+Jules Pemberton,Cinder Stores,Hospital Administrator,jules.pemberton@example.org,"Toronto, Canada",champion
+Dale Draycott,Meridian Clinic,Chief of Surgery,dale.draycott@example.org,"Boston, MA",prospect
+Elio Abernathy,Sundial Clinic,Cardiologist,elio.abernathy@example.org,"San Francisco, CA",prospect
+Remy Merriweather,Lumen Outfitters,Hospital Administrator,remy.merriweather@example.org,"Boston, MA",partner
+Reese Jesperson,Cinder Stores,IT Director,reese.jesperson@example.org,"New York, NY",decision maker
+Milan Kingsolver,Dovetail Clinic,Nurse Practitioner,milan.kingsolver@example.org,"Boston, MA",churned
+Flynn Castellan,Ridgeline Supply Co,IT Director,flynn.castellan@example.org,"London, United Kingdom",partner
+Reese Quennell,Cinder Markets,Buyer,reese.quennell@example.org,"New York, NY",decision maker
+Farah Whitlock,Driftwood Stores,Resident Physician,farah.whitlock@example.org,"Toronto, Canada",customer; prospect
+Gray Silverton,Cinder Supply Co,Store Operations Director,gray.silverton@example.org,"London, United Kingdom",customer
+Remy Foxworth,Alder Clinic,E-commerce Manager,remy.foxworth@example.org,"New York, NY",champion
+Mateo Fairbanks,Quarry Stores,Buyer,mateo.fairbanks@example.org,"Boston, MA",partner; customer
+Ellis Stannard,Driftwood Pharmacy,Physician,ellis.stannard@example.org,"New York, NY",decision maker; customer
+Noor Glenmore,Cinder Stores,Buyer,noor.glenmore@example.org,"Boston, MA",partner
+Xan Everhart,Umbra Supply Co,Chief Marketing Officer,xan.everhart@example.org,"Toronto, Canada",partner
+Omar Ashdown,Driftwood Clinic,IT Director,omar.ashdown@example.org,"Austin, TX",customer
+Gray Thistlewood,Northwind Supply Co,Head of Procurement,gray.thistlewood@example.org,"New York, NY",partner
+Indra Lockridge,Zephyr Supply Co,Chief of Surgery,indra.lockridge@example.org,"San Francisco, CA",champion
+Amara Trevelyan,Dovetail Outfitters,Head of Procurement,amara.trevelyan@example.org,"Toronto, Canada",prospect
+Jordan Glenmore,Cobalt Stores,Buyer,jordan.glenmore@example.org,"Austin, TX",prospect; decision maker
+Morgan Lockridge,Acme Supply Co,Nurse Practitioner,morgan.lockridge@example.org,"Toronto, Canada",decision maker
+Corin Marchetti,Umbra Supply Co,Head of Procurement,corin.marchetti@example.org,"Austin, TX",prospect
+Blair Thistlewood,Dovetail Stores,Nurse Practitioner,blair.thistlewood@example.org,"San Francisco, CA",customer; prospect
+Corin Oakhurst,Quarry Clinic,Store Operations Director,corin.oakhurst@example.org,"London, United Kingdom",customer
+Hana Blackwood,Cinder Pharmacy,Cardiologist,hana.blackwood@example.org,"Boston, MA",champion
+Perry Castellan,Dovetail Stores,VP Merchandising,perry.castellan@example.org,"London, United Kingdom",churned
+Uma Inglewood,Cobalt Markets,Buyer,uma.inglewood@example.org,"Austin, TX",champion
+Teagan Ironwood,Tidewater Supply Co,Cardiologist,teagan.ironwood@example.org,"Toronto, Canada",customer
+Quinn Orsini,Nimbus Clinic,Store Operations Director,quinn.orsini@example.org,"Boston, MA",champion
+Emerson Draycott,Vantage Pharmacy,Buyer,emerson.draycott@example.org,"London, United Kingdom",decision maker
+Jules Thistlewood,Zephyr Supply Co,Head of Procurement,jules.thistlewood@example.org,"New York, NY",prospect
+Elio Zeller,Tidewater Markets,Chief Marketing Officer,elio.zeller@example.org,"Austin, TX",decision maker; prospect
+Amara Oakhurst,Cinder Clinic,Head of Procurement,amara.oakhurst@example.org,"Boston, MA",prospect
+Omar Oakhurst,Willow Markets,Head of Procurement,omar.oakhurst@example.org,"San Francisco, CA",decision maker; prospect
+Kai Trevelyan,Dovetail Stores,E-commerce Manager,kai.trevelyan@example.org,"New York, NY",prospect; churned
+Corin Underhill,Cinder Pharmacy,VP Merchandising,corin.underhill@example.org,"London, United Kingdom",decision maker; champion
+Ivo Orsini,Cinder Clinic,VP Merchandising,ivo.orsini@example.org,"Austin, TX",customer
+Nico Foxworth,Alder Outfitters,Buyer,nico.foxworth@example.org,"Austin, TX",prospect
+Reese Larkspur,Lumen Markets,Chief Marketing Officer,reese.larkspur@example.org,"London, United Kingdom",decision maker; customer
+Arden Ironwood,Lumen Clinic,Chief Marketing Officer,arden.ironwood@example.org,"Austin, TX",churned
+Logan Kingsolver,Northwind Stores,IT Director,logan.kingsolver@example.org,"London, United Kingdom",prospect
+Xan Quillfeather,Quarry Markets,Head of Procurement,xan.quillfeather@example.org,"Boston, MA",champion
+Milan Eastgate,Alder Stores,IT Director,milan.eastgate@example.org,"Boston, MA",decision maker
+Uma Pallister,Briar Stores,Buyer,uma.pallister@example.org,"San Francisco, CA",champion
+Noor Castellan,Juniper Clinic,Nurse Practitioner,noor.castellan@example.org,"New York, NY",customer; decision maker
+Farah Glenmore,Alder Supply Co,Head of Procurement,farah.glenmore@example.org,"New York, NY",partner
+Parker Eastgate,Harbor Clinic,Chief Executive Officer,parker.eastgate@example.org,"New York, NY",champion; customer
+Indra Greystone,Nimbus Clinic,IT Director,indra.greystone@example.org,"New York, NY",partner; champion
+Zuri Northcott,Tidewater Markets,Resident Physician,zuri.northcott@example.org,"San Francisco, CA",churned
+Jordan Jesperson,Lumen Pharmacy,VP Merchandising,jordan.jesperson@example.org,"New York, NY",partner
+Finley Kettering,Kestrel Markets,Store Operations Director,finley.kettering@example.org,"Boston, MA",decision maker; customer
+Mateo Blackwood,Fathom Clinic,Head of Procurement,mateo.blackwood@example.org,"New York, NY",prospect
+Jules Trevelyan,Meridian Pharmacy,Nurse Practitioner,jules.trevelyan@example.org,"Boston, MA",customer
+Remy Quennell,Juniper Pharmacy,VP Merchandising,remy.quennell@example.org,"New York, NY",prospect
+Nico Greystone,Pioneer Clinic,Chief Marketing Officer,nico.greystone@example.org,"Boston, MA",champion
+Yael Everhart,Meridian Software,Sales Development Representative,yael.everhart@example.org,"Boston, MA",partner
+Amara Greystone,Alder Software,Head of Revenue Operations,amara.greystone@example.org,"London, United Kingdom",churned
+Sloan Inglewood,Ember Software,Enterprise Account Executive,sloan.inglewood@example.org,"Boston, MA",prospect
+Yael Quennell,Dovetail Software,VP Sales,yael.quennell@example.org,"Boston, MA",champion
+Hollis Kettering,Lumen Software,Enterprise Account Executive,hollis.kettering@example.org,"New York, NY",prospect; partner
+Logan Lockridge,Dovetail Software,VP Sales,logan.lockridge@example.org,"Austin, TX",champion; churned
+Indra Oakhurst,Harbor Software,VP Sales,indra.oakhurst@example.org,"Boston, MA",customer
+Leila Blackwood,Cinder Software,Head of Revenue Operations,leila.blackwood@example.org,"New York, NY",champion
+Uma Oakhurst,Willow Software,Regional Sales Director,uma.oakhurst@example.org,"New York, NY",decision maker
+Elio Orsini,Orchard Software,Enterprise Account Executive,elio.orsini@example.org,"New York, NY",partner
+Flynn Silverton,Dovetail Software,Customer Success Manager,flynn.silverton@example.org,"Austin, TX",customer; partner
+Omar Kingsolver,Ridgeline Software,Account Executive,omar.kingsolver@example.org,"Austin, TX",prospect; champion
+Nico Blackwood,Zephyr Software,Head of Revenue Operations,nico.blackwood@example.org,"San Francisco, CA",champion
+Wyatt Everhart,Acme Software,Enterprise Account Executive,wyatt.everhart@example.org,"Toronto, Canada",customer
+Zuri Rosewarne,Juniper Software,Enterprise Account Executive,zuri.rosewarne@example.org,"Austin, TX",partner
+Omar Orsini,Zephyr Software,Head of Revenue Operations,omar.orsini@example.org,"Boston, MA",customer
+Riley Quillfeather,Vantage Software,VP Sales,riley.quillfeather@example.org,"New York, NY",partner
+Dale Hawksley,Vantage Software,Head of Revenue Operations,dale.hawksley@example.org,"Austin, TX",customer
+Celine Castellan,Fathom Software,Enterprise Account Executive,celine.castellan@example.org,"San Francisco, CA",customer; churned
+Hollis Nettleton,Granite Software,Customer Success Manager,hollis.nettleton@example.org,"New York, NY",customer
+Parker Glenmore,Ridgeline Software,Sales Development Representative,parker.glenmore@example.org,"San Francisco, CA",partner
+Noor Silverton,Juniper Software,Enterprise Account Executive,noor.silverton@example.org,"San Francisco, CA",churned
+Harper Inglewood,Driftwood Software,Head of Revenue Operations,harper.inglewood@example.org,"New York, NY",partner
+Noor Bellweather,Harbor Software,Enterprise Account Executive,noor.bellweather@example.org,"San Francisco, CA",churned
+Noor Whitlock,Lumen Software,Sales Development Representative,noor.whitlock@example.org,"Austin, TX",decision maker
+Wren Silverton,Northwind Software,Regional Sales Director,wren.silverton@example.org,"London, United Kingdom",decision maker
+Sloan Everhart,Alder Software,Regional Sales Director,sloan.everhart@example.org,"London, United Kingdom",prospect
+Logan Eastgate,Harbor Software,Enterprise Account Executive,logan.eastgate@example.org,"Austin, TX",prospect
+Jules Stannard,Juniper Software,Regional Sales Director,jules.stannard@example.org,"New York, NY",prospect; partner
+Perry Calloway,Lumen Software,VP Sales,perry.calloway@example.org,"Toronto, Canada",champion

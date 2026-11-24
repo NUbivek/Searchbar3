@@ -1,0 +1,57 @@
+{
+ "scores": [
+  {
+   "design": "insights",
+   "usefulIn30s": 9,
+   "fitsAnyNetwork": 8,
+   "simple": 7,
+   "buildable": 8,
+   "notes": "Best answer to the brief: a sentence saying what the network is, then up to six chips built from the file, and By tag grouping for CRM and LP files. I checked it with a temp test (deleted). The current code gives Stripe 22, Google 19, investor role 109, 85 within 365 days of 2026-11-21, prospect/customer/partner 107/73/69, New York 63, Austin 27, Marlowe 18 and Bayview 16. Its questions return results through the rules: Marlowe 18, New York 63. The network 'kind' (fundraising/pipeline/investor/clinical/operator) is one more classifier to keep up. It changes only chip order and wording, so it is cheap to test but brittle near the thresholds. Its weak spots: the answer goes inside the read-out card, above the globe, apart from the people panel. Every bold number in the paragraph is a second copy of the chips. 'Strongest in Healthcare (165)' on a 69% hospital file says nothing. Its LP sentence ('87 investors or allocators') does not match today's 82 LP + 32 investor."
+  },
+  {
+   "design": "taxonomy",
+   "usefulIn30s": 8,
+   "fitsAnyNetwork": 8,
+   "simple": 5,
+   "buildable": 6,
+   "notes": "It has the strongest rule for example questions: keep one only if the rules return 1 or more people on this file. I checked: Doctors at Bayview 8, Executives in New York 44, Researchers at Johns Hopkins 11, Investors in Seattle 13, Product managers at Google 4. The weak one is Doctors in Austin 2. Its first-tag tag bubbles (prospect 89, partner 53, customer 53) match my run. Choosing the default grouping by entropy score is hard to predict: founder 'who' 0.76 against sector 0.75 is a coin toss that flips on small changes in the data. Healthcare then opens by country, United States 125, which is a weak first view. The new 'who' family mapping gives numbers that differ from classifyContact (Investors 106 against 109), which is one more source of counts. The 5-60% band drops useful facets. It has a large surface for the tests to cover."
+  },
+  {
+   "design": "simplify",
+   "usefulIn30s": 8,
+   "fitsAnyNetwork": 7,
+   "simple": 8,
+   "buildable": 7,
+   "notes": "Cleanest engineering model. Chips, find, answer and clicks all set ONE selection, which drives highlightIds and the panel title, with one aria-pressed. That kills most of the duplicate controls. 'Recent' counts back from the newest date in the file, not from the clock, which keeps tests stable; I verified 83 on VC and 87 on founder. Weak spots: the CRM opens by role, not by its own tags, so it loses the best axis for pipeline files. It removes the seniority bar and turns details into rows that expand in the list, which is a bigger UI rewrite than needed. Merging find and filter changes behaviour users already have. The LP list opens by country (US 61, 54%) rather than by its fundraising stages. The recency anchor misleads on an old export: 'past year' then means the year before the last connection."
+  }
+ ],
+ "winner": "insights",
+ "graft": [
+  "From simplify: a single selection model {kind,label,ids} shared by chips, find (2+ characters), answers and group/company clicks. Setting one replaces the last, the panel title is always '{label} · {n}' with a close mark, only one control is aria-pressed, and none of it rebuilds the atlas (test by atlas object identity).",
+  "From taxonomy and simplify: the answer renders in the right-hand people panel ('Answer · {total}', with reasons and the intro section), not in the read-out card and not below the map, and it replaces any active chip.",
+  "From taxonomy: keep an example question only if answerQuestion(useLlm:false) returns 1 or more people on this file, and drop it otherwise. Use '{role word} at {company2}' and '{role word} in {top city}' with the city, never the country.",
+  "From taxonomy: generated hub hints such as '{n} people · most at {company} ({k})' in place of the fixed VC hint sentences.",
+  "From simplify: in the role-chip list, each row shows classifyContact.reason as its why-line. On a company chip, Company profile and Intro paths to {company} go in the panel header.",
+  "From simplify: hide grouping options that do not split the file (at least 2 buckets of 5% or more each, largest 90% or less), not just Country on LinkedIn files.",
+  "From simplify: a recency window that cannot be fooled by dates. Use end = min(today, newest connectedOn), so future-dated rows (the fixtures run to 2026-12-23 and 2026-12-28) and old exports both behave. Tests inject 'today'."
+ ],
+ "cut": [
+  "Making every bold number in the read-out paragraph a button: it duplicates the chip row. The paragraph stays plain text.",
+  "The answer placed inside the read-out card above the globe: move it to the panel.",
+  "The industry chip or sentence when the top sector covers more than 60% (Healthcare 165 of 239 says nothing). Lower the cap to 60%.",
+  "Exposing the 'kind' anywhere in copy or tests beyond chip order. Keep it a private ordering hint, and use simple tie rules (tags present -> tags first) so the thresholds do not flip the layout.",
+  "The 'decision makers' chip on fundraising and pipeline files when a 'decision maker' tag already exists. The design says this; enforce it with the tag lower-cased and whitespace trimmed.",
+  "Any remaining lens wording in hub labels ('Investors & LPs' as a single root bucket). Skip a one-bucket root as specified, and do not reintroduce Raise/Source/Diligence anywhere in the interface."
+ ],
+ "missing": [
+  "Chip counts and question counts disagree, because the page's classifier and the question engine use different role rules. 'Which clinicians do I know?' returns 59 from query.js while the chip would say 69-79, and 'Which investors do I know?' returns 117 against 109. An example question next to a chip will contradict it. Either query.js reuses classifyContact for role questions, or questions that match a chip run that chip on the client.",
+  "Future-dated connectedOn in the fixtures (newest 2026-12-23 on VC and 2026-12-28 on founder, after today 2026-11-21). The 'today' window (insights) and the 'newest date' window (simplify) both need clamping and a test.",
+  "X imports (handle and bio, no company or title) and mixed multi-source sets. None of the designs works out what the read-out and chips say there, or whether the profile is recomputed when source chips or 'direct only' change. The profile should follow visibleContacts, and the field-presence thresholds over merged files need a rule.",
+  "Tag normalisation (case, whitespace, 'Decision Maker' against 'decision maker'), and how a chip's count (all tags) is reconciled with a By tag bubble (first tag only, prospect 107 against 89). Bubble and chip will show different numbers unless the hint says so.",
+  "A next step after a chip: copy or export the lit list, or 'Intro paths' / 'Ask about these people'. A chip today ends at a list. 'Useful in 30 seconds' needs one obvious action on the selected people.",
+  "Phone layout and truncation for six chips with long names ('18 at Massachusetts General Hospital'), and keyboard and screen-reader behaviour for toggle chips and the globe highlight.",
+  "Profile cost and highlight rendering at 30,000 contacts (thousands of lit ids, groupByCompany and industryOf over everyone). None of the designs gives a performance budget or a test beyond the By company cap.",
+  "A testable version of the globe change (zoom out and pulse when lit people span more than 1.1 rad). All three depend on it so a chip press is visible, but none specifies NetworkGraph props or tests for it.",
+  "Persistence: whether the active chip and grouping survive a reload in saved mode, or adding a second file, and what happens when a chip's ids no longer exist."
+ ]
+}

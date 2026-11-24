@@ -58,9 +58,49 @@ async function ensureTable() {
   return tablePromise;
 }
 
+/**
+ * Company keys are read by normalizeCompanyKey, which now merges spellings
+ * ("McKinsey & Company" -> "mckinsey", Facebook -> "meta"). Rows saved
+ * before that keep their old key, and the SQL lookups below compare keys, so
+ * they would miss them. The first company lookup for a user brings that
+ * user's keys up to date (no schema change), once per process; a failure is
+ * retried on the next lookup and never stops the lookup itself.
+ */
+const rekeyedUsers = new Set();
+async function refreshCompanyKeys(userId) {
+  if (rekeyedUsers.has(userId)) return;
+  try {
+    const rows = await query(
+      `SELECT DISTINCT company, company_key FROM network_contacts
+        WHERE user_id = $1 AND company IS NOT NULL AND company <> ''`,
+      [userId]
+    );
+    const fix = new Map();
+    for (const r of Array.isArray(rows) ? rows : []) {
+      const key = normalizeCompanyKey(r.company) || null;
+      if (key !== (r.company_key || null)) fix.set(r.company, key);
+    }
+    if (fix.size) {
+      await query(
+        `UPDATE network_contacts AS n SET company_key = f.k
+           FROM unnest($2::text[], $3::text[]) AS f(c, k)
+          WHERE n.user_id = $1 AND n.company = f.c`,
+        [userId, [...fix.keys()], [...fix.values()]]
+      );
+    }
+    rekeyedUsers.add(userId);
+  } catch (error) {
+    console.warn('Refreshing company keys failed:', error.message);
+  }
+}
+
+/** The key a saved row is matched on: read again from its company, so an old saved key never decides a match. */
+const rowKey = (r) => normalizeCompanyKey(r.company) || r.company_key || '';
+
 /** For tests. */
 export function __resetForTests() {
   tablePromise = null;
+  rekeyedUsers.clear();
 }
 
 const COLUMNS = ['user_id', 'source', 'name', 'first_name', 'last_name', 'company', 'company_key', 'position',
@@ -292,6 +332,7 @@ export async function findContactsAtCompanies(userId, companyNames, opts = null)
     }
     if (!targets.length) return [];
     await ensureTable();
+    await refreshCompanyKeys(userId);
     const keys = targets.map((t) => t.key);
     const multi = keys.filter((k) => k.includes(' '));
     // Pre-filter in SQL (exact keys, or a multi-word key inside the contact's
@@ -310,7 +351,7 @@ export async function findContactsAtCompanies(userId, companyNames, opts = null)
     );
     const out = [];
     for (const r of rows || []) {
-      const hit = targets.find((t) => companyMatch(r.company_key, t.key));
+      const hit = targets.find((t) => companyMatch(rowKey(r), t.key));
       if (!hit) continue;
       const c = rowFromDb(r);
       out.push({
@@ -348,6 +389,7 @@ async function findContactsAtCompaniesCareful(userId, companyNames, { strict = f
     }
     if (!targets.length) return empty;
     await ensureTable();
+    await refreshCompanyKeys(userId);
     const keys = targets.map((t) => t.key);
     const exact = new Set(keys);
     const likes = keys.filter((k) => k.includes(' ')).map((k) => `%${k}%`);
@@ -388,12 +430,12 @@ async function findContactsAtCompaniesCareful(userId, companyNames, { strict = f
       let match = null;
       let hit = null;
       for (const t of targets) {
-        match = companyMatch(r.company_key, t.key);
+        match = companyMatch(rowKey(r), t.key);
         if (match) { hit = t; break; }
       }
       if (!hit && similar) {
         for (const t of targets) {
-          match = companyFormMatch(r.company_key, t.key, { investor });
+          match = companyFormMatch(rowKey(r), t.key, { investor });
           if (match) { hit = t; break; }
         }
       }

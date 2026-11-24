@@ -51,7 +51,13 @@ const plain = (html) => clean(htmlToText(String(html || '')));
 const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const isoDay = (value) => {
-  const t = Date.parse(String(value || ''));
+  const s = String(value || '');
+  // A date the source wrote as a calendar day is that day wherever this runs. A time with no zone
+  // ("2016-09-08T14:39:59", as The Gazette writes it) would otherwise be read in the server's own zone
+  // and could come out as the day after.
+  const written = s.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/);
+  if (written && !Number.isNaN(Date.parse(written[1]))) return written[1];
+  const t = Date.parse(s);
   return Number.isNaN(t) ? null : new Date(t).toISOString().slice(0, 10);
 };
 /** "7/15/2014" (US order, as BrokerCheck writes dates) -> "2014-07-15". */

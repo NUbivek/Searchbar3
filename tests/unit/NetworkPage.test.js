@@ -3,7 +3,7 @@
  * Network Map page: shell, empty states, sign-in notice, no sample data.
  */
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
 import NetworkPage, { findCheck, contactNameCounts } from '../../src/pages/network';
 
 jest.mock('next/head', () => function Head({ children }) { return <>{children}</>; });
@@ -51,9 +51,10 @@ describe('NetworkPage', () => {
     expect(screen.getByText('Upload contacts')).toBeTruthy();
     expect(screen.getByText('Sign in to save your network')).toBeTruthy();
     expect(screen.getByText('No contacts yet')).toBeTruthy();
-    expect(screen.getByPlaceholderText('Search your network...')).toBeTruthy();
+    // With no contacts the upload is the page: no ask box, no map (spec section 1).
+    expect(screen.queryByLabelText('Ask your network')).toBeNull();
     expect(screen.queryByTestId('graph')).toBeNull();
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/auth/linkedin/token'));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/auth/twitter/token'));
     expect(global.fetch).not.toHaveBeenCalledWith('/api/network/contacts');
   });
 
@@ -75,7 +76,7 @@ describe('NetworkPage', () => {
     render(<NetworkPage />);
     await waitFor(() => expect(screen.getByTestId('graph')).toBeTruthy());
     expect(screen.getByText(/saved to your account/)).toBeTruthy();
-    expect(screen.getByText('Remove all')).toBeTruthy();
+    expect(screen.getByText(/Remove all/)).toBeTruthy();
   });
 
   it('offers Connect LinkedIn / Connect X even when not configured: an inline note, no redirect', async () => {
@@ -89,6 +90,8 @@ describe('NetworkPage', () => {
     }));
     render(<NetworkPage />);
     await waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/auth/twitter/token'));
+    // Let the status reply land before pressing Connect X.
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     fireEvent.click(screen.getByText('Connect X'));
     expect(screen.getByText("X connection isn't available on this deployment yet.")).toBeTruthy();
     expect(screen.queryByText(/paid|tier|API/)).toBeNull();

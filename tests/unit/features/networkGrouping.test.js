@@ -1,5 +1,5 @@
 /**
- * Network Map groupings: industry from title/company words, country from the
+ * Network Map groupings: industry from the employer, country from the
  * location field, and hub buckets for the map.
  */
 const { industryOf, countryOf, groupKeyFor, bucketsFor, GROUPINGS } = require('../../../src/utils/network/grouping');
@@ -8,13 +8,14 @@ const { buildAtlas } = require('../../../src/utils/network/atlas');
 const c = (name, position, company, location) => ({ name, position, company, location });
 
 describe('industryOf', () => {
-  test('matches sector words in title or company, else Other', () => {
+  test('matches sector words in the company, else Other', () => {
     expect(industryOf(c('A', 'Engineer', 'Stripe Payments'))).toBe('Fintech');
     expect(industryOf(c('B', 'Research Scientist', 'OpenAI'))).toBe('AI');
     expect(industryOf(c('C', 'Nurse', 'City Hospital'))).toBe('Healthcare');
     expect(industryOf(c('D', 'Partner', 'Sequoia Capital'))).toBe('Venture capital');
-    // No sector in the employer's name: grouped by what the person does instead.
-    expect(industryOf(c('D2', 'Partner', 'Smith & Co'))).toBe('Investing');
+    // Changed 2026-11-21 (ROUND2 R8.1): no sector in the employer's name means
+    // the industry is not known; the title never sets it.
+    expect(industryOf(c('D2', 'Partner', 'Smith & Co'))).toBe('Other');
     expect(industryOf(c('E', '', ''))).toBe('Other');
   });
 });
@@ -44,16 +45,28 @@ describe('groupKeyFor / bucketsFor', () => {
     expect(groupKeyFor(list[1], 'industry')).toBe('Fintech');
     expect(groupKeyFor(list[2], 'country')).toBe('Unknown');
     expect(groupKeyFor(list[2], 'company')).toBeNull();
-    expect(GROUPINGS.map((g) => g.key)).toEqual(['role', 'company', 'industry', 'country']);
+    // Spec 2026-11-21: a 'tag' arrangement, and country is shown as "By place".
+    expect(GROUPINGS.map((g) => g.key)).toEqual(['role', 'company', 'industry', 'country', 'tag']);
+    expect(GROUPINGS.find((g) => g.key === 'country').label).toBe('By place');
   });
-  test('country buckets are largest first with Unknown last', () => {
+  test('place buckets: by city when fewer than three countries appear, largest first with Unknown last', () => {
+    // Changed 2026-11-21: two countries would not split these people, so the
+    // place arrangement falls back to cities.
     const b = bucketsFor(list, 'country');
-    expect(b.map((x) => [x.key, x.contacts.length])).toEqual([['United States', 2], ['United Kingdom', 1], ['Unknown', 1]]);
+    expect(b.map((x) => [x.key, x.contacts.length])).toEqual([['London', 1], ['Menlo Park', 1], ['New York', 1], ['Unknown', 1]]);
+  });
+  test('place buckets: by country when countries split the people', () => {
+    const spread = [
+      c('A', '', '', 'Menlo Park, CA'), c('B', '', '', 'Boston, MA'), c('C', '', '', 'London, United Kingdom'),
+      c('D', '', '', 'Paris, France'), c('E', '', '', 'Berlin, Germany'), c('F', '', '', ''),
+    ];
+    expect(bucketsFor(spread, 'country').map((x) => [x.key, x.contacts.length])).toEqual([['United States', 2], ['France', 1], ['Germany', 1], ['United Kingdom', 1], ['Unknown', 1]]);
   });
   test('buildAtlas by industry/country makes one bubble per bucket with its companies inside', () => {
     const atlas = buildAtlas(list, { groupBy: 'country' });
     const groups = atlas.root.children;
-    expect(groups.map((h) => h.label).sort()).toEqual(['United Kingdom', 'United States', 'Unknown']);
+    // Changed 2026-11-21 (ROUND2 contract): the unknown place group reads "Place not known".
+    expect(groups.map((h) => h.label).sort()).toEqual(['London', 'Menlo Park', 'New York', 'Place not known']);
     expect(groups.every((h) => h.type === 'group' && h.dim === 'country' && Number.isFinite(h.x) && h.r > 0)).toBe(true);
     expect(atlas.compass).toBe(false);
     const google = atlas.nodes.find((n) => n.type === 'company' && n.label === 'Google');
@@ -76,10 +89,12 @@ describe('industryOf: known employers and decisive titles', () => {
     expect(ind('Designer', 'Figma')).toBe('Software');
     expect(ind('Researcher', 'UC Berkeley Haas School of Business')).toBe('Education');
   });
-  test('decisive titles place people without a known employer; otherwise by function', () => {
-    expect(ind('MBA Candidate', 'Startup 12')).toBe('Education');
-    expect(ind('Angel investor', 'Self-employed')).toBe('Venture capital');
-    expect(ind('Engineer', 'Startup 12')).toBe('Engineering & data');
+  // Changed 2026-11-21 (ROUND2 R8.1, review value-5 / data-6): a title never
+  // sets the industry. An employer that says nothing gives "not known".
+  test('titles never set the industry; an employer that says nothing gives Other', () => {
+    expect(ind('MBA Candidate', 'Startup 12')).toBe('Other');
+    expect(ind('Angel investor', 'Self-employed')).toBe('Other');
+    expect(ind('Engineer', 'Startup 12')).toBe('Other');
   });
   test('word boundaries: "Metadata Inc" is not Meta, "Bainbridge" is not Bain', () => {
     expect(ind('Engineer', 'Metadata Inc')).not.toBe('Big Tech');
@@ -107,9 +122,12 @@ describe('nobody useful is left in "Other"', () => {
     expect(other / people.length).toBeLessThan(0.05);
     expect(classifyContact(c('X', '', '')).group).toBe('other');
   });
-  test('under 5% of people end up in the industry "Other"', () => {
-    const other = people.filter((p) => industryOf(p) === 'Other').length;
-    expect(other / people.length).toBeLessThan(0.05);
+  // Changed 2026-11-21 (ROUND2 R8.1): "Other" is now "Industry not known" and
+  // holds exactly the people whose employer says nothing (Brightloop, Zephyr,
+  // a placeholder, no company), so it is no longer kept under 5%.
+  test('only people whose employer says nothing end up in the industry "Other"', () => {
+    const silent = new Set(['Brightloop', 'Zephyr', 'Self-employed', '']);
+    for (const p of people) expect(industryOf(p) === 'Other').toBe(silent.has(p.company));
   });
   test('new role rules', () => {
     expect(classifyContact(c('A', 'General Partner', 'Accel'))).toMatchObject({ role: 'investor', group: 'investors' });
@@ -121,12 +139,13 @@ describe('nobody useful is left in "Other"', () => {
     expect(classifyContact(c('F', 'Registered Nurse', 'Northside Health')).role).toBe('clinician');
     expect(classifyContact(c('G', 'Musician', 'Zephyr'))).toMatchObject({ role: 'professional', group: 'operators' });
   });
-  test('sector from the company name, then function from the title', () => {
+  test('sector from the company name, never a job function from the title', () => {
     expect(industryOf(c('A', 'Engineer', 'Northside Health'))).toBe('Healthcare');
     expect(industryOf(c('B', 'Engineer', 'Kestrel Robotics'))).toBe('Industrials');
     expect(industryOf(c('C', 'Analyst', 'City of Oakland'))).toBe('Government & nonprofit');
-    expect(industryOf(c('D', 'Founder & CEO', 'Zephyr'))).toBe('Founders & CEOs');
-    expect(industryOf(c('E', 'Senior Product Designer', 'Brightloop'))).toBe('Product & design');
-    expect(industryOf(c('F', 'Photographer', 'Self-employed'))).toBe('Self-employed');
+    // Changed 2026-11-21 (ROUND2 R8.1): these were job-function labels from the title.
+    expect(industryOf(c('D', 'Founder & CEO', 'Zephyr'))).toBe('Other');
+    expect(industryOf(c('E', 'Senior Product Designer', 'Brightloop'))).toBe('Other');
+    expect(industryOf(c('F', 'Photographer', 'Self-employed'))).toBe('Other');
   });
 });
