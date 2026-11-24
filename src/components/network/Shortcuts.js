@@ -1,51 +1,34 @@
 /**
  * The shortcuts built from the file: "Everyone 544" first, then up to six
- * chips, then "More". Chips are toggle buttons and combine (AND): while one
- * or more are pressed, every other chip shows how many people would remain
- * if it were added, and a chip that would leave nobody is disabled.
+ * chips, then "More". A chip switches the list to its people (ROUND2 R1):
+ * pressing another chip goes straight to that one, pressing the pressed chip
+ * again (or Everyone) goes back to everyone. A chip's label and count never
+ * change and a chip is never disabled, so the card always describes the
+ * whole file. Narrowing one list by another lives in the people list.
+ * Below the sm breakpoint every chip is at least 36px tall, a size a thumb can hit.
  */
 import React, { useState } from 'react';
 
-export const MAX_ACTIVE = 3;
-const fmt = (n) => Number(n || 0).toLocaleString('en-US');
-
-function Chip({ s, active, count, disabled, onToggle }) {
-  // An inactive chip shows the count that would remain, not its own total.
-  const label = active || count == null ? s.label : `${fmt(count)} ${s.short}`;
+function Chip({ s, active, onToggle }) {
   return (
     <button
       type="button"
       aria-pressed={active}
-      disabled={disabled}
       onClick={() => onToggle(s.id)}
       data-shortcut={s.id}
-      className={`chip ${active ? 'chip-active' : 'hover:border-brand-200 hover:text-ink'} disabled:cursor-not-allowed disabled:opacity-40`}
+      className={`chip min-h-9 sm:min-h-0 ${active ? 'chip-active' : 'hover:border-brand-200 hover:text-ink'}`}
     >
-      {label}
+      {s.label}
     </button>
   );
 }
 
-export default function Shortcuts({ everyone, shortcuts = [], more = [], activeIds = [], countFor, onToggle, onEveryone, everyoneActive }) {
+/** `pressedId` is the shortcut in use (one at most), or null. */
+export default function Shortcuts({ everyone, shortcuts = [], more = [], pressedId = null, onToggle, onEveryone, everyoneActive }) {
   const [showMore, setShowMore] = useState(false);
-  const anyActive = activeIds.length > 0;
-  const full = activeIds.length >= MAX_ACTIVE;
   // A pressed chip from "More" stays in view even when More is closed.
-  const visibleMore = showMore ? more : more.filter((s) => activeIds.includes(s.id));
-  const render = (s) => {
-    const active = activeIds.includes(s.id);
-    const count = anyActive && !active ? countFor(s.id) : null;
-    return (
-      <Chip
-        key={s.id}
-        s={s}
-        active={active}
-        count={count}
-        disabled={!active && ((count != null && count === 0) || full)}
-        onToggle={onToggle}
-      />
-    );
-  };
+  const visibleMore = showMore ? more : more.filter((s) => s.id === pressedId);
+  const render = (s) => <Chip key={s.id} s={s} active={s.id === pressedId} onToggle={onToggle} />;
   return (
     <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Shortcuts">
       {everyone && (
@@ -53,7 +36,7 @@ export default function Shortcuts({ everyone, shortcuts = [], more = [], activeI
           type="button"
           aria-pressed={Boolean(everyoneActive)}
           onClick={onEveryone}
-          className={`chip ${everyoneActive ? 'chip-active' : 'hover:text-ink'}`}
+          className={`chip min-h-9 sm:min-h-0 ${everyoneActive ? 'chip-active' : 'hover:text-ink'}`}
         >
           {everyone.label}
         </button>
@@ -61,7 +44,7 @@ export default function Shortcuts({ everyone, shortcuts = [], more = [], activeI
       {shortcuts.map(render)}
       {visibleMore.map(render)}
       {more.length > 0 && (
-        <button type="button" aria-expanded={showMore} onClick={() => setShowMore((v) => !v)} className="btn-ghost px-2 py-1 text-xs">
+        <button type="button" aria-expanded={showMore} onClick={() => setShowMore((v) => !v)} className="btn-ghost min-h-9 px-2 py-1 text-xs sm:min-h-0">
           {showMore ? 'Less' : `More (${more.length})`}
         </button>
       )}

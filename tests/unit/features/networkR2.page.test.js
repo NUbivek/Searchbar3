@@ -13,7 +13,7 @@ import path from 'path';
 import { render, screen, waitFor, fireEvent, within, act } from '@testing-library/react';
 import NetworkPage from '../../../src/pages/network';
 import { parseLinkedInConnectionsCsv, parseGenericCsv, dedupeKey } from '../../../src/utils/network/parseContacts';
-import { profileNetwork, combine, countIfAdded } from '../../../src/utils/network/insights';
+import { profileNetwork, combine, narrowings, labelFor } from '../../../src/utils/network/insights';
 import { personNodeId } from '../../../src/utils/network/atlas';
 
 jest.mock('next/head', () => function Head({ children }) { return <>{children}</>; });
@@ -197,31 +197,31 @@ describe('one selection drives the globe and the panel', () => {
     expect(screen.getByRole('button', { name: /Intro paths to Stripe/ })).toBeTruthy();
   });
 
-  test('two shortcuts combine (AND); other chips show what would remain; keys and atlas stay stable', async () => {
+  // ROUND2 R1 replaces "chips combine and relabel": a chip switches, and narrowing lives in the people list.
+  test('a chip switches in one click; narrowing in the list combines (AND); keys and atlas stay stable', async () => {
     const { expected } = await openSample('vc-investor-linkedin.csv');
     const atlas = lastGraph().atlas;
     fireEvent.click(chip('role:investors'));
     const litOne = lastGraph().highlightIds;
-    // Every other chip shows its own intersection; one that would leave nobody is disabled.
-    for (const s of [...expected.shortcuts, ...expected.more].filter((x) => x.id !== 'role:investors' && chip(x.id))) {
-      const k = countIfAdded(expected, ['role:investors'], s.id);
-      expect(chip(s.id).textContent).toBe(`${k.toLocaleString('en-US')} ${s.short}`);
-      expect(chip(s.id).disabled).toBe(k === 0);
-    }
-    // No investor in this sample works at Stripe: the chip says 0 and cannot be pressed.
-    expect(chip('company:stripe').textContent).toBe('0 at Stripe');
-    expect(chip('company:stripe').disabled).toBe(true);
-    // A chip with people in common (More included) narrows the list to them.
-    fireEvent.click(screen.getByRole('button', { name: /^More/ }));
-    const other = [...expected.shortcuts, ...expected.more].find((x) => x.id !== 'role:investors' && countIfAdded(expected, ['role:investors'], x.id) > 0);
-    expect(other).toBeTruthy();
-    const both = countIfAdded(expected, ['role:investors'], other.id);
-    fireEvent.click(chip(other.id));
+    // From investors to Stripe is one click, and the Stripe chip still says 22.
+    expect(chip('company:stripe').textContent).toBe('22 at Stripe');
+    fireEvent.click(chip('company:stripe'));
+    expect(panelTitle()).toBe('at Stripe · 22');
+    expect(chip('role:investors').getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(chip('role:investors'));
+    // "Narrow to" offers the shortcuts that share people with the list, with that overlap.
+    const offers = narrowings(expected, ['role:investors']);
+    expect(offers.length).toBeGreaterThan(0);
+    const row = screen.getByRole('group', { name: 'Narrow to' });
+    expect(within(row).getAllByRole('button').map((b) => b.textContent)).toEqual(offers.map((o) => o.label));
+    const other = offers[0];
+    fireEvent.click(within(row).getByText(other.label));
     const sel = combine(expected, ['role:investors', other.id]);
-    expect(sel.keys.size).toBe(both);
-    expect(panelTitle()).toBe(`investors · ${other.short} · ${both}`);
+    expect(sel.keys.size).toBe(other.count);
+    const short = [...expected.shortcuts, ...expected.more].find((x) => x.id === other.id).short;
+    expect(panelTitle()).toBe(`investors · ${short} · ${other.count}`);
     expect([...lastGraph().highlightIds]).toEqual([...sel.keys]);
-    expect(listed().length).toBe(both);
+    expect(listed().length).toBe(Math.min(50, other.count));
     expect(lastGraph().atlas).toBe(atlas);
     // The lit Set keeps its identity across renders that do not change the selection.
     const litTwo = lastGraph().highlightIds;
@@ -235,13 +235,16 @@ describe('one selection drives the globe and the panel', () => {
   });
 
   test('Find in the panel is a selection from two characters', async () => {
-    await openSample('vc-investor-linkedin.csv');
+    const { contacts } = await openSample('vc-investor-linkedin.csv');
     const find = screen.getByLabelText('Find a person or company');
     fireEvent.change(find, { target: { value: 's' } });
     expect(lastGraph().highlightIds.size).toBe(0);
     fireEvent.change(find, { target: { value: 'stripe' } });
-    expect(lastGraph().highlightIds.size).toBeGreaterThanOrEqual(22);
-    expect(panelTitle()).toMatch(/^Find “stripe” · \d+$/);
+    // Exactly the people whose name, company or title holds the word (page-24).
+    const want = contacts.filter((c) => [c.name, c.company, c.position].some((v) => String(v || '').toLowerCase().includes('stripe')));
+    expect(want.length).toBeGreaterThanOrEqual(22);
+    expect(new Set(lastGraph().highlightIds)).toEqual(new Set(want.map(personNodeId)));
+    expect(panelTitle()).toBe(`Find “stripe” · ${want.length}`);
     // A shortcut replaces it.
     fireEvent.click(chip('role:investors'));
     expect(find.value).toBe('');
@@ -321,7 +324,8 @@ describe('answers, removal and wording', () => {
     const { seen } = await openSample('vc-investor-linkedin.csv', { answer });
     fireEvent.click(chip('role:investors'));
     fireEvent.click(screen.getByText('Who do I know at Stripe?'));
-    await waitFor(() => expect(panelTitle()).toBe('Answer · 2'));
+    // ROUND2 R7: the title says what the list is; nothing was read, so the question in quotes.
+    await waitFor(() => expect(panelTitle()).toBe('“Who do I know at Stripe?” · 2'));
     expect(seen.find((c) => c.url === '/api/network/query').body.question).toBe('Who do I know at Stripe?');
     // It replaces the shortcut.
     expect(chip('role:investors').getAttribute('aria-pressed')).toBe('false');
@@ -369,3 +373,146 @@ describe('answers, removal and wording', () => {
     expect(screen.getByText(/kept in this tab only/)).toBeTruthy();
   });
 });
+
+// ------------------------------------------------------------ ROUND2 acceptance (the page's part)
+
+const OLD_GROUP_NAMES = /Founders & executives|Operators & talent|Investors & LPs|Experts & advisors/;
+/** Every chip's label, pressed and enabled state, More opened first. */
+const chipStates = () => [...document.querySelectorAll('[data-shortcut]')].map((b) => ({
+  id: b.getAttribute('data-shortcut'), label: b.textContent, disabled: b.disabled || b.getAttribute('aria-disabled') === 'true',
+}));
+const narrowButtons = () => {
+  const row = screen.queryByRole('group', { name: 'Narrow to' });
+  return row ? within(row).getAllByRole('button') : [];
+};
+const countOf = (label) => Number(String(label).match(/^([\d,]+)/)[1].replace(/,/g, ''));
+const groupRows = () => within(screen.getByLabelText('Groups in view')).getAllByRole('button')
+  .map((b) => [...b.querySelectorAll('span')].map((x) => x.textContent.trim()).filter(Boolean).join(' '));
+const arrangeBy = (name) => { const r = screen.queryByRole('radio', { name }); if (r) fireEvent.click(r); return Boolean(r); };
+
+describe('ROUND2 acceptance: shortcuts switch and never change (R1)', () => {
+  test.each(FILES)('%s: pressing each shortcut in turn lists exactly its count and leaves every other chip as it was', async (file) => {
+    const { expected } = await openSample(file);
+    const more = screen.queryByRole('button', { name: /^More/ });
+    if (more) fireEvent.click(more);
+    const before = chipStates();
+    expect(before.length).toBe(expected.shortcuts.length + expected.more.length);
+    expect(before.every((c) => !c.disabled)).toBe(true);
+    for (const s of [...expected.shortcuts, ...expected.more]) {
+      // Straight from the last one: no click to undo it first.
+      fireEvent.click(chip(s.id));
+      expect(panelTitle()).toBe(`${s.short} · ${s.count.toLocaleString('en-US')}`);
+      expect(lastGraph().highlightIds.size).toBe(s.count);
+      expect(chipStates()).toEqual(before);
+      const pressed = [...document.querySelectorAll('[data-shortcut][aria-pressed="true"]')].map((b) => b.getAttribute('data-shortcut'));
+      expect(pressed).toEqual([s.id]);
+    }
+    // Pressing the one in use goes back to everyone.
+    const last = [...expected.shortcuts, ...expected.more].pop();
+    fireEvent.click(chip(last.id));
+    expect(lastGraph().highlightIds.size).toBe(0);
+    expect(screen.getByRole('button', { name: expected.everyone.label }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test.each(FILES)('%s: "Narrow to" never offers zero or the whole list, gives exactly its count, stops at three parts', async (file) => {
+    const { expected } = await openSample(file);
+    const more = screen.queryByRole('button', { name: /^More/ });
+    if (more) fireEvent.click(more);
+    let narrowed = 0;
+    for (const s of [...expected.shortcuts, ...expected.more]) {
+      fireEvent.click(chip(s.id));
+      const offers = narrowButtons();
+      const want = narrowings(expected, [s.id]);
+      expect(offers.map((b) => b.textContent)).toEqual(want.map((o) => o.label));
+      offers.forEach((b) => {
+        const k = countOf(b.textContent);
+        expect(k).toBeGreaterThanOrEqual(1);
+        expect(k).toBeLessThan(s.count);
+      });
+      if (!want.length) { fireEvent.click(chip(s.id)); continue; }
+      // Two more parts at most; each press gives exactly the count it showed.
+      const parts = [s.id];
+      while (parts.length < 3) {
+        const next = narrowButtons()[0];
+        if (!next) break;
+        const k = countOf(next.textContent);
+        const id = next.getAttribute('data-narrow');
+        fireEvent.click(next);
+        parts.push(id);
+        narrowed += 1;
+        expect(lastGraph().highlightIds.size).toBe(k);
+        expect(lastGraph().highlightIds).toEqual(combine(expected, parts).keys);
+        expect(screen.getByTestId('panel-count').textContent).toBe(`· ${k.toLocaleString('en-US')}`);
+        // Each part shows as a removable chip under the title.
+        expect(within(screen.getByLabelText('This list is')).getAllByRole('button')).toHaveLength(parts.length);
+      }
+      if (parts.length === 3) expect(narrowButtons()).toHaveLength(0);
+      // Removing the last part widens the list again.
+      if (parts.length >= 2) {
+        const removers = within(screen.getByLabelText('This list is')).getAllByRole('button');
+        fireEvent.click(removers[removers.length - 1]);
+        expect(lastGraph().highlightIds).toEqual(combine(expected, parts.slice(0, -1)).keys);
+      }
+      fireEvent.click(screen.getByRole('button', { name: expected.everyone.label }));
+    }
+    if (file !== 'lp-fundraising-list.csv') expect(narrowed).toBeGreaterThan(0);
+  });
+
+  test('a count of one is singular: "1 founder or CEO", never "1 founders and CEOs"', async () => {
+    const { expected } = await openSample('founder-operator-linkedin.csv');
+    fireEvent.click(screen.getByRole('button', { name: /^More/ }));
+    fireEvent.click(chip('company:microsoft'));
+    const one = narrowButtons().find((b) => /^1 /.test(b.textContent));
+    expect(one).toBeTruthy();
+    const s = [...expected.shortcuts, ...expected.more].find((x) => x.id === one.getAttribute('data-narrow'));
+    expect(one.textContent).toBe(labelFor(s, 1));
+    expect(one.textContent).toBe('1 founder or CEO');
+  });
+});
+
+describe('ROUND2 acceptance: the globe and list use the file\'s own groups (R2, R3, R4)', () => {
+  test('By role on the healthcare sample: Clinicians 100 and Researchers & academics 64 lead', async () => {
+    await openSample('healthcare-academic.csv');
+    expect(lastGraph().atlas.groupBy).toBe('role');
+    const rows = groupRows();
+    expect(rows.slice(0, 2)).toEqual(['Clinicians 100', 'Researchers & academics 64']);
+    expect(rows[rows.length - 1]).toMatch(/^Other roles \d+$/);
+  });
+
+  test.each(FILES)('%s: none of the four old group names appears anywhere, in any arrangement', async (file) => {
+    await openSample(file);
+    const radios = screen.queryByRole('radiogroup', { name: 'Arrange by' });
+    const names = radios ? within(radios).getAllByRole('radio').map((r) => r.textContent) : [];
+    for (const name of [null, ...names]) {
+      if (name) arrangeBy(name);
+      expect(document.body.textContent).not.toMatch(OLD_GROUP_NAMES);
+      expect(lastGraph().atlas.nodes.some((n) => OLD_GROUP_NAMES.test(String(n.label)) || OLD_GROUP_NAMES.test(String(n.hint || '')))).toBe(false);
+    }
+  });
+
+  test('By tag on the sales CRM sample: "prospect" shows 107, and selecting it lists 107 and presses its chip', async () => {
+    await openSample('sales-crm.csv');
+    expect(groupRows()[0]).toBe('prospect 107');
+    const node = lastGraph().atlas.root.children.find((n) => n.key === 'prospect');
+    act(() => { lastGraph().onNodeClick(node); });
+    expect(lastGraph().highlightIds.size).toBe(107);
+    expect(panelTitle()).toBe('tagged “prospect” · 107');
+    expect(chip('tag:prospect').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test.each(FILES)('%s: By company, the first group row is the largest named company and "Other companies" is last', async (file) => {
+    const { contacts } = await openSample(file);
+    if (lastGraph().atlas.groupBy !== 'company' && !arrangeBy('Company')) return;
+    const rows = groupRows();
+    const named = lastGraph().atlas.root.children.filter((n) => !n.last);
+    const top = named.reduce((a, b) => (b.count > a.count ? b : a));
+    expect(rows[0]).toBe(`${top.label} ${top.count}`);
+    const other = rows.findIndex((r) => /^Other companies /.test(r));
+    if (other >= 0) {
+      // Only "No company listed" may follow it.
+      expect(rows.slice(other + 1).every((r) => /^No company listed /.test(r))).toBe(true);
+    }
+    expect(contacts.length).toBeGreaterThan(0);
+  });
+});
+

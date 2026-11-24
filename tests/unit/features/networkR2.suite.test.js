@@ -69,7 +69,9 @@ async function open(contacts, answer) {
 async function askAnything() {
   fireEvent.change(screen.getByLabelText('Ask your network'), { target: { value: 'anything' } });
   fireEvent.click(screen.getByRole('button', { name: /^Ask$/ }));
-  await waitFor(() => expect(panelTitle()).toMatch(/^Answer/));
+  // The answer's title says what the list is (ROUND2 R7), so wait for the answer's own Clear.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Clear the selection' })).toBeTruthy());
+  await waitFor(() => expect(screen.queryByText('Searching your contacts…', { selector: 'div > p' })).toBeNull());
 }
 
 beforeEach(() => {
@@ -122,16 +124,17 @@ describe('an answer counts only the people in view', () => {
     const group = screen.getByRole('group', { name: 'Which contacts the map shows' });
     fireEvent.click(within(group).getByRole('checkbox', { name: /CSV/ }));
     await askAnything();
-    expect(panelTitle()).toBe('Answer · 1');
+    expect(panelTitle()).toBe('“q” · 1');
     expect(screen.getByText('1 more match is hidden by the source filters above.')).toBeTruthy();
     expect(lastGraph().highlightIds.size).toBe(1);
   });
 
   test('with every source shown the answer is untouched', async () => {
     const vc = load('vc-investor-linkedin.csv');
-    await open(vc, { question: 'q', filters: { companies: [], roles: [], keywords: [], locations: [] }, total: 40, results: vc.slice(0, 2).map((c) => row(c, 'Match')) });
+    // The answer's count is everyone in its uncapped keys (R8 #9), not the rows sent with reasons.
+    await open(vc, { question: 'q', filters: { companies: [], roles: [], keywords: [], locations: [] }, total: 40, keys: vc.slice(0, 40).map(dedupeKey), results: vc.slice(0, 2).map((c) => row(c, 'Match')) });
     await askAnything();
-    expect(panelTitle()).toBe('Answer · 40');
+    expect(panelTitle()).toBe('“q” · 40');
     expect(screen.queryByText(/hidden by the source filters/)).toBeNull();
   });
 });

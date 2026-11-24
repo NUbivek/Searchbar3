@@ -200,3 +200,30 @@ typed answer for the same set of people is the same number everywhere. Whenever 
     (page-8); the page rewrites such errors in plain words.
 16. **Download** (data-12, page-16, data-16, data-m1): the CSV starts with a byte-order mark so Excel reads
     accents; the file is named after the list ("network-investors.csv"); a failed copy or download says so.
+
+## R9. Seen in the second browser check (after the fix round)
+
+Checked with all six samples at 1360 px, and the founder sample at phone width. Working as intended: the
+read-out and shortcuts; shortcuts switch and keep their labels; "Narrow to" (Google then "5 engineers" gives
+"at Google · engineers · 5" with removable parts and the globe zoomed to those five, named); By role shows
+the file's families; tag groups show the same counts as the tag shortcuts; By company leads with the named
+companies; a click on the "Stripe 22" label opens Stripe, lists its 22 people, shows the breadcrumb and
+marks the "22 at Stripe" shortcut; a click on empty space clears the selection; the phone list shows seven
+people with the groups folded into "6 groups here".
+
+Still to fix:
+
+1. **Clear leaves the camera where a selection took it.** After narrowing to five engineers at Google and
+   pressing Clear, the list says "Everyone · 544" and the breadcrumb says "All 544", but the globe is still
+   zoomed in on those five. When a selection ends (Clear, Everyone, Escape, a background click, a shortcut
+   switched off) and the camera is where a selection put it rather than where the user went, the camera
+   returns to the whole globe. If the user opened a node, the camera stays in that node.
+2. **The second largest group has no label at the opening view.** VC sample, By role: "Engineers 97" (and
+   "Bankers 19") carry no label at the whole-globe view, although the read-out's first sentence names the
+   engineers. Healthcare: "Founders & CEOs 9" has none, and "Operations 35" is faded. At the whole-globe
+   view every first-layer group (up to nine, plus the "Other" group) shows its label; a group on the near
+   side shows it at full strength; labels move to avoid each other instead of being dropped; and the
+   opening camera is turned so that every group that is not marked last is on the near side.
+3. **A scattered selection is faint.** "22 at Stripe" under By role lights 22 small dots across the globe.
+   A lit dot outside a zoomed-in view is drawn large enough to count at a glance (about 4 px radius with a
+   soft ring), on both themes.

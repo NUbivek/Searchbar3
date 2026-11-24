@@ -8,10 +8,12 @@
  * Signed out: contacts stay in this browser tab only.
  * Only first-degree connections exist in these exports; nothing is invented.
  *
- * One selection drives the page (spec section 2): a shortcut (or several,
- * combined), the Find box, an answer, or a click on the globe. It lights
- * people on the globe and fills the people panel; it never rebuilds the
- * globe's layout (only "Arrange by", the source chips and "direct only" do).
+ * One selection drives the page (spec section 2): a shortcut (narrowed by
+ * up to two more in the people list), the Find box, an answer, or a click on
+ * the globe. It lights people on the globe and fills the people panel; it
+ * never rebuilds the globe's layout (only "Arrange by", the source chips and
+ * "direct only" do). A background click on the globe, or Escape on the map
+ * or the list, clears it.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
@@ -23,16 +25,16 @@ import {
 import PageShell from '../components/layout/PageShell';
 import NetworkGraph, { SOURCE_COLORS } from '../components/network/NetworkGraph';
 import AtAGlance from '../components/network/AtAGlance';
-import PeoplePanel, { sortPeople } from '../components/network/PeoplePanel';
+import PeoplePanel, { sortPeople, understoodOf, RadioGroup } from '../components/network/PeoplePanel';
 import SourceStrip from '../components/network/SourceStrip';
-import Connectors, { X_UNAVAILABLE } from '../components/network/Connectors';
+import Connectors, { X_UNAVAILABLE, plainServiceText } from '../components/network/Connectors';
 import { ChecksContext, contactNameCounts, checkHref, formatDate } from '../components/network/checks';
 import {
   parseContactsFile, parseXFollowing, dedupeContacts, countBySource, dedupeKey, MAX_CONTACTS,
 } from '../utils/network/parseContacts';
 import { buildAtlas, pathTo, personNodeId, NO_COMPANY_KEY, ROOT_ID } from '../utils/network/atlas';
 import { GROUPINGS } from '../utils/network/grouping';
-import { profileNetwork, combine, countIfAdded } from '../utils/network/insights';
+import { profileNetwork, combine, narrowings, shortcutFor } from '../utils/network/insights';
 import { useTheme } from '../utils/theme';
 
 // Kept where other pages and tests import them from.
@@ -48,8 +50,8 @@ const GROUPING_LABEL = Object.fromEntries(GROUPINGS.map((g) => [g.key, g.label])
 /** Height of the globe, and the most group rows the panel lists for the part in view. */
 const GRAPH_HEIGHT = 620;
 const MAX_GROUP_ROWS = 40;
-/** Shortcuts that can be pressed at once. */
-const MAX_CHIPS = 3;
+/** Parts a list can be narrowed to at once: a shortcut and two more. */
+const MAX_PARTS = 3;
 const NO_IDS = new Set();
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 // The contacts API accepts 15 MB request bodies; stop a little short of it.
@@ -72,6 +74,25 @@ const AUTH_ERRORS = {
   twitter_failed: 'X sign-in did not complete. Please try again.',
 };
 const authErrorText = (code) => AUTH_ERRORS[String(code || '')] || 'Sign-in did not complete. Please try again.';
+const ALL_SOURCES = { linkedin: true, csv: true, x: true, attio: true };
+
+/** 'auto' for people who asked their system for less motion, 'smooth' otherwise. */
+function scrollBehavior() {
+  try {
+    return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 'auto' : 'smooth';
+  } catch {
+    return 'smooth';
+  }
+}
+
+/** Lower case with accents taken off, so "jose" finds José. */
+const fold = (v) => String(v || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+/** The browser's own date as YYYY-MM-DD, so "this year" in a question is the user's year. */
+function localToday() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 async function readJson(response) {
   try { return await response.json(); } catch { return {}; }
@@ -94,7 +115,7 @@ export default function NetworkPage() {
   // Shown inline when a connection is offered but not available on this deployment.
   const [unavailable, setUnavailable] = useState({ x: false });
 
-  const [sourceFilter, setSourceFilter] = useState({ linkedin: true, csv: true, x: true, attio: true });
+  const [sourceFilter, setSourceFilter] = useState(ALL_SOURCES);
   const [directOnly, setDirectOnly] = useState(false);
   // The arrangement the user picked; null follows the file's own default.
   const [groupChoice, setGroupChoice] = useState(null);
@@ -106,7 +127,7 @@ export default function NetworkPage() {
   const [theme] = useTheme();
 
   // ---- the one selection: at most one of these is set at a time.
-  const [chipIds, setChipIds] = useState([]); // shortcuts pressed together
+  const [chipIds, setChipIds] = useState([]); // the shortcut pressed, then any it was narrowed by
   const [findText, setFindText] = useState(''); // the panel's Find box (a selection from two characters)
   const [pick, setPick] = useState(null); // a click on the globe: { label, keys, sort, company, nodeId }
   const [answer, setAnswer] = useState(null); // an answer to a question
@@ -264,6 +285,10 @@ export default function NetworkPage() {
   const freshData = () => {
     uploaded.current = true;
     clearSelection();
+    // A source hidden before this upload would otherwise stay hidden, maybe
+    // with no chip left to turn it back on.
+    setSourceFilter(ALL_SOURCES);
+    setDirectOnly(false);
     setGroupChoice(null);
     setViewId(ROOT_ID);
     setFocus((f) => ({ id: ROOT_ID, nonce: f.nonce + 1 }));
@@ -394,10 +419,11 @@ export default function NetworkPage() {
         setXStatus((s) => ({ ...s, connected: false }));
         throw new Error('Your X session expired. Connect X again.');
       }
-      if (!response.ok) throw new Error(data.error || `X request failed (${response.status})`);
+      if (!response.ok) throw new Error(plainServiceText('x', data.error || `X request failed (${response.status})`));
       if (!data.followingAvailable) {
-        setXStatus((s) => ({ ...s, note: data.note || data.error || 'X did not return your following list.' }));
-        setNotice({ kind: 'info', text: data.note || data.error || 'X did not return your following list.' });
+        const why = plainServiceText('x', data.note || data.error || 'X did not return your following list.');
+        setXStatus((s) => ({ ...s, note: why }));
+        setNotice({ kind: 'info', text: why });
         return;
       }
       const parsed = parseXFollowing({ data: data.following || [] });
@@ -407,7 +433,7 @@ export default function NetworkPage() {
       }
       const message = await saveSource('x', parsed.contacts, { fileTruncated: parsed.truncated || 0 });
       const dupes = parsed.duplicates ? ` ${fmt(parsed.duplicates)} duplicate accounts were merged.` : '';
-      setNotice({ kind: 'success', text: `${message}${dupes}${data.note ? ` ${data.note}` : ''}` });
+      setNotice({ kind: 'success', text: `${message}${dupes}${data.note ? ` ${plainServiceText('x', data.note)}` : ''}` });
       freshData();
     } catch (error) {
       setNotice({ kind: 'error', text: error.message });
@@ -428,7 +454,8 @@ export default function NetworkPage() {
         body: JSON.stringify({ token }),
       });
       const data = await readJson(response);
-      if (!response.ok) throw new Error(data.error || `Attio import failed (${response.status})`);
+      // The Attio route speaks of tokens and scopes; the page says "access code", as the form does.
+      if (!response.ok) throw new Error(plainServiceText('attio', data.error || `Attio import failed (${response.status})`));
       if (Array.isArray(data.contacts)) {
         setContacts((prev) => [...prev.filter((c) => c.source !== 'attio'), ...data.contacts]);
         if (data.stats) setStats(data.stats);
@@ -439,7 +466,7 @@ export default function NetworkPage() {
         `Imported ${fmt(data.saved)} people from Attio: ${fmt(data.direct)} your own connections, ${fmt(data.firm)} firm-wide contacts held by colleagues.`,
         data.duplicates ? `${fmt(data.duplicates)} were already in your network from another source.` : '',
         data.truncated ? 'The import stopped at the contact limit.' : '',
-        data.note || '',
+        data.note ? plainServiceText('attio', data.note) : '',
       ].filter(Boolean);
       setNotice({ kind: data.saved ? 'success' : 'info', text: parts.join(' ') });
       freshData();
@@ -476,6 +503,8 @@ export default function NetworkPage() {
       setContacts([]);
       setMemoryImports({});
       clearSelection();
+      setSourceFilter(ALL_SOURCES);
+      setDirectOnly(false);
       setGroupChoice(null);
       setViewId(ROOT_ID);
       setNotice({ kind: 'success', text: 'All of your network data was removed.' });
@@ -492,16 +521,25 @@ export default function NetworkPage() {
   const firmCount = useMemo(() => contacts.filter((c) => c.relationship === 'firm').length, [contacts]);
 
   // The people in view: only the source chips and "direct only" narrow them.
+  // With one source there is no chip to turn it back on, so its filter is ignored.
+  const severalSources = Object.keys(counts).filter((s) => counts[s]).length > 1;
   const visibleContacts = useMemo(
-    () => contacts.filter((c) => sourceFilter[c.source] !== false && !(directOnly && c.relationship === 'firm')),
-    [contacts, sourceFilter, directOnly],
+    () => contacts.filter((c) => (!severalSources || sourceFilter[c.source] !== false) && !(directOnly && c.relationship === 'firm')),
+    [contacts, sourceFilter, directOnly, severalSources],
   );
+  const sourcesHidden = severalSources && Object.keys(counts).some((s) => counts[s] && sourceFilter[s] === false);
+  // What hid the people an answer leaves out, named so the user knows which control to change.
+  const hiddenBy = sourcesHidden && directOnly ? 'the filters above'
+    : directOnly ? '“My direct connections only”' : 'the source filters above';
 
   // What the file holds: the read-out, the shortcuts, the example questions
   // and the arrangements that split it. Depends only on the people in view.
   const profile = useMemo(() => profileNetwork(visibleContacts), [visibleContacts]);
   const groupings = profile.groupings || [];
-  const groupBy = groupChoice && groupings.some((g) => g.key === groupChoice) ? groupChoice : profile.defaultGrouping || 'role';
+  // null when nothing splits the file (a list of names only): the globe then
+  // shows the people by company, with no group layer named after a facet the
+  // file does not have.
+  const groupBy = groupChoice && groupings.some((g) => g.key === groupChoice) ? groupChoice : profile.defaultGrouping ?? null;
 
   // The whole map is laid out once per arrangement or source change; a
   // selection only lights people and moves the camera.
@@ -529,88 +567,127 @@ export default function NetworkPage() {
     return { c: full, id: personNodeId(full) };
   }, [byDedupe]);
 
-  // Signed in, the server searches every saved contact; the source chips and
-  // "direct only" may hide some of them. Keep the answer to the people in
-  // view so it never counts anyone the read-out and the globe leave out.
-  const shownAnswer = useMemo(() => {
-    if (!answer || visibleContacts.length === contacts.length) return answer;
-    let hidden = 0;
-    const keep = (list) => (list || []).filter((r) => {
-      const ok = byPersonId.has(resolve(r.contact).id);
-      if (!ok) hidden += 1;
-      return ok;
-    });
-    const results = keep(answer.results);
-    const intro = answer.intro ? {
-      ...answer.intro,
-      direct: keep(answer.intro.direct),
-      possiblyRelated: keep(answer.intro.possiblyRelated),
-      viaInvestors: (answer.intro.viaInvestors || [])
-        .map((g) => { const kept = keep(g.contacts); return { ...g, contacts: kept, total: Math.max(kept.length, (g.total || 0) - (g.contacts.length - kept.length)) }; })
-        .filter((g) => g.contacts.length),
-    } : answer.intro;
-    const possiblyRelated = answer.possiblyRelated
-      ? { ...answer.possiblyRelated, results: keep(answer.possiblyRelated.results) } : answer.possiblyRelated;
-    const removed = (answer.results || []).length - results.length;
-    return {
-      ...answer,
-      results,
-      intro,
-      possiblyRelated,
-      total: Math.max(results.length, (Number(answer.total) || 0) - removed),
-      hiddenByFilters: hidden,
-    };
-  }, [answer, visibleContacts.length, contacts.length, byPersonId, resolve]);
-
   // Shortcut ids that still exist after the people in view changed.
   const liveChipIds = useMemo(() => {
     const known = new Set([...profile.shortcuts, ...profile.more].map((s) => s.id));
     return chipIds.filter((id) => known.has(id));
   }, [chipIds, profile]);
 
-  // The one selection { label, keys: Set, sort, company?, nodeId? }, or null.
-  // Its key Set is built once per selection, so the globe turns and pulses
-  // only when the selection really changes.
-  const term = findText.trim().toLowerCase();
+  // An answer's people: everyone it found (its uncapped `keys`, in rank
+  // order, page-2), then for intro paths the people at the company's
+  // investors, each person once and only people in view. Every count, the
+  // lit dots, the list, Copy and Download come from this one list.
+  const answerView = useMemo(() => {
+    if (!answer) return null;
+    const ids = [];
+    const seen = new Set();
+    let hidden = 0;
+    const add = (id, counts) => {
+      if (seen.has(id)) return;
+      seen.add(id);
+      if (byPersonId.has(id)) ids.push(id);
+      else if (counts) hidden += 1;
+    };
+    const intro = answer.intent === 'intro-path' && answer.intro ? answer.intro : null;
+    const keys = intro && Array.isArray(intro.keys) ? intro.keys : answer.keys;
+    if (Array.isArray(keys)) keys.forEach((k) => add(`p:${k}`, true));
+    else {
+      // An older reply without keys: its capped rows are all there is.
+      (answer.results || []).forEach((r) => add(resolve(r.contact).id, true));
+      (intro?.direct || []).forEach((r) => add(resolve(r.contact).id, true));
+    }
+    (intro?.viaInvestors || []).forEach((g) => {
+      if (Array.isArray(g.keys)) g.keys.forEach((k) => add(`p:${k}`, false));
+      else (g.contacts || []).forEach((r) => add(resolve(r.contact).id, false));
+    });
+    // The server answers over the people in view (the source filters and
+    // "direct only" go with the question), so nobody should be left out
+    // here; if a reply still holds people hidden on this page, say so.
+    return { ids, answer: hidden ? { ...answer, hiddenByFilters: hidden, hiddenBy } : answer };
+  }, [answer, byPersonId, resolve, hiddenBy]);
+  const shownAnswer = answerView ? answerView.answer : null;
+
+  // The one selection { kind, label, keys: Set, sort, company?, nodeId? }, or
+  // null. Its key Set is built once per selection, so the globe turns and
+  // pulses only when the selection really changes.
+  const term = fold(findText.trim());
   const selection = useMemo(() => {
     if (answer) {
-      const keys = new Set();
-      const add = (r) => { const id = resolve(r.contact).id; if (byPersonId.has(id)) keys.add(id); };
-      (answer.results || []).forEach(add);
-      (answer.intro?.direct || []).forEach(add);
-      (answer.intro?.viaInvestors || []).forEach((g) => g.contacts.forEach(add));
-      return { kind: 'answer', label: 'Answer', keys, sort: null };
+      // The title says what the list is: what the question was read as, or
+      // the question itself when nothing was read from it.
+      const read = understoodOf(answer);
+      const q = String(answer.question || '').trim();
+      const label = answer.intent === 'intro-path' && answer.intro?.target ? `Intro paths to ${answer.intro.target}`
+        : read.length ? read.join(' · ') : q ? `“${q}”` : 'Your question';
+      return { kind: 'answer', label, keys: new Set(answerView.ids), sort: null };
     }
-    if (pick) return pick;
+    if (pick) {
+      // Only people still in view (globe-m3): a source turned off since the
+      // click takes its people out of the selection too.
+      const keys = [...pick.keys].filter((id) => byPersonId.has(id));
+      return keys.length === pick.keys.size ? pick : { ...pick, keys: new Set(keys) };
+    }
     if (term.length >= 2) {
-      // Most senior first, as everyone is listed.
+      // Most senior first, as everyone is listed. Accents are folded on both sides.
       const keys = new Set(profile.everyone.keys.filter((id) => {
         const c = byPersonId.get(id);
-        return c && [c.name, c.company, c.position].some((v) => String(v || '').toLowerCase().includes(term));
+        return c && [c.name, c.company, c.position].some((v) => fold(v).includes(term));
       }));
       return { kind: 'find', label: `Find “${findText.trim()}”`, keys, sort: 'senior' };
     }
     if (liveChipIds.length) {
-      // One company chip is a company selection: the panel offers its profile and intro paths.
-      const only = liveChipIds.length === 1 && liveChipIds[0].startsWith('company:')
+      // One company shortcut is a company selection: the panel offers its
+      // profile and intro paths. Not for a company read from email addresses
+      // ("at stripe.com"): that is a web address, not a company name.
+      const chip = liveChipIds.length === 1 && liveChipIds[0].startsWith('company:')
         ? [...profile.shortcuts, ...profile.more].find((s) => s.id === liveChipIds[0]) : null;
+      const only = chip && !chip.fromEmail ? chip : null;
       return { kind: 'chips', ...combine(profile, liveChipIds), company: only ? only.short.replace(/^at /, '') : '' };
     }
     return null;
-  }, [answer, resolve, pick, term, findText, liveChipIds, profile, byPersonId]);
+  }, [answer, answerView, pick, term, findText, liveChipIds, profile, byPersonId]);
   const highlightIds = selection ? selection.keys : NO_IDS;
 
+  // The shortcut in use: the one pressed, or the one holding exactly the
+  // people selected some other way (a tag group clicked on the globe holds
+  // the same people as its chip, B13).
+  const pressedId = useMemo(() => {
+    if (!selection) return null;
+    if (selection.kind === 'chips') return liveChipIds[0];
+    return shortcutFor(profile, selection.keys);
+  }, [selection, liveChipIds, profile]);
+
+  // "Narrow to" in the people list (R1): the list's parts so far (a shortcut,
+  // or a click that equals one), and the other shortcuts that would narrow it.
+  const baseIds = selection?.kind === 'chips' ? liveChipIds : selection && selection.kind !== 'answer' && pressedId ? [pressedId] : [];
+  const narrow = useMemo(
+    () => (baseIds.length && baseIds.length < MAX_PARTS && selection.keys.size > 1 ? narrowings(profile, baseIds) : []),
+    // baseIds is rebuilt each render; its parts are what matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [profile, baseIds.join('|'), selection],
+  );
+  const shortcutById = useMemo(() => new Map([...profile.shortcuts, ...profile.more].map((s) => [s.id, s])), [profile]);
+  const parts = liveChipIds.length >= 2 ? liveChipIds.map((id) => ({ id, label: shortcutById.get(id)?.short || id })) : [];
+
+  /** Press a shortcut: it becomes the selection; pressing the one in use goes back to everyone. */
   const toggleChip = (id) => {
     setFindText('');
     setPick(null);
     setAnswer(null);
     setOpenId(null);
-    setChipIds((prev) => {
-      const live = prev.filter((x) => liveChipIds.includes(x));
-      if (live.includes(id)) return live.filter((x) => x !== id);
-      return live.length >= MAX_CHIPS ? live : [...live, id];
-    });
+    setChipIds(id === pressedId ? [] : [id]);
   };
+  /** Narrow the list by one more shortcut (AND), up to three parts in all. */
+  const onNarrow = (id) => {
+    const next = [...baseIds.filter((x) => x !== id), id].slice(0, MAX_PARTS);
+    setFindText('');
+    setPick(null);
+    setAnswer(null);
+    setOpenId(null);
+    setChipIds(next);
+  };
+  /** Take one part out of a narrowed list: it widens again. */
+  const onRemovePart = (id) => { setOpenId(null); setChipIds((prev) => prev.filter((x) => x !== id)); };
   const onEveryone = () => { clearSelection(); goTo(ROOT_ID); };
   const onFind = (value) => {
     setFindText(value);
@@ -621,8 +698,11 @@ export default function NetworkPage() {
   /** People ids in the order everyone is listed (most senior first), kept to `wanted`. */
   const inSeniorOrder = useCallback((wanted) => new Set(profile.everyone.keys.filter((id) => wanted.has(id))), [profile]);
 
-  // A click on the globe is a selection like any other. A company selects
-  // the whole company, all its people across groups, not the slice clicked.
+  // A click on the globe is a selection like any other. The globe flies
+  // into what was clicked by itself and reports it through onViewNode, so
+  // the breadcrumb follows (R5, R6). A company selects the whole company,
+  // all its people across groups, not the slice clicked; a tag group selects
+  // everyone who carries the tag, wherever they sit on the map (R3).
   const onNodeClick = (node) => {
     if (!node || node.type === 'root') return;
     setChipIds([]);
@@ -635,37 +715,53 @@ export default function NetworkPage() {
     }
     setOpenId(null);
     const wanted = new Set();
-    let company = '';
-    if (node.type === 'company' && node.key !== NO_COMPANY_KEY) {
+    const isCompany = node.type === 'company' && node.key !== NO_COMPANY_KEY;
+    if (isCompany) {
       for (const nid of atlas.companyIndex.get(node.key) || [node.id]) {
         for (const c of atlas.byId.get(nid)?.contacts || []) wanted.add(personNodeId(c));
       }
-      company = node.label;
+    } else if (atlas.groupIndex?.has(node.id)) {
+      for (const id of atlas.groupIndex.get(node.id)) wanted.add(id);
     } else {
       for (const c of node.contacts || []) wanted.add(personNodeId(c));
     }
-    const label = node.type === 'company' && node.key !== NO_COMPANY_KEY ? `at ${node.label}` : node.label;
-    setPick({ kind: node.type, label, keys: inSeniorOrder(wanted), sort: 'senior', company, nodeId: node.id });
+    const keys = inSeniorOrder(wanted);
+    // The same people as a shortcut: say it in the shortcut's words, so the
+    // title matches the chip shown pressed ("tagged “cold”", "investors").
+    const same = shortcutById.get(shortcutFor(profile, keys));
+    const label = same ? same.short : isCompany ? `at ${node.label}` : node.label;
+    setPick({ kind: node.type, label, keys, sort: 'senior', company: isCompany ? node.label : '', nodeId: node.id });
   };
 
-  const onOpenRow = (id) => setOpenId((v) => (v === id ? null : id));
+  // The panel says which person to open (a bare person id) or null to close;
+  // it tracks which of several rows of the same person is open.
+  const onOpenRow = (id) => setOpenId(id || null);
 
   // Where the viewer is: the bubble that fills the canvas. The map reports it
   // as you pan and zoom; the breadcrumb and the panel's group rows follow.
   const viewed = atlas.byId.get(viewId);
   const viewNode = !viewed ? atlas.root : viewed.type === 'person' ? viewed.parent : viewed;
   const trail = useMemo(() => pathTo(viewNode), [viewNode]);
+  // In the atlas's own order: named groups largest first, then "Other …"
+  // and "not known" (R4), with the atlas's colours for their dots.
   const groupRows = useMemo(() => (viewNode.children || [])
     .filter((n) => n.type !== 'person')
-    .sort((a, b) => b.count - a.count || String(a.label).localeCompare(String(b.label)))
     .slice(0, MAX_GROUP_ROWS), [viewNode]);
 
   // The panel's list: the selection's people in its own order, or the
   // people in the part of the globe in view, most senior first.
-  const panelPeople = useMemo(() => {
-    if (selection) return [...selection.keys].map((id) => byPersonId.get(id)).filter(Boolean);
-    return sortPeople(viewNode.contacts || [], 'senior');
-  }, [selection, viewNode, byPersonId]);
+  // Two lists, so a globe move under a selection (the camera turning to the
+  // lit people, a spin, a zoom) never makes a new list and so never resets
+  // the sort or the pages the user opened.
+  const selectedPeople = useMemo(
+    () => (selection ? [...selection.keys].map((id) => byPersonId.get(id)).filter(Boolean) : null),
+    [selection, byPersonId],
+  );
+  const viewPeople = useMemo(
+    () => (selection ? null : sortPeople(viewNode.contacts || [], 'senior')),
+    [selection, viewNode],
+  );
+  const panelPeople = selectedPeople || viewPeople;
   const panelTitle = selection ? selection.label : viewNode.id === ROOT_ID ? 'Everyone' : viewNode.label;
 
   const arrange = (key) => {
@@ -677,28 +773,48 @@ export default function NetworkPage() {
   // After an upload, the read-out is the first thing in view.
   useEffect(() => {
     if (!scrollToGlance || !hasContacts) return;
-    glanceRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    glanceRef.current?.scrollIntoView?.({ behavior: scrollBehavior(), block: 'start' });
   }, [scrollToGlance, hasContacts]);
 
   // ------------------------------------------------------------ ask
 
-  const ask = async (text) => {
-    const q = String(text ?? question).trim();
-    if (!q) return;
+  /**
+   * Ask the network. `fromPage` marks a question the page built itself (an
+   * example, a link from a report) and `target` a company given as data
+   * (Intro paths): the server never sends either to a model (R8 #10). The
+   * question is answered over the people in view: signed in, the source
+   * filters and "direct only" go with it; otherwise only those people are
+   * sent (R8 #9, page-m1).
+   */
+  const ask = async (text, { fromPage = false, target = '' } = {}) => {
+    const q = target ? '' : String(text ?? question).trim();
+    if (!q && !target) return;
     if (!contacts.length) {
       setAskError('Import your contacts first: there is nothing to search yet.');
+      return;
+    }
+    if (!visibleContacts.length) {
+      setAskError('All sources are hidden. Turn one back on to ask about your network.');
       return;
     }
     setAsking(true);
     setAskError('');
     try {
-      const body = { question: q };
+      const body = target ? { target } : { question: q };
+      if (fromPage) body.fromPage = true;
+      body.today = localToday();
+      body.filters = {
+        directOnly,
+        ...(sourcesHidden ? { sources: Object.keys(counts).filter((s2) => counts[s2] && sourceFilter[s2] !== false) } : {}),
+      };
       if (mode !== 'saved') {
-        // Signed out, the server has no copy: send only what scoring uses
-        // (never email) plus the identity key so results map back to the graph.
-        body.contacts = contacts.map((c) => ({
+        // Signed out, the server has no copy: send only the people in view
+        // and only what scoring uses (never email), plus the identity key so
+        // results map back to the globe.
+        body.contacts = visibleContacts.map((c) => ({
           key: dedupeKey(c), name: c.name, company: c.company, position: c.position, location: c.location,
           profileUrl: c.profileUrl, connectedOn: c.connectedOn, source: c.source, tags: c.tags,
+          ...(c.relationship === 'firm' ? { relationship: 'firm', via: c.via || '' } : {}),
         }));
       }
       const response = await fetch('/api/network/query', {
@@ -714,7 +830,7 @@ export default function NetworkPage() {
       setPick(null);
       setOpenId(null);
       setAnswer(data);
-      mapRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+      mapRef.current?.scrollIntoView?.({ behavior: scrollBehavior(), block: 'nearest' });
     } catch (error) {
       setAskError(error.message);
     } finally {
@@ -722,11 +838,13 @@ export default function NetworkPage() {
     }
   };
 
+  // The examples are built by the page from the file: never read by a model.
   const askExample = (text) => {
     setQuestion(text);
-    ask(text);
+    ask(text, { fromPage: true });
   };
-  const introPaths = (company) => askExample(`Intro paths to ${company}`);
+  // The company goes as data, never inside a question (ask-3).
+  const introPaths = (company) => ask(null, { target: company });
 
   // A link from a report ("Ask your network about Acme") arrives as ?ask=: run it once, when the contacts are in.
   const askedFromLink = useRef(false);
@@ -736,7 +854,8 @@ export default function NetworkPage() {
     if (!q) return;
     askedFromLink.current = true;
     setQuestion(q);
-    ask(q);
+    // Built by another page of the app (a report's "Ask your network"), not typed here.
+    ask(q, { fromPage: true });
     // `ask` is a new function each render; the ref keeps this to one run
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.isReady, router.query, mode, contacts.length]);
@@ -811,7 +930,7 @@ export default function NetworkPage() {
               {!loading && (
                 <>
                   <h2 className="mt-1 text-xl font-semibold tracking-tight text-ink">Drop your contacts here to draw your map</h2>
-                  <p className="muted mt-1 max-w-md">See in plain words who you know, at which companies and where, with one-click lists you can copy or download. Everything stays private to you.</p>
+                  <p className="muted mt-1 max-w-md">See in plain words who you know, at which companies and where, with one-click lists you can copy or download. Your contacts are never shared and never sent to a model.</p>
                 </>
               )}
             </div>
@@ -850,8 +969,7 @@ export default function NetworkPage() {
           <AtAGlance
             ref={glanceRef}
             profile={profile}
-            activeIds={selection?.kind === 'chips' ? liveChipIds : []}
-            countFor={(id) => countIfAdded(profile, liveChipIds, id)}
+            pressedId={pressedId}
             onToggle={toggleChip}
             onEveryone={onEveryone}
             everyoneActive={!selection}
@@ -861,6 +979,7 @@ export default function NetworkPage() {
             asking={asking}
             askError={askError}
             onExample={askExample}
+            allHidden={visibleContacts.length === 0}
           />
         )}
 
@@ -885,7 +1004,7 @@ export default function NetworkPage() {
                       viewId={viewNode.id}
                       onNodeClick={onNodeClick}
                       onViewNode={setViewId}
-                      onBackgroundClick={() => setOpenId(null)}
+                      onBackgroundClick={clearSelection}
                       intro={!uploaded.current}
                     >
                       <button
@@ -905,20 +1024,14 @@ export default function NetworkPage() {
                   {groupings.length > 1 && (
                     <div className="flex items-center gap-1.5">
                       <span className="text-muted">Arrange by</span>
-                      <div className="flex rounded-lg border border-line bg-white p-0.5" role="radiogroup" aria-label="Arrange by">
-                        {groupings.map(({ key }) => (
-                          <button
-                            key={key}
-                            type="button"
-                            role="radio"
-                            aria-checked={groupBy === key}
-                            onClick={() => arrange(key)}
-                            className={classNames('rounded-md px-2 py-0.5 font-medium', groupBy === key ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}
-                          >
-                            {(GROUPING_LABEL[key] || key).replace(/^By (\w)/, (m, c) => c.toUpperCase())}
-                          </button>
-                        ))}
-                      </div>
+                      <RadioGroup
+                        label="Arrange by"
+                        className="flex rounded-lg border border-line bg-white p-0.5"
+                        options={groupings.map(({ key }) => ({ key, label: (GROUPING_LABEL[key] || key).replace(/^By (\w)/, (m, c) => c.toUpperCase()) }))}
+                        isChecked={(key) => groupBy === key}
+                        onChange={arrange}
+                        buttonClass={(on) => classNames('min-h-9 rounded-md px-2 py-0.5 font-medium sm:min-h-0', on ? 'bg-brand-50 text-brand-700' : 'text-muted hover:text-ink')}
+                      />
                     </div>
                   )}
                   <nav className="flex min-w-0 flex-wrap items-center gap-1" aria-label="Where you are on the map">
@@ -928,10 +1041,12 @@ export default function NetworkPage() {
                         <button
                           type="button"
                           onClick={() => goTo(node.id)}
+                          aria-current={i === trail.length - 1 ? 'location' : undefined}
                           className={classNames('rounded-md px-1 py-0.5', i === trail.length - 1 ? 'font-medium text-ink' : 'text-muted hover:text-ink')}
                         >
                           {node.id === ROOT_ID ? 'All' : node.label}
-                          {i === trail.length - 1 && <span className="ml-1 font-normal text-muted">{fmt(node.count)}</span>}
+                          {/* A real space, so the name and count are read as two words. */}
+                          {i === trail.length - 1 && <>{' '}<span className="font-normal text-muted">{fmt(node.count)}</span></>}
                         </button>
                       </React.Fragment>
                     ))}
@@ -941,10 +1056,15 @@ export default function NetworkPage() {
               </div>
               {/* On a phone the panel comes first, the globe under it. */}
               <div className="relative order-first border-b border-line lg:order-none lg:w-2/5 lg:shrink-0 lg:border-b-0">
-                <div className="flex h-full max-h-96 flex-col lg:absolute lg:inset-0 lg:max-h-none">
+                {/* network-panel (globals.css): most of a phone's screen, so the list shows several people before the globe. */}
+                <div className="network-panel flex flex-col lg:absolute lg:inset-0">
                   <PeoplePanel
                     title={panelTitle}
                     count={panelPeople.length}
+                    narrow={narrow}
+                    onNarrow={onNarrow}
+                    parts={parts}
+                    onRemovePart={onRemovePart}
                     active={Boolean(selection)}
                     onClear={clearSelection}
                     people={panelPeople}
@@ -961,6 +1081,7 @@ export default function NetworkPage() {
                     asking={asking}
                     resolve={resolve}
                     idOf={personNodeId}
+                    downloadName={shownAnswer ? shownAnswer.question || panelTitle : panelTitle}
                     heightClass="h-full"
                   />
                 </div>

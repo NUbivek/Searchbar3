@@ -24,6 +24,27 @@ export const LENSES = {
 };
 export const LENS_KEYS = ['raise', 'source', 'diligence'];
 
+// "Partner" as a rank (a partner of a fund or a firm), not a job that works
+// with partners: "Partner Manager", "Channel Partner", "HR Business Partner"
+// and "Partner Engineer" are not partners of anything.
+const PARTNER = String.raw`(?<!\b(?:channel|strategic|alliance|alliances|technology|tech|implementation|integration|business|referral|reseller|solutions?|ecosystem|agency|hr|people|talent|learning|finance|data|retail|trusted)\s)partner(?!\s+(?:manager|management|marketing|development|success|sales|enablement|operations|ops|programs?|ecosystem|solutions|engineer\w*|account|relations|integrations?|network|lead|specialist|director|executive|associate|channel))`;
+// "Founding" makes a founder only on its own or before a rank ("Founding
+// Partner"); "Founding Engineer" is the first engineer hired.
+const FOUNDING = String.raw`founding(?!\s+(?:engineer\w*|account|ae|sdr|bdr|designer|design|product|pm|member|team|recruiter|sales|marketing|growth|operations|ops|data|scientist|developer|software|full|front|back|ml|ai|head|lead|hire|employee|staff|researcher|analyst|associate|manager|editor|writer|counsel|attorney|lawyer))`;
+// The chief executive, not someone who works for one ("Chief of Staff to the CEO").
+// "CEO Office" and "Office of the CEO" are staff who work for the chief executive.
+const CEO = String.raw`(?<!\bto\s(?:the\s)?)(?<!\boffice\s(?:of\s)?(?:the\s)?)(?:ceo|chief executive(?! assistant))(?!'?s?\s+office\b)`;
+
+/**
+ * Law firms by name: a partner, an associate or anyone with a legal title
+ * there is a lawyer. grouping.js files the same names under Legal, so the
+ * family and the industry agree.
+ */
+export const LAW_FIRMS = ['kirkland', 'kirkland ellis', 'cooley', 'wilson sonsini', 'wsgr', 'gunderson', 'gunderson dettmer', 'fenwick', 'fenwick west', 'latham', 'latham watkins', 'orrick', 'goodwin procter', 'perkins coie', 'dla piper', 'skadden', 'sullivan cromwell', 'morrison foerster', 'mofo', 'davis polk', 'cravath', 'simpson thacher', 'paul weiss', 'wachtell', 'gibson dunn', 'baker mckenzie', 'clifford chance', 'allen overy', 'freshfields', 'linklaters', 'white case', 'jones day', 'sidley', 'sidley austin', 'ropes gray', 'weil gotshal', 'debevoise', 'milbank', 'quinn emanuel', 'mayer brown', 'hogan lovells', 'covington', 'king spalding', 'morgan lewis', 'greenberg traurig'];
+const LAW_FIRM_RE = LAW_FIRMS.map((n) => n.replace(/ /g, String.raw`\W+(?:and\W+|&\W*)?`)).join('|');
+// An owner of a company, not of a product or a process ("Product Owner").
+const OWNER = String.raw`(?<!\b(?:product|process|business|budget|account|data|service|system|technical|feature|content|platform|program|project|release|risk|control|ip|brand)\s)owner`;
+
 /** Role vocabulary, most specific first. `title` tests the position, `company` the employer. */
 export const ROLES = [
   {
@@ -35,9 +56,9 @@ export const ROLES = [
   },
   {
     key: 'investor', label: 'Investor', group: 'Investors & LPs', lenses: ['raise', 'source'],
-    title: /\b(general partner|managing partner|venture partner|operating partner|partner|principal|associate|analyst|investor|investing|investment|venture|vc\b|angel|scout|fund|seed|growth equity|private equity|pe\b)\b/i,
+    title: new RegExp(String.raw`\b(general partner|managing partner|venture partner|operating partner|${PARTNER}|principal|associate|analyst|investor|investing|investment|venture|vc\b|angel|scout|fund|seed|growth equity|private equity|pe\b)\b`, 'i'),
     company: /\b(capital|ventures?|partners|vc\b|fund|angels?|seed|equity|investments?|holdings|accelerator|incubator|y combinator|techstars|500 ?(global|startups)|sequoia|andreessen|a16z|accel|benchmark|greylock|kleiner|lightspeed|khosla|bessemer|nea|founders fund|general catalyst|insight partners|tiger global|coatue|softbank|first round|redpoint|ivp|gv)\b/i,
-    requireCompanyIf: /\b(partner|principal|associate|analyst|fund|investment)\b/i,
+    requireCompanyIf: new RegExp(String.raw`\b(${PARTNER}|principal|associate|analyst|fund|investment)\b`, 'i'),
     unless: /\b(investor|investing|venture|vc|angel|private equity|growth equity|seed|general partner|operating partner)\b/i,
   },
   {
@@ -51,7 +72,7 @@ export const ROLES = [
   },
   {
     key: 'founder', label: 'Founder', group: 'Founders & executives', lenses: ['source', 'diligence'],
-    title: /\b(co-?founder|founder|founding|owner|ceo|chief executive|(?<!vice )(?<!senior vice )(?<!executive vice )president|entrepreneur in residence|eir|stealth|building something)\b/i,
+    title: new RegExp(String.raw`\b(co-?founder|founder|${FOUNDING}|${OWNER}|${CEO}|(?<!vice )(?<!senior vice )(?<!executive vice )(?<!\bto\s(?:the\s)?)president|entrepreneur in residence|eir|stealth|building something)\b`, 'i'),
   },
   {
     key: 'banker', label: 'Banker / M&A', group: 'Experts & advisors', lenses: ['source', 'diligence', 'raise'],
@@ -61,7 +82,7 @@ export const ROLES = [
   {
     key: 'lawyer', label: 'Lawyer', group: 'Experts & advisors', lenses: ['diligence', 'source'],
     title: /\b(lawyer|attorney|counsel|solicitor|barrister|legal|paralegal)\b/i,
-    company: /\b(cooley|wilson sonsini|wsgr|gunderson|fenwick|latham|orrick|goodwin|perkins coie|dla piper|kirkland|skadden|sullivan|morrison foerster|mofo|law (firm|group|offices?)|llp\b|legal)\b/i,
+    company: new RegExp(String.raw`\b(${LAW_FIRM_RE}|goodwin|sullivan|law (firm|group|offices?)|llp\b|legal)\b`, 'i'),
   },
   {
     key: 'accountant', label: 'Accountant / finance', group: 'Experts & advisors', lenses: ['diligence'],
@@ -102,7 +123,7 @@ export const ROLES = [
   {
     // "Partner" at a firm that is not a fund: a law, consulting or accounting partner.
     key: 'partner', label: 'Partner (professional firm)', group: 'Experts & advisors', lenses: ['diligence', 'source'],
-    title: /\bpartner\b/i,
+    title: new RegExp(String.raw`\b${PARTNER}\b`, 'i'),
   },
   {
     key: 'executive', label: 'Executive', group: 'Founders & executives', lenses: ['source', 'diligence'],
@@ -131,31 +152,36 @@ const GROUP_KEY = { 'Investors & LPs': 'investors', 'Founders & executives': 'fo
  * family. The broad roles (executive, operator, professional) are split by
  * what the title says; what is left of them is a catch-all that is never
  * shown on its own.
+ *
+ * `one` / `many` are for sentences ("1 investor", "12 investors"), `title`
+ * names the family's group on the globe and in the list ("Founders & CEOs"),
+ * `tag` is the short label on a person's row ("Founder or CEO"; none for
+ * the last two catch-alls, which say nothing about the person).
  */
 export const FAMILIES = [
-  { key: 'investors', one: 'investor', many: 'investors' },
-  { key: 'founders', one: 'founder or CEO', many: 'founders and CEOs' },
-  { key: 'engineers', one: 'engineer', many: 'engineers' },
-  { key: 'product', one: 'product or design person', many: 'product and design people' },
-  { key: 'data', one: 'data scientist or analyst', many: 'data and analytics people' },
-  { key: 'sales', one: 'sales or marketing person', many: 'sales and marketing people' },
-  { key: 'operations', one: 'operations person', many: 'operations people' },
-  { key: 'finance', one: 'finance or accounting person', many: 'finance and accounting people' },
-  { key: 'people', one: 'recruiter or HR person', many: 'recruiting and HR people' },
-  { key: 'clinicians', one: 'clinician', many: 'clinicians' },
-  { key: 'academics', one: 'researcher or academic', many: 'researchers and academics' },
-  { key: 'bankers', one: 'banker', many: 'bankers' },
-  { key: 'lawyers', one: 'lawyer', many: 'lawyers' },
-  { key: 'consultants', one: 'consultant or advisor', many: 'consultants and advisors' },
-  { key: 'partners', one: 'partner at a professional firm', many: 'partners at professional firms' },
-  { key: 'accelerators', one: 'accelerator or community lead', many: 'accelerator and community leads' },
-  { key: 'public', one: 'public sector person', many: 'public sector people' },
-  { key: 'press', one: 'journalist or analyst', many: 'journalists and analysts' },
-  { key: 'students', one: 'student', many: 'students and early-career people' },
-  { key: 'leaders', one: 'other senior leader', many: 'other senior leaders', catchAll: true },
-  { key: 'others', one: 'other professional', many: 'other professionals', catchAll: true },
-  { key: 'unknown', one: 'person with no title', many: 'people with no title', catchAll: true },
-];
+  { key: 'investors', one: 'investor', many: 'investors', title: 'Investors', tag: 'Investor' },
+  { key: 'founders', one: 'founder or CEO', many: 'founders and CEOs', title: 'Founders & CEOs', tag: 'Founder or CEO' },
+  { key: 'engineers', one: 'engineer', many: 'engineers', title: 'Engineers', tag: 'Engineer' },
+  { key: 'product', one: 'product or design person', many: 'product and design people', title: 'Product & design', tag: 'Product & design' },
+  { key: 'data', one: 'data scientist or analyst', many: 'data and analytics people', title: 'Data & analytics', tag: 'Data' },
+  { key: 'sales', one: 'sales or marketing person', many: 'sales and marketing people', title: 'Sales & marketing', tag: 'Sales & marketing' },
+  { key: 'operations', one: 'operations person', many: 'operations people', title: 'Operations', tag: 'Operations' },
+  { key: 'finance', one: 'finance or accounting person', many: 'finance and accounting people', title: 'Finance', tag: 'Finance' },
+  { key: 'people', one: 'recruiter or HR person', many: 'recruiting and HR people', title: 'Recruiting & HR', tag: 'Recruiting & HR' },
+  { key: 'clinicians', one: 'clinician', many: 'clinicians', title: 'Clinicians', tag: 'Clinician' },
+  { key: 'academics', one: 'researcher or academic', many: 'researchers and academics', title: 'Researchers & academics', tag: 'Researcher' },
+  { key: 'bankers', one: 'banker', many: 'bankers', title: 'Bankers', tag: 'Banker' },
+  { key: 'lawyers', one: 'lawyer', many: 'lawyers', title: 'Lawyers', tag: 'Lawyer' },
+  { key: 'consultants', one: 'consultant or advisor', many: 'consultants and advisors', title: 'Consultants & advisors', tag: 'Consultant' },
+  { key: 'partners', one: 'partner at a professional firm', many: 'partners at professional firms', title: 'Partners at firms', tag: 'Partner' },
+  { key: 'accelerators', one: 'accelerator or community lead', many: 'accelerator and community leads', title: 'Accelerators', tag: 'Accelerator' },
+  { key: 'public', one: 'public sector person', many: 'public sector people', title: 'Public sector', tag: 'Public sector' },
+  { key: 'press', one: 'journalist or analyst', many: 'journalists and analysts', title: 'Journalists & analysts', tag: 'Journalist' },
+  { key: 'students', one: 'student', many: 'students and early-career people', title: 'Students', tag: 'Student' },
+  { key: 'leaders', one: 'other senior leader', many: 'other senior leaders', title: 'Other senior leaders', tag: 'Senior leader', catchAll: true },
+  { key: 'others', one: 'other professional', many: 'other professionals', title: 'Other roles', tag: '', catchAll: true },
+  { key: 'unknown', one: 'person with no title', many: 'people with no title', title: 'No title', tag: '', catchAll: true },
+].map((f) => ({ catchAll: false, ...f }));
 const FAMILY_BY_KEY = new Map(FAMILIES.map((f) => [f.key, f]));
 const ROLE_FAMILY = {
   lp: 'investors', investor: 'investors', accelerator: 'accelerators', founder: 'founders', banker: 'bankers', lawyer: 'lawyers',
@@ -167,21 +193,23 @@ const ROLE_FAMILY = {
 // Researcher" designs), data work after engineering ("Data Engineer"
 // builds), other science with the researchers.
 const TITLE_FAMILY = [
-  ['people', /\b(recruit\w*|talent|people (ops|operations|partner)|hr|human resources|hrbp)\b/i],
+  ['people', /\b(recruit\w*|talent|people|hr|human resources|hrbp|chief people officer|culture|benefits|compensation|payroll)\b/i],
   ['finance', /\b(finance|financial|accounting|accountant|controller|cfo|fp&a|treasur\w*|risk)\b/i],
-  ['sales', /\b(sales|account executive|account manag\w*|business development|bd|bdr|sdr|marketing|marketer|growth|partnerships?|customer success|revenue|brand|communications|pr|cmo|cro|go-to-market|gtm|demand gen\w*|merchandis\w*|e-?commerce)\b/i],
+  ['sales', /\b(sales|account executive|account manag\w*|business development|bd|bdr|sdr|marketing|marketer|growth|partnerships?|partner (manager|management|development|success|enablement|programs?|relations|lead|director)|channel|alliances?|customer success|revenue|brand|communications|pr|cmo|cro|go-to-market|gtm|demand gen\w*|merchandis\w*|e-?commerce)\b/i],
   ['product', /\b(product|design\w*|ux|ui|cpo|creative|art director|producer|content)\b/i],
   ['engineers', /\b(engineer\w*|develop\w*|programmer|software|architect|devops|sre|machine learning|ml|cto|technical|technology|it|qa|member of technical staff|mts|ciso|security)\b/i],
   // A data scientist is not an engineer; a data engineer is (matched above).
   ['data', /\b(data|analytics|business intelligence|bi|statistician|quant\w*)\b/i],
   ['academics', /\b(scien\w*|research\w*|cso)\b/i],
-  ['operations', /\b(operations|ops|coo|chief of staff|supply chain|logistics|procurement|buyer|purchasing|program|project|administrator|admin|office manager|facilities|support|quality|store|trial)\b/i],
+  ['operations', /\b(operations|ops|coo|chief of staff|executive assistant|assistant to|supply chain|logistics|procurement|buyer|purchasing|program|project|administrator|admin|office manager|facilities|support|quality|store|trial)\b/i],
 ];
 
 // Titles about money stay with an allocator or a fund whatever else they say.
 const MONEY_WORDS = /\b(invest\w*|portfolio|fund|allocat\w*|private (equity|markets)|venture)\b/i;
 const CATCH_ALL = new Set(['leaders', 'others', 'unknown']);
 
+// Per contact object, with the title and company it was read from: a
+// contact edited in place is read again instead of keeping its old role.
 const cache = new WeakMap();
 
 /** First role whose title (and, when used, company) matches. Tags are never read as titles. */
@@ -211,14 +239,28 @@ function familyFor(roleKey, title) {
 
 /**
  * Classify one contact. Returns { role, label, group, lenses: string[], reason, family }.
- * The result is cached per contact object.
+ * The result is cached per contact object until its title or company changes.
  */
 export function classifyContact(contact) {
   if (!contact || typeof contact !== 'object') return { role: 'other', label: 'Contact', group: 'other', lenses: [], reason: '', family: 'unknown' };
-  const hit = cache.get(contact);
-  if (hit) return hit;
   const title = String(contact.position || '');
   const company = String(contact.company || '');
+  const hit = cache.get(contact);
+  if (hit && hit.title === title && hit.company === company) return hit.out;
+  // The answer depends only on the title and the company, and many people
+  // share both ("Software Engineer" at Stripe): each pair is read once.
+  const pair = `${title}\u0000${company}`;
+  const shared = byPair.get(pair);
+  if (shared) { cache.set(contact, { title, company, out: shared }); return shared; }
+  const out = readContact(title, company);
+  if (byPair.size > 50000) byPair.clear();
+  byPair.set(pair, out);
+  cache.set(contact, { title, company, out });
+  return out;
+}
+const byPair = new Map();
+
+function readContact(title, company) {
   let m = matchRole(title, company, true);
   if (m && m.byCompany && !m.byTitle) {
     // The employer's name alone gave the role. A later role that both the
@@ -261,11 +303,13 @@ export function classifyContact(contact) {
     out = { role: 'professional', label: title.trim() ? 'Professional' : 'Team member', group: 'operators', lenses: ['diligence'], reason: title.trim() || titleWins ? `Title: "${title.slice(0, 60)}"` : `Company: ${company.slice(0, 60)}`, family: familyFor('professional', title) };
   }
   if (!out) out = { role: 'other', label: 'No title', group: 'other', lenses: [], reason: '', family: 'unknown' };
-  cache.set(contact, out);
   return out;
 }
 
-/** The contact's family: { key, one, many } ("investor" / "investors"). */
+/**
+ * The contact's family: the FAMILIES entry { key, one, many, title, tag,
+ * catchAll } ("investor" / "investors" / "Investors" / "Investor").
+ */
 export function familyOf(contact) {
   return FAMILY_BY_KEY.get(classifyContact(contact).family) || FAMILY_BY_KEY.get('others');
 }
@@ -290,6 +334,28 @@ export function roleStats(contacts) {
     for (const l of k.lenses) lenses[l] += 1;
   }
   return { roles, lenses, groups };
+}
+
+/**
+ * Roles whose job is to know a field (researchers, clinicians, advisors,
+ * lawyers, accountants, bankers, journalists, policy people). Founders,
+ * executives and operators also carry the diligence lens, because they can
+ * vet their own company or sector; asked about nothing in particular, that
+ * lens holds almost everyone. A "diligence" question with no company, field,
+ * place or tag in it means these people.
+ */
+export const EXPERT_ROLES = new Set(['academic', 'clinician', 'consultant', 'lawyer', 'accountant', 'press', 'banker', 'public', 'partner']);
+
+/** True when the contact's role is an expert role (see EXPERT_ROLES). */
+export const isExpert = (contact) => EXPERT_ROLES.has(classifyContact(contact).role);
+
+/** Share (0 to 1) of the contacts the lens holds: over about 0.6 a lens alone says nothing about the file. */
+export function lensShare(contacts, lens) {
+  const list = contacts || [];
+  if (!list.length) return 0;
+  let k = 0;
+  for (const c of list) if (classifyContact(c).lenses.includes(lens)) k += 1;
+  return k / list.length;
 }
 
 /** Question phrasing that selects a lens, for "Ask your network". */

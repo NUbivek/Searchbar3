@@ -21,7 +21,7 @@ segmented control at the top of every page:
 | Flow | Route | What it does |
 |---|---|---|
 | Open Research | `/` | Searches curated VC/startup sources, Hacker News, the web, SEC and grouped official/institutional sites; writes a cited answer (free LLMs) or quotes sources; checks funding/valuation claims across sources. |
-| Network Map | `/network` | The user's own contacts (LinkedIn export, CSV/XLSX, X, Attio placeholder) on a see-through 3D globe (you → group → sub-group → company → person), with a dashboard beside it, grouped by role / company / industry / country, plus "ask your network" (raise / source / diligence lenses, intro paths). |
+| Network Map | `/network` | The user's own contacts (LinkedIn export, CSV/XLSX, X, Attio) read back in the file's own words: a read-out and shortcuts built from the upload (roles, companies, tags, places, industries, dates), one selection that lights a see-through 3D globe and fills a people list (Find, sort, Copy, Download CSV), "Arrange by" role / company / industry / place / tag, plus "ask your network" (rules over the contacts, intro paths). Read `NETWORK-MAP.md` before touching it. |
 | Founder Check | `/founder` | Quick brief on a person, plus a deep background check (signed in): a loop over about forty free public sources that pulls every thread it finds, grades each record for identity, and reports red flags, claims that changed between archived versions, and related parties. Read `FOUNDER-CHECK.md` before touching it. |
 
 Secondary pages: `/company/<name>` (company profile), `/workspaces`
@@ -154,45 +154,63 @@ Key behaviours worth knowing before editing:
   `src/utils/sourceTiers.js` (gov/IP = filing, institutions = press).
   `src/pages/api/search/open.js` `VALID_SOURCES` must list every UI source.
 - **Day / night theme.** One attribute (`<html data-theme="dark">`), set by `src/utils/theme.js`; every colour is a CSS variable in `src/styles/globals.css` and Tailwind's colours point at them (`tailwind.config.js`). Use token classes, never hex for surfaces or text, never `dark:` variants. See DESIGN.md "Day and night".
-- **Network Map.** Full description in `NETWORK-MAP.md`. The pieces:
-  - `src/utils/network/roles.js`: `classifyContact` puts each contact in a
-    role, one of five first-layer groups (`ROLE_GROUPS`: investors, founders
-    = "Founders & executives", operators = "Operators & talent", experts,
-    other) and the lenses raise / source / diligence. Rules are an ordered
-    list (`ROLES`), first match wins; anyone with a title or employer who
-    matches nothing becomes `professional` under operators, so "Everyone
-    else" holds only contacts with neither.
-  - `src/utils/network/grouping.js`: `industryOf` decides in five steps:
-    known-employer table, decisive titles, sector words, sector words in the
-    company's own name (`COMPANY_WORD_INDUSTRY`), then what the person does
-    (`FUNCTION_GROUP`: Founders & CEOs, Engineering & data, ...). `countryOf`
-    reads the location field. `bucketsFor` makes up to 16 groups per layer.
-    Tests in `tests/unit/features/networkGrouping.test.js` hold both leftover
-    buckets under 5% on a realistic mix; keep them passing.
+- **Network Map.** Full description in `NETWORK-MAP.md`; the design and its
+  reasons are in `eval/network/design-2026-11-21/` (`SPEC.md`, then
+  `ROUND2.md`, which wins) and the review in `eval/network/review-2026-11-21/`.
+  The rule that governs all of it: nothing on the page is a fixed label, and
+  a count for the same people is the same number everywhere (read-out,
+  shortcut, globe group, list title, typed answer). The pieces:
+  - `src/utils/network/parseContacts.js`: reads the files. Company keys merge
+    spellings and renames (`normalizeCompanyKey`, `COMPANY_ALIASES`) and treat
+    placeholder employers (self-employed, stealth, retired) as no company.
+    Notes columns are not tags; stage / status / label columns are.
+  - `src/utils/network/roles.js`: `classifyContact` (ordered `ROLES`, first
+    match wins; tags are never read as titles) and the role families
+    (`FAMILIES`, `familyOf`: key, one, many, title for the globe, tag for a
+    row). `ROLE_GROUPS` and the lens words survive only for typed questions
+    and the founder check's network link; the page never shows them.
+  - `src/utils/network/grouping.js`: `industryOf` reads the employer only,
+    never the job title (unknown is "Industry not known"); `readPlace`
+    resolves LinkedIn's metro strings; `tagsOf`, `tagProfile`; `bucketsFor`
+    (By role = the file's families, at most eight, then "Other roles");
+    `usefulGroupings` and `defaultGrouping` decide which arrangements are
+    offered.
+  - `src/utils/network/insights.js`: `profileNetwork(contacts, { today })`
+    builds the read-out sentences, the shortcuts, "More", the example
+    questions and the arrangements; `combine`, `narrowings`, `labelFor`,
+    `shortcutFor`; `listText` and `listCsv` for Copy and Download. The six
+    sample files in `tests/fixtures/network/` pin its output
+    (`networkR2.data.test.js`); read a changed pin as the person who
+    uploaded that file before accepting it.
   - `src/utils/network/atlas.js`: `buildAtlas(contacts, { groupBy })` returns
-    a fixed tree (root → group → sub-group → company → person) with x/y/r for
-    every node, packed with d3-hierarchy, no physics. `LAYERS` gives the
-    layer order per grouping. People spiral out from their company ordered by
-    `seniority` (0 leaders, 1 heads, 2 team). Sub-groups get a `shade` of
-    their group's colour. Same contacts, same layout, always.
+    a fixed tree with x/y/r for every node, packed with d3-hierarchy, no
+    physics. `LAYERS` gives the layer order per arrangement. Group nodes
+    carry `count` (the number shown everywhere), `placed`, `last` ("Other …"
+    and "… not known" go to the far side and the end of lists) and a hint;
+    `companyIndex`, `tagIndex` and `groupIndex` say whom a click selects.
   - `src/components/network/NetworkGraph.js`: one canvas, no graph library.
-    `wrapOntoGlobe` places each top-level cluster on its own patch of a unit
-    sphere; depth is by level (`SHELL`: you at the core, people on the
-    surface). Camera is yaw / pitch / radius; drag spins with momentum,
-    scroll zooms towards the cursor, a click flies to the node. Deeper
-    layers are ghosted until you zoom in (`reveal`); everything outside the
-    cluster in view fades (`inFocus`). Labels differ per layer (banner, tag,
-    plate). Colours come from `THEMES` (light and dark) via the `theme` prop.
-  - `src/pages/network.js`: `focus` (where the camera was sent; bump `nonce`
-    to fly again), `viewId` (the cluster in view, reported back by the map),
-    the breadcrumb, the two bars under the globe ("Zoom to" and "Presets")
-    and the dashboard on the right (layer stepper, seniority bar, raise /
-    source / diligence gauges, next-layer bars, people list with filter and
-    sort; details of a selection open in the same panel).
-  - "By country" is disabled until some contact has a location: LinkedIn's
-    export has none.
-  - Gone: `graph.js`, force-graph, react-kapsule. Jest maps `d3-hierarchy`
-    to its UMD build (`jest.config.js`).
+    `placeClusters` / `wrapOntoGlobe` place clusters on a unit sphere (fast
+    for hundreds); `hitTest` decides what a click means (a label or hub
+    always wins; inside a cluster is background); `spreadOf` and `dimLevels`
+    drive how a selection is shown. `onViewNode` reports only where the user
+    went. Colours come from `THEMES` (light and dark).
+  - `src/pages/network.js` with `src/components/network/{SourceStrip,
+    AtAGlance,Shortcuts,PeoplePanel,Connectors,checks}.js`: one selection
+    `{ kind, label, keys, sort }` set by a shortcut, Find, an answer or a
+    globe click; it never rebuilds the atlas.
+  - `src/server/network/query.js`: the question engine (rules first; role
+    questions use the same families as the shortcuts; tags, industries,
+    cities, dates, negation). The response carries `keys`, every match
+    uncapped. Nothing from the file may reach a model: page-built questions
+    go with `target` or `fromPage`, signed-out requests never use the model.
+  - "By place" appears only when contacts carry locations: LinkedIn's export
+    has none.
+  - Checking it in a browser when the pane is hidden: Next's dev page waits
+    for an animation frame and never starts; reload it through
+    `document.write` with `requestAnimationFrame` driven by a timer.
+  - Gone: `graph.js`, force-graph, react-kapsule, the presets bar, the lens
+    gauges, "Zoom to", the layer stepper. Jest maps `d3-hierarchy` to its UMD
+    build (`jest.config.js`).
 - **Contacts store.** `src/server/network/store.js`, table `network_contacts`
   (created lazily; columns include `relationship` 'direct'|'firm' and `via`).
   Imports are staged and swapped atomically.
@@ -384,7 +402,7 @@ Ideas discussed, not started (build only if he asks):
    He chose to wait. It becomes possible when contacts carry a location (a
    CSV with a Location column, or Attio). Guessing from the employer's
    headquarters was offered and not chosen.
-10. **Colour the people by an attribute** (seniority, lens, how recently
+10. **Colour the people by an attribute** (seniority, how recently
     connected) with a switch on the map.
 11. **Rename to "DiligenceHub".** He uses that name on the banner, the
     guide and the X app; the site still says "Research Hub". Rename only if
@@ -418,8 +436,14 @@ What he decided about the Network Map (do not reopen without him):
   empty.
 - One layer first, deeper layers on zoom; each layer's labels must differ by
   more than font and colour; labels need solid backgrounds to be readable.
-- The bars under the globe stay: quick zoom and presets. Choosing a preset
-  must bring that group to the front. Chip dots use a shade per sub-group.
+- 2026-11-21, superseding the earlier "bars under the globe stay": presets
+  and labels must come from the content and kind of network the user
+  uploads, never be fixed; the map has to add value and not just look
+  fancy; the value must be plain within thirty seconds of an upload, with
+  no fiddling ("has to be super intuitive and USEFUL"). He named the
+  "largest company" preset as one that did nothing. So: no fixed presets or
+  fixed group names, every control visibly does something, and the globe
+  itself stays.
 - He first refused a table beside the globe, then asked for it back as a
   visual, filterable, layer-focused dashboard. Keep both the globe and the
   dashboard.

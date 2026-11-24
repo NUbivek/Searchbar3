@@ -589,3 +589,16 @@
   }
   .founder-report a.cite::after { content: none; }
 }
+
+/* Network Map: on a phone the people panel comes before the globe and takes most of the screen, so several
+   people show at once; from the lg breakpoint it sits beside the globe and fills that column. */
+.network-panel {
+  height: 70vh;
+  min-height: 22rem;
+}
+@media (min-width: 1024px) {
+  .network-panel {
+    height: auto;
+    min-height: 0;
+  }
+}

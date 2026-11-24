@@ -99,36 +99,50 @@ evidence and runs those first next time. Full description, rules and how to
 add a source: `FOUNDER-CHECK.md`.
 
 ### Network Map (`/network`)
-Your own contacts as a map, sorted by what they can do for a fund. Drop
+Your own contacts, read back to you in the file's own words. Drop
 LinkedIn's `Connections.csv` or any CSV/XLSX of contacts (X following lists
-as JSON too), or connect the firm's Attio CRM with an API token: Attio
-people are saved as *direct* (their strongest connection in Attio is you)
-or *firm-wide* (a colleague's contact, labelled with the colleague) and the
-two are never confused on the map or in answers. Every contact is classified from its title and company into a
-role (LP, investor, founder, executive, operator, banker, lawyer,
-accountant, consultant, academic, press) and into three lenses: **raise**
-capital, **source** deals, **diligence** a company or founder. The map is a
-globe you can spin: you are its core, groups sit on the inner shell,
-sub-groups on the middle shell, companies on the outer shell and people on
-the surface, with branches bursting outward through the layers. Each company
-is a burst of rays, one per person, most senior closest to its core. Drag to
-spin (it keeps turning when you let go), scroll to dive in, click anything
-to turn it towards you and fly down to it. A breadcrumb shows where you
-are; the two bars under the map are quick zoom (what is inside the cluster
-in view) and presets (whole network, the three lenses, largest company).
-Group by role, company, industry or country, highlight a name, go full
-screen. The globe is see-through and used all the way round, so the far side shows
-behind the near side; it is light by default with a dark palette ready
-(`theme` prop). The layout is computed once with no physics, so the same
-contacts always give the same globe. Ask it questions in
-plain words: "Who can help me raise a fund?", "Who sends me deal flow in
-fintech?", "Who can diligence an AI company?", "Who do I know at Google?",
-"Intro paths to Stripe". Matching is deterministic over your contacts;
-contact data is never sent to an AI provider. LinkedIn's API does not give
-apps your connections, so the page offers no LinkedIn sign-in, only the
-export upload. Signed in,
-contacts are saved to your account; signed out, they stay in the browser
-tab. Full description in `NETWORK-MAP.md`.
+as JSON too), or connect the firm's Attio CRM: Attio people are saved as
+*direct* (their strongest connection in Attio is you) or *firm-wide* (a
+colleague's contact, labelled with the colleague) and the two are never
+confused on the map or in answers.
+
+The first screen after an upload is built from the upload:
+
+- **Your network at a glance**: a few plain sentences ("You know 544 people
+  at 254 companies: 112 investors and 97 engineers. The most at Stripe (22)
+  and Google (19). ..."), then **shortcuts** made from the file's own roles,
+  companies, tags, places, industries and dates, each with its count. A
+  pipeline or fundraising list leads with its tags; a healthcare list with
+  clinicians and researchers. Nothing here is a fixed label.
+- Pressing a shortcut switches to those people: they light up on the globe
+  and are listed beside it. "Narrow to" in the list combines up to three.
+- **The people list**: Find, sort, rows that open in place (company
+  profile, founder check, intro paths), Copy and Download CSV.
+- **Ask**: "Who do I know at Google?", "Which investors do I know?",
+  "prospects in New York", "people I connected with this year", "Intro
+  paths to Stripe", with three example questions built from the file. The
+  answer shows in the same list and lights the same globe. A count for the
+  same people is the same number in the read-out, on its shortcut, on the
+  globe and in an answer.
+
+The map is a globe you can spin: you are its core, groups sit on the inner
+shell, companies further out and people on the surface. Each company is a
+burst of rays, one per person, most senior closest to its core. "Arrange by"
+offers role, company, industry, place and tag, and only the arrangements
+that split this file; under By role the groups are the file's own role
+families. Drag to spin, scroll to zoom, click a group or company to open it
+and list its people; a breadcrumb shows where you are. The globe is
+see-through and used all the way round; it is light by default with a dark
+palette (`theme` prop). The layout is computed once with no physics, so the
+same contacts always give the same globe.
+
+Every contact is read from its title and employer into a role family and,
+from the employer only, an industry. Matching is deterministic over your
+contacts; nothing from the file is ever sent to an AI provider. LinkedIn
+does not give apps your connections, so the page offers no LinkedIn
+sign-in, only the export upload. Signed in, contacts are saved to your
+account; signed out, they stay in the browser tab. Full description in
+`NETWORK-MAP.md`.
 
 The same network is used across the product: after an Open Research search
 about a company, on every company profile, and in Founder Check, a **Your

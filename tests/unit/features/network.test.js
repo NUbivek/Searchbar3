@@ -153,7 +153,9 @@ describe('generic CSV / spreadsheet rows', () => {
       source: 'csv',
       relationship: 'direct',
       via: '',
-      tags: ['vip', 'fintech', 'met at demo day'],
+      // Changed 2026-11-21 (ROUND2 R8.4, review value-6 / data-8): a Notes
+      // column is not a tag and is not kept.
+      tags: ['vip', 'fintech'],
     }]);
   });
 
@@ -224,7 +226,8 @@ describe('dedupe and company normalisation', () => {
   test('normalizes company names for grouping', () => {
     expect(normalizeCompanyKey('Stripe, Inc.')).toBe('stripe');
     expect(normalizeCompanyKey('STRIPE')).toBe('stripe');
-    expect(normalizeCompanyKey('The Goldman Sachs Group, Inc.')).toBe('goldman sachs group');
+    // Close-out R8.3: a trailing "Group" goes, so this merges with "Goldman Sachs".
+    expect(normalizeCompanyKey('The Goldman Sachs Group, Inc.')).toBe('goldman sachs');
     expect(normalizeCompanyKey('Johnson & Johnson')).toBe('johnson and johnson');
     expect(normalizeCompanyKey('Acme Holdings Ltd.')).toBe('acme holdings');
     expect(normalizeCompanyKey('Globex L.L.C.')).toBe('globex');
@@ -307,7 +310,8 @@ describe('parseQuestionRules', () => {
 
   test('lower-case place names count as locations', () => {
     expect(parseQuestionRules('who works in paris')).toMatchObject({ locations: ['Paris'], keywords: [] });
-    expect(parseQuestionRules('engineers in new york')).toMatchObject({ roles: ['engineers'], locations: ['new york'] });
+    // A place typed in lower case is named back as a place is written (ask-25).
+    expect(parseQuestionRules('engineers in new york')).toMatchObject({ roles: ['engineers'], locations: ['New York'] });
     expect(parseQuestionRules('people in fintech').locations).toEqual([]);
     expect(parseQuestionRules('investors in my network').locations).toEqual([]);
     // With the contacts' locations known, only real places are accepted.
@@ -318,7 +322,8 @@ describe('parseQuestionRules', () => {
   test('uses the LLM only when rules find nothing specific, with only the question text', async () => {
     chatComplete.mockResolvedValueOnce({ text: '```json\n{"companies":[],"roles":["recruiters"],"keywords":[],"locations":[],"intent":"role"}\n```' });
     const out = await parseQuestion('who hires people like me');
-    expect(out).toEqual({ parsedBy: 'llm', filters: { companies: [], roles: ['recruiters'], keywords: [], locations: [], intent: 'role', lens: null } });
+    // The model may also give tags and a date range (ask-m5): absent here, so empty.
+    expect(out).toEqual({ parsedBy: 'llm', filters: { companies: [], roles: ['recruiters'], keywords: [], locations: [], tags: [], industries: [], connected: null, intent: 'role', lens: null } });
     const sent = JSON.stringify(chatComplete.mock.calls[0][0]);
     expect(sent).toContain('who hires people like me');
 
@@ -491,27 +496,29 @@ describe('buildAtlas', () => {
     }
   });
 
-  test('by role: groups sit on the compass, colour is inherited, and the path leads back to the root', () => {
+  // Changed 2026-11-21 (ROUND2 R2): By role shows the file's own role
+  // families, largest first, each in its own colour, with "Other roles" last;
+  // the four fixed groups on a compass are gone.
+  test('by role: the file\'s families, largest first, colour is inherited, and the path leads back to the root', () => {
     const list = [
       ...Array.from({ length: 12 }, (_, i) => C(`Inv ${i}`, i % 2 ? 'Sequoia Capital' : 'Accel', 'General Partner')),
       ...Array.from({ length: 9 }, (_, i) => C(`Fou ${i}`, `Startup ${i % 3}`, 'Founder')),
       ...Array.from({ length: 7 }, (_, i) => C(`Eng ${i}`, 'Initech', 'Engineer')),
-      // No title and no company: the only people left in "Everyone else".
+      // No title and no company: they say nothing about a role and go last.
       ...Array.from({ length: 3 }, (_, i) => C(`Blank ${i}`, '', '')),
     ];
     const atlas = buildAtlas(list, { groupBy: 'role' });
-    expect(atlas.compass).toBe(true);
+    expect(atlas.compass).toBe(false);
+    expect(atlas.root.children.map((g) => [g.label, g.count, g.last])).toEqual([
+      ['Investors', 12, false], ['Founders & CEOs', 9, false], ['Engineers', 7, false], ['Other roles', 3, true],
+    ]);
     const top = Object.fromEntries(atlas.root.children.map((g) => [g.key, g]));
-    expect(top.investors.y).toBeLessThan(0);
-    expect(Math.abs(top.investors.x)).toBeLessThan(1e-6);
-    expect(top.founders.x).toBeGreaterThan(0);
-    expect(top.other.y).toBeGreaterThan(0);
     const person = atlas.byId.get(personNodeId(list[1]));
-    // The group sets the hue; a sub-group takes a shade of it, and companies and people inherit that.
+    // The family sets the hue; its companies and people inherit it.
     expect(person.color).toBe(person.parent.color);
+    expect(person.parent.color).toBe(top.investors.color);
     expect(atlas.root.children.every((g) => /^#[0-9a-f]{6}$/i.test(g.color))).toBe(true);
-    const subs = top.founders.children.filter((n) => n.type === 'group');
-    expect(new Set(subs.map((n) => n.color)).size).toBe(subs.length);
+    expect(new Set(atlas.root.children.map((g) => g.color)).size).toBe(4);
     const trail = pathTo(person);
     expect(trail[0].id).toBe(ROOT_ID);
     expect(trail[1]).toBe(top.investors);

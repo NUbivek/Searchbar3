@@ -117,8 +117,11 @@ describe('role questions count the same people as the role chips', () => {
     const file = 'vc-investor-linkedin.csv';
     const p = profileNetwork(S[file], { today: TODAY });
     const chip = [...p.shortcuts, ...p.more].find((s) => s.id === 'senior');
-    expect(chip.count).toBe(201);
-    expect(keysFor(file, 'Which senior leaders do I know?').size).toBe(201);
+    // Changed 2026-11-21 (review data-4): Vice Presidents, Chiefs of Staff,
+    // Principal Scientists and Associate Partners no longer rank with
+    // founders and CEOs (201 -> 180).
+    expect(chip.count).toBe(180);
+    expect(keysFor(file, 'Which senior leaders do I know?').size).toBe(180);
     expect(sorted(keysFor(file, 'senior leaders'))).toEqual(sorted(keysOf(S[file].filter((c) => seniority(c) === 0))));
   });
 
@@ -199,7 +202,9 @@ describe('the map\'s industry labels', () => {
     expect((await ask('founder-operator-linkedin.csv', 'Who do I know in Big Tech?')).total).toBe(124);
     const sw = await ask('vc-investor-linkedin.csv', 'people in software');
     expect(sw.filters).toMatchObject({ industries: ['Software'], keywords: [], locations: [] });
-    expect(sw.total).toBe(66);
+    // Changed 2026-11-21 (ROUND2 R8.1): industry comes from the employer only,
+    // so software engineers at Stripe or Ramp are no longer "in Software" (66 -> 57).
+    expect(sw.total).toBe(57);
     // The audit's case: the map showed Healthcare, the engine found no founders there.
     const crm = S['sales-crm.csv'];
     const want = crm.filter((c) => industryOf(c) === 'Healthcare' && classifyContact(c).family === 'founders');

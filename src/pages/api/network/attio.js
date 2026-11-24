@@ -108,7 +108,7 @@ export function mapPerson(record, { companies, members, myMemberId }) {
 
 export default withUser(['POST'], async (req, res, userId) => {
   const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
-  if (!token || token.length > 400) return res.status(400).json({ error: 'Paste an Attio API access token.' });
+  if (!token || token.length > 400) return res.status(400).json({ error: 'Paste an Attio access code.' });
   res.setHeader('Cache-Control', 'no-store');
 
   let myEmail = '';
@@ -130,8 +130,8 @@ export default withUser(['POST'], async (req, res, userId) => {
       ? `No Attio workspace member uses ${myEmail}, so every contact was saved as firm-wide. Sign in with the email you use in Attio to mark your own connections as direct.`
       : 'Your account has no email, so every contact was saved as firm-wide.';
   } catch (error) {
-    if (error.status === 401) return res.status(400).json({ error: 'Attio rejected this token.' });
-    note = 'The token cannot read workspace members, so every contact was saved as firm-wide. Create a token with the "user management: read" scope to mark your own connections as direct.';
+    if (error.status === 401) return res.status(400).json({ error: 'Attio did not accept this access code.' });
+    note = 'This access code cannot see who is in your Attio workspace, so every contact was saved as firm-wide. Make a new access code in Attio that may read workspace members to mark your own connections as direct.';
   }
 
   try {
@@ -157,8 +157,8 @@ export default withUser(['POST'], async (req, res, userId) => {
       stats: await contactStats(userId),
     });
   } catch (error) {
-    if (error.status === 401) return res.status(400).json({ error: 'Attio rejected this token.' });
-    if (error.status === 403) return res.status(400).json({ error: 'This token cannot read people records. Create a token with the "record permission: read-write" or "read" scope for People and Companies.' });
+    if (error.status === 401) return res.status(400).json({ error: 'Attio did not accept this access code.' });
+    if (error.status === 403) return res.status(400).json({ error: 'This access code cannot read people in Attio. Make a new access code in Attio that may read People and Companies.' });
     console.error('Attio import failed:', error.message);
     return res.status(502).json({ error: 'Attio could not be read right now. Please try again.' });
   }

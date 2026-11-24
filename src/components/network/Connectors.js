@@ -13,6 +13,39 @@ const formatTime = (iso) => {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 };
 export const X_UNAVAILABLE = "X connection isn't available on this deployment yet";
+
+// Words the interface never shows. The X and Attio routes speak in their own
+// developer terms ("token", "API", "scope"); the page says the same in plain
+// words, and calls Attio's credential an access code as the form does.
+const BANNED_WORDS = /\b(api|keys?|tokens?|free|paid|tiers?|quota|scopes?)\b/i;
+const PLAIN = {
+  attio: [
+    [/paste/i, 'Paste an Attio access code.'],
+    [/rejected|401|unauthori[sz]ed/i, 'Attio did not accept this access code. Check that it was copied in full and try again.'],
+    [/workspace members/i, 'This Attio access code cannot see who in the workspace knows whom, so every contact was saved as firm-wide. Create one that can read workspace members to mark your own connections as direct.'],
+    [/people records|permission|403/i, 'This access code cannot read People and Companies in Attio. Create one that can read them and try again.'],
+    [/rate|429/i, 'Attio is busy right now. Try again in a few minutes.'],
+  ],
+  x: [
+    [/follow|json/i, 'X does not share who you follow with this app yet. You can still upload your X following list as a JSON file, or add the people to a CSV.'],
+    [/rate/i, 'X is limiting requests right now. Try again in 15 minutes.'],
+    [/expired|authenticat/i, 'Your X session expired. Connect X again.'],
+  ],
+};
+const FALLBACK = {
+  attio: 'The Attio import did not work. Check the access code and try again.',
+  x: 'X did not return your following list. Try again later.',
+};
+/**
+ * An X or Attio message as the user should read it: text that already avoids
+ * the banned words is kept; anything else is put in plain words.
+ */
+export function plainServiceText(service, text) {
+  const t = String(text || '').trim();
+  if (t && !BANNED_WORDS.test(t)) return t;
+  const hit = (PLAIN[service] || []).find(([re]) => re.test(t));
+  return hit ? hit[1] : (FALLBACK[service] || 'That did not work. Please try again.');
+}
 const LINKEDIN_HOW = 'LinkedIn: Settings & Privacy → Data privacy → Get a copy of your data → Connections. LinkedIn emails a zip within minutes; upload the Connections.csv inside it. LinkedIn never shares connections with apps, so the export is the only way in.';
 
 /** One tight card: a source, what is in from it, and its action. */
@@ -81,7 +114,7 @@ export default function Connectors({
           : <button type="button" disabled className="btn-secondary w-full py-2 text-xs" title="Not connected yet">Connect Attio · soon</button>}
       </Card>
       {xUnavailable && <p className="muted text-xs sm:col-span-2 lg:col-span-4" role="status">{X_UNAVAILABLE}.</p>}
-      {xStatus.note && <p className="text-xs text-amber-700 sm:col-span-2 lg:col-span-4">{xStatus.note}</p>}
+      {xStatus.note && <p className="text-xs text-amber-700 sm:col-span-2 lg:col-span-4">{plainServiceText('x', xStatus.note)}</p>}
       {attioOpen && (
         <form onSubmit={submitAttio} className="rounded-xl border border-line bg-slate-50 p-3.5 sm:col-span-2 lg:col-span-4">
           <p className="text-sm text-ink">Connect Attio</p>

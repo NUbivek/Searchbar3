@@ -18,7 +18,8 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HiOutlineArrowsPointingOut, HiOutlineMinus, HiOutlinePlus } from 'react-icons/hi2';
-import { PERSON_R, ROOT_ID, shade } from '../../utils/network/atlas';
+import { NO_COMPANY_KEY, OTHER_COMPANIES_KEY, PERSON_R, ROOT_ID, shade } from '../../utils/network/atlas';
+import { NO_TAG, OTHER_INDUSTRY, OTHER_TAGS, UNKNOWN_COUNTRY } from '../../utils/network/grouping';
 
 /** Stands for "the theme's text colour" wherever a label is not tinted by a node. */
 const INK = 'ink';
@@ -52,6 +53,29 @@ const PULSE_MS = 1100;
 const WIDE_SHARE = 1 / 3;
 /** Smallest angular gap (radians) kept between two top-level clusters. */
 const MIN_GAP = 0.015;
+/** The angle from the middle of a selection that holds WIDE_SHARE of the globe's surface. */
+const WIDE_ANGLE = Math.acos(1 - 2 * WIDE_SHARE);
+/** A file this small sits on the side facing you, so the whole network fills the view. */
+const SMALL_FILE = 40;
+const SMALL_COVER = 0.4;
+/** A spot counts as facing the viewer (or facing away) beyond this height on the globe's axis. */
+const SIDE = 0.15;
+// The named first-layer groups (up to this many) sit at least this far
+// towards the viewer, so the opening view names them all on the near side.
+const FRONT_GROUPS = 9;
+const FRONT_Z = 0.42;
+/** The page's wheel scroll is left alone until the pointer has rested on the globe this long. */
+const REST_MS = 300;
+/** After a pulse, at most this many lit dots get a ring (the rest are lit all the same). */
+const PULSE_RINGS = 300;
+/** Top-layer companies that always carry a label at the whole-globe view, largest first. */
+const LABELLED_TOPS = 10;
+/**
+ * Groups the page lists last ("Other companies", "Industry not known" and the
+ * like). The atlas marks them with `last`; older atlases are read by key.
+ */
+const LAST_KEYS = new Set([OTHER_COMPANIES_KEY, NO_COMPANY_KEY, OTHER_INDUSTRY, UNKNOWN_COUNTRY, NO_TAG, OTHER_TAGS, 'other-roles'].filter(Boolean));
+export const isLast = (node) => (typeof node?.last === 'boolean' ? node.last : LAST_KEYS.has(node?.key));
 // The swing-in happens at most once per page load, so coming back to the tab
 // or a remount after an upload does not replay it.
 let swungThisLoad = false;
@@ -90,8 +114,9 @@ export const THEMES = {
     panel: (hex) => shade(hex, 0.86), panelEdge: 0.55,
     air: '61,106,150', airStrength: 0.1, body: ['rgba(255,255,255,0.5)', 'rgba(226,232,240,0.16)', 'rgba(148,163,184,0.1)'], stars: false,
     glow: 0.7,
-    // A lit (selected) person, and the one clicked.
-    lit: '#F59E0B', selected: '#FB7185', starInk: '203,213,225',
+    // A lit (selected) person, and the one clicked. The lit amber is deep
+    // enough to stand out from the light canvas (about 4.8 to 1).
+    lit: '#B45309', selected: '#FB7185', starInk: '203,213,225',
     // Where a contact came from; the page uses these for its source chips.
     sources: { linkedin: '#0077B5', x: '#0F172A', csv: '#64748B', attio: '#B8742A' },
   },
@@ -178,20 +203,36 @@ function spotsFor(count) {
  * cluster can only change spots within (best room + its own reach): the rest
  * are ruled out with a dot product and cost no trigonometry.
  */
-function greedy(radii, spots, kappa) {
+function greedy(radii, spots, kappa, back = [], frontAll = false, front = 0) {
   const room = new Float64Array(spots.length).fill(Infinity);
   const centres = [];
   let most = Infinity;
   for (let t = 0; t < radii.length; t += 1) {
     let best = 0;
+    const reach = radii[t] * kappa;
     if (t) {
-      // The largest cluster faces the viewer (spot 0); the rest go where there is most room.
+      // The first cluster faces the viewer (spot 0). Named clusters take the
+      // side facing you while they still fit there (otherwise the second one
+      // lands straight behind the first), nearest the middle first but with
+      // some air round them. "Other …" groups take the far side, as far from
+      // everything as they can. Whatever does not fit goes where there is most room.
       most = -Infinity;
-      for (let i = 0; i < spots.length; i += 1) if (room[i] > most) { most = room[i]; best = i; }
+      let free = 0;
+      for (let i = 0; i < spots.length; i += 1) if (room[i] > most) { most = room[i]; free = i; }
+      const fits = reach + MIN_GAP;
+      let pick = -1; let score = -Infinity;
+      for (let i = 0; i < spots.length; i += 1) {
+        if (room[i] < fits) continue;
+        const z = spots[i][2];
+        // The first `front` named clusters sit well inside the near side (R9 #2).
+        if (back[t] ? z > -SIDE : z < (t < front ? FRONT_Z : SIDE)) continue;
+        const s = back[t] ? room[i] : Math.min(room[i], fits + (frontAll ? 0.05 : 0.25)) + 0.3 * z;
+        if (s > score) { score = s; pick = i; }
+      }
+      best = pick >= 0 ? pick : free;
     }
     const c = spots[best];
     centres.push(c);
-    const reach = radii[t] * kappa;
     const near = most + reach >= Math.PI ? -2 : Math.cos(most + reach);
     for (let i = 0; i < spots.length; i += 1) {
       const p = spots[i];
@@ -210,7 +251,8 @@ function greedy(radii, spots, kappa) {
  */
 function fittingScale(radii, centres, cap) {
   let k = cap;
-  const r0 = radii[0];
+  // The largest radius bounds every pair (the list is not always largest first).
+  const r0 = radii.reduce((m, r) => Math.max(m, r), 0);
   for (let i = 0; i < centres.length; i += 1) {
     const a = centres[i];
     const span = k * (radii[i] + r0) + MIN_GAP;
@@ -227,29 +269,43 @@ function fittingScale(radii, centres, cap) {
 
 /**
  * Where the top-level clusters sit on the unit globe. `radii` are their sizes
- * in map units, largest first. Returns { centres, kappa }: one unit vector per
+ * in map units, named clusters largest first, then the "Other …" ones.
+ * `back[i]` marks a cluster for the far side. `cover` is the share of the
+ * globe the patches may cover (a small file uses less, so all of it sits on
+ * the side facing you). Returns { centres, kappa }: one unit vector per
  * cluster (the first faces the viewer) and the scale from map units to
- * radians, chosen so the patches cover no more than COVER of the globe and
+ * radians, chosen so the patches cover no more than `cover` of the globe and
  * none overlap. Two greedy passes and one pairwise check, so it stays fast
  * however many clusters there are (By company can have hundreds).
  */
-export function placeClusters(radii) {
+export function placeClusters(radii, { back = [], cover = COVER } = {}) {
   if (!radii.length) return { centres: [], kappa: 1 };
   // Start with the largest cluster spanning a good part of a hemisphere, then
-  // shrink everything until the patches cover no more than COVER of the globe.
-  let kappa = 0.95 / (radii[0] || 1);
+  // shrink everything until the patches cover no more than `cover` of the globe.
+  let kappa = 0.95 / (radii.reduce((m, r) => Math.max(m, r), 0) || 1);
   const covered = (k) => radii.reduce((sum, r) => sum + (1 - Math.cos(Math.min(Math.PI, r * k))) / 2, 0);
-  while (covered(kappa) > COVER) kappa *= 0.96;
+  while (covered(kappa) > cover) kappa *= 0.96;
   if (radii.length === 1) return { centres: [[0, 0, 1]], kappa };
   // Enough candidate spots that every cluster has several to choose from.
   const spots = spotsFor(Math.max(700, radii.length * 6));
-  let centres = greedy(radii, spots, kappa);
+  const frontAll = cover < COVER;
+  // The first few named clusters (every one in a small file) must sit on the
+  // side facing you. When they do not fit there at this scale, everything
+  // shrinks a little and is placed again: a second-largest cluster straight
+  // behind the first is what the user would otherwise see first.
+  const named = back.length ? back.findIndex(Boolean) : -1;
+  const wanted = Math.min(named < 0 ? radii.length : named, FRONT_GROUPS);
+  let centres = greedy(radii, spots, kappa, back, frontAll, wanted);
+  for (let tries = 0; tries < 24 && centres.slice(0, wanted).some((c) => c[2] < FRONT_Z); tries += 1) {
+    kappa *= 0.9;
+    centres = greedy(radii, spots, kappa, back, frontAll, wanted);
+  }
   const fit = fittingScale(radii, centres, kappa);
   if (fit < kappa) {
     // Too crowded at this scale: shrink to what fits and place once more at
     // the new scale (the spacing then suits it), then make sure it still fits.
     kappa = Math.max(1e-6, fit * 0.98);
-    centres = greedy(radii, spots, kappa);
+    centres = greedy(radii, spots, kappa, back, frontAll, wanted);
     kappa = Math.max(1e-6, fittingScale(radii, centres, kappa));
   }
   return { centres, kappa };
@@ -290,19 +346,72 @@ export function dimLevels(litCount, total) {
   };
 }
 
+/** Opening tilt: the whole globe, tipped a little so its layers can be seen through it. */
+export const HOME_TILT = { yaw: 0.3, pitch: 0.22 };
+/** At the opening view every named group sits at least this far towards you (1 is dead centre). */
+export const NEAR_Z = 0.35;
+/** How far towards the viewer a point of the unit globe sits under a camera turned by `yaw` and `pitch`. */
+export function viewZ(u, { yaw, pitch }) {
+  const z1 = -u[0] * Math.sin(yaw) + u[2] * Math.cos(yaw);
+  return u[1] * Math.sin(pitch) + z1 * Math.cos(pitch);
+}
+/**
+ * The opening camera's turn for named groups at `centres` (unit vectors,
+ * largest first): the usual tilt when every one of them is on the near side
+ * there, otherwise the turn that brings the farthest one nearest (up to
+ * NEAR_Z), then the largest, then all of them on average. So no group the
+ * read-out names opens behind the globe.
+ */
+export function homeTurn(centres) {
+  const list = (centres || []).filter(Boolean);
+  if (!list.length) return { ...HOME_TILT };
+  const least = (cam) => list.reduce((m, u) => Math.min(m, viewZ(u, cam)), Infinity);
+  if (least(HOME_TILT) >= NEAR_Z) return { ...HOME_TILT };
+  let best = HOME_TILT; let score = -Infinity;
+  // A coarse sweep, each camera's sines worked out once (cheap beside a frame).
+  for (let yaw = -Math.PI; yaw < Math.PI; yaw += 0.08) {
+    const sy = Math.sin(yaw); const cy = Math.cos(yaw);
+    for (let pitch = -1.2; pitch <= 1.2001; pitch += 0.08) {
+      const sp = Math.sin(pitch); const cp = Math.cos(pitch);
+      let sum = 0; let min = Infinity;
+      for (const u of list) {
+        const z = u[1] * sp + (-u[0] * sy + u[2] * cy) * cp;
+        sum += z; if (z < min) min = z;
+      }
+      const first = list[0][1] * sp + (-list[0][0] * sy + list[0][2] * cy) * cp;
+      const sc = Math.min(min, NEAR_Z) * 10 + first + 0.3 * (sum / list.length);
+      if (sc > score + 1e-9) { score = sc; best = { yaw, pitch }; }
+    }
+  }
+  return { yaw: best.yaw, pitch: best.pitch };
+}
+
 /**
  * Wrap the atlas into a unit globe, all the way round. Every top-level
  * cluster gets its own patch of the sphere (largest first, each placed as
  * far from the others as possible), and everything inside it is laid on
  * the sphere around that point, so the far side of the globe is as full as
  * the near side. How deep a node sits is set by its level (see SHELL).
- * Returns the place of every node ([x, y, z, shrink, shell]) and the scale
- * that turns map units into radians.
+ * Returns the place of every node ([x, y, z, shrink, shell]), the scale
+ * that turns map units into radians, and `rank`: each named top-level node's
+ * place in size order (0 is the largest, which faces the viewer).
+ *
+ * The largest NAMED cluster faces the viewer and the other named ones fill
+ * the side facing you first; "Other companies", "not known" and the like go
+ * on the far side, however many people they hold.
  */
 export function wrapOntoGlobe(atlas) {
-  const tops = [...atlas.root.children].sort((p, q) => q.r - p.r);
-  const { centres, kappa } = placeClusters(tops.map((t) => t.r));
+  const bySize = (p, q) => (q.count || 0) - (p.count || 0) || q.r - p.r || String(p.label || '').localeCompare(String(q.label || ''));
+  const kids = [...atlas.root.children];
+  const named = kids.filter((t) => !isLast(t)).sort(bySize);
+  const tops = [...named, ...kids.filter(isLast).sort(bySize)];
+  const people = atlas.peopleCount ?? atlas.root.count ?? 0;
+  const { centres, kappa } = placeClusters(tops.map((t) => t.r), {
+    back: tops.map((t, i) => i >= named.length && named.length > 0),
+    cover: people > 0 && people < SMALL_FILE ? SMALL_COVER : COVER,
+  });
   const centre = new Map(tops.map((t, i) => [t, centres[i]]));
+  const rank = new Map(named.map((t, i) => [t, i]));
 
   const place = new Map();
   place.set(atlas.root, [0, 0, 1, 1, 0]);
@@ -328,8 +437,72 @@ export function wrapOntoGlobe(atlas) {
     };
     lay(top);
   }
-  return { place, kappa };
+  const home = homeTurn(named.slice(0, 9).map((t) => centre.get(t)));
+  return { place, kappa, rank, home };
 }
+
+/**
+ * What a click at (px, py) on the canvas lands on, from the targets the last
+ * frame drew: { kind: 'label', node, box: [x0, y0, x1, y1] } for every label
+ * placed, { kind: 'hub' | 'person', node, x, y, r, z } for every group or
+ * company hub and every person dot big enough to aim at.
+ *
+ * A label wins, then a hub (facing you before the far side), then a person;
+ * dimmed or not makes no difference. A point that is merely inside a
+ * cluster's glow is not a hit: that is a click on the background.
+ */
+export function hitTest(targets, px, py) {
+  if (!targets || !targets.length) return null;
+  for (let i = targets.length - 1; i >= 0; i -= 1) {
+    const t = targets[i];
+    if (t.kind === 'label' && px >= t.box[0] && px <= t.box[2] && py >= t.box[1] && py <= t.box[3]) return t.node;
+  }
+  for (const kind of ['hub', 'person']) {
+    let best = null; let score = Infinity;
+    for (const t of targets) {
+      if (t.kind !== kind) continue;
+      const d = Math.hypot(t.x - px, t.y - py);
+      if (d > t.r) continue;
+      const s = d / t.r + (t.z < 0 ? 10 : 0);
+      if (s < score) { score = s; best = t.node; }
+    }
+    if (best) return best;
+  }
+  return null;
+}
+
+/**
+ * Where the camera goes to show lit people at `points` (unit vectors):
+ * { dir, s } with dir null for "the whole globe from home". Nine in ten of
+ * them decide between near and the whole globe (one stray person does not
+ * decide the view); a near view then holds every one of them up to the wide
+ * angle, so nobody lit is left outside the canvas. One person is turned to
+ * without pulling back out of a closer view (`currentS`).
+ */
+export function turnToLit(points, stage, kappa, currentS = 0) {
+  const { dir, angle, share } = spreadOf(points);
+  if (!dir) return { dir: null, s: stage.home };
+  if (share > WIDE_SHARE) return { dir, s: stage.home };
+  let widest = angle;
+  for (const p of points) widest = Math.max(widest, apart(p, dir));
+  const fitAngle = Math.min(widest, WIDE_ANGLE);
+  const room = 0.42 * Math.min(stage.w, stage.hh);
+  let s = clamp(room / (FRONT * Math.max(0.02, Math.sin(fitAngle) + 0.03)), stage.home, 9 / (PERSON_R * FRONT * kappa));
+  if (points.length === 1) s = Math.max(s, currentS);
+  return { dir, s };
+}
+
+/** Same people in both sets (a new Set built from the same ids is no new selection). */
+function samePeople(p, q) {
+  if (p === q) return true;
+  if (!p || !q || p.size !== q.size) return false;
+  for (const id of p) if (!q.has(id)) return false;
+  return true;
+}
+
+/** Whether the person asked for less motion (read once per globe). */
+const prefersCalm = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+  && Boolean(window.matchMedia('(prefers-reduced-motion: reduce)')?.matches);
 
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
@@ -355,6 +528,26 @@ export default function NetworkGraph({
   const opened = useRef(false);
   // When the lit dots last started their one pulse (0: no pulse).
   const pulse = useRef(0);
+  // What the last frame drew that a click can land on (see hitTest).
+  const targets = useRef([]);
+  // Reduced motion: no pulse, no dash animation, the camera jumps.
+  const calm = useRef(prefersCalm());
+  // The loop only runs while the canvas is on screen and the tab is shown.
+  const visible = useRef(true);
+  // Wheel: since when the pointer has rested on the globe, and when a wheel
+  // last went to the page instead (a page scroll still under way).
+  const overSince = useRef(null);
+  const passedAt = useRef(-Infinity);
+  // A group or company the user just clicked: its own flight wins over the
+  // turn to the people the click lights.
+  const clicked = useRef(null);
+  // Set when `focus` moved the camera in this commit: focus wins over a turn.
+  const focusedNow = useRef(false);
+  const lastFocus = useRef('');
+  const lastLit = useRef({ ids: null, atlas: null, size: '' });
+  // True while the camera is where a turn to a selection put it, not where
+  // the user took it: when the selection ends it goes back (R9 #1).
+  const litTurn = useRef(false);
   const [hoverNode, setHoverNode] = useState(null);
   const [grabbing, setGrabbing] = useState(false);
 
@@ -376,12 +569,22 @@ export default function NetworkGraph({
 
   // How many of the lit people are on this globe (the corner count), and how
   // strongly everyone else steps back.
-  const litCount = useMemo(() => {
-    if (!atlas || !highlightIds || !highlightIds.size) return 0;
-    let n = 0;
-    highlightIds.forEach((id) => { if (atlas.byId.has(id)) n += 1; });
-    return n;
-  }, [atlas, highlightIds]);
+  // The lit people's places on the globe, worked out once per selection so
+  // the draw loop only projects them.
+  const litPlaces = useMemo(() => {
+    const out = [];
+    if (!atlas || !globe || !highlightIds || !highlightIds.size) return out;
+    highlightIds.forEach((id) => {
+      const node = atlas.byId.get(id);
+      const u = node && node.type === 'person' && globe.place.get(node);
+      if (u) out.push([u[0], u[1], u[2], id]);
+    });
+    return out;
+  }, [atlas, globe, highlightIds]);
+  const litCount = litPlaces.length;
+  // Lit ids that are not on this globe light nothing and dim nothing.
+  live.current.litCount = litCount;
+  live.current.litPlaces = litPlaces;
   live.current.dims = dimLevels(litCount, atlas?.peopleCount);
 
   // The branch from "you" down to the selected node, which carries a pulse.
@@ -452,8 +655,8 @@ export default function NetworkGraph({
     const least = node.type === 'group' && node.depth === 1 ? 1.75 : 2.4;
     return facing(u, Math.max(st.home * least, fit / (FRONT * g.kappa * u[3])));
   }, []);
-  // Home: the whole globe, tipped a little so its layers can be seen through it.
-  const homeCamera = () => ({ yaw: 0.3, pitch: 0.22, s: stage().home });
+  // Home: the whole globe, turned so every named group faces you (homeTurn).
+  const homeCamera = () => ({ ...(live.current.globe?.home || HOME_TILT), s: stage().home });
 
   /** The deepest cluster the viewer is "inside": it sits under the middle of the stage and fills most of it. */
   const reportView = useCallback(() => {
@@ -509,9 +712,12 @@ export default function NetworkGraph({
         s: Math.exp(Math.log(from.s) + (Math.log(to.s) - Math.log(from.s)) * e),
       };
       if (t >= 1) {
-        const { arrive } = anim.current;
+        const { arrive, quiet } = anim.current;
         anim.current = null;
-        if (arrive && live.current.onViewNode) live.current.onViewNode(arrive); else reportView();
+        // The page hears only where the user went: a node they opened, or
+        // what fills the view after their own zoom or drag. A turn made for a
+        // selection (quiet) tells it nothing, so the breadcrumb stays put.
+        if (arrive) live.current.onViewNode?.(arrive); else if (!quiet) reportView();
       } else moving = true;
     } else if (spin.current && !gesture.current) {
       // Momentum: the globe keeps turning after you let go, and slows down.
@@ -538,10 +744,15 @@ export default function NetworkGraph({
     const { cx, cy } = st;
     const kFront = c.s * FRONT * g.kappa;
     const open = openness(kFront);
-    const hasLit = Boolean(lit && lit.size);
+    // Only lit people who are on this globe count: ids from elsewhere dim nothing.
+    const hasLit = (live.current.litCount || 0) > 0;
+    const hits = [];
+    const topRank = g.rank || new Map();
     // Lit people already drawn as people (close up); the rest get a lit dot afterwards.
     const drawnLit = new Set();
-    const pt = hasLit && pulse.current ? (now - pulse.current) / PULSE_MS : 1;
+    const pt = hasLit && pulse.current && !calm.current ? (now - pulse.current) / PULSE_MS : 1;
+    // The dashes along the selected branch run only when motion is welcome.
+    const dashAt = calm.current ? 0 : -now / 36;
     const pulsing = pt < 1;
     const hot = hover.current;
     const labels = [];
@@ -632,7 +843,7 @@ export default function NetworkGraph({
       const fade = behind > steps / 2 ? 0.45 : 1;
       ctx.lineWidth = lw; ctx.strokeStyle = withAlpha(color, alpha * fade); ctx.stroke();
       if (pulse) {
-        ctx.setLineDash([4, 10]); ctx.lineDashOffset = -now / 36;
+        ctx.setLineDash([4, 10]); ctx.lineDashOffset = dashAt;
         ctx.lineWidth = lw + 1.5; ctx.strokeStyle = withAlpha(color, 0.95); ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -642,7 +853,7 @@ export default function NetworkGraph({
       ctx.quadraticCurveTo((x0 + x1) / 2 - (y1 - y0) * 0.12, (y0 + y1) / 2 + (x1 - x0) * 0.12, x1, y1);
       ctx.lineWidth = lw; ctx.strokeStyle = withAlpha(color, alpha); ctx.stroke();
       if (pulse) {
-        ctx.setLineDash([4, 10]); ctx.lineDashOffset = -now / 36;
+        ctx.setLineDash([4, 10]); ctx.lineDashOffset = dashAt;
         ctx.lineWidth = lw + 1.5; ctx.strokeStyle = withAlpha(color, 0.95); ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -701,14 +912,21 @@ export default function NetworkGraph({
         ctx.beginPath(); ctx.arc(hx, hy, R0 * (T.spark ? 0.5 : 0.62), 0, 2 * Math.PI);
         ctx.fillStyle = T.spark || col; ctx.fill();
         ctx.globalAlpha = 1;
-        if (!collapsed && (sr >= 30 || isHot) && (node.depth === 1 || (!far && shown > 0.5 && !aside))) {
+        // The hub can be clicked whenever its layer is shown (top-layer hubs always).
+        if (node.depth === 1 || (!far && shown >= 0.5 && !aside)) hits.push({ kind: 'hub', node, x: hx, y: hy, r: Math.max(R0 * 1.4, 9), z: q.hz });
+        // Every first-layer group is named at the whole-globe view, "Other …" too.
+        const leading = node.depth === 1 && ((topRank.get(node) ?? Infinity) < LABELLED_TOPS || isLast(node));
+        if (((!collapsed && sr >= 30) || isHot || leading) && (node.depth === 1 || (!far && shown > 0.5 && !aside))) {
           // Sits on the top edge like a legend; sticks to the top of the canvas once you are inside the cluster.
           const stickY = 18 + (node.depth - 1) * 27;
           labels.push({
-            kind: 'pill', style: node.depth === 1 ? 'banner' : 'tag', sticky: !far, text: node.label, count: node.count,
+            node, kind: 'pill', style: node.depth === 1 ? 'banner' : 'tag', sticky: !far, text: node.label, count: node.count,
             x: clamp(sx, 110, Math.max(110, w - 110)), y: far ? sy - sr : Math.max(sy - sr, stickY),
             size: node.depth === 1 ? 12.5 : 11.5, weight: node.depth === 1 ? 700 : 600, color: node.color, dim: dim || far || aside,
-            priority: (isHot ? 100 : 92) - node.depth * 4 - (far ? 6 : 0) + Math.min(3, node.count / 1000),
+            // Crowded: the label moves under the cluster or beside its hub instead of being dropped.
+            alts: node.depth === 1 ? [[sx, sy + sr], [hx, hy - R0 - 16], [hx, hy + R0 + 18], [hx + R0 + 60, hy], [hx - R0 - 60, hy]] : null,
+            // "Other …" gives way to the named groups and companies it would cover.
+            priority: (isHot ? 100 : 92) - node.depth * 4 - (far ? 6 : 0) - (!isHot && isLast(node) ? 30 : 0) + Math.min(3, node.count / 1000),
           });
         }
         return;
@@ -738,13 +956,22 @@ export default function NetworkGraph({
           ctx.lineWidth = 2; ctx.strokeStyle = isSel ? SELECTED : HIGHLIGHT; ctx.stroke();
         }
         ctx.globalAlpha = 1;
-        const named = node.key !== '__none__' || isHot || isSel;
+        const top = node.depth === 1;
+        if (top || (q.z >= 0 && shown >= 0.5 && !aside)) hits.push({ kind: 'hub', node, x: hx, y: hy, r: Math.max(R0 * 1.4, 8), z: q.hz });
+        const named = node.key !== NO_COMPANY_KEY || isHot || isSel;
         const text = node.label.length > 28 ? `${node.label.slice(0, 27)}…` : node.label;
-        if (!named || q.z < 0.2 || ((shown < 0.5 || aside) && !isHot && !isSel)) return;
+        // By company: the largest companies are named at the whole-globe view,
+        // with their headcount, like groups are (quieter on the far side).
+        const lead = top ? topRank.get(node) ?? Infinity : Infinity;
+        if (lead < LABELLED_TOPS && !isHot && !isSel && !(open >= 0.5 && sr >= 46)) {
+          labels.push({ node, kind: 'pill', style: 'plate', text, count: node.count, x: hx, y: hy + R0 + 12, hub: { x: hx, y: hy, r: R0 }, size: 11, weight: 600, color: node.color, dim: dim || far, priority: 80 - lead - (far ? 10 : 0) });
+          return;
+        }
+        if (!named || q.z < (top ? 0 : 0.2) || ((shown < 0.5 || aside) && !isHot && !isSel)) return;
         if (isHot || isSel || (open >= 0.5 && sr >= 46)) {
-          labels.push({ kind: 'pill', style: 'plate', text, count: node.count, x: hx, y: hy - R0 - 14, size: 11, weight: 600, color: node.color, dim, priority: (isHot || isSel ? 99 : 60) + Math.min(9, node.count / 20) });
-        } else if (R0 >= 2 && (sr >= 11 || node.count >= 8)) {
-          labels.push({ kind: 'pill', style: 'plate', text, count: node.count > 1 ? node.count : null, x: hx, y: hy + R0 + 12, size: node.count >= 10 ? 11 : 10, weight: node.count >= 10 ? 600 : 500, color: node.color, dim, priority: 20 + Math.min(30, node.count) });
+          labels.push({ node, kind: 'pill', style: 'plate', text, count: node.count, x: hx, y: hy - R0 - 14, size: 11, weight: 600, color: node.color, dim, priority: (isHot || isSel ? 99 : 60) + Math.min(9, node.count / 20) });
+        } else if (R0 >= 2 && (sr >= 11 || node.count >= 8 || top)) {
+          labels.push({ node, kind: 'pill', style: 'plate', text, count: node.count > 1 ? node.count : null, x: hx, y: hy + R0 + 12, size: node.count >= 10 ? 11 : 10, weight: node.count >= 10 ? 600 : 500, color: node.color, dim, priority: (top ? 40 : 20) + Math.min(30, node.count) });
         }
         return;
       }
@@ -759,6 +986,8 @@ export default function NetworkGraph({
       const pr0 = Math.max(0.6, sr * (isHot || isLit || isSel ? 1.05 : Math.min(0.86, tip)));
       if (isSel || isHot) { const pq = S(node.parent); twig(pq.hx, pq.hy, sx, sy, col, 0.8, 1.2, isSel); }
       if (isLit) drawnLit.add(node.id);
+      // A person can be clicked once their dot is big enough to aim at.
+      if (open >= 0.35 && shown > 0.3) hits.push({ kind: 'person', node, x: sx, y: sy, r: Math.max(pr0 + 2, 5), z: q.z });
       ctx.globalAlpha = (hasLit && !isLit && !isSel ? D.person : 1) * depth * (node.rank === 0 || grown > 0 ? 1 : 0.85);
       ctx.beginPath(); ctx.arc(sx, sy, pr0, 0, 2 * Math.PI);
       if (node.contact?.relationship === 'firm') {
@@ -781,12 +1010,12 @@ export default function NetworkGraph({
       }
       ctx.globalAlpha = 1;
       if (isHot || isSel) {
-        labels.push({ kind: 'pill', text: node.label, x: sx, y: sy + pr0 + 13, size: 11, weight: 600, color: INK, priority: 100 });
+        labels.push({ node, kind: 'pill', text: node.label, x: sx, y: sy + pr0 + 13, size: 11, weight: 600, color: INK, priority: 100 });
       } else if (isLit && sr > 2) {
-        labels.push({ kind: 'plain', text: node.label, x: sx, y: sy + pr0 + 9, size: 10.5, weight: 600, color: INK, priority: 70 });
+        labels.push({ node, kind: 'plain', text: node.label, x: sx, y: sy + pr0 + 9, size: 10.5, weight: 600, color: INK, priority: 70 });
       } else if (sr >= 19 && !(hasLit && !isLit)) {
         // Full names only once neighbouring dots are far enough apart to hold them.
-        labels.push({ kind: 'plain', text: node.label, sub: sr >= 27 ? node.contact?.position : null, x: sx, y: sy + pr0 + 9, size: 10, weight: 500, color: INK, room: 9.8 * m - 4, priority: 10 });
+        labels.push({ node, kind: 'plain', text: node.label, sub: sr >= 27 ? node.contact?.position : null, x: sx, y: sy + pr0 + 9, size: 10, weight: 500, color: INK, room: 9.8 * m - 4, priority: 10 });
       }
       // Initials inside the dot, like an avatar, as soon as they are legible.
       if (sr >= 8.5 && node.contact?.relationship !== 'firm') {
@@ -822,38 +1051,56 @@ export default function NetworkGraph({
       if (child.type === 'group') arc(a.root, child, lite(child.color), faded ? D.ray * 2 : 0.7, 2.2, tr.has(child.id), 6);
       else if (child.dot * cq.m > 0.7) arc(a.root, child, lite(child.color), faded ? D.ray : Math.min(0.5, 0.14 + 0.03 * child.count), child.count >= 10 ? 1.2 : 0.8, tr.has(child.id), 4);
     }
+    // Every lit person not drawn up close as a person gets a lit dot where
+    // they sit, so a selection shows at any zoom, near side and far side.
+    // They are projected once per frame and drawn as one path per style
+    // (thousands of lit people cost a handful of canvas calls, not tens of
+    // thousands). Far-side dots go in before the near side is painted, so
+    // they never sit on top of a cluster in front.
+    const litBack = []; const litFront = [];
+    if (hasLit) {
+      for (const u of live.current.litPlaces || []) {
+        const q = pr(u[0], u[1], u[2]);
+        if (q[0] < -20 || q[0] > w + 20 || q[1] < -20 || q[1] > h + 20) continue;
+        (q[2] >= 0 ? litFront : litBack).push([q[0], q[1], u[3]]);
+      }
+    }
+    const litSoft = withAlpha(HIGHLIGHT, 0.3);
+    const litDots = (pts, halo, core, alpha) => {
+      if (!pts.length) return;
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      for (const [x, y] of pts) { ctx.moveTo(x + halo, y); ctx.arc(x, y, halo, 0, 2 * Math.PI); }
+      ctx.fillStyle = litSoft; ctx.fill();
+      ctx.beginPath();
+      for (const [x, y] of pts) { ctx.moveTo(x + core, y); ctx.arc(x, y, core, 0, 2 * Math.PI); }
+      ctx.fillStyle = HIGHLIGHT; ctx.fill();
+      ctx.globalAlpha = 1;
+    };
+
     // Far side first, so the near side is drawn over it.
     tops.sort((p, q) => p[1].hz - q[1].hz);
-    for (const [child, cq] of tops) paint(child, cq);
-
-    // Every lit person not already drawn up close gets a lit dot where they
-    // sit, so a selection shows at any zoom, near side and far side. Just
-    // after a selection the dots pulse once.
-    if (hasLit) {
-      lit.forEach((id) => {
-        if (drawnLit.has(id)) return;
-        const node = a.byId.get(id);
-        const u = node && g.place.get(node);
-        if (!u) return;
-        const [x, y, z] = pr(u[0], u[1], u[2]);
-        if (x < -20 || x > w + 20 || y < -20 || y > h + 20) return;
-        const front = z >= 0;
-        ctx.globalAlpha = front ? 1 : 0.35;
-        ctx.beginPath(); ctx.arc(x, y, front ? 5 : 3.5, 0, 2 * Math.PI);
-        ctx.fillStyle = withAlpha(HIGHLIGHT, 0.22); ctx.fill();
-        ctx.beginPath(); ctx.arc(x, y, front ? 2.4 : 1.8, 0, 2 * Math.PI);
-        ctx.fillStyle = HIGHLIGHT; ctx.fill();
-        if (pulsing && front) {
-          ctx.beginPath(); ctx.arc(x, y, 3 + 14 * ease(pt), 0, 2 * Math.PI);
-          ctx.lineWidth = 1.6; ctx.strokeStyle = withAlpha(HIGHLIGHT, 0.85 * (1 - pt)); ctx.stroke();
-        }
-      });
-      ctx.globalAlpha = 1;
-    }
+    let split = tops.findIndex(([, cq]) => cq.hz >= 0);
+    if (split < 0) split = tops.length;
+    for (let i = 0; i < split; i += 1) paint(tops[i][0], tops[i][1]);
+    // Outside a zoomed-in view a lit dot is large enough to count at a
+    // glance: a core of about 4 px with a soft ring (R9). Inside a cluster
+    // the people are drawn large anyway and the dots stay small.
+    const wide = c.s < st.home * 1.6;
+    if (wide) litDots(litBack, 6, 3, 0.45); else litDots(litBack, 3.5, 1.8, 0.35);
+    for (let i = split; i < tops.length; i += 1) paint(tops[i][0], tops[i][1]);
 
     const mr = clamp(a.root.dot * me.m, 6, 13);
     // Dive into a cluster and the core is straight behind it: let it fade so it does not sit on top.
-    const coreAlpha = clamp(2.2 - c.s / st.home, 0, 1);
+    let coreAlpha = clamp(2.2 - c.s / st.home, 0, 1);
+    const front = drawnLit.size ? litFront.filter((p) => !drawnLit.has(p[2])) : litFront;
+    // "You" sit at the middle of the canvas, which is where a turn puts the
+    // lit people: when they are under it, the core steps back and loses its
+    // name so it never covers them.
+    if (coreAlpha > 0 && front.length) {
+      const reach = mr * 3.2 + 6;
+      if (front.some(([x, y]) => Math.hypot(x - me.hx, y - me.hy) < reach)) coreAlpha = Math.min(coreAlpha, 0.15);
+    }
     ctx.globalAlpha = coreAlpha;
     const sun = ctx.createRadialGradient(me.hx, me.hy, 0, me.hx, me.hy, mr * 3.2);
     sun.addColorStop(0, `rgba(${T.me},0.95)`); sun.addColorStop(0.3, `rgba(${T.me},0.28)`); sun.addColorStop(1, `rgba(${T.me},0)`);
@@ -862,10 +1109,30 @@ export default function NetworkGraph({
     ctx.globalAlpha = 1;
     if (coreAlpha > 0.6) labels.push({ kind: 'plain', text: 'You', x: me.hx, y: me.hy + mr + 12, size: 12, weight: 700, color: INK, priority: 95 });
 
+    // Near-side lit dots last, over the clusters and the core. Just after a
+    // selection they pulse once (the first few hundred carry a ring).
+    if (wide) litDots(front, 8, 4, 1); else litDots(front, 5, 2.4, 1);
+    if (pulsing && front.length) {
+      ctx.beginPath();
+      const ring = 3 + 14 * ease(pt);
+      for (const [x, y] of front.slice(0, PULSE_RINGS)) { ctx.moveTo(x + ring, y); ctx.arc(x, y, ring, 0, 2 * Math.PI); }
+      ctx.lineWidth = 1.6; ctx.strokeStyle = withAlpha(HIGHLIGHT, 0.85 * (1 - pt)); ctx.stroke();
+    }
+
     // Labels last, flat on the glass, most important first; a label that would cover another is skipped.
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const taken = [];
+    // The "N lit" count sits in the top-right corner: keep labels out of it.
+    let badgeW = 0;
+    if (hasLit) {
+      ctx.font = `600 12px ${FONT}`;
+      badgeW = ctx.measureText(`${(live.current.litCount || 0).toLocaleString('en-US')} lit`).width + 22;
+      taken.push([w - 12 - badgeW - 4, 8, w - 8, 38]);
+    }
+    // The key to the dots sits along the bottom-left edge: a label there would cover it, so it moves.
+    const keyTop = h - (live.current.insetBottom || 0) - 30;
+    taken.push([0, keyTop, Math.min(w, 380), keyTop + 30]);
     let plates = 0;
     const free = (x0, y0, x1, y1) => !taken.some((t) => x0 < t[2] && x1 > t[0] && y0 < t[3] && y1 > t[1]);
     labels.sort((p, q) => (q.priority || 0) - (p.priority || 0));
@@ -901,11 +1168,26 @@ export default function NetworkGraph({
         const bw = nameW + countW + lead + (style === 'banner' ? 11 : 9);
         const bh = l.size + (style === 'banner' ? 12 : l.size < 10.5 ? 8 : 11);
         // Keep clear of the zoom buttons in the top-left corner.
-        const bx = l.sticky ? clamp(l.x - bw / 2, l.y < 160 ? 52 : 4, Math.max(52, w - bw - 4)) : l.x - bw / 2;
-        const by = l.y - bh / 2;
-        if (l.priority < 99 && !free(bx - 3, by - 2, bx + bw + 3, by + bh + 2)) continue;
+        const right = badgeW && l.y < 44 ? w - badgeW - 20 : w - 4;
+        let bx = l.sticky ? clamp(l.x - bw / 2, l.y < 160 ? 52 : 4, Math.max(52, right - bw)) : l.x - bw / 2;
+        let by = l.y - bh / 2;
+        if (l.priority < 99 && !free(bx - 3, by - 2, bx + bw + 3, by + bh + 2)) {
+          // A label tied to a hub tries the other sides of it before giving up,
+          // so a crowded front still names its largest companies.
+          // A group's banner tries the spots it was given (centres).
+          const tries = l.hub ? [
+            [l.hub.x - bw / 2, l.hub.y - l.hub.r - 14 - bh / 2],
+            [l.hub.x + l.hub.r + 6, l.hub.y - bh / 2],
+            [l.hub.x - l.hub.r - 6 - bw, l.hub.y - bh / 2],
+          ] : l.alts ? l.alts.map(([x, y]) => [clamp(x - bw / 2, 4, Math.max(4, w - 4 - bw)), clamp(y - bh / 2, 4, Math.max(4, h - 4 - bh))]) : null;
+          const spot = tries && tries.find(([x0, y0]) => free(x0 - 3, y0 - 2, x0 + bw + 3, y0 + bh + 2));
+          if (!spot) continue;
+          [bx, by] = spot;
+        }
+        const ty = by + bh / 2;
         if (style === 'plate' && l.priority < 99) { if (plates >= 14) continue; plates += 1; }
         taken.push([bx, by, bx + bw, by + bh]);
+        if (l.node) hits.push({ kind: 'label', node: l.node, box: [bx - 2, by - 2, bx + bw + 2, by + bh + 2] });
         ctx.globalAlpha = l.dim ? 0.5 : 1;
         if (style === 'banner') {
           roundRect(ctx, bx, by, bw, bh, bh / 2);
@@ -930,13 +1212,13 @@ export default function NetworkGraph({
         ctx.font = nameFont;
         if (style === 'banner') ctx.letterSpacing = '0.7px';
         ctx.fillStyle = style === 'banner' ? T.onNode : style === 'pill' ? tone : T.ink;
-        ctx.fillText(name, bx + lead, l.y + 0.5);
+        ctx.fillText(name, bx + lead, ty + 0.5);
         ctx.letterSpacing = '0px';
         if (count) {
           ctx.font = `500 ${l.size - 1}px ${FONT}`;
           ctx.fillStyle = style === 'banner' ? T.onNode : MUTED;
           ctx.globalAlpha *= style === 'banner' ? 0.78 : 1;
-          ctx.fillText(count, bx + lead + nameW + 7, l.y + 0.5);
+          ctx.fillText(count, bx + lead + nameW + 7, ty + 0.5);
         }
         ctx.textAlign = 'center';
         ctx.globalAlpha = 1;
@@ -950,6 +1232,7 @@ export default function NetworkGraph({
       const th = l.size + (l.sub ? l.size : 0) + 2;
       if (!free(l.x - tw / 2 - 2, l.y - l.size / 2, l.x + tw / 2 + 2, l.y - l.size / 2 + th)) continue;
       taken.push([l.x - tw / 2, l.y - l.size / 2, l.x + tw / 2, l.y - l.size / 2 + th]);
+      if (l.node) hits.push({ kind: 'label', node: l.node, box: [l.x - tw / 2 - 4, l.y - l.size / 2 - 3, l.x + tw / 2 + 4, l.y - l.size / 2 + th + 1] });
       // A solid backing so the words read over rays and grid lines.
       ctx.globalAlpha = l.dim ? 0.35 : 1;
       roundRect(ctx, l.x - tw / 2 - 4, l.y - l.size / 2 - 2.5, tw + 8, th + 3, 3);
@@ -983,8 +1266,17 @@ export default function NetworkGraph({
       }
     }
 
-    // Keep going while anything is in motion (a flight, momentum, the idle drift, a pulse).
-    if ((moving || tr.size || pulsing) && !frame.current) frame.current = requestAnimationFrame(draw);
+    // What a click would land on, for the pointer handlers. Kept on the canvas
+    // element too, so a test (or a look in the browser's console) sees
+    // exactly what this frame made clickable.
+    targets.current = hits;
+    canvas.mapTargets = hits;
+
+    // Keep going while anything is in motion (a flight, momentum, a pulse, the
+    // dashes on the selected branch), but never while the canvas is off
+    // screen or the tab is hidden: the loop picks up again when it is back.
+    const shown = visible.current && !(typeof document !== 'undefined' && document.hidden);
+    if (shown && (moving || pulsing || (tr.size && !calm.current)) && !frame.current) frame.current = requestAnimationFrame(draw);
   }, [reportView, settleSoon]);
 
   const redraw = useCallback(() => {
@@ -993,12 +1285,20 @@ export default function NetworkGraph({
 
   // `arrive` is the node an explicit navigation is heading for: the page is
   // told you are there, rather than working it out from what fills the canvas.
-  const flyTo = useCallback((target, ms = 750, arrive = null) => {
+  // `quiet` is a turn the user did not ask for (to show a selection): the
+  // page is not told where it ends. Under reduced motion every flight is a jump.
+  const flyTo = useCallback((target, ms = 750, arrive = null, quiet = false) => {
     const from = { ...cam.current };
     const to = { yaw: from.yaw + wrapAngle(target.yaw - from.yaw), pitch: target.pitch, s: clamp(target.s, 1, maxS()) };
     spin.current = null;
-    if (!ms) { anim.current = null; cam.current = to; redraw(); if (!arrive) settleSoon(); return; }
-    anim.current = { from, to, start: performance.now(), ms, arrive };
+    litTurn.current = false;
+    if (quiet) clearTimeout(settled.current);
+    if (!ms || calm.current) {
+      anim.current = null; cam.current = to; redraw();
+      if (arrive) live.current.onViewNode?.(arrive); else if (!quiet) settleSoon();
+      return;
+    }
+    anim.current = { from, to, start: performance.now(), ms, arrive, quiet };
     redraw();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [redraw, settleSoon]);
@@ -1015,7 +1315,7 @@ export default function NetworkGraph({
       pitch = clamp(pitch + ((py - st.cy) * (f - 1)) / (s * FRONT), -MAX_PITCH, MAX_PITCH);
     }
     const next = { yaw, pitch, s };
-    if (ms) flyTo(next, ms); else { anim.current = null; spin.current = null; cam.current = next; redraw(); settleSoon(); }
+    if (ms) flyTo(next, ms); else { anim.current = null; spin.current = null; litTurn.current = false; cam.current = next; redraw(); settleSoon(); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flyTo, redraw, settleSoon]);
 
@@ -1037,14 +1337,20 @@ export default function NetworkGraph({
     const size = `${width}x${height}x${insetBottom}`;
     // A new canvas size is applied at once; new data (a filter, a preset) is flown to.
     const fresh = lastSize.current !== size;
+    const sameData = lastAtlas.current === atlas && !fresh;
     lastAtlas.current = atlas;
     lastSize.current = size;
     hover.current = null;
+    const focusKey = `${focus?.id}|${focus?.nonce}`;
+    // focus moved in this commit: it wins over a turn to a selection made in the same commit.
+    if (lastFocus.current !== focusKey) focusedNow.current = true;
+    lastFocus.current = focusKey;
     const node = atlas.byId.get(focus?.id) || atlas.root;
+    // The page asked for the node a click is already flying to: one flight, not two.
+    if (sameData && opened.current && anim.current?.arrive === (node.type === 'person' ? node.parent : node).id) return;
     if (!opened.current) {
       opened.current = true;
-      const calm = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      if (intro && !swungThisLoad && !calm) {
+      if (intro && !swungThisLoad && !calm.current) {
         swungThisLoad = true;
         cam.current = { yaw: -2.6, pitch: 0.6, s: stage().home * 0.5 };
         fitNode(node, OPENING_MS);
@@ -1064,21 +1370,46 @@ export default function NetworkGraph({
   // When they are spread over more than about a third of the globe, show the
   // whole globe instead (turned towards their middle), and pulse the lit dots
   // once either way so a press is always seen.
+  //
+  // The turn runs again when the arrangement or the canvas changes with the
+  // same people lit (they now sit elsewhere), but not for a new Set holding
+  // the same people (Find rebuilding it, a double click): that is no new
+  // selection, so no new flight and no new pulse. A group or company the
+  // user clicked flies to itself instead, and `focus` changed in the same
+  // commit wins too: one flight either way.
   useEffect(() => {
-    if (!atlas || !width || !globe || !highlightIds || !highlightIds.size) { pulse.current = 0; redraw(); return; }
-    const lit = [];
-    highlightIds.forEach((id) => { const u = globe.place.get(atlas.byId.get(id)); if (u) lit.push(u); });
-    if (!lit.length) { pulse.current = 0; redraw(); return; }
-    pulse.current = performance.now();
+    const size = `${width}x${height}x${insetBottom}`;
+    const prev = lastLit.current;
+    const samePeopleLit = samePeople(prev.ids, highlightIds);
+    lastLit.current = { ids: highlightIds, atlas, size };
+    const pts = litPlaces;
+    if (!pts.length && litTurn.current && atlas && width && globe && prev.ids && prev.ids.size) {
+      // The selection ended (Clear, Everyone, Escape, a click on empty space)
+      // and the camera is where the turn to it went: back to the view the
+      // user was in, the whole globe or the node they opened.
+      pulse.current = 0;
+      const node = atlas.byId.get(viewId) || atlas.root;
+      const target = node.type === 'person' ? node.parent : node;
+      flyTo(target.id === atlas.root.id ? homeCamera() : cameraFor(target), TURN_MS, null, true);
+      return;
+    }
+    if (!atlas || !width || !globe || !pts.length) { pulse.current = 0; redraw(); return; }
+    if (samePeopleLit && prev.atlas === atlas && prev.size === size) { redraw(); return; }
+    if (!samePeopleLit) pulse.current = calm.current ? 0 : performance.now();
+    const click = clicked.current;
+    clicked.current = null;
+    // (Arrange by and the source filters also send focus home, but the lit
+    // people are the same ones: then the turn to them is what the user needs.)
+    if ((focusedNow.current && !samePeopleLit) || (click && performance.now() - click.at < 1000)) { redraw(); return; }
     const st = stage();
-    const { dir, angle, share } = spreadOf(lit);
-    if (!dir) { flyTo(homeCamera(), TURN_MS); return; }
-    if (share > WIDE_SHARE) { flyTo(facing(dir, st.home), TURN_MS); return; }
-    // Come in as close as still shows them all.
-    const room = 0.42 * Math.min(st.w, st.hh);
-    flyTo(facing(dir, clamp(room / (FRONT * Math.max(0.02, Math.sin(angle) + 0.03)), st.home, 9 / (PERSON_R * FRONT * globe.kappa))), TURN_MS);
+    const turn = turnToLit(pts, { w: st.w, hh: st.hh, home: st.home }, globe.kappa, cam.current.s);
+    flyTo(turn.dir ? facing(turn.dir, turn.s) : homeCamera(), TURN_MS, null, true);
+    litTurn.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [highlightIds]);
+  }, [litPlaces, width, height, insetBottom]);
+
+  // Every commit ends here: a focus change only counts for its own commit.
+  useEffect(() => { focusedNow.current = false; });
 
   useEffect(() => { redraw(); }, [selectedId, theme, inFocus, redraw]);
   // The frame handle must be cleared too: React re-runs effects in development,
@@ -1087,34 +1418,36 @@ export default function NetworkGraph({
 
   // ---------------------------------------------------------------- input
 
-  /** The deepest drawn thing under a canvas point (front of the globe only). */
-  const pick = (px, py) => {
-    const a = live.current.atlas;
-    if (!a || !live.current.globe) return null;
-    const c = cam.current;
-    const pr = projector(c);
-    const open = openness(c.s * FRONT * live.current.globe.kappa);
-    const hit = (child, slack) => {
-      const q = seen(child, pr, c);
-      return q.z > 0 && Math.hypot(q.sx - px, q.sy - py) <= Math.max(q.sr, slack) ? q : null;
-    };
-    let node = a.root;
-    let found = null;
-    for (;;) {
-      if (node.type === 'company') {
-        if (open < 0.35) break;
-        const person = node.children.find((child) => hit(child, 5));
-        if (person) found = person;
-        break;
-      }
-      let q = null;
-      const next = node.children.find((child) => { q = hit(child, 4); return q; });
-      if (!next) break;
-      found = next;
-      if (next.type === 'group' && q.sr < 11) break;
-      node = next;
+  // Off screen or in a hidden tab the loop stops; coming back picks it up
+  // (a flight under way then simply finishes where it was going).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const wake = () => { if (visible.current && !document.hidden) redraw(); };
+    document.addEventListener('visibilitychange', wake);
+    let watcher = null;
+    if (canvas && typeof IntersectionObserver === 'function') {
+      watcher = new IntersectionObserver((entries) => {
+        visible.current = entries.some((e) => e.isIntersecting);
+        wake();
+      });
+      watcher.observe(canvas);
     }
-    return found;
+    return () => { document.removeEventListener('visibilitychange', wake); watcher?.disconnect(); };
+  }, [redraw, width]);
+
+  /** What a canvas point lands on in the last frame drawn (see hitTest); never "You". */
+  const pick = (px, py) => {
+    const node = hitTest(targets.current, px, py);
+    return node && node.type !== 'root' ? node : null;
+  };
+
+  /** A click on a group or company opens it: the camera goes in far enough to show the layer inside. */
+  const openNode = (node) => {
+    if (!node || (node.type !== 'group' && node.type !== 'company') || !live.current.globe) return;
+    clicked.current = { id: node.id, at: performance.now() };
+    // A second click on the node already being flown to does not start over.
+    if (anim.current?.arrive === node.id) return;
+    flyTo(cameraFor(node), TURN_MS, node.id);
   };
 
   const local = (e) => {
@@ -1155,6 +1488,8 @@ export default function NetworkGraph({
   const onPointerMove = (e) => {
     const [px, py] = local(e);
     inside.current = true;
+    // The pointer moved: the wheel waits until it has rested again.
+    overSince.current = performance.now();
     const g = gesture.current;
     if (!g || !pointers.current.has(e.pointerId)) { setHover(pick(px, py), px, py); return; }
     const prev = pointers.current.get(e.pointerId);
@@ -1166,7 +1501,7 @@ export default function NetworkGraph({
       return;
     }
     if (!g.moved && Math.hypot(px - g.x, py - g.y) < 4) return;
-    if (!g.moved) { g.moved = true; setGrabbing(true); setHover(null); }
+    if (!g.moved) { g.moved = true; litTurn.current = false; setGrabbing(true); setHover(null); }
     // Grab the surface: it turns by exactly as far as the pointer moved.
     const c = cam.current;
     const dyaw = (px - prev[0]) / (c.s * FRONT); const dpitch = -(py - prev[1]) / (c.s * FRONT);
@@ -1192,7 +1527,11 @@ export default function NetworkGraph({
     const [px, py] = local(e);
     const node = pick(px, py);
     const { onNodeClick: click, onBackgroundClick: bg } = live.current;
-    if (node) click?.(node); else bg?.();
+    if (node) { openNode(node); click?.(node); } else bg?.();
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); live.current.onBackgroundClick?.(); } else if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomBy(1.6, undefined, undefined, 250); } else if (e.key === '-' || e.key === '_') { e.preventDefault(); zoomBy(1 / 1.6, undefined, undefined, 250); }
   };
 
   // Wheel must be a non-passive listener to stop the page from scrolling.
@@ -1200,6 +1539,14 @@ export default function NetworkGraph({
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
     const onWheel = (e) => {
+      // A page scroll that runs over the globe keeps scrolling the page. The
+      // globe takes the wheel only once the pointer has rested on it (and no
+      // page scroll is still under way), when it has focus, or with Ctrl or
+      // Cmd held (a trackpad pinch arrives as a wheel with Ctrl: always a zoom).
+      const now = performance.now();
+      if (overSince.current == null) overSince.current = now;
+      const rested = now - overSince.current >= REST_MS && now - passedAt.current >= REST_MS;
+      if (!(e.ctrlKey || e.metaKey || document.activeElement === canvas || rested)) { passedAt.current = now; return; }
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
       const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
@@ -1241,13 +1588,16 @@ export default function NetworkGraph({
       <canvas
         ref={canvasRef}
         role="img"
-        aria-label={`Map of ${atlas.peopleCount.toLocaleString('en-US')} people in ${atlas.companyCount.toLocaleString('en-US')} companies. Use the navigator below the map to move through it.`}
+        tabIndex={0}
+        className="outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
+        aria-label={`Map of ${atlas.peopleCount.toLocaleString('en-US')} people in ${atlas.companyCount.toLocaleString('en-US')} companies. The people list beside the map holds the same people, and its group rows open each part of the map. Escape clears a selection; plus and minus zoom.`}
+        onKeyDown={onKeyDown}
         style={{ width, height, display: 'block', touchAction: 'none', cursor: grabbing ? 'grabbing' : hoverNode ? 'pointer' : 'grab' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onPointerLeave={() => { inside.current = false; if (!gesture.current) setHover(null); redraw(); }}
+        onPointerLeave={() => { inside.current = false; overSince.current = null; if (!gesture.current) setHover(null); redraw(); }}
         onDoubleClick={(e) => { const [px, py] = local(e); if (!pick(px, py)) zoomBy(1.8, px, py, 300); }}
       />
       <div className="absolute left-3 top-3 flex flex-col gap-1.5">
@@ -1264,7 +1614,7 @@ export default function NetworkGraph({
       <div className="pointer-events-none absolute left-3 flex items-center gap-3 text-xs text-muted" style={{ bottom: insetBottom + 8 }} aria-hidden="true">
         <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-500 ring-2 ring-slate-300" />group</span>
         <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-slate-500" />company, with a ray to each person</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-900" />{theme === 'dark' ? 'bright' : 'dark'} tip = leader</span>
+        <span className="flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-slate-900" />{theme === 'dark' ? 'brighter' : 'darker'} dot = most senior</span>
       </div>
       <div
         ref={tipRef}

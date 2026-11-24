@@ -1,0 +1,441 @@
+{
+ "note": "Final check after the fix round: each review finding re-run against the code by an independent checker, then a close-out pass fixed what was left. Areas are in the order the checkers reported.",
+ "checks": [
+  {
+   "fixedOk": [
+    "value-1",
+    "value-2",
+    "value-3",
+    "value-4",
+    "value-5",
+    "value-6",
+    "value-8",
+    "value-9",
+    "value-10",
+    "value-11",
+    "value-12",
+    "value-13",
+    "value-14",
+    "value-15",
+    "value-16",
+    "value-17",
+    "value-18",
+    "value-19",
+    "value-20",
+    "value-m1",
+    "value-m2",
+    "value-m3",
+    "value-m4",
+    "B1",
+    "B2",
+    "B5",
+    "B6",
+    "B10",
+    "R1",
+    "R2",
+    "R3",
+    "R4"
+   ],
+   "notFixed": [],
+   "regressions": [
+    {
+     "title": "Tie lists say \"1 other roles\" and \"1 others\"",
+     "severity": "minor",
+     "file": "src/utils/network/insights.js",
+     "evidence": "names() at line 93 adds \"and N more\" with a plural noun. Input: 100 people at Stripe, Plaid, Ramp, Brex and Notion, titles Founder & CEO, Software Engineer, Head of Sales, Product Manager, and a Notes column. Output: \"...25 each of engineers, founders and CEOs, product and design people and 1 other roles.\" On a 60-person file with Sony, Toyota, \u042f\u043d\u0434\u0435\u043a\u0441 and \uc0bc\uc131 at 15 each: \"The most at Sony, Toyota, \u042f\u043d\u0434\u0435\u043a\u0441 and 1 others (15 each).\"",
+     "fix": "When only one is left over, name it, so the list has four items, or use the singular (\"1 other role\", \"1 other\")."
+    },
+    {
+     "title": "Sparse read-out says people cannot be grouped by employer, then lists employer shortcuts",
+     "severity": "minor",
+     "file": "src/utils/network/insights.js",
+     "evidence": "Input: 250 rows with Name and Email only, 60 @stripe.com and 40 @acme.com. Output: \"None of them has a company or title in this file, so they cannot be grouped by employer or role.\" followed by \"From email addresses: the most at stripe.com (60)\" and the shortcuts \"60 at stripe.com\" and \"40 at acme.com\". On a 160-row file where most employers are placeholders, \"cannot be grouped by employer\" appears next to the chips \"20 at McKinsey\" and \"20 at J.P. Morgan Chase & Co.\".",
+     "fix": "When company chips exist, either from email addresses or from the minority that does have a company, drop or soften the \"cannot be grouped by employer\" clause."
+    },
+    {
+     "title": "\"several groups of 40\" when there are exactly two",
+     "severity": "minor",
+     "file": "src/utils/network/insights.js",
+     "evidence": "Input: 160 rows with the titles Consultant, Founder, Advisor and Software Engineer (40 each). Output: \"By title: 80 consultants and advisors and several groups of 40.\" Only two groups have 40: founders and engineers. The cause is line 364, which checks only that the third count equals the second.",
+     "fix": "Count the tied runners-up. For exactly two, name both (\"40 founders and CEOs and 40 engineers\"). Say \"several\" only for three or more."
+    },
+    {
+     "title": "One-person file reads \"all at\"",
+     "severity": "minor",
+     "file": "src/utils/network/insights.js",
+     "evidence": "Input: a CSV with one row: Solo Person, Stripe, Engineer. Output: \"You know 1 person, all at Stripe.\"",
+     "fix": "When n is 1, say \"You know 1 person, at Stripe.\" Use \"all at\" only when n is more than 1."
+    },
+    {
+     "title": "Tag read-out picks 3 of 5 tied stages alphabetically",
+     "severity": "minor",
+     "file": "src/utils/network/insights.js",
+     "evidence": "Input: an applicant-tracking export (Candidate Name, Current Company, Current Title, Stage) of 180 rows with 5 stages at 36 each. Output: \"By tag: 36 \u201cApplied\u201d, 36 \u201cOffer\u201d, 36 \u201cOnsite\u201d.\" \"Phone Screen\" and \"Rejected\" (also 36) are left out with no word about the tie, which goes against R8 #7.",
+     "fix": "When more than three tags tie for the top, say it as a tie (\"36 each in 5 stages: \u2026\") instead of cutting the list alphabetically."
+    }
+   ],
+   "notes": "Checked with a throwaway Jest file (deleted) on the 6 samples and 19 files of my own. In every case shortcut counts matched combine, narrowings, globe group selections and typed answers (keys and total). No \"Narrow to\" offered 0, the whole list or a fourth part. Chips never changed or disabled. Only an unreadable typed question reached the model, holding no file data. Not regressions: VC sample says \"Strongest in Fintech (60)\" though Venture capital has 106 (pre-existing rule). A place named \"City0\" is offered as an example question but answers 0. Real cities answer correctly."
+  },
+  {
+   "fixedOk": [
+    "ask-1",
+    "ask-2",
+    "ask-3",
+    "ask-4",
+    "ask-5",
+    "ask-6",
+    "ask-7",
+    "ask-8",
+    "ask-9",
+    "ask-10",
+    "ask-11",
+    "ask-12",
+    "ask-13",
+    "ask-14",
+    "ask-15",
+    "ask-16",
+    "ask-17",
+    "ask-18",
+    "ask-19",
+    "ask-20",
+    "ask-21",
+    "ask-22",
+    "ask-23",
+    "ask-24",
+    "ask-25",
+    "ask-m1",
+    "ask-m2",
+    "ask-m3",
+    "ask-m4",
+    "ask-m5",
+    "page-m1"
+   ],
+   "notFixed": [],
+   "regressions": [
+    {
+     "title": "A company name containing \"Family Office\" or \"Endowment\" switches on the fundraising filter, so the typed answer is smaller than the company shortcut and the example question",
+     "severity": "major",
+     "file": "src/server/network/query.js",
+     "evidence": "Invented file: 5 people at \"Granite Family Office\" (Executive Assistant, Software Engineer, Office Manager, Managing Partner, Investment Director) plus 16 others. The shortcut says \"5 at Granite Family Office\" and the example \"Who do I know at Granite Family Office?\" shows 5. Typing either, or the shortcut label, gives total 2 with filters.lens \"raise\". The LP sample sets lens \"raise\" on 20 such company questions. Counts match there only because every person at those firms is an allocator.",
+     "fix": "Work out the lens (query.js:563, lensFromQuestion(q)) only after cutting the file's company mentions out of the question, for example with lensFromQuestion(cutSpans(q, mentions)). A company name should never set the lens."
+    },
+    {
+     "title": "Misleading note when a company question with a date reads a lens from the company name",
+     "severity": "minor",
+     "file": "src/server/network/query.js",
+     "evidence": "LP sample, \"Who do I know at Hawthorne Family Office recently\": total 0. The notes say both that no contact has a connection date and \"Nobody in your network looks like an investor, an allocator or a banker with those filters\". The user never asked for investors. Same cause as the regression above.",
+     "fix": "Fixed by the same change: do not read a lens from a company's name."
+    }
+   ],
+   "notes": "I ran 640 questions through answerQuestion with the model off (83 to 132 per sample) using a throwaway test, which I have deleted. All 154 shortcut, short-label and example questions came back with exactly the shortcut's keys and were read by the rules with no \"Not used\" note. Negations, dates, bare cities and companies, long company names, stop-word tags and the questions that should find nobody all checked out. Testing with a mocked chatComplete (the model call) showed it was never called signed out, with no contacts, for page-built questions or targets, or when the rules read anything, and prompts held only the typed question. The route answers 400 with no contacts. The other zzCheck.*.test.js files are not mine."
+  },
+  {
+   "fixedOk": [
+    "data-1",
+    "data-2",
+    "data-3",
+    "data-4",
+    "data-5",
+    "data-6",
+    "data-7",
+    "data-8",
+    "data-9",
+    "data-10",
+    "data-11",
+    "data-12",
+    "data-13",
+    "data-14",
+    "data-15",
+    "data-16",
+    "data-17",
+    "data-m1",
+    "data-m2",
+    "R8.4",
+    "R8.7",
+    "R8.8",
+    "R8.13"
+   ],
+   "notFixed": [
+    {
+     "id": "R8.1",
+     "file": "src/utils/network/grouping.js",
+     "evidence": "A company still lands under two industries. Key 'jpmorgan': 'JPMorgan Chase & Co.' and 'JP Morgan' give Finance & banking, but 'J.P. Morgan' gives Other (Industry not known). Key 'gv': 'GV' gives Venture capital, 'Google Ventures' gives Big Tech. Result: shortcut '6 at GV' next to '3 in Big Tech' and '3 in Venture capital'. Under By industry, the 8 J.P. Morgan people are split 4 under Finance & banking and 4 under 'Industry not known'.",
+     "fix": "Work out industryOf once per company key, from all of that key's spellings (or from the alias target), so every spelling of a company gets one industry."
+    },
+    {
+     "id": "R8.2",
+     "file": "src/utils/network/parseContacts.js",
+     "evidence": "companyKeyOf: 'Stealth Fintech' -> 'stealth fintech', 'Self-Employed Consultant' -> 'self employed consultant' and 'Freelance Writer' -> 'freelance writer' are still treated as companies. Every form in the finding's own list (Self-employed, Stealth Startup/Mode, Retired, N/A, None, Confidential, '-', '\u2014') is fixed.",
+     "fix": "Let PLACEHOLDER_COMPANY accept 'stealth <any word(s)>' and 'self employed|freelance|independent' followed by a job word."
+    },
+    {
+     "id": "R8.3",
+     "file": "src/utils/network/parseContacts.js",
+     "evidence": "Some spellings of the same company still do not merge. 'Amazon.com' gives 'amazon com' and 'Amazon' gives 'amazon': By company shows 'Amazon 4' and 'Amazon.com 3'. 'The Goldman Sachs Group, Inc.' gives 'goldman sachs group' but 'Goldman Sachs' gives 'goldman sachs'. Renames: 'Twitter' gives 'twitter' while 'X Corp' gives 'x'. The McKinsey, JPMorgan and Facebook/Meta merges and Google/Alphabet staying apart all work.",
+     "fix": "Strip a trailing domain suffix (.com, .io, .ai) and a trailing 'group' after the legal suffixes. Add twitter -> x to COMPANY_ALIASES."
+    },
+    {
+     "id": "R8.5",
+     "file": "src/utils/network/insights.js",
+     "evidence": "20 rows: 6 with Company 'Acme', the other 14 with none; 10 have ramp.com emails (3 of them at Acme). The read-out has one sentence only: 'Most have no company and none has a title...'. There is no 'from email addresses' sentence, yet the shortcut '10 at ramp.com' shows, and it counts the 3 Acme people. Acme (6) appears nowhere. With 4 of 20 at Acme the sentence does appear.",
+     "fix": "Read the email domain only for people with no company, keep the companies the file gives, and always write the 'From email addresses' sentence when any shortcut comes from email."
+    },
+    {
+     "id": "R8.6",
+     "file": "src/utils/network/grouping.js",
+     "evidence": "countryOf('Atlanta, Georgia') = 'Georgia'. By place on a country-level file shows 'Georgia 10', which mixes Atlanta (US) with Tbilisi. One-part places the code does not recognise become cities: 'Hybrid', 'Mars', 'EMEA', 'APAC', 'Europe', 'North America', 'On the road'. A file with 'Hybrid' shows a By place group 'Hybrid 6' instead of 'Place not known'. All the metro strings in the finding now resolve correctly.",
+     "fix": "Read a US state name after a US city as the United States. Treat a one-part place that is neither a known city nor a known country as 'Place not known', with no city."
+    }
+   ],
+   "regressions": [
+    {
+     "title": "Typed answer and shortcut disagree on an email-derived company",
+     "severity": "major",
+     "file": "src/server/network/query.js",
+     "evidence": "Same 20-row file as R8.5: the shortcut says '10 at ramp.com', but answerQuestion('Who do I know at ramp.com?') returns total 7, because the 3 people at Acme with ramp.com emails are not matched. On a 16-row names-and-emails file, 'Who do I know at Stripe?' returns 0 next to the shortcut '4 at stripe.com'.",
+     "fix": "Use the same companyKeyOf/email-domain rule in the question engine as in the profile, and let 'Stripe' match 'stripe.com'."
+    },
+    {
+     "title": "'JPMorgan Chase' typed returns fewer than the company shortcut",
+     "severity": "major",
+     "file": "src/server/network/query.js",
+     "evidence": "File with JPMorgan Chase & Co. 3, J.P. Morgan 3, JP Morgan 2. Shortcut: '8 at J.P. Morgan'. 'Who do I know at JP Morgan?' gives 8, but 'Who do I know at JPMorgan Chase?' gives 3, read as 'At J.P. Morgan | Mentions chase'. normalizeCompanyKey('JPMorgan Chase') is 'jpmorgan', so the word 'chase' gets added on top of the company match.",
+     "fix": "Once a company alias has matched a phrase, drop that phrase's words from the extra keyword filters."
+    },
+    {
+     "title": "A tag named in the read-out and on a shortcut has no group under By tag",
+     "severity": "minor",
+     "file": "src/utils/network/atlas.js",
+     "evidence": "30 contacts: 15 tagged 'prospect', 15 tagged 'customer; champion'. The read-out says 'By tag: 15 \u201cchampion\u201d, 15 \u201ccustomer\u201d, 15 \u201cprospect\u201d' and the first shortcut is '15 tagged \u201cchampion\u201d', but the By tag groups are only customer 15 and prospect 15. The same happened on a messier file (shortcut '20 tagged \u201cchampion\u201d'; By tag groups only prospect 40 and customer 20).",
+     "fix": "Give every tag that is a shortcut or named in the read-out its own tag group, even when all its people sit under another tag."
+    },
+    {
+     "title": "'and 1 others' in the read-out",
+     "severity": "minor",
+     "file": "src/utils/network/insights.js",
+     "evidence": "40 contacts across 9 companies, with Co0 to Co3 at 5 each. Sentence: 'The most at Co0, Co1, Co2 and 1 others (5 each).' R1 requires the singular when the count is 1.",
+     "fix": "Write 'and 1 other' when the remainder is 1."
+    },
+    {
+     "title": "Remaining misreads seen on common titles and employers",
+     "severity": "minor",
+     "file": "src/utils/network/roles.js",
+     "evidence": "'CEO Office' and 'Office of the CEO' are classed as founders/founder. 'University of Chicago Medicine' gets the industry Education. A Partner at 'Wachtell, Lipton, Rosen & Katz' is in the 'partners' family while the industry is Legal (Kirkland and Latham partners are lawyers).",
+     "fix": "Ignore 'ceo' after 'office of (the)'. Read 'Medicine' or 'Health' in a university's name as Healthcare. Classify a partner as a lawyer whenever the employer's industry is Legal."
+    }
+   ],
+   "notes": "All six samples were dumped (every contact, read as unique title, company and place results; 1,698 contacts). No company sits under two industries, no placeholder appears, and every shortcut matches combine(). The existing consistency test passed. The model was never called (0 calls). Cold timing in page order, three fresh 30k files: profile 296-364 ms plus first atlas 152-207 ms, 487-523 ms in total (under 600). Selection change 0.4-2 ms. data-11 is judged against R8.13's 600 ms joint budget; profile alone is still over the old 200 ms. data-12 was confirmed by running the existing BOM download test. My throwaway test file is deleted. The zzCheck.globe and zzCheck.page files in tests/unit/features belong to other checkers."
+  },
+  {
+   "fixedOk": [
+    "globe-1",
+    "globe-3",
+    "globe-4",
+    "globe-5",
+    "globe-6",
+    "globe-7",
+    "globe-8",
+    "globe-9",
+    "globe-10",
+    "globe-11",
+    "globe-12",
+    "globe-14",
+    "globe-15",
+    "globe-16",
+    "globe-m1",
+    "globe-m2",
+    "globe-m3",
+    "B12",
+    "B14",
+    "R4",
+    "R5",
+    "R6",
+    "R7"
+   ],
+   "notFixed": [
+    {
+     "id": "R9-1",
+     "file": "src/pages/network.js",
+     "evidence": "VC sample By role, 5 Sequoia people lit, then highlightIds empty with selectedId null (what Clear, Escape and a background click send). Top hub positions differ from home by 4154 px in total, and from the lit view by 0 px: the camera stays zoomed on the five. clearSelection() does no goTo(ROOT_ID), and the globe's turn effect only calls redraw() when nothing is lit. Opened-node case: stays, as it should.",
+     "fix": "When a selection ends and the last camera move was a quiet selection turn (not an opened node), fly home: in the turn effect when pts goes empty, or have clearSelection call goTo(viewId or ROOT_ID)."
+    },
+    {
+     "id": "R9-2",
+     "file": "src/components/network/NetworkGraph.js",
+     "evidence": "Opening view (homeCamera yaw 0.3, pitch 0.22). VC By role: no label for 'Engineers 97' (hub z -0.04) or 'Bankers 19'. Healthcare By role: no label for 'Founders & CEOs 9', and 'Operations 35' drawn at alpha 0.5 (z -0.05). LP By tag: committed, follow up and warm at 0.5. Sales By tag: partner, champion, churned at 0.5. Groups placed at globe z of about 0.17 fall behind once the camera tilts. Banner labels have no fallback spot, so they get dropped.",
+     "fix": "Turn the opening camera to face the named groups, or place them above z of about 0.35 after the tilt. Give group banners alternative spots like company plates, so they move rather than drop. Label 'Other' at the opening view."
+    },
+    {
+     "id": "R9-3",
+     "file": "src/components/network/NetworkGraph.js",
+     "evidence": "VC By role, Stripe's 22 lit at the whole-globe view, both themes. Arcs recorded: near-side lit core radius 2.4 px with a 5 px halo at 0.22 alpha; far side 1.8 px core with a 3.5 px halo at 0.35 alpha. These are the same sizes as HEAD (litDots(front, 5, 2.4, 1), litDots(litBack, 3.5, 1.8, 0.35)), not the about-4-px dot with a soft ring that R9 asks for.",
+     "fix": "Draw scattered lit dots with a core of about 4 px and a soft ring, at least on the near side, in both themes, when the view is not zoomed in."
+    }
+   ],
+   "regressions": [],
+   "notes": "Ran under jsdom with a stub canvas, every sample and arrangement, both themes, with and without a selection: no crash, and the loop stops after the pulse (69 frames), when off screen, and after Clear. At 30,000 people with 5,000 lit, one frame makes 49k to 133k canvas calls (By company is highest); lit dots add 4 batched fills, about 3.5 to 6 calls per dot. The existing B14 test passes only because its rerender drops the lit set; with the set kept, \"You\" is drawn but stays 65 px or more from the lit dots. Tooltip shows \"N people\" twice with a duplicate React key; HEAD had the same code."
+  },
+  {
+   "fixedOk": [
+    "page-1",
+    "page-2",
+    "page-3",
+    "page-5",
+    "page-6",
+    "page-7",
+    "page-8",
+    "page-9",
+    "page-10",
+    "page-11",
+    "page-12",
+    "page-13",
+    "page-14",
+    "page-15",
+    "page-16",
+    "page-17",
+    "page-18",
+    "page-19",
+    "page-20",
+    "page-21",
+    "page-22",
+    "page-23",
+    "page-24",
+    "page-m1",
+    "page-m2",
+    "page-m3",
+    "globe-m1",
+    "globe-m3",
+    "B3",
+    "B4",
+    "B7",
+    "B8",
+    "B11",
+    "B13",
+    "R1",
+    "R5",
+    "R6",
+    "R7",
+    "R8.9",
+    "R8.10",
+    "R8.14",
+    "R8.15",
+    "R8.16"
+   ],
+   "notFixed": [],
+   "regressions": [
+    {
+     "title": "A contact's \"Search company\" link is gone",
+     "severity": "minor",
+     "file": "src/components/network/PeoplePanel.js",
+     "evidence": "At 21f71ef~1, an opened contact's ContactActions (network.js:196) had a link to /?q={company} labelled \"Search company\". No file in src/pages/network.js or src/components/network/ has \"Search company\" or \"/?q=\" any more. An opened row now offers only Company profile, Founder check and Intro paths, so a user can no longer go from a contact straight to a search of that company.",
+     "fix": "In Details, add back <Link href={`/?q=${encodeURIComponent(c.company)}`}>Search company</Link> next to Company profile, or record in SPEC that it was dropped on purpose."
+    }
+   ],
+   "notes": "I rendered the real page with RTL (graph mocked) on all six samples. Answers came from the real /api/network/query handler, signed in and out, with chatComplete spied. Every chip, example and chip label typed as a question matched its count: lit = title = list. Only a gibberish typed question reached the model, and it carried no file names or companies. Not checked by running: globe canvas behaviour (hit-test boxes, quiet flight, You-marker, wheel), judged from NetworkGraph.js code; page-24 only by its tests existing. tests/unit/features/zzCheck.page.test.js is deleted."
+  }
+ ],
+ "closeOut": {
+  "fixed": [
+   {
+    "id": "R9-1",
+    "how": "Globe remembers when the last camera move was a turn to a selection. When the lit set empties it flies back to the view node, or home. Dragging, zooming or any other flight cancels this."
+   },
+   {
+    "id": "R9-2",
+    "how": "Up to nine named groups are placed at z>=0.42. homeTurn sets the opening camera so all of them face you. Every first-layer group, Other included, gets a banner. A crowded banner moves to another spot instead of being dropped."
+   },
+   {
+    "id": "R9-3",
+    "how": "When the view is not zoomed in, lit dots draw a 4 px core with an 8 px ring on the near side and 3/6 px on the far side, in both themes. Zoomed in, they keep their old size."
+   },
+   {
+    "id": "R8.1",
+    "how": "industryOf reads the shared company key first, then the name as written, so every spelling of a company gets one industry (J.P. Morgan, GV)."
+   },
+   {
+    "id": "R8.2",
+    "how": "The placeholder list now covers 'stealth <any words>', and self-employed, freelance or independent followed by a job word."
+   },
+   {
+    "id": "R8.3",
+    "how": "Company keys drop a trailing web suffix (.com, .io, .ai, .so and others) and a trailing Group. Added aliases twitter to x and boston consulting to bcg."
+   },
+   {
+    "id": "R8.5",
+    "how": "An email domain is read only for people with no company, and file companies are kept. Separate sentences for 'The most at' and 'From email addresses'. Email shortcuts are flagged fromEmail."
+   },
+   {
+    "id": "R8.6",
+    "how": "A US state after a US city reads as United States ('georgia' added to the state list). A one-part place that is neither a known city nor a country is Place not known."
+   },
+   {
+    "id": "C-1 others",
+    "how": "names() names up to four in full, so the list never says 'and 1 other(s)' or '1 other roles'."
+   },
+   {
+    "id": "C-sparse employer clause",
+    "how": "Once any company shortcut exists, the read-out no longer says people cannot be grouped by employer."
+   },
+   {
+    "id": "C-several",
+    "how": "Tied runners-up are counted: two are both named, three or more are 'several'."
+   },
+   {
+    "id": "C-one person",
+    "how": "With n=1 the read-out says 'You know 1 person, at Stripe.' The investor sentence also has a one-person form."
+   },
+   {
+    "id": "C-tag tie",
+    "how": "When tags tie at the cut, the read-out says '36 each in 5 tags: ...' and names all of them, up to six."
+   },
+   {
+    "id": "C-email question",
+    "how": "The question engine already uses the email domain for people with no company. Domain keys now normalise to the name, so 'stripe.com' and 'Stripe' match the shortcut count."
+   },
+   {
+    "id": "C-JPMorgan Chase",
+    "how": "A matched company mention takes in the following words while the key stays the same, so 'chase' is no longer read again as a keyword."
+   },
+   {
+    "id": "C-tag group",
+    "how": "Under By tag, every useful tag (the ones shortcuts or the read-out can name) gets its own group, even an empty one. The atlas gives it the count of everyone who carries the tag."
+   },
+   {
+    "id": "C-misreads",
+    "how": "'CEO Office' and 'Office of the CEO' are not founders. A university's medicine or health arm is Healthcare. LAW_FIRMS is shared by roles and grouping, so a partner at Wachtell is a lawyer."
+   },
+   {
+    "id": "C-Search company",
+    "how": "Restored the 'Search company' link to /?q={company} in an opened contact's actions."
+   },
+   {
+    "id": "C-lens from company",
+    "how": "The lens is read from the question after the file's company names are cut out, so 'Family Office' in a company name never sets it. The misleading note goes too."
+   }
+  ],
+  "notFixed": [
+   {
+    "id": "perf budgets (networkR2.data 200 ms, networkR3.insights 600 ms)",
+    "why": "They fail only on CPU time under heavy machine load: 650-950 ms. Swapping the old industry code back in timed the same or slower, so these changes did not cause it. Thresholds were left as they are."
+   },
+   {
+    "id": "founderSource.courts uk-gazette",
+    "why": "Existing founder-check bug that depends on the time zone: it fails with the machine at UTC-10 and passes with TZ=UTC. The code was not touched by this round."
+   },
+   {
+    "id": "founderSource.web news-archive",
+    "why": "Existing founder-check test that takes about 7.7 s alone against a 5 s timeout. It passes with a longer timeout. Founder code was not touched by this round."
+   }
+  ],
+  "testsChanged": [
+   "tests/unit/features/networkR4.closeout.test.js (new: every B and C item, plus group placement for R9 #2)",
+   "tests/unit/features/networkR4.closeout.globe.test.js (new, jsdom: R9 #1 fly back and staying put after a drag, R9 #2 labels at full strength, R9 #3 4 px lit cores in light and dark; confirmed failing with the fixes switched off)",
+   "tests/unit/features/network.test.js: 'The Goldman Sachs Group, Inc.' key is now 'goldman sachs' (R8.3 strips the trailing Group)",
+   "tests/unit/features/networkR3.insights.test.js value-16: two tied runners-up are now named instead of 'several groups of 10' (new defect fix)",
+   "tests/unit/features/networkR3.insights.test.js value-15 and value-9: the 'cannot be grouped by employer' clause is dropped when company shortcuts exist (new defect fix)",
+   "tests/unit/features/networkR3.page-b.test.js page-2: timeout raised to 20 s (it takes about 4.8 s alone, and an A/B showed the same time without this round's globe changes)"
+  ],
+  "testsRun": "Final npx jest: 288 suites, 284 passed, 4 failed. 4283 tests: 4277 passed, 4 failed, 2 skipped. The 4 failures are 2 CPU-time budgets on the loaded machine and 2 existing founder-check tests (time zone, timeout). All 46 tests in networkR4.closeout and 8 in networkR4.closeout.globe pass, as do every other network suite.",
+  "notes": "The build (NEXT_DIST_DIR=.next-build npm run build) compiled with no errors or warnings, and /network is 59.9 kB. NETWORK-MAP.md now describes the current behaviour: email companies, ties, one-person files, Search company, fly-back, opening labels, lit dot size, tag groups, company keys, places, misreads and lens. The page wording is plain, with no banned words.\n\nFail-first: the close-out tests were written after the code fixes. Only the globe tests were shown to fail with the fixes switched off.\n\nNot checked in a browser (jsdom with a stub canvas only):\n- how the opening globe looks now that named groups sit inside z>=0.42 and the camera usually faces them head on, giving up the 0.3/0.22 tilt;\n- banner positions when labels are crowded;\n- the 4 px lit dots on screen;\n- the fly-back feel.\n\nNamed groups packed closer to the front can make clusters smaller.\n\nMachine load averaged 6-13 during the runs."
+ }
+}

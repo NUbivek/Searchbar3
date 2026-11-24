@@ -101,6 +101,27 @@ describe('POST /api/network/attio', () => {
     global.fetch = jest.fn(async () => ({ ok: false, status: 401, text: async () => '{"message":"Unauthorized"}' }));
     const res = await call({ token: 'bad' });
     expect(res.statusCode).toBe(400);
-    expect(res.body.error).toMatch(/rejected/);
+    // Changed 2026-11-21 (ROUND2 R8 #15): the route speaks of an access code, never a token, key or API.
+    expect(res.body.error).toBe('Attio did not accept this access code.');
+  });
+
+  test('no message the route sends says token, key, API or scope', async () => {
+    const banned = /\b(api|key|keys|token|tokens|scope|scopes)\b/i;
+    expect((await call({})).body.error).not.toMatch(banned);
+    global.fetch = jest.fn(async (url) => {
+      const text = (obj, status = 200) => ({ ok: status < 400, status, text: async () => JSON.stringify(obj) });
+      if (String(url).endsWith('/workspace_members')) return text({ message: 'forbidden' }, 403);
+      if (String(url).includes('/objects/companies/')) return text({ data: [] });
+      return text({ data: [person()] });
+    });
+    expect((await call({ token: 'tok' })).body.note).not.toMatch(banned);
+    global.fetch = jest.fn(async (url) => {
+      const text = (obj, status = 200) => ({ ok: status < 400, status, text: async () => JSON.stringify(obj) });
+      if (String(url).endsWith('/workspace_members')) return text({ data: [] });
+      return text({ message: 'forbidden' }, 403);
+    });
+    const refused = await call({ token: 'tok' });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.body.error).not.toMatch(banned);
   });
 });

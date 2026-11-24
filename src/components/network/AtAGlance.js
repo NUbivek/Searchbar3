@@ -1,6 +1,6 @@
 /**
  * "Your network at a glance": what the uploaded file holds, in plain words
- * (built by profileNetwork, numbers bold), the shortcuts built from it, and
+ * (built by profileNetwork, counts bold), the shortcuts built from it, and
  * the ask box with three example questions taken from the file.
  */
 import React from 'react';
@@ -9,29 +9,25 @@ import Shortcuts from './Shortcuts';
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-US');
 
-// A count is a number standing on its own: "544 people", "(22)". A number
-// inside a tag or a name ("met 2026,") is left plain.
-const COUNT = /(^|[\s(])(\d[\d,]*)(?=[\s)])/g;
-
-/** One sentence with its counts in bold. */
-export function BoldCounts({ text }) {
-  const out = [];
-  let last = 0;
-  let m;
-  COUNT.lastIndex = 0;
-  while ((m = COUNT.exec(text))) {
-    const start = m.index + m[1].length;
-    if (start > last) out.push(text.slice(last, start));
-    out.push(<strong key={start} className="font-semibold text-ink">{m[2]}</strong>);
-    last = start + m[2].length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return <>{out}</>;
+/**
+ * One sentence of the read-out, from profileNetwork's parts: only the pieces
+ * marked as counts are bold, so a number inside a tag or a name ("met 2026")
+ * stays plain (R7, B10). A plain string (an older profile) is shown as it is.
+ */
+export function Sentence({ parts }) {
+  if (!Array.isArray(parts)) return <>{String(parts || '')}</>;
+  return (
+    <>
+      {parts.map((p, i) => (p.bold
+        ? <strong key={i} className="font-semibold text-ink">{p.text}</strong>
+        : <React.Fragment key={i}>{p.text}</React.Fragment>))}
+    </>
+  );
 }
 
 const AtAGlance = React.forwardRef(function AtAGlance({
-  profile, activeIds, countFor, onToggle, onEveryone, everyoneActive,
-  question, onQuestion, onAsk, asking, askError, onExample,
+  profile, pressedId, onToggle, onEveryone, everyoneActive,
+  question, onQuestion, onAsk, asking, askError, onExample, allHidden = false,
 }, ref) {
   const examples = profile.questions || [];
   // A fixed placeholder built from the file: no rotating text.
@@ -41,21 +37,21 @@ const AtAGlance = React.forwardRef(function AtAGlance({
       <div>
         <h2 id="glance-heading" className="section-title">Your network at a glance</h2>
         <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-slate-700" data-testid="readout">
-          {profile.sentences.map((s, i) => (
-            <React.Fragment key={i}>{i > 0 && ' '}<BoldCounts text={s} /></React.Fragment>
+          {/* Every source chip turned off leaves nobody to describe: say why instead of an empty paragraph. */}
+          {allHidden ? 'All sources are hidden. Turn one back on to see your network.' : (profile.parts || profile.sentences).map((s, i) => (
+            <React.Fragment key={i}>{i > 0 && ' '}<Sentence parts={s} /></React.Fragment>
           ))}
         </p>
       </div>
-      <Shortcuts
+      {!allHidden && <Shortcuts
         everyone={profile.everyone}
         shortcuts={profile.shortcuts}
         more={profile.more}
-        activeIds={activeIds}
-        countFor={countFor}
+        pressedId={pressedId}
         onToggle={onToggle}
         onEveryone={onEveryone}
         everyoneActive={everyoneActive}
-      />
+      />}
       <div>
         <form onSubmit={(e) => { e.preventDefault(); onAsk(); }} className="flex flex-col gap-2 sm:flex-row">
           <div className="relative flex-1">
@@ -78,7 +74,7 @@ const AtAGlance = React.forwardRef(function AtAGlance({
           <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Example questions">
             <span className="text-xs text-muted">Try</span>
             {examples.map((q) => (
-              <button key={q.text} type="button" onClick={() => onExample(q.text)} disabled={asking} className="chip hover:text-ink disabled:opacity-50">
+              <button key={q.text} type="button" onClick={() => onExample(q.text)} disabled={asking} className="chip min-h-9 hover:text-ink disabled:opacity-50 sm:min-h-0">
                 {q.text} <span className="text-muted">{fmt(q.count)}</span>
               </button>
             ))}
